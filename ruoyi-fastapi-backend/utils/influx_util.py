@@ -1,0 +1,185 @@
+"""
+InfluxDB时序数据库工具类
+封装行情/量化数据的写入与查询（Flux）。
+measurement: daily_kline  tag: symbol,market  field: open,high,low,close,volume
+"""
+
+import re
+from datetime import datetime
+from typing import Any
+
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
+
+from config.env import InfluxConfig
+from utils.log_util import logger
+
+_client: InfluxDBClient | None = None
+
+
+def get_client() -> InfluxDBClient:
+    """获取（懒加载）全局InfluxDB客户端。"""
+    global _client
+    if _client is None:
+        _client = InfluxDBClient(
+            url=InfluxConfig.influx_url,
+            token=InfluxConfig.influx_token,
+            org=InfluxConfig.influx_org,
+            timeout=60_000,
+        )
+    return _client
+
+
+def bucket_for_market(market: str) -> str:
+    """按市场返回目标bucket。US->market_us，其余->market_data。"""
+    return InfluxConfig.influx_bucket_us if str(market).upper() == 'US' else InfluxConfig.influx_bucket_cn
+
+
+# Flux查询里symbol/时间参数均以f-string拼接，必须先白名单校验，防Flux注入
+_SYMBOL_PATTERN = re.compile(r'^[A-Za-z0-9.^_-]{1,32}$')
+_RELATIVE_TIME_PATTERN = re.compile(r'^-\d{1,4}(s|m|h|d|w|mo|y)$')
+_RFC3339_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?$')
+
+
+def _safe_symbol(symbol: str) -> str | None:
+    """校验symbol只含证券代码合法字符，非法返回None。"""
+    text = str(symbol or '').strip()
+    return text if _SYMBOL_PATTERN.match(text) else None
+
+
+def _safe_time_clause(value: str) -> str | None:
+    """把时间参数转成安全的Flux时间子句：相对时间/now()/RFC3339，其余拒绝。"""
+    text = str(value or '').strip()
+    if text == 'now()' or text == '0' or _RELATIVE_TIME_PATTERN.match(text):
+        return text
+    if _RFC3339_PATTERN.match(text):
+        return f'time(v: "{text}")'
+    return None
+
+
+class InfluxUtil:
+    """行情时序库读写封装。"""
+
+    MEASUREMENT = 'daily_kline'
+
+    @classmethod
+    def write_klines(cls, market: str, rows: list[dict[str, Any]]) -> int:
+        """
+        批量写入日K线。
+        rows: [{symbol, trade_date(date/datetime/str), open, high, low, close, volume}]
+        返回写入条数。
+        """
+        if not rows:
+            return 0
+        bucket = bucket_for_market(market)
+        points: list[Point] = []
+        for r in rows:
+            td = r.get('trade_date')
+            if isinstance(td, str):
+                ts = datetime.strptime(td[:10], '%Y-%m-%d')
+            elif isinstance(td, datetime):
+                ts = td
+            else:  # date
+                ts = datetime(td.year, td.month, td.day)
+            p = (
+                Point(cls.MEASUREMENT)
+                .tag('symbol', str(r['symbol']))
+                .tag('market', str(market).upper())
+                .field('open', float(r.get('open') or 0))
+                .field('high', float(r.get('high') or 0))
+                .field('low', float(r.get('low') or 0))
+                .field('close', float(r.get('close') or 0))
+                .field('volume', float(r.get('volume') or 0))
+                .time(ts, WritePrecision.S)
+            )
+            points.append(p)
+        write_api = get_client().write_api(write_options=SYNCHRONOUS)
+        write_api.write(bucket=bucket, record=points)
+        return len(points)
+
+    @classmethod
+    def query_klines(
+        cls, market: str, symbol: str, start: str = '-10y', stop: str = 'now()'
+    ) -> list[dict[str, Any]]:
+        """
+        查询单标的日K线，按时间升序。
+        start/stop 为Flux时间（如 '-1y' 或 RFC3339）。
+        返回 [{date, open, high, low, close, volume}]
+        Influx 不可用时返回空列表，避免接口 500。
+        """
+        try:
+            bucket = bucket_for_market(market)
+            symbol = _safe_symbol(symbol)
+            start_clause = _safe_time_clause(start)
+            stop_clause = _safe_time_clause(stop)
+            if symbol is None or start_clause is None or stop_clause is None:
+                logger.warning(f'[Influx] 非法查询参数被拒绝 symbol={symbol} start={start} stop={stop}')
+                return []
+            flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: {start_clause}, stop: {stop_clause})
+  |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
+  |> filter(fn: (r) => r.symbol == "{symbol}")
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"])
+'''
+            tables = get_client().query_api().query(flux)
+            result: list[dict[str, Any]] = []
+            for table in tables:
+                for record in table.records:
+                    result.append(
+                        {
+                            'date': record.get_time().strftime('%Y-%m-%d'),
+                            'open': record.values.get('open'),
+                            'high': record.values.get('high'),
+                            'low': record.values.get('low'),
+                            'close': record.values.get('close'),
+                            'volume': record.values.get('volume'),
+                        }
+                    )
+            return result
+        except Exception as exc:
+            logger.warning(f'[Influx] 查询K线失败 market={market} symbol={symbol}: {exc}')
+            return []
+
+    @classmethod
+    def latest_date(cls, market: str, symbol: str) -> str | None:
+        """返回某标的在时序库中的最新交易日(YYYY-MM-DD)，无数据返回None。"""
+        bucket = bucket_for_market(market)
+        symbol = _safe_symbol(symbol)
+        if symbol is None:
+            return None
+        flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
+  |> filter(fn: (r) => r.symbol == "{symbol}")
+  |> filter(fn: (r) => r._field == "close")
+  |> last()
+'''
+        try:
+            tables = get_client().query_api().query(flux)
+            for table in tables:
+                for record in table.records:
+                    return record.get_time().strftime('%Y-%m-%d')
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'latest_date查询失败 {symbol}: {e}')
+        return None
+
+    @classmethod
+    def list_symbols(cls, market: str) -> list[str]:
+        """返回某市场时序库中所有symbol。"""
+        bucket = bucket_for_market(market)
+        flux = f'''
+import "influxdata/influxdb/schema"
+schema.tagValues(bucket: "{bucket}", tag: "symbol")
+'''
+        symbols: list[str] = []
+        try:
+            tables = get_client().query_api().query(flux)
+            for table in tables:
+                for record in table.records:
+                    symbols.append(record.get_value())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'list_symbols查询失败: {e}')
+        return symbols

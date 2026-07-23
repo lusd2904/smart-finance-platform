@@ -1,0 +1,100 @@
+import request from '@/utils/request'
+
+// 查询标的列表（可选按分类过滤）
+export function listInstrument(category) {
+  return request({
+    url: '/market/instrument/list',
+    method: 'get',
+    params: { category: category }
+  })
+}
+
+// 查询K线数据
+export function getKline(query) {
+  return request({
+    url: '/market/kline',
+    method: 'get',
+    params: query
+  })
+}
+
+// 查询技术指标序列
+export function getIndicators(query) {
+  return request({
+    url: '/market/indicators',
+    method: 'get',
+    params: query
+  })
+}
+
+// 手动同步行情数据
+export function syncMarket(data) {
+  return request({
+    url: '/market/sync',
+    method: 'post',
+    data: data
+  })
+}
+
+// AI行情研判
+export function aiAnalyze(data) {
+  return request({
+    url: '/market/ai/analyze',
+    method: 'post',
+    data: data
+  })
+}
+
+// 标的详情概览（core | all）
+export function getSymbolOverview(symbol, query) {
+  return request({
+    url: '/market/symbols/' + encodeURIComponent(symbol) + '/overview',
+    method: 'get',
+    params: query
+  })
+}
+
+// 标的历史K线
+export function getSymbolHistory(symbol, query) {
+  return request({
+    url: '/market/symbols/' + encodeURIComponent(symbol) + '/history',
+    method: 'get',
+    params: query
+  })
+}
+
+// 标的公告/资讯/讨论
+export function getSymbolContent(symbol, query) {
+  return request({
+    url: '/market/symbols/' + encodeURIComponent(symbol) + '/content',
+    method: 'get',
+    params: query
+  })
+}
+
+// 触发标的AI研判
+export function symbolAiAnalyze(symbol, query) {
+  return request({
+    url: '/market/symbols/' + encodeURIComponent(symbol) + '/ai-analyze',
+    method: 'post',
+    params: query
+  })
+}
+
+// 最新AI研判
+export function getLatestAi(symbol, query) {
+  return request({
+    url: '/market/symbols/' + encodeURIComponent(symbol) + '/ai/latest',
+    method: 'get',
+    params: query
+  })
+}
+
+// 财经资讯简报流
+export function getFinanceBriefings(query) {
+  return request({
+    url: '/market/finance/briefings',
+    method: 'get',
+    params: query
+  })
+}

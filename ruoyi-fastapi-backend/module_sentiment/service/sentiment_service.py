@@ -1,0 +1,313 @@
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from common.vo import CrudResponseModel, PageModel
+from exceptions.exception import ServiceException
+from module_ai.dao.ai_model_dao import AiModelDao
+from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
+from module_sentiment.entity.vo.sentiment_vo import (
+    DeleteSentimentNewsModel,
+    SentimentAiConfigModel,
+    SentimentAnalysisModel,
+    SentimentAnalysisPageQueryModel,
+    SentimentNewsPageQueryModel,
+)
+from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
+from module_sentiment.service.collector_service import SentimentCollector
+from utils.common_util import CamelCaseUtil
+from utils.crypto_util import CryptoUtil
+from utils.log_util import logger
+
+
+class SentimentService:
+    """
+    舆情分析模块服务层
+    """
+
+    # ---------- 资讯 ----------
+
+    @classmethod
+    async def get_news_list_services(
+        cls, query_db: AsyncSession, query_object: SentimentNewsPageQueryModel, is_page: bool = True
+    ) -> PageModel | list[dict[str, Any]]:
+        """
+        获取舆情资讯分页列表service
+        """
+        return await SentimentNewsDao.get_news_list(query_db, query_object, is_page)
+
+    @classmethod
+    async def delete_news_services(
+        cls, query_db: AsyncSession, page_object: DeleteSentimentNewsModel
+    ) -> CrudResponseModel:
+        """
+        删除舆情资讯service
+        """
+        if not page_object.news_ids:
+            raise ServiceException(message='传入资讯id为空')
+        news_id_list = [int(i) for i in page_object.news_ids.split(',') if i]
+        try:
+            await SentimentNewsDao.delete_news_dao(query_db, news_id_list)
+            await query_db.commit()
+            return CrudResponseModel(is_success=True, message='删除成功')
+        except Exception as e:
+            await query_db.rollback()
+            raise e
+
+    @classmethod
+    async def get_stats_services(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        获取舆情统计数据service
+        """
+        stats = await SentimentNewsDao.count_news(query_db)
+        latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
+        stats['latestAnalysis'] = (
+            SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
+            if latest
+            else None
+        )
+        return stats
+
+    # ---------- 采集 ----------
+
+    @classmethod
+    async def collect_news_services(cls, query_db: AsyncSession) -> dict[str, int]:
+        """
+        执行一次舆情采集（入库去重）service
+
+        :return: {'fetched': 抓取条数, 'saved': 新入库条数}
+        """
+        config = await cls.get_ai_config_services(query_db)
+        sources = (config.enabled_sources or 'eastmoney,sina,ths,wallstreetcn,google_news').split(',')
+        news_list = await SentimentCollector.collect(sources)
+        if not news_list:
+            return {'fetched': 0, 'saved': 0}
+        hashes = [n['uniq_hash'] for n in news_list]
+        existing = await SentimentNewsDao.get_existing_hashes(query_db, hashes)
+        fresh = [n for n in news_list if n['uniq_hash'] not in existing]
+        for n in fresh:
+            n['analyzed'] = '0'
+            n['create_time'] = datetime.now()
+        try:
+            if fresh:
+                await SentimentNewsDao.add_news_batch(query_db, fresh)
+            await query_db.commit()
+        except Exception as e:
+            await query_db.rollback()
+            raise e
+        logger.info(f'[舆情采集] 抓取 {len(news_list)} 条，新入库 {len(fresh)} 条')
+        return {'fetched': len(news_list), 'saved': len(fresh)}
+
+    # ---------- AI配置 ----------
+
+    @classmethod
+    async def get_ai_config_services(cls, query_db: AsyncSession) -> SentimentAiConfigModel:
+        """
+        获取AI配置service
+
+        AI连接参数(base_url/api_key/model_name/temperature)统一存储在ai_models(scope='sentiment')，
+        舆情特有的业务参数(max_news_per_round/auto_analyze/enabled_sources)仍存储在sentiment_ai_config，
+        此处合并两部分数据，保持接口返回结构与迁移前一致
+        """
+        # 统一从 AI 模型管理解析：sentiment -> global -> chat -> 任意可用模型
+        ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
+        ext_config = await SentimentAiConfigDao.get_config(query_db)
+
+        if ai_model:
+            base_url = ai_model.base_url or ''
+            api_key = CryptoUtil.decrypt(ai_model.api_key) or ''
+            model_name = ai_model.model_code or ''
+            temperature = ai_model.temperature if ai_model.temperature is not None else 0.2
+        else:
+            base_url, api_key, model_name, temperature = '', '', '', 0.2
+
+        if ext_config:
+            max_news_per_round = ext_config.max_news_per_round
+            auto_analyze = ext_config.auto_analyze
+            enabled_sources = ext_config.enabled_sources
+        else:
+            max_news_per_round, auto_analyze, enabled_sources = (
+                30,
+                '1',
+                'eastmoney,sina,ths,wallstreetcn,google_news',
+            )
+
+        return SentimentAiConfigModel(
+            configId=ext_config.config_id if ext_config else None,
+            baseUrl=base_url,
+            apiKey=api_key,
+            modelName=model_name,
+            temperature=temperature,
+            maxNewsPerRound=max_news_per_round,
+            autoAnalyze=auto_analyze,
+            enabledSources=enabled_sources,
+            updateBy=ext_config.update_by if ext_config else None,
+            updateTime=ext_config.update_time if ext_config else None,
+            # 只读：展示当前实际复用的模型来源 scope，避免重复维护两套 Key
+            modelScope=getattr(ai_model, 'scope', None) if ai_model else None,
+            modelId=getattr(ai_model, 'model_id', None) if ai_model else None,
+        )
+
+    @classmethod
+    async def save_ai_config_services(
+        cls, query_db: AsyncSession, config: SentimentAiConfigModel, update_by: str
+    ) -> CrudResponseModel:
+        """
+        保存AI配置service
+
+        拆分持久化：AI连接参数(base_url/api_key/model_name->model_code/temperature)写入
+        ai_models(scope='sentiment')（api_key加密存储，与AI模型管理页保持一致）；
+        舆情业务参数(max_news_per_round/auto_analyze/enabled_sources)仍写入sentiment_ai_config
+        """
+        # 连接参数统一在「AI 管理-模型管理」维护；此处只保存舆情业务参数
+        config_dict = config.model_dump(
+            exclude_unset=True,
+            exclude={'config_id', 'base_url', 'api_key', 'model_name', 'temperature', 'model_scope', 'model_id'},
+        )
+        now = datetime.now()
+        ext_values = config_dict
+        ext_values['update_by'] = update_by
+        ext_values['update_time'] = now
+
+        try:
+            await SentimentAiConfigDao.save_config(query_db, ext_values)
+            await query_db.commit()
+            return CrudResponseModel(is_success=True, message='保存成功（模型连接请在 AI 管理中配置）')
+        except Exception as e:
+            await query_db.rollback()
+            raise e
+
+    # ---------- 分析 ----------
+
+    @classmethod
+    async def get_analysis_list_services(
+        cls, query_db: AsyncSession, query_object: SentimentAnalysisPageQueryModel, is_page: bool = True
+    ) -> PageModel | list[dict[str, Any]]:
+        """
+        获取分析结果分页列表service
+        """
+        return await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page)
+
+    @classmethod
+    async def get_analysis_detail_services(cls, query_db: AsyncSession, analysis_id: int) -> SentimentAnalysisModel:
+        """
+        获取分析结果详情service
+        """
+        analysis = await SentimentAnalysisDao.get_analysis_by_id(query_db, analysis_id)
+        return SentimentAnalysisModel(**CamelCaseUtil.transform_result(analysis)) if analysis else SentimentAnalysisModel()
+
+    @classmethod
+    async def get_analysis_trend_services(cls, query_db: AsyncSession, limit: int = 24) -> list[dict[str, Any]]:
+        """
+        获取近期分析趋势（用于图表）service
+        """
+        rows = await SentimentAnalysisDao.get_recent_analysis(query_db, limit)
+        rows.reverse()
+        return [
+            {
+                'analysisId': r.analysis_id,
+                'createTime': r.create_time.strftime('%m-%d %H:%M') if r.create_time else '',
+                'usScore': r.us_score,
+                'hkScore': r.hk_score,
+                'aScore': r.a_score,
+            }
+            for r in rows
+        ]
+
+    @classmethod
+    async def run_analysis_services(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        对未分析的资讯执行一次AI大盘影响分析service
+
+        :return: {'analyzed': 条数, 'analysisId': int|None, 'message': str}
+        """
+        config = await cls.get_ai_config_services(query_db)
+        if not config.base_url or not config.api_key or not config.model_name:
+            raise ServiceException(message='请先在AI配置中填写Base URL、API Key与模型名称')
+        limit = config.max_news_per_round or 30
+        news_rows = await SentimentNewsDao.get_unanalyzed_news(query_db, limit)
+        if not news_rows:
+            return {'analyzed': 0, 'analysisId': None, 'message': '暂无待分析的舆情资讯'}
+        news_list = [
+            {
+                'news_id': r.news_id,
+                'source': r.source,
+                'title': r.title,
+                'content': (r.content or '')[:800],
+                'pub_time': r.pub_time.strftime('%Y-%m-%d %H:%M') if r.pub_time else '',
+            }
+            for r in news_rows
+        ]
+        ai_result = await SentimentAiAnalyzer.analyze(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            model_name=config.model_name,
+            news_list=news_list,
+            temperature=config.temperature if config.temperature is not None else 0.2,
+        )
+        news_ids = [n['news_id'] for n in news_list]
+        analysis_record: dict[str, Any] = {
+            'news_count': len(news_ids),
+            'news_ids': ','.join(str(i) for i in news_ids),
+            'model_name': config.model_name,
+            'raw_response': (ai_result.get('raw') or '')[:60000],
+            'create_time': datetime.now(),
+        }
+        if ai_result['ok']:
+            result = ai_result['result']
+            us, hk, a = result.get('us') or {}, result.get('hk') or {}, result.get('a') or {}
+            analysis_record.update(
+                {
+                    'summary': result.get('summary'),
+                    'us_direction': us.get('direction'),
+                    'us_score': us.get('score'),
+                    'us_reason': us.get('reason'),
+                    'hk_direction': hk.get('direction'),
+                    'hk_score': hk.get('score'),
+                    'hk_reason': hk.get('reason'),
+                    'a_direction': a.get('direction'),
+                    'a_score': a.get('score'),
+                    'a_reason': a.get('reason'),
+                    'risk_events': result.get('risk_events'),
+                    'status': '0',
+                }
+            )
+        else:
+            analysis_record.update({'status': '1', 'error_msg': (ai_result.get('error') or '')[:2000]})
+        try:
+            db_analysis = await SentimentAnalysisDao.add_analysis(query_db, analysis_record)
+            # commit 后 ORM 会 expire，同步读属性会触发 MissingGreenlet；先取出主键
+            analysis_id = db_analysis.analysis_id
+            if ai_result['ok']:
+                await SentimentNewsDao.mark_analyzed(query_db, news_ids)
+            await query_db.commit()
+        except Exception as e:
+            await query_db.rollback()
+            raise e
+        if ai_result['ok']:
+            return {'analyzed': len(news_ids), 'analysisId': analysis_id, 'message': '分析成功'}
+        return {
+            'analyzed': 0,
+            'analysisId': analysis_id,
+            'message': f'分析失败: {ai_result["error"]}',
+        }
+
+    # ---------- 采集+分析组合（供定时任务调用） ----------
+
+    @classmethod
+    async def collect_and_analyze_services(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        采集一次舆情，并根据配置决定是否自动执行AI分析service
+        """
+        collect_result = await cls.collect_news_services(query_db)
+        result: dict[str, Any] = {**collect_result, 'analyzed': 0, 'analysisId': None}
+        config = await cls.get_ai_config_services(query_db)
+        if config.auto_analyze == '1' and collect_result['saved'] > 0:
+            try:
+                analyze_result = await cls.run_analysis_services(query_db)
+                result.update(analyze_result)
+            except ServiceException as e:
+                logger.warning(f'[舆情任务] 自动分析跳过: {e.message}')
+                result['message'] = e.message
+        return result

@@ -1,0 +1,259 @@
+// 主题变量：门户 / 登录 / 各业务子系统统一引用
+// 浅色 :root  | 深色 html.dark（与 Element Plus dark + 布局共用）
+
+:root {
+  --page-bg: #f0f2f5;
+  --surface-soft: #f0f2f5;
+  --surface-card: #ffffff;
+  --surface-muted: #f8fafc;
+  --surface-hover: #eef2ff;
+
+  --accent: #6366f1;
+  --accent-secondary: #8b5cf6;
+  --accent-gradient: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+
+  --surface-glass: #ffffff;
+  --surface-glass-hover: #ffffff;
+  --border-glass: #e4e7ed;
+  --border-glass-strong: #c0c4cc;
+  --border-soft: #eef2ff;
+
+  --text-emphasis: #303133;
+  --text-secondary: #606266;
+  --text-muted: #909399;
+
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --shadow-glow: 0 8px 24px rgba(0, 0, 0, 0.08);
+
+  --stat-up: #dc2626;
+  --stat-down: #059669;
+  --hero-grad: linear-gradient(135deg, #4f46e5 0%, #6366f1 45%, #7c3aed 100%);
+  --risk-bg: #fff7ed;
+  --risk-border: #fed7aa;
+  --risk-title: #c2410c;
+  --risk-text: #9a3412;
+}
+
+html.dark {
+  --page-bg: #0b1020;
+  --surface-soft: #0f172a;
+  --surface-card: #151c2e;
+  --surface-muted: #1a2236;
+  --surface-hover: #1e293b;
+
+  --accent: #818cf8;
+  --accent-secondary: #a78bfa;
+  --accent-gradient: linear-gradient(135deg, #6366f1, #22d3ee);
+
+  --surface-glass: rgba(15, 23, 42, 0.72);
+  --surface-glass-hover: rgba(30, 41, 59, 0.85);
+  --border-glass: rgba(148, 163, 184, 0.18);
+  --border-glass-strong: rgba(129, 140, 248, 0.45);
+  --border-soft: rgba(148, 163, 184, 0.14);
+
+  --text-emphasis: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  --shadow-glow: 0 16px 40px rgba(2, 6, 23, 0.55);
+
+  --stat-up: #f87171;
+  --stat-down: #34d399;
+  --hero-grad: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #0e7490 100%);
+  --risk-bg: rgba(120, 53, 15, 0.28);
+  --risk-border: rgba(251, 191, 36, 0.35);
+  --risk-title: #fbbf24;
+  --risk-text: #fde68a;
+
+  /* 主内容区 */
+  .main-container {
+    background: var(--surface-soft) !important;
+  }
+
+  .app-main,
+  .app-container {
+    color: var(--text-emphasis);
+  }
+
+  /* Element 卡片 / 表格 / 抽屉 统一深色 */
+  .el-card {
+    --el-card-bg-color: var(--surface-card);
+    background: var(--surface-card) !important;
+    color: var(--text-emphasis);
+    border-color: var(--border-soft) !important;
+  }
+
+  .el-card__header {
+    border-bottom-color: var(--border-soft) !important;
+    color: var(--text-emphasis);
+  }
+
+  .el-drawer {
+    --el-drawer-bg-color: var(--surface-card);
+    background: var(--surface-card) !important;
+    color: var(--text-emphasis);
+  }
+
+  .el-dialog {
+    --el-dialog-bg-color: var(--surface-card);
+    background: var(--surface-card) !important;
+  }
+
+  .el-table {
+    --el-table-bg-color: var(--surface-card);
+    --el-table-tr-bg-color: var(--surface-card);
+    --el-fill-color-blank: var(--surface-card);
+    background: var(--surface-card) !important;
+    color: var(--text-secondary);
+  }
+
+  .el-empty__description p {
+    color: var(--text-muted);
+  }
+
+  /* 业务页常见硬编码浅色块（覆盖 scoped 中的 #fff / #303133） */
+  .app-container,
+  .home-page,
+  .sentiment-dashboard,
+  .finance-news,
+  .stock-pool,
+  .rec-page,
+  .risk-page {
+    .stat-card,
+    .mini-stat,
+    .risk-card,
+    .market-card,
+    .panel-card,
+    .quote-row,
+    .nav-item,
+    .news-card,
+    .scan-card,
+    .module-item,
+    .score-box,
+    .hero-card {
+      background: var(--surface-card) !important;
+      border-color: var(--border-soft) !important;
+      color: var(--text-emphasis);
+    }
+
+    .title-text,
+    .panel-title,
+    .drawer-title,
+    .card-title,
+    .side-title,
+    .index-name,
+    .cur-name,
+    .inst-symbol,
+    .q-symbol,
+    .nav-title,
+    .module-title,
+    .act-title,
+    .stat-value,
+    .n,
+    .value {
+      color: var(--text-emphasis) !important;
+    }
+
+    .title-sub,
+    .panel-sub,
+    .stat-label,
+    .l,
+    .label,
+    .nav-desc,
+    .module-desc,
+    .act-desc,
+    .q-name,
+    .rec-summary,
+    .news-summary,
+    .market-reason,
+    .meta-time {
+      color: var(--text-muted) !important;
+    }
+
+    .up {
+      color: var(--stat-up) !important;
+    }
+    .down {
+      color: var(--stat-down) !important;
+    }
+
+    .risk-block {
+      background: var(--risk-bg) !important;
+      border-color: var(--risk-border) !important;
+    }
+    .risk-title {
+      color: var(--risk-title) !important;
+    }
+    .risk-text {
+      color: var(--risk-text) !important;
+    }
+  }
+
+  /* 工作台首页渐变底 */
+  .home-page {
+    background: linear-gradient(180deg, #0b1224 0%, #0f172a 220px, #0b1020 100%) !important;
+  }
+
+  .home-page .hero-card {
+    background: var(--hero-grad) !important;
+    color: #fff !important;
+    border: none !important;
+  }
+
+  .home-page .nav-item:hover,
+  .home-page .quote-row:hover {
+    background: var(--surface-hover) !important;
+  }
+
+  /* 行情侧栏列表 hover */
+  .kline-page .inst-item:hover,
+  .market-kline .inst-item:hover {
+    background: var(--surface-hover) !important;
+  }
+
+  /* 渐变落白底的卡片强制收口（舆情 market-card 等） */
+  .market-card,
+  .market-card.market-up,
+  .market-card.market-down,
+  .panel-card,
+  .news-card,
+  .scan-card,
+  .activeCard,
+  .projectList,
+  .el-card.is-always-shadow,
+  .el-card.is-hover-shadow {
+    background-color: var(--surface-card) !important;
+    background-image: none !important;
+    border-color: var(--border-soft) !important;
+    color: var(--text-emphasis) !important;
+  }
+
+  .app-container .el-form-item__label,
+  .app-container .el-pagination,
+  .app-container .el-table,
+  .app-container .el-empty__description {
+    color: var(--text-secondary);
+  }
+
+  /* 内容区底不要发白 */
+  .app-main > div,
+  .app-container {
+    background: transparent;
+  }
+}
+
+// 卡片工具类
+.glass-panel {
+  background: var(--surface-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease;
+
+  &:hover {
+    transform: translateY(-4px);
+    background: var(--surface-glass-hover);
+    border-color: var(--border-glass-strong);
+    box-shadow: var(--shadow-glow);
+  }
+}

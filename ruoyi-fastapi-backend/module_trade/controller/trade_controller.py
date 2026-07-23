@@ -1,0 +1,384 @@
+from typing import Annotated
+
+from fastapi import Body, Path, Query, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from common.annotation.log_annotation import Log
+from common.aspect.db_seesion import DBSessionDependency
+from common.aspect.interface_auth import UserInterfaceAuthDependency
+from common.aspect.pre_auth import PreAuthDependency
+from common.enums import BusinessType
+from common.router import APIRouterPro
+from module_trade.service.trade_service import TradeService
+from utils.log_util import logger
+from utils.response_util import ResponseUtil
+
+trade_controller = APIRouterPro(
+    prefix='/trade', order_num=33, tags=['交易中心'], dependencies=[PreAuthDependency()]
+)
+
+
+@trade_controller.get(
+    '/account',
+    summary='账户资金',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_account(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await TradeService.get_account_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/positions',
+    summary='持仓列表',
+    dependencies=[UserInterfaceAuthDependency('trade:position:list')],
+)
+async def trade_positions(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await TradeService.get_positions_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/orders',
+    summary='订单列表',
+    dependencies=[UserInterfaceAuthDependency('trade:order:list')],
+)
+async def trade_orders(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    scope: Annotated[str, Query(description='today|history')] = 'today',
+) -> Response:
+    data = await TradeService.get_orders_services(query_db, scope=scope)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.post(
+    '/order',
+    summary='提交订单',
+    dependencies=[UserInterfaceAuthDependency('trade:order:submit')],
+)
+@Log(title='交易下单', business_type=BusinessType.INSERT)
+async def trade_submit(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()],
+) -> Response:
+    result = await TradeService.submit_order_services(
+        query_db,
+        symbol=str(body.get('symbol') or ''),
+        side=str(body.get('side') or 'buy'),
+        quantity=float(body.get('quantity') or 0),
+        order_type=str(body.get('orderType') or 'LO'),
+        price=float(body['price']) if body.get('price') not in (None, '') else None,
+        market=str(body.get('market') or 'US'),
+    )
+    logger.info(f'下单结果: {result}')
+    return ResponseUtil.success(data=result, msg=result.get('message') or '')
+
+
+@trade_controller.post(
+    '/order/{order_id}/cancel',
+    summary='撤单',
+    dependencies=[UserInterfaceAuthDependency('trade:order:cancel')],
+)
+@Log(title='交易撤单', business_type=BusinessType.UPDATE)
+async def trade_cancel(
+    request: Request,
+    order_id: Annotated[str, Path()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await TradeService.cancel_order_services(query_db, order_id)
+    return ResponseUtil.success(data=result, msg=result.get('message') or '')
+
+
+@trade_controller.get(
+    '/notifications',
+    summary='通知列表',
+    dependencies=[UserInterfaceAuthDependency('trade:notice:list')],
+)
+async def trade_notifications(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 50,
+) -> Response:
+    # 合并进程内 + 持久化通知，优先展示最新
+    from module_trade.service.platform_ext_service import PlatformExtService
+
+    mem = TradeService.list_notifications(limit)
+    db_rows = await PlatformExtService.list_notices_db(query_db, limit)
+    merged = list(db_rows) + list(mem)
+    merged.sort(key=lambda x: x.get('createTime') or '', reverse=True)
+    return ResponseUtil.success(data=merged[: max(1, min(limit, 200))])
+
+
+@trade_controller.post(
+    '/notifications/read',
+    summary='标记通知已读',
+    dependencies=[UserInterfaceAuthDependency('trade:notice:list')],
+)
+async def trade_notifications_read(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from module_trade.service.platform_ext_service import PlatformExtService
+
+    body = body or {}
+    notice_id = body.get('id')
+    data = TradeService.mark_notification_read(int(notice_id) if notice_id else None)
+    # 持久化通知 id 通常较小，一并尝试标记
+    try:
+        await PlatformExtService.mark_notice_read_db(query_db, int(notice_id) if notice_id else None)
+    except Exception:
+        pass
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.post(
+    '/backtest/run',
+    summary='运行简易回测',
+    dependencies=[UserInterfaceAuthDependency('trade:backtest:run')],
+)
+@Log(title='策略回测', business_type=BusinessType.OTHER)
+async def trade_backtest_run(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()],
+) -> Response:
+    data = await TradeService.run_backtest_services(
+        query_db,
+        symbol=str(body.get('symbol') or 'AAPL'),
+        market=str(body.get('market') or 'US'),
+        days=int(body.get('days') or 120),
+    )
+    return ResponseUtil.success(data=data, msg=data.get('message') or '')
+
+
+@trade_controller.get(
+    '/backtest/list',
+    summary='回测历史',
+    dependencies=[UserInterfaceAuthDependency('trade:backtest:list')],
+)
+async def trade_backtest_list(request: Request) -> Response:
+    return ResponseUtil.success(data=TradeService.list_backtests())
+
+
+@trade_controller.get(
+    '/backtest/{run_id}',
+    summary='回测详情',
+    dependencies=[UserInterfaceAuthDependency('trade:backtest:list')],
+)
+async def trade_backtest_detail(
+    request: Request,
+    run_id: Annotated[int, Path()],
+) -> Response:
+    data = TradeService.get_backtest(run_id)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/ai-trade-runs',
+    summary='AI自动交易台账',
+    dependencies=[UserInterfaceAuthDependency('trade:aitrade:list')],
+)
+async def trade_ai_runs(request: Request) -> Response:
+    return ResponseUtil.success(data=TradeService.list_ai_trade_runs())
+
+
+# ---------------- 平台加深：覆盖/策略配置/风控/批量AI/持久通知 ----------------
+
+from module_trade.service.platform_ext_service import PlatformExtService  # noqa: E402
+
+
+@trade_controller.get(
+    '/coverage',
+    summary='行情历史覆盖率',
+    dependencies=[UserInterfaceAuthDependency('market:kline:list')],
+)
+async def history_coverage(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await PlatformExtService.history_coverage(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/strategy-profiles',
+    summary='策略配置档位列表',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:list')],
+)
+async def strategy_profiles(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_strategy_profiles(query_db))
+
+
+@trade_controller.put(
+    '/strategy-profiles/{code}',
+    summary='保存策略配置档位',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+)
+@Log(title='策略配置', business_type=BusinessType.UPDATE)
+async def save_strategy_profile(
+    request: Request,
+    code: Annotated[str, Path()],
+    body: Annotated[dict, Body()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    await PlatformExtService.save_strategy_profile(
+        query_db, code=code, name=str(body.get('profileName') or code), config=body.get('config') or body
+    )
+    return ResponseUtil.success(msg='保存成功')
+
+
+@trade_controller.get(
+    '/risk/rules',
+    summary='风控规则列表',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:list')],
+)
+async def risk_rules(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_risk_rules(query_db))
+
+
+@trade_controller.post(
+    '/risk/rules',
+    summary='保存风控规则',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:edit')],
+)
+@Log(title='风控规则', business_type=BusinessType.UPDATE)
+async def save_risk_rule(
+    request: Request,
+    body: Annotated[dict, Body()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    rid = await PlatformExtService.save_risk_rule(query_db, body)
+    return ResponseUtil.success(data={'ruleId': rid}, msg='保存成功')
+
+
+@trade_controller.delete(
+    '/risk/rules/{rule_id}',
+    summary='删除风控规则',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:edit')],
+)
+@Log(title='风控规则', business_type=BusinessType.DELETE)
+async def delete_risk_rule(
+    request: Request,
+    rule_id: Annotated[int, Path()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    await PlatformExtService.delete_risk_rule(query_db, rule_id)
+    return ResponseUtil.success(msg='删除成功')
+
+
+@trade_controller.get(
+    '/risk/events',
+    summary='风控事件列表',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:list')],
+)
+async def risk_events(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 50,
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_risk_events(query_db, limit))
+
+
+@trade_controller.post(
+    '/risk/evaluate',
+    summary='执行风控扫描',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:edit')],
+)
+@Log(title='风控扫描', business_type=BusinessType.OTHER)
+async def risk_evaluate(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await PlatformExtService.evaluate_risk(query_db)
+    return ResponseUtil.success(data=data, msg=f"生成 {data.get('created', 0)} 条事件")
+
+
+@trade_controller.get(
+    '/notices',
+    summary='持久化通知列表',
+    dependencies=[UserInterfaceAuthDependency('trade:notice:list')],
+)
+async def notices_db(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 50,
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_notices_db(query_db, limit))
+
+
+@trade_controller.post(
+    '/notices/read',
+    summary='持久化通知已读',
+    dependencies=[UserInterfaceAuthDependency('trade:notice:list')],
+)
+async def notices_read_db(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    body = body or {}
+    nid = body.get('id')
+    await PlatformExtService.mark_notice_read_db(query_db, int(nid) if nid else None)
+    return ResponseUtil.success(msg='ok')
+
+
+@trade_controller.post(
+    '/ai/batch',
+    summary='批量AI研判',
+    dependencies=[UserInterfaceAuthDependency('market:ai:analyze')],
+)
+@Log(title='批量AI研判', business_type=BusinessType.OTHER)
+async def ai_batch_run(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    body = body or {}
+    symbols = body.get('symbols')
+    data = await PlatformExtService.run_ai_batch(
+        query_db,
+        symbols=symbols,
+        market=str(body.get('market') or 'US'),
+        days=int(body.get('days') or 90),
+    )
+    return ResponseUtil.success(data=data, msg=f"完成 {data.get('success')}/{data.get('total')}")
+
+
+@trade_controller.get(
+    '/ai/batches',
+    summary='批量AI历史',
+    dependencies=[UserInterfaceAuthDependency('market:ai:analyze')],
+)
+async def ai_batches(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_ai_batches(query_db))
+
+
+@trade_controller.get(
+    '/ai/batches/{batch_id}/items',
+    summary='批量AI明细',
+    dependencies=[UserInterfaceAuthDependency('market:ai:analyze')],
+)
+async def ai_batch_items(
+    request: Request,
+    batch_id: Annotated[int, Path()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    return ResponseUtil.success(data=await PlatformExtService.list_ai_batch_items(query_db, batch_id))

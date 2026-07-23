@@ -1,0 +1,6 @@
+.venv
+logs
+__pycache__
+**/__pycache__
+.playwright-cli
+vf_admin/upload_path
