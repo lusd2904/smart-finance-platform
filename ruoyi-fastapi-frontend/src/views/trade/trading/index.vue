@@ -51,7 +51,7 @@
         </el-radio-group>
         <span class="muted">{{ klineHint }}</span>
       </div>
-      <div v-loading="klineLoading" ref="chartRef" class="kline-chart"></div>
+      <div v-show="klineItems.length" v-loading="klineLoading" ref="chartRef" class="kline-chart"></div>
       <el-empty v-if="!klineLoading && !klineItems.length" :description="klineEmptyText" :image-size="56" />
     </el-card>
 
@@ -439,6 +439,7 @@ async function loadKline() {
     klineMessage.value = data.message || ''
     if (data.configured === false) configured.value = false
     if (data.quote) applyQuote(data.quote)
+    await nextTick()
     renderChart()
   } catch (e) {
     klineItems.value = []
@@ -593,6 +594,18 @@ function restartLive() {
 function handleResize() {
   chart && chart.resize()
 }
+watch(
+  () => [route.query.symbol, route.query.market],
+  ([sym, mkt]) => {
+    if (!sym) return
+    const parsed = parseSymbolMarket(sym, mkt || form.value.market)
+    if (parsed.symbol === form.value.symbol && parsed.market === form.value.market) return
+    form.value.symbol = parsed.symbol
+    form.value.market = parsed.market
+    loadQuoteBoard()
+    restartLive()
+  }
+)
 onMounted(() => {
   refreshAll()
   window.addEventListener('resize', handleResize)
