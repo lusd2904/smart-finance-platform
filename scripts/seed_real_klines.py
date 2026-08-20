@@ -7,6 +7,9 @@ Primary sources: Sina + Tencent
 Fallbacks: East Money / Yahoo / Stooq / NetEase (circuit-breakers)
 
 Never invents OHLCV. A symbol with no real upstream bars is skipped.
+
+Backend env.py also reads --env from argv; this script parses --years/--symbol
+first and leaves the rest for that parser.
 """
 
 from __future__ import annotations
@@ -20,17 +23,24 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / 'ruoyi-fastapi-backend'
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
 
-from module_market.constant.instruments import TARGET_INSTRUMENTS  # noqa: E402
-from module_market.service.kline_sources import fetch_real_klines  # noqa: E402
-from module_market.service.sync_service import MarketSyncService  # noqa: E402
-from utils.influx_util import InfluxUtil  # noqa: E402
-from utils.log_util import logger  # noqa: E402
+
+def parse_cli(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[str]]:
+    parser = argparse.ArgumentParser(description='Seed real daily K-lines (no synthetic OHLCV).')
+    parser.add_argument('--years', type=int, default=int(os.environ.get('KLINE_SEED_YEARS', '10')))
+    parser.add_argument('--symbol', type=str, default=None, help='Optional single symbol')
+    return parser.parse_known_args(argv)
+
+
+def _prepare_backend_path() -> None:
+    if str(BACKEND) not in sys.path:
+        sys.path.insert(0, str(BACKEND))
 
 
 def upsert_instruments(rows: list[tuple[str, str, str, str]]) -> int:
+    from module_market.service.sync_service import MarketSyncService
+    from utils.log_util import logger
+
     conn = MarketSyncService._app_db_conn()
     if conn is None:
         logger.warning('[seed] MySQL unavailable, skip market_instrument')
@@ -72,6 +82,9 @@ def upsert_instruments(rows: list[tuple[str, str, str, str]]) -> int:
 
 
 def upsert_price_history(rows: list[dict[str, Any]]) -> int:
+    from module_market.service.sync_service import MarketSyncService
+    from utils.log_util import logger
+
     if not rows:
         return 0
     MarketSyncService.ensure_history_table()
@@ -126,6 +139,9 @@ def upsert_price_history(rows: list[dict[str, Any]]) -> int:
 
 
 def write_influx(market: str, rows: list[dict[str, Any]]) -> int:
+    from utils.influx_util import InfluxUtil
+    from utils.log_util import logger
+
     if not rows:
         return 0
     payload = [
@@ -148,6 +164,9 @@ def write_influx(market: str, rows: list[dict[str, Any]]) -> int:
 
 
 def seed_symbol(symbol: str, name: str, market: str, category: str, years: int) -> dict[str, Any]:
+    from module_market.service.kline_sources import fetch_real_klines
+    from utils.log_util import logger
+
     rows, used = fetch_real_klines(symbol, market, years)
     if not rows:
         logger.warning(f'[seed] {symbol} no real OHLCV from any source')
@@ -182,6 +201,8 @@ def seed_symbol(symbol: str, name: str, market: str, category: str, years: int) 
 
 
 def seed_all(years: int = 10, symbol: str | None = None) -> dict[str, Any]:
+    from module_market.constant.instruments import TARGET_INSTRUMENTS
+
     targets = TARGET_INSTRUMENTS
     if symbol:
         targets = [item for item in TARGET_INSTRUMENTS if item[0] == symbol]
@@ -207,11 +228,11 @@ def seed_all(years: int = 10, symbol: str | None = None) -> dict[str, Any]:
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description='Seed real daily K-lines (no synthetic OHLCV).')
-    parser.add_argument('--years', type=int, default=int(os.environ.get('KLINE_SEED_YEARS', '10')))
-    parser.add_argument('--symbol', type=str, default=None, help='Optional single symbol')
-    args = parser.parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args, rest = parse_cli(argv)
+    # Leave --env (and anything else) for ruoyi config.env argparse.
+    sys.argv = [sys.argv[0], *rest]
+    _prepare_backend_path()
     result = seed_all(years=args.years, symbol=args.symbol)
     print(
         f"seeded={len(result['seeded'])} failed={len(result['failed'])} "

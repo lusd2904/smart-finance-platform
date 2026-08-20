@@ -157,6 +157,16 @@ def test_merge_does_not_invent_missing_dates() -> None:
     assert [r['trade_date'] for r in merged] == ['2024-06-03']
 
 
+def test_seed_cli_keeps_years_and_symbol() -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'scripts'))
+    from seed_real_klines import parse_cli
+
+    args, rest = parse_cli(['--years', '2', '--symbol', 'AAPL', '--env', 'dev'])
+    assert args.years == 2
+    assert args.symbol == 'AAPL'
+    assert rest == ['--env', 'dev']
+
+
 def test_resolve_symbol_candidates_keeps_hk() -> None:
     cands = resolve_symbol_candidates('0700.HK')
     assert cands[0] == ('0700.HK', 'HK')
