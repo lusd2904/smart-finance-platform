@@ -13,7 +13,9 @@ export function login(username, password, code, uuid) {
     headers: {
       isToken: false,
       repeatSubmit: false,
-      'Content-Type': 'application/x-www-form-urlencoded'
+      'Content-Type': 'application/x-www-form-urlencoded',
+      encrypt: false,
+      encryptResponse: false
     },
     method: 'post',
     data: params

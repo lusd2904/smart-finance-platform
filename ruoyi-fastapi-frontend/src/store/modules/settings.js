@@ -1,13 +1,24 @@
 import defaultSettings from '@/settings'
-import { useDark, useToggle } from '@vueuse/core'
+import { useDark } from '@vueuse/core'
 import { useDynamicTitle } from '@/utils/dynamicTitle'
 
 const isDark = useDark({ initialValue: 'light' })
-const toggleDark = useToggle(isDark)
 
 const { sideTheme, showSettings, navType, tagsView, tagsIcon, fixedHeader, sidebarLogo, dynamicTitle, footerVisible, footerContent } = defaultSettings
 
 const storageSetting = JSON.parse(localStorage.getItem('layout-setting')) || ''
+
+function themeKeyOf(dark) {
+  return dark ? 'glass-dark' : 'glass-light'
+}
+
+function applyThemeToDocument(dark) {
+  if (typeof document === 'undefined') {
+    return
+  }
+  document.documentElement.setAttribute('data-theme', themeKeyOf(dark))
+  document.documentElement.classList.toggle('dark', !!dark)
+}
 
 const useSettingsStore = defineStore(
   'settings',
@@ -27,6 +38,9 @@ const useSettingsStore = defineStore(
       footerContent: footerContent,
       isDark: isDark.value
     }),
+    getters: {
+      themeKey: (state) => themeKeyOf(state.isDark)
+    },
     actions: {
       // 修改布局设置
       changeSetting(data) {
@@ -40,12 +54,25 @@ const useSettingsStore = defineStore(
         this.title = title
         useDynamicTitle()
       },
+      // 把当前皮肤同步到 html.dark / data-theme（登录、门户、工作台共用）
+      applyTheme() {
+        this.isDark = !!isDark.value
+        applyThemeToDocument(this.isDark)
+      },
+      // 显式选择浅色 / 深色，并写入 VueUse 同一持久化键
+      setDark(dark) {
+        const next = !!dark
+        isDark.value = next
+        this.isDark = next
+        applyThemeToDocument(next)
+      },
       // 切换暗黑模式
       toggleTheme() {
-        this.isDark = !this.isDark
-        toggleDark()
+        this.setDark(!this.isDark)
       }
     }
   })
 
 export default useSettingsStore
+
+applyThemeToDocument(isDark.value)
