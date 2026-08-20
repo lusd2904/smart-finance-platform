@@ -1,10 +1,38 @@
 <template>
-  <div class="login">
-    <!-- 赛博动态背景（节点 + 穿梭光） -->
+  <div class="login" :data-theme="themeKey">
+    <!-- 赛博动态背景（节点 + 穿梭光），颜色跟随 settingsStore.isDark -->
     <div class="login-bg">
       <cyber-background />
     </div>
-    <div class="login-panel">
+
+    <div class="login-top-bar">
+      <div class="logo">
+        <h2 class="glow-title">智慧金融 · NEXUS</h2>
+        <span class="logo-sub">QUANT · SENTIMENT · MARKET</span>
+      </div>
+      <div class="skin-switcher glass-panel" role="group" aria-label="界面皮肤">
+        <button
+          type="button"
+          class="skin-option"
+          :class="{ active: !isDark }"
+          @click="selectSkin(false)"
+        >
+          <el-icon><Sunny /></el-icon>
+          <span>浅色</span>
+        </button>
+        <button
+          type="button"
+          class="skin-option"
+          :class="{ active: isDark }"
+          @click="selectSkin(true)"
+        >
+          <el-icon><Moon /></el-icon>
+          <span>深色</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="login-panel glass-panel">
       <!-- 左侧品牌区（极简，避免营销文案噪音） -->
       <div class="login-brand">
         <div class="brand-logo">
@@ -84,16 +112,22 @@
 import { getCodeImg } from "@/api/login";
 import Cookies from "js-cookie";
 import { encrypt, decrypt } from "@/utils/jsencrypt";
+import { Sunny, Moon } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
+import useSettingsStore from '@/store/modules/settings'
 import defaultSettings from '@/settings'
 import CyberBackground from '@/components/CyberBackground/index.vue'
 
 const title = "智慧金融分析平台";
 const footerContent = defaultSettings.footerContent
 const userStore = useUserStore();
+const settingsStore = useSettingsStore()
 const route = useRoute();
 const router = useRouter();
 const { proxy } = getCurrentInstance();
+
+const isDark = computed(() => settingsStore.isDark)
+const themeKey = computed(() => settingsStore.themeKey)
 
 const loginForm = ref({
   username: "",
@@ -119,6 +153,10 @@ const redirect = ref(undefined);
 watch(route, (newRoute) => {
     redirect.value = newRoute.query && newRoute.query.redirect;
 }, { immediate: true });
+
+function selectSkin(dark) {
+  settingsStore.setDark(dark)
+}
 
 function handleLogin() {
   proxy.$refs.loginRef.validate(valid => {
@@ -190,6 +228,10 @@ function getCookie() {
   };
 }
 
+onMounted(() => {
+  settingsStore.applyTheme()
+})
+
 getCode();
 getCookie();
 </script>
@@ -202,11 +244,25 @@ getCookie();
   align-items: center;
   height: 100%;
   overflow: hidden;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.login[data-theme='glass-dark'] {
   background:
-    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.35) 0%, transparent 45%),
-    radial-gradient(circle at 90% 80%, rgba(147, 51, 234, 0.32) 0%, transparent 45%),
-    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.18) 0%, transparent 60%),
+    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.42) 0%, transparent 45%),
+    radial-gradient(circle at 90% 80%, rgba(147, 51, 234, 0.4) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.22) 0%, transparent 60%),
     #020617;
+  color: #e2e8f0;
+}
+
+.login[data-theme='glass-light'] {
+  background:
+    radial-gradient(circle at 10% 20%, rgba(96, 165, 250, 0.55) 0%, transparent 45%),
+    radial-gradient(circle at 90% 80%, rgba(192, 132, 252, 0.5) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(52, 211, 153, 0.35) 0%, transparent 60%),
+    #e2e8f0;
+  color: #0f172a;
 }
 
 /* 动态赛博背景：保持高可见度 */
@@ -218,6 +274,76 @@ getCookie();
   z-index: 0;
 }
 
+.login-top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 22px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+}
+
+.logo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.glow-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: linear-gradient(90deg, #38bdf8, #a78bfa, #34d399);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.35));
+}
+
+.logo-sub {
+  font-size: 11px;
+  letter-spacing: 2px;
+  opacity: 0.65;
+}
+
+.skin-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px !important;
+}
+
+.skin-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: inherit;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+.skin-option.active {
+  opacity: 1;
+  background: rgba(56, 189, 248, 0.18);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.28) inset;
+}
+
+.login[data-theme='glass-light'] .skin-option.active {
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.22) inset;
+}
+
 /* 主面板：玻璃拟态 */
 .login-panel {
   position: relative;
@@ -225,11 +351,20 @@ getCookie();
   display: flex;
   border-radius: 18px;
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.62);
+}
+
+.glass-panel {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
+}
+
+.login[data-theme='glass-light'] .glass-panel {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.08);
 }
 
 /* 左侧品牌区 */
@@ -241,7 +376,6 @@ getCookie();
   justify-content: center;
   background: linear-gradient(150deg, rgba(56, 189, 248, 0.12), rgba(99, 102, 241, 0.18));
   border-right: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e2e8f0;
 
   .brand-logo {
     display: flex;
@@ -266,7 +400,6 @@ getCookie();
     font-size: 24px;
     font-weight: 700;
     letter-spacing: 2px;
-    color: #f8fafc;
   }
 
   p {
@@ -277,19 +410,55 @@ getCookie();
   }
 }
 
+.login[data-theme='glass-light'] .login-brand {
+  background: linear-gradient(150deg, rgba(96, 165, 250, 0.18), rgba(192, 132, 252, 0.16));
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+
+  h2 {
+    color: #0f172a;
+  }
+
+  p {
+    color: #2563eb;
+  }
+}
+
+.login[data-theme='glass-dark'] .login-brand {
+  color: #e2e8f0;
+
+  h2 {
+    color: #f8fafc;
+  }
+}
+
 .title {
   margin: 0 0 8px;
   text-align: left;
   font-size: 22px;
   font-weight: 650;
   letter-spacing: 1px;
-  color: #f1f5f9;
 }
 
 .subtitle {
   margin: 0 0 26px;
   font-size: 13px;
+  opacity: 0.72;
+}
+
+.login[data-theme='glass-dark'] .title {
+  color: #f1f5f9;
+}
+
+.login[data-theme='glass-dark'] .subtitle {
   color: #94a3b8;
+}
+
+.login[data-theme='glass-light'] .title {
+  color: #0f172a;
+}
+
+.login[data-theme='glass-light'] .subtitle {
+  color: #475569;
 }
 
 /* 右侧表单区 */
@@ -306,33 +475,7 @@ getCookie();
   }
 
   :deep(.el-input__wrapper) {
-    background: rgba(15, 23, 42, 0.55);
-    box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35) inset;
     border-radius: 10px;
-
-    &.is-focus {
-      box-shadow: 0 0 0 1px #38bdf8 inset;
-    }
-  }
-
-  :deep(.el-input__inner) {
-    color: #e2e8f0;
-  }
-
-  :deep(.el-checkbox__label) {
-    color: #94a3b8;
-  }
-
-  :deep(.el-input__inner) {
-    color: #303133;
-
-    &::placeholder {
-      color: #a8abb2;
-    }
-  }
-
-  :deep(.el-checkbox__label) {
-    color: #606266;
   }
 
   :deep(.el-button--primary) {
@@ -356,7 +499,64 @@ getCookie();
     height: 39px;
     width: 14px;
     margin-left: 0px;
-    color: #909399;
+  }
+}
+
+.login[data-theme='glass-dark'] .login-form {
+  :deep(.el-input__wrapper) {
+    background: rgba(15, 23, 42, 0.55);
+    box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35) inset;
+
+    &.is-focus {
+      box-shadow: 0 0 0 1px #38bdf8 inset;
+    }
+  }
+
+  :deep(.el-input__inner) {
+    color: #e2e8f0;
+
+    &::placeholder {
+      color: #94a3b8;
+    }
+  }
+
+  :deep(.el-checkbox__label) {
+    color: #94a3b8;
+  }
+
+  .input-icon {
+    color: #94a3b8;
+  }
+}
+
+.login[data-theme='glass-light'] .login-form {
+  :deep(.el-input__wrapper) {
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12) inset;
+
+    &.is-focus {
+      box-shadow: 0 0 0 1px #2563eb inset;
+    }
+  }
+
+  :deep(.el-input__inner) {
+    color: #0f172a;
+
+    &::placeholder {
+      color: #64748b;
+    }
+  }
+
+  :deep(.el-checkbox__label) {
+    color: #475569;
+  }
+
+  .input-icon {
+    color: #64748b;
+  }
+
+  .link-type {
+    color: #2563eb;
   }
 }
 
@@ -385,17 +585,30 @@ getCookie();
   bottom: 0;
   width: 100%;
   text-align: center;
-  color: rgba(148, 163, 184, 0.9);
   font-family: Arial;
   z-index: 2;
   font-size: 12px;
   letter-spacing: 1px;
-  z-index: 1;
+  opacity: 0.75;
+}
+
+.login[data-theme='glass-dark'] .el-login-footer {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.login[data-theme='glass-light'] .el-login-footer {
+  color: rgba(15, 23, 42, 0.55);
 }
 
 .login-code-img {
   height: 42px;
   padding-left: 12px;
+}
+
+@media (max-width: 900px) {
+  .login-top-bar {
+    padding: 16px;
+  }
 }
 
 /* 窄屏适配：隐藏品牌栏 */

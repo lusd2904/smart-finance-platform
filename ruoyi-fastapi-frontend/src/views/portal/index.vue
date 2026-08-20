@@ -184,13 +184,10 @@ function navigateTo(path) {
 
 function toggleTheme() {
   settingsStore.toggleTheme()
-  applyThemeAttr()
 }
 
 function applyThemeAttr() {
-  const key = settingsStore.isDark ? 'glass-dark' : 'glass-light'
-  document.documentElement.setAttribute('data-theme', key)
-  document.documentElement.classList.toggle('dark', settingsStore.isDark)
+  settingsStore.applyTheme()
 }
 
 function handleLogout() {
