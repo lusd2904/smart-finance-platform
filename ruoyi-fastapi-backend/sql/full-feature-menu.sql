@@ -4,8 +4,8 @@
 -- trade  2400-2429（避开 2300 系统设置中心，绝对不能使用 2300-2399）
 
 -- 精确清理本文件 ID：不含 2408/2419/2420（deep-feature 风控）也不含 2300（系统设置中心）
-DELETE FROM sys_role_menu WHERE menu_id IN (2120, 2121, 2122) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;
-DELETE FROM sys_menu WHERE menu_id IN (2120, 2121, 2122) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;
+DELETE FROM sys_role_menu WHERE menu_id IN (2120, 2121, 2122, 2421) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;
+DELETE FROM sys_menu WHERE menu_id IN (2120, 2121, 2122, 2421) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;
 
 -- 行情扩展
 INSERT INTO sys_menu VALUES
@@ -34,9 +34,10 @@ INSERT INTO sys_menu VALUES
 ('2415', '回测运行', '2404', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:backtest:run', '#', 'admin', sysdate(), '', null, ''),
 ('2416', '回测列表', '2404', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:backtest:list', '#', 'admin', sysdate(), '', null, ''),
 ('2417', '通知列表', '2405', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:notice:list', '#', 'admin', sysdate(), '', null, ''),
-('2418', 'AI台账', '2406', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:aitrade:list', '#', 'admin', sysdate(), '', null, '');
+('2418', 'AI台账', '2406', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:aitrade:list', '#', 'admin', sysdate(), '', null, ''),
+('2421', 'AI扫描执行', '2406', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'trade:aitrade:run', '#', 'admin', sysdate(), '', null, '');
 
 -- 普通角色授权（admin 超管仍可见全部）
 -- 注意：仅授权本文件插入的 ID；2408/2409/2419/2420 由 deep-feature-menu.sql 负责
 INSERT INTO sys_role_menu
-SELECT '2', menu_id FROM sys_menu WHERE menu_id IN (2120, 2121, 2122) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;
+SELECT '2', menu_id FROM sys_menu WHERE menu_id IN (2120, 2121, 2122, 2421) OR menu_id BETWEEN 2400 AND 2407 OR menu_id BETWEEN 2410 AND 2418;

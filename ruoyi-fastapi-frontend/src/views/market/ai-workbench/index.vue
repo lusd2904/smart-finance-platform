@@ -24,6 +24,7 @@
           <el-form-item label="天数"><el-input-number v-model="days" :min="30" :max="365" /></el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="loading" @click="runAi">开始研判</el-button>
+            <el-button type="success" plain :loading="oneshotLoading" @click="runOneshot">One-Shot 全景</el-button>
             <el-button @click="loadLatest">最新结论</el-button>
           </el-form-item>
         </el-form>
@@ -50,6 +51,19 @@
             </el-card>
           </el-col>
         </el-row>
+      </el-tab-pane>
+      <el-tab-pane label="投研顾问" name="consultant">
+        <el-form class="mb16">
+          <el-form-item label="问题">
+            <el-input v-model="consultantQuestion" type="textarea" :rows="3" placeholder="例如：分析一下当前持仓风险与调仓建议" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="consultantLoading" @click="runConsultant">咨询顾问</el-button>
+          </el-form-item>
+        </el-form>
+        <el-card shadow="never" v-loading="consultantLoading">
+          <div class="sum" style="white-space: pre-wrap">{{ consultantReply || '顾问会结合长桥持仓给出建议' }}</div>
+        </el-card>
       </el-tab-pane>
       <el-tab-pane label="批量扫描" name="batch">
         <el-form :inline="true" class="mb16">
@@ -98,6 +112,7 @@
 <script setup name="MarketAiWorkbench">
 import { listInstrument, aiAnalyze, getLatestAi, getKline } from '@/api/market'
 import { runAiBatch, listAiBatches, listAiBatchItems } from '@/api/trade'
+import { analyzeOneshot, chatConsultant } from '@/api/ai/chat'
 
 const route = useRoute()
 const { proxy } = getCurrentInstance()
@@ -113,6 +128,10 @@ const batchMarket = ref('US')
 const batchLoading = ref(false)
 const batches = ref([])
 const batchItems = ref([])
+const oneshotLoading = ref(false)
+const consultantLoading = ref(false)
+const consultantQuestion = ref('分析一下我当前的持仓风险与调仓建议')
+const consultantReply = ref('')
 
 async function loadInst() {
   const res = await listInstrument()
@@ -142,6 +161,49 @@ async function runAi() {
     proxy.$modal.msgSuccess(result.value.message || '完成')
   } finally {
     loading.value = false
+  }
+}
+async function runOneshot() {
+  oneshotLoading.value = true
+  try {
+    const res = await analyzeOneshot({ symbol: symbol.value, market: market.value })
+    const data = res.data || {}
+    if (!data.ok) {
+      proxy.$modal.msgError(data.message || 'One-Shot 失败')
+      return
+    }
+    const parsed = data.result || {}
+    result.value = {
+      modelName: data.modelName,
+      finalDecision: parsed.decision,
+      trend: parsed.decision,
+      summary: parsed.trend_summary,
+      trendSummary: parsed.trend_summary,
+      advice: parsed.operation_advice,
+      operationAdvice: parsed.operation_advice,
+      support: (parsed.support_levels || []).join(' / '),
+      resistance: (parsed.resistance_levels || []).join(' / '),
+      riskWarning: parsed.risk_level,
+      confidence: parsed.confidence,
+      score: parsed.score
+    }
+    proxy.$modal.msgSuccess('One-Shot 研判完成')
+  } finally {
+    oneshotLoading.value = false
+  }
+}
+async function runConsultant() {
+  consultantLoading.value = true
+  try {
+    const res = await chatConsultant({ message: consultantQuestion.value, history: [] })
+    const data = res.data || {}
+    if (!data.ok) {
+      proxy.$modal.msgError(data.message || '顾问咨询失败')
+      return
+    }
+    consultantReply.value = data.reply || ''
+  } finally {
+    consultantLoading.value = false
   }
 }
 async function loadLatest() {

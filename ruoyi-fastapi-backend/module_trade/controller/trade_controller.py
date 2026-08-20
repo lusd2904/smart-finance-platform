@@ -1,3 +1,4 @@
+import json
 from typing import Annotated
 
 from fastapi import Body, Path, Query, Request, Response
@@ -9,6 +10,7 @@ from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
+from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.trade_service import TradeService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -107,14 +109,8 @@ async def trade_notifications(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     limit: Annotated[int, Query()] = 50,
 ) -> Response:
-    # 合并进程内 + 持久化通知，优先展示最新
-    from module_trade.service.platform_ext_service import PlatformExtService
-
-    mem = TradeService.list_notifications(limit)
-    db_rows = await PlatformExtService.list_notices_db(query_db, limit)
-    merged = list(db_rows) + list(mem)
-    merged.sort(key=lambda x: x.get('createTime') or '', reverse=True)
-    return ResponseUtil.success(data=merged[: max(1, min(limit, 200))])
+    data = await TradeService.list_notifications_services(query_db, limit=limit)
+    return ResponseUtil.success(data=data)
 
 
 @trade_controller.post(
@@ -127,16 +123,9 @@ async def trade_notifications_read(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     body: Annotated[dict, Body()] = None,
 ) -> Response:
-    from module_trade.service.platform_ext_service import PlatformExtService
-
     body = body or {}
     notice_id = body.get('id')
-    data = TradeService.mark_notification_read(int(notice_id) if notice_id else None)
-    # 持久化通知 id 通常较小，一并尝试标记
-    try:
-        await PlatformExtService.mark_notice_read_db(query_db, int(notice_id) if notice_id else None)
-    except Exception:
-        pass
+    data = await TradeService.mark_notification_read_services(query_db, int(notice_id) if notice_id else None)
     return ResponseUtil.success(data=data)
 
 
@@ -165,8 +154,12 @@ async def trade_backtest_run(
     summary='回测历史',
     dependencies=[UserInterfaceAuthDependency('trade:backtest:list')],
 )
-async def trade_backtest_list(request: Request) -> Response:
-    return ResponseUtil.success(data=TradeService.list_backtests())
+async def trade_backtest_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await TradeService.list_backtests_services(query_db)
+    return ResponseUtil.success(data=data)
 
 
 @trade_controller.get(
@@ -177,18 +170,118 @@ async def trade_backtest_list(request: Request) -> Response:
 async def trade_backtest_detail(
     request: Request,
     run_id: Annotated[int, Path()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    data = TradeService.get_backtest(run_id)
+    data = await TradeService.get_backtest_services(query_db, run_id)
     return ResponseUtil.success(data=data)
+
+
+from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E402
+
+
+@trade_controller.get(
+    '/auto/status',
+    summary='获取AI自动交易状态与日内护栏',
+    dependencies=[UserInterfaceAuthDependency('trade:aitrade:list')],
+)
+async def auto_trade_status(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await AutoTradeService.get_status(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.post(
+    '/auto/run',
+    summary='手动触发自选池AI自动交易扫描',
+    dependencies=[UserInterfaceAuthDependency('trade:aitrade:run')],
+)
+@Log(title='AI自动交易扫描', business_type=BusinessType.OTHER)
+async def auto_trade_run(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    body = body or {}
+    data = await AutoTradeService.run_watchlist_strategy_cycle(
+        query_db,
+        symbols=body.get('symbols'),
+        source='manual_api',
+        execute=bool(body.get('execute')),
+        strategy_profile=body.get('strategyProfile', 'balanced'),
+        custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
+    )
+    return ResponseUtil.success(data=data, msg=data.get('message', '扫描完成'))
 
 
 @trade_controller.get(
     '/ai-trade-runs',
-    summary='AI自动交易台账',
+    summary='AI自动交易台账列表',
     dependencies=[UserInterfaceAuthDependency('trade:aitrade:list')],
 )
-async def trade_ai_runs(request: Request) -> Response:
-    return ResponseUtil.success(data=TradeService.list_ai_trade_runs())
+async def trade_ai_runs(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 30,
+) -> Response:
+    logs = await TradeDao.list_ai_trade_run_logs(query_db, limit=limit)
+    res = [
+        {
+            'runId': log.run_id,
+            'cycleId': log.cycle_id,
+            'source': log.source,
+            'strategyProfile': log.strategy_profile,
+            'targetCount': log.target_count,
+            'evaluatedCount': log.evaluated_count,
+            'opportunityCount': log.opportunity_count,
+            'submittedOrdersCount': log.submitted_orders_count,
+            'status': log.status,
+            'guardrailSnapshot': json.loads(log.guardrail_snapshot) if log.guardrail_snapshot else {},
+            'candidatesSnapshot': json.loads(log.candidates_snapshot) if log.candidates_snapshot else [],
+            'opportunitiesSnapshot': json.loads(log.opportunities_snapshot) if log.opportunities_snapshot else [],
+            'skippedReasons': json.loads(log.skipped_reasons) if log.skipped_reasons else [],
+            'message': log.message,
+            'startedAt': log.started_at.strftime('%Y-%m-%d %H:%M:%S') if log.started_at else None,
+            'finishedAt': log.finished_at.strftime('%Y-%m-%d %H:%M:%S') if log.finished_at else None,
+        }
+        for log in logs
+    ]
+    return ResponseUtil.success(data=res)
+
+
+@trade_controller.get(
+    '/auto/decisions',
+    summary='AI自动交易决策明细',
+    dependencies=[UserInterfaceAuthDependency('trade:aitrade:list')],
+)
+async def trade_auto_decisions(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    cycle_id: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query()] = 50,
+) -> Response:
+    decisions = await TradeDao.list_auto_trade_decisions(query_db, limit=limit, cycle_id=cycle_id)
+    res = [
+        {
+            'decisionId': d.decision_id,
+            'cycleId': d.cycle_id,
+            'symbol': d.symbol,
+            'market': d.market,
+            'side': d.side,
+            'quantity': d.quantity,
+            'price': float(d.price) if d.price else None,
+            'confidence': d.confidence,
+            'status': d.status,
+            'reason': d.reason,
+            'source': d.source,
+            'orderId': d.order_id,
+            'error': d.error,
+            'createTime': d.create_time.strftime('%Y-%m-%d %H:%M:%S') if d.create_time else None,
+        }
+        for d in decisions
+    ]
+    return ResponseUtil.success(data=res)
 
 
 # ---------------- 平台加深：覆盖/策略配置/风控/批量AI/持久通知 ----------------
@@ -306,6 +399,24 @@ async def risk_evaluate(
 ) -> Response:
     data = await PlatformExtService.evaluate_risk(query_db)
     return ResponseUtil.success(data=data, msg=f"生成 {data.get('created', 0)} 条事件")
+
+
+@trade_controller.put(
+    '/risk/events/{event_id}/status',
+    summary='更新风控事件状态',
+    dependencies=[UserInterfaceAuthDependency('trade:risk:edit')],
+)
+@Log(title='风控事件处理', business_type=BusinessType.UPDATE)
+async def update_risk_event_status(
+    request: Request,
+    event_id: Annotated[int, Path()],
+    body: Annotated[dict, Body()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    handled = str(body.get('handled') or '1')
+    await TradeDao.update_risk_event_status(query_db, event_id=event_id, handled=handled)
+    await query_db.commit()
+    return ResponseUtil.success(msg='更新风控状态成功')
 
 
 @trade_controller.get(

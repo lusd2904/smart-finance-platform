@@ -28,7 +28,23 @@ quant_controller = APIRouterPro(
 )
 
 
-# ---------------------------------------------------------------- 因子 ---
+from module_quant.service.readmodel_service import ReadModelService  # noqa: E402
+
+
+@quant_controller.get(
+    '/readmodel/overview',
+    summary='全景读模型综合总览快照',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def readmodel_overview(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_quant.service.longbridge_service import LongbridgeService
+
+    await LongbridgeService.ensure_credentials_from_db(query_db)
+    snapshot = await ReadModelService.get_platform_overview_snapshot()
+    return ResponseUtil.success(data=snapshot)
 
 
 @quant_controller.get(

@@ -9,10 +9,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+
+_QUOTE_CACHE_TTL = 15
+_ACCOUNT_CACHE_TTL = 30
 
 
 def _resolve_region(region: str | None) -> str:
@@ -42,6 +47,18 @@ class LongbridgeService:
 
     # 运行期凭据覆盖（由 service 层在读取 DB 后注入，避免此模块直接依赖 DB）
     _override_credentials: dict[str, str] | None = None
+    _cached_creds_sig: str | None = None
+    _cached_quote_ctx: Any = None
+    _cached_trade_ctx: Any = None
+    _cached_content_ctx: Any = None
+
+    @classmethod
+    def _clear_cached_contexts(cls) -> None:
+        """清理已缓存的上下文对象"""
+        cls._cached_quote_ctx = None
+        cls._cached_trade_ctx = None
+        cls._cached_content_ctx = None
+        cls._cached_creds_sig = None
 
     @classmethod
     def set_credentials(cls, credentials: dict[str, str] | None) -> None:
@@ -56,6 +73,7 @@ class LongbridgeService:
             cls._override_credentials = credentials
         else:
             cls._override_credentials = None
+        cls._clear_cached_contexts()
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
@@ -108,6 +126,11 @@ class LongbridgeService:
             return False
 
     @classmethod
+    def _get_creds_signature(cls, creds: dict[str, str]) -> str:
+        """计算凭证摘要用于缓存失效检测"""
+        return f"{creds.get('app_key')}:{creds.get('app_secret')}:{creds.get('access_token')}:{creds.get('region')}"
+
+    @classmethod
     def _build_config(cls) -> Any:
         """
         用当前凭据构建 longport 的 Config（延迟导入）。凭据不全返回 None。
@@ -138,23 +161,45 @@ class LongbridgeService:
 
     @classmethod
     def _build_quote_context(cls) -> Any:
-        """构建 QuoteContext（延迟导入）。"""
+        """构建/复用 QuoteContext（延迟导入）。"""
+        creds = cls.resolve_credentials()
+        sig = cls._get_creds_signature(creds)
+        if cls._cached_quote_ctx is not None and cls._cached_creds_sig == sig:
+            return cls._cached_quote_ctx
+
         config = cls._build_config()
         if config is None:
             return None
         from longport.openapi import QuoteContext
 
-        return QuoteContext(config)
+        try:
+            cls._cached_quote_ctx = QuoteContext(config)
+            cls._cached_creds_sig = sig
+            return cls._cached_quote_ctx
+        except Exception as exc:
+            logger.warning(f'[长桥] 构建QuoteContext失败: {exc}')
+            return None
 
     @classmethod
     def _build_trade_context(cls) -> Any:
-        """构建 TradeContext（延迟导入）。"""
+        """构建/复用 TradeContext（延迟导入）。"""
+        creds = cls.resolve_credentials()
+        sig = cls._get_creds_signature(creds)
+        if cls._cached_trade_ctx is not None and cls._cached_creds_sig == sig:
+            return cls._cached_trade_ctx
+
         config = cls._build_config()
         if config is None:
             return None
         from longport.openapi import TradeContext
 
-        return TradeContext(config)
+        try:
+            cls._cached_trade_ctx = TradeContext(config)
+            cls._cached_creds_sig = sig
+            return cls._cached_trade_ctx
+        except Exception as exc:
+            logger.warning(f'[长桥] 构建TradeContext失败: {exc}')
+            return None
 
     # ------------------------------------------------------------- 对外接口 ---
 
@@ -223,12 +268,17 @@ class LongbridgeService:
             logger.warning(f'[长桥] 从DB加载凭据失败: {exc}')
 
     @classmethod
-    def get_realtime_quote(cls, symbols: list[str]) -> dict[str, Any]:
+    def get_realtime_quote(cls, symbols: list[str] | str) -> dict[str, Any]:
         """
         获取实时行情。凭据为空返回 configured=False。
 
-        :param symbols: 长桥标准代码列表，如 ['AAPL.US','700.HK']
+        :param symbols: 长桥标准代码列表，如 ['AAPL.US','700.HK']；单个字符串也会被包装成列表。
         """
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        symbols = [s for s in (str(x).strip() for x in (symbols or [])) if s]
+        if not symbols:
+            return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'quotes': []}
         try:
@@ -326,14 +376,21 @@ class LongbridgeService:
 
     @classmethod
     def _build_content_context(cls) -> Any:
-        """构建 ContentContext（延迟导入）。"""
+        """构建/复用 ContentContext（延迟导入）。"""
+        creds = cls.resolve_credentials()
+        sig = cls._get_creds_signature(creds)
+        if cls._cached_content_ctx is not None and cls._cached_creds_sig == sig:
+            return cls._cached_content_ctx
+
         config = cls._build_config()
         if config is None:
             return None
         try:
             from longport.openapi import ContentContext
 
-            return ContentContext(config)
+            cls._cached_content_ctx = ContentContext(config)
+            cls._cached_creds_sig = sig
+            return cls._cached_content_ctx
         except Exception as exc:
             logger.warning(f'[长桥] ContentContext 不可用: {exc}')
             return None
@@ -515,3 +572,124 @@ class LongbridgeService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def normalize_symbols(cls, symbols: list[str] | str, market: str = 'US') -> list[str]:
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        out: list[str] = []
+        for raw in symbols or []:
+            text = str(raw or '').strip()
+            if not text:
+                continue
+            out.append(cls.to_longbridge_symbol(text, market))
+        return out
+
+    @classmethod
+    def extract_last_price(cls, quote_result: dict[str, Any], symbol: str | None = None) -> float:
+        """从 get_realtime_quote 结果中取 lastDone。"""
+        quotes = quote_result.get('quotes') or []
+        if symbol:
+            target = str(symbol).strip().upper()
+            lb = cls.to_longbridge_symbol(target).upper()
+            for q in quotes:
+                q_sym = str(q.get('symbol') or '').upper()
+                if q_sym in {target, lb}:
+                    return float(q.get('lastDone') or 0)
+        if quotes:
+            return float(quotes[0].get('lastDone') or 0)
+        return 0.0
+
+    @classmethod
+    def extract_order_id(cls, order_result: dict[str, Any]) -> str | None:
+        if not order_result.get('ok'):
+            return None
+        data = order_result.get('data') if isinstance(order_result.get('data'), dict) else {}
+        order_id = order_result.get('orderId') or (data or {}).get('order_id') or (data or {}).get('orderId')
+        return str(order_id) if order_id else None
+
+    @classmethod
+    def flatten_account(cls, account_result: dict[str, Any]) -> dict[str, Any]:
+        """把 {balances:[{totalCash, netAssets, ...}]} 压成前端常用扁平字段。"""
+        balances = account_result.get('balances') or []
+        first = balances[0] if balances else {}
+        return {
+            'configured': bool(account_result.get('configured')),
+            'message': account_result.get('message'),
+            'currency': first.get('currency') or 'USD',
+            'totalCash': float(first.get('totalCash') or 0),
+            'availableCash': float(first.get('availableCash') or first.get('totalCash') or 0),
+            'netAssets': float(first.get('netAssets') or first.get('totalCash') or 0),
+            'balances': balances,
+        }
+
+    @classmethod
+    async def get_realtime_quote_async(cls, symbols: list[str] | str, market: str = 'US') -> dict[str, Any]:
+        normalized = cls.normalize_symbols(symbols, market)
+        cache_key = 'lb:quote:' + ','.join(sorted(normalized))
+        cached = await cache_get_json(cache_key)
+        if cached:
+            cached['cached'] = True
+            return cached
+        data = await asyncio.to_thread(cls.get_realtime_quote, normalized)
+        if data.get('quotes'):
+            await cache_set_json(cache_key, data, _QUOTE_CACHE_TTL)
+        return data
+
+    @classmethod
+    async def get_account_balance_async(cls) -> dict[str, Any]:
+        cache_key = 'lb:account'
+        cached = await cache_get_json(cache_key)
+        if cached:
+            cached['cached'] = True
+            return cached
+        data = await asyncio.to_thread(cls.get_account_balance)
+        if data.get('configured') and data.get('balances'):
+            await cache_set_json(cache_key, data, _ACCOUNT_CACHE_TTL)
+        return data
+
+    @classmethod
+    async def get_positions_async(cls) -> dict[str, Any]:
+        cache_key = 'lb:positions'
+        cached = await cache_get_json(cache_key)
+        if cached:
+            cached['cached'] = True
+            return cached
+        data = await asyncio.to_thread(cls.get_positions)
+        if data.get('configured'):
+            await cache_set_json(cache_key, data, _ACCOUNT_CACHE_TTL)
+        return data
+
+    @classmethod
+    async def get_today_orders_async(cls) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.get_today_orders)
+
+    @classmethod
+    async def get_history_orders_async(cls, limit: int = 50) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.get_history_orders, limit)
+
+    @classmethod
+    async def submit_order_async(
+        cls,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str = 'LO',
+        price: float | None = None,
+        time_in_force: str = 'Day',
+        market: str = 'US',
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            cls.submit_order,
+            symbol,
+            side,
+            quantity,
+            order_type,
+            price,
+            time_in_force,
+            market,
+        )
+
+    @classmethod
+    async def cancel_order_async(cls, order_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.cancel_order, order_id)

@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: smart-finance
+    orgId: 1
+    folder: Smart Finance
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

@@ -40,8 +40,20 @@ export function getBacktest(runId) {
   return request({ url: '/trade/backtest/' + runId, method: 'get' })
 }
 
-export function listAiTradeRuns() {
-  return request({ url: '/trade/ai-trade-runs', method: 'get' })
+export function listAiTradeRuns(limit = 30) {
+  return request({ url: '/trade/ai-trade-runs', method: 'get', params: { limit } })
+}
+
+export function getAutoTradeStatus() {
+  return request({ url: '/trade/auto/status', method: 'get' })
+}
+
+export function runAutoTrade(data) {
+  return request({ url: '/trade/auto/run', method: 'post', data, timeout: 120000 })
+}
+
+export function listAutoTradeDecisions(params) {
+  return request({ url: '/trade/auto/decisions', method: 'get', params })
 }
 
 export function getHistoryCoverage() {

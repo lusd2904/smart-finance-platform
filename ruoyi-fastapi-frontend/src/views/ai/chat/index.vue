@@ -425,9 +425,6 @@ import AiMessage from "./components/AiMessage.vue";
 import { Picture, DocumentCopy } from "@element-plus/icons-vue";
 import { v4 as uuidv4 } from "uuid";
 import { useResizeObserver } from "@vueuse/core";
-import { getUseMonaco } from 'markstream-vue'
-
-getUseMonaco()
 
 const { proxy } = getCurrentInstance();
 

@@ -42,7 +42,7 @@ class KlineQueryModel(BaseModel):
     symbol: str = Field(description='标准符号')
     market: str = Field(default='US', description='市场（US/CN/HK）')
     period: str = Field(default='daily', description='周期（当前仅支持daily）')
-    start: str = Field(default='-10y', description='起始时间（Flux时间或YYYY-MM-DD）')
+    start: str = Field(default='-2y', description='起始时间（Flux时间或YYYY-MM-DD）')
     stop: str = Field(default='now()', description='结束时间')
 
 
@@ -55,7 +55,7 @@ class IndicatorQueryModel(BaseModel):
 
     symbol: str = Field(description='标准符号')
     market: str = Field(default='US', description='市场（US/CN/HK）')
-    start: str = Field(default='-10y', description='起始时间')
+    start: str = Field(default='-2y', description='起始时间')
     stop: str = Field(default='now()', description='结束时间')
 
 

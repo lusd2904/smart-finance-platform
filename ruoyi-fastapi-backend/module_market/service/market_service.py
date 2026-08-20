@@ -34,11 +34,17 @@ from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
+# Common Service pattern - will use BaseService in future
+
 
 class MarketService:
+    """Market Service - using common template pattern"""
+    dao = None  # Will be set with BaseService in future
+
     """
     行情数据中心服务层
     """
+
 
     # ---------- 标的元数据 ----------
 
@@ -205,7 +211,13 @@ class MarketService:
 
         loop = asyncio.get_event_loop()
         klines = await loop.run_in_executor(
-            None, InfluxUtil.query_klines, analyze_object.market, analyze_object.symbol, '-2y', 'now()'
+            None,
+            InfluxUtil.query_klines,
+            analyze_object.market,
+            analyze_object.symbol,
+            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
+            'now()',
+            400,
         )
         if not klines:
             return {
@@ -292,6 +304,59 @@ class MarketService:
         }
 
     @classmethod
+    async def ai_analyze_stream_services(
+        cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
+    ):
+        """
+        行情AI分析流式传输生成器
+        """
+        base_url = api_key = model_name = None
+        temperature = 0.2
+        try:
+            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
+            if ai_model:
+                base_url = ai_model.base_url
+                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
+                model_name = ai_model.model_code
+                if ai_model.temperature is not None:
+                    temperature = ai_model.temperature
+        except Exception as exc:
+            logger.warning(f'[行情AI流式] 解析 AI 模型失败: {exc}')
+
+        if not base_url or not api_key or not model_name:
+            yield json.dumps({'error': '未配置AI分析参数，请先在AI模型管理中配置'}, ensure_ascii=False)
+            return
+
+        klines = await asyncio.to_thread(
+            InfluxUtil.query_klines,
+            analyze_object.market,
+            analyze_object.symbol,
+            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
+            'now()',
+            400,
+        )
+        if not klines:
+            yield json.dumps({'error': f'标的 {analyze_object.symbol} 暂无K线数据'}, ensure_ascii=False)
+            return
+
+        recent = klines[-analyze_object.days :] if analyze_object.days > 0 else klines
+        snapshot = await asyncio.to_thread(IndicatorService.latest_snapshot, klines)
+        meta = get_instrument_meta(analyze_object.symbol)
+        name = meta[1] if meta else analyze_object.symbol
+
+        async for chunk in MarketAiAnalyzer.analyze_stream(
+            base_url=base_url,
+            api_key=api_key,
+            model_name=model_name,
+            symbol=analyze_object.symbol,
+            name=name,
+            klines=recent,
+            indicator_snapshot=snapshot,
+            temperature=temperature,
+        ):
+            yield chunk
+
+    @classmethod
     async def get_latest_ai_analysis(
         cls, query_db: AsyncSession, symbol: str, market: str = 'US'
     ) -> dict[str, Any] | None:
@@ -345,7 +410,7 @@ class MarketService:
 
         loop = asyncio.get_event_loop()
         klines = await loop.run_in_executor(
-            None, InfluxUtil.query_klines, market, symbol, '-2y', 'now()'
+            None, InfluxUtil.query_klines, market, symbol, '-1y', 'now()', history_limit
         )
         snapshot = await loop.run_in_executor(None, IndicatorService.latest_snapshot, klines) if klines else {}
         quote = cls._build_quote_from_klines(klines)

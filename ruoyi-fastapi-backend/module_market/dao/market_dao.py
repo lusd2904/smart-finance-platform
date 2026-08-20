@@ -14,9 +14,7 @@ from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
 
 
 class MarketInstrumentDao:
-    """
-    行情标的元数据数据库操作层
-    """
+    """行情标的元数据数据库操作层"""
 
     @classmethod
     async def get_instrument_list(

@@ -1,6 +1,13 @@
 import request from '@/utils/request'
 
 // 查询7大因子族定义
+export function getReadmodelOverview() {
+  return request({
+    url: '/quant/readmodel/overview',
+    method: 'get'
+  })
+}
+
 export function getFactorSchema() {
   return request({
     url: '/quant/factor/schema',

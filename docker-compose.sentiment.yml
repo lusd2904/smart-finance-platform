@@ -24,6 +24,8 @@ services:
     container_name: sentiment-backend
     ports:
       - "19099:9099"
+    volumes:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment:/app/.env.dockersentiment:ro
     depends_on:
       ruoyi-mysql:
         condition: service_healthy
@@ -73,6 +75,10 @@ services:
       - ./ruoyi-fastapi-backend/sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
       - ./ruoyi-fastapi-backend/sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
       - ./ruoyi-fastapi-backend/sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
+      - ./ruoyi-fastapi-backend/sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
+      - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
+      - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
+      - ./ruoyi-fastapi-test/disable_captcha.sql:/docker-entrypoint-initdb.d/08-disable-captcha.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1
     networks:
       - sentiment-network

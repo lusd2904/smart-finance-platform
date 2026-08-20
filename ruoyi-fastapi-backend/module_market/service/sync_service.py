@@ -46,16 +46,20 @@ class MarketSyncService:
     """行情数据同步服务（同步 IO，可放线程池）。"""
 
     @classmethod
-    def _app_db_conn(cls) -> pymysql.connections.Connection:
-        return pymysql.connect(
-            host=DataBaseConfig.db_host,
-            port=int(DataBaseConfig.db_port),
-            user=DataBaseConfig.db_username,
-            password=DataBaseConfig.db_password,
-            database=DataBaseConfig.db_database,
-            charset='utf8mb4',
-            autocommit=True,
-        )
+    def _app_db_conn(cls) -> pymysql.connections.Connection | None:
+        try:
+            return pymysql.connect(
+                host=DataBaseConfig.db_host,
+                port=int(DataBaseConfig.db_port),
+                user=DataBaseConfig.db_username,
+                password=DataBaseConfig.db_password,
+                database=DataBaseConfig.db_database,
+                charset='utf8mb4',
+                autocommit=True,
+            )
+        except Exception as e:
+            logger.info(f'[行情同步] 业务数据库直连跳过 (非MySQL或不可用): {e}')
+            return None
 
     @classmethod
     def _quant_db_conn(cls) -> pymysql.connections.Connection | None:
@@ -97,6 +101,8 @@ class MarketSyncService:
         """
         try:
             conn = cls._app_db_conn()
+            if conn is None:
+                return
             try:
                 with conn.cursor() as cur:
                     cur.execute(sql)
@@ -225,6 +231,8 @@ class MarketSyncService:
             cls.ensure_history_table()
             start_str = cls._start_date(years).strftime('%Y-%m-%d')
             conn = cls._app_db_conn()
+            if conn is None:
+                return []
             try:
                 with conn.cursor() as cur:
                     cur.execute(

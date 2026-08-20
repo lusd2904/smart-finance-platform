@@ -99,11 +99,17 @@ class InfluxUtil:
 
     @classmethod
     def query_klines(
-        cls, market: str, symbol: str, start: str = '-10y', stop: str = 'now()'
+        cls,
+        market: str,
+        symbol: str,
+        start: str = '-2y',
+        stop: str = 'now()',
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """
         查询单标的日K线，按时间升序。
         start/stop 为Flux时间（如 '-1y' 或 RFC3339）。
+        limit 取时间序列末尾 N 根（因子/AI 场景不必拉满历史）。
         返回 [{date, open, high, low, close, volume}]
         Influx 不可用时返回空列表，避免接口 500。
         """
@@ -115,13 +121,16 @@ class InfluxUtil:
             if symbol is None or start_clause is None or stop_clause is None:
                 logger.warning(f'[Influx] 非法查询参数被拒绝 symbol={symbol} start={start} stop={stop}')
                 return []
+            tail_clause = ''
+            if isinstance(limit, int) and 1 <= limit <= 5000:
+                tail_clause = f'\n  |> tail(n: {int(limit)})'
             flux = f'''
 from(bucket: "{bucket}")
   |> range(start: {start_clause}, stop: {stop_clause})
   |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
   |> filter(fn: (r) => r.symbol == "{symbol}")
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> sort(columns: ["_time"])
+  |> sort(columns: ["_time"]){tail_clause}
 '''
             tables = get_client().query_api().query(flux)
             result: list[dict[str, Any]] = []

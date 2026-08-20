@@ -66,6 +66,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     :param app: FastAPI对象
     :return: None
     """
+    import time
+    app.state._start_time = time.time()
     app.state.redis = await RedisUtil.create_redis_pool(log_enabled=False)
     startup_log_enabled = await StartupUtil.acquire_startup_log_gate(
         redis=app.state.redis,
@@ -164,5 +166,11 @@ def create_app() -> FastAPI:
     handle_exception(app)
     # 自动注册路由
     auto_register_routers(app)
+
+    @app.get('/metrics', summary='Prometheus 监控指标', include_in_schema=False)
+    async def metrics():
+        from middlewares.metrics_middleware import render_metrics
+
+        return render_metrics()
 
     return app

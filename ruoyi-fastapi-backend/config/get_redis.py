@@ -15,6 +15,13 @@ class RedisUtil:
     Redis相关方法
     """
 
+    _client: aioredis.Redis | None = None
+
+    @classmethod
+    def get_client(cls) -> aioredis.Redis | None:
+        """返回进程内 Redis 连接，启动前或关闭后为 None。"""
+        return cls._client
+
     @classmethod
     async def create_redis_pool(cls, log_enabled: bool = True, log_start_enabled: bool | None = None) -> aioredis.Redis:
         """
@@ -37,6 +44,7 @@ class RedisUtil:
             log_start_enabled = log_enabled
         if log_enabled or log_start_enabled:
             await cls.check_redis_connection(redis, log_enabled=log_enabled, log_start_enabled=log_start_enabled)
+        cls._client = redis
         return redis
 
     @classmethod
@@ -82,6 +90,7 @@ class RedisUtil:
         :return:
         """
         await app.state.redis.close()
+        cls._client = None
         logger.info('✅️ 关闭redis连接成功')
 
     @classmethod

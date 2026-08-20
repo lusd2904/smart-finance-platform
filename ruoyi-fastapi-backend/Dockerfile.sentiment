@@ -13,4 +13,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ default
 EXPOSE 9099
 
 # 启动命令
-CMD ["ruoyi", "app", "run", "--env=dockersentiment"]
+ENV APP_ENV=dockersentiment
+CMD ["python", "app.py", "--env=dockersentiment"]

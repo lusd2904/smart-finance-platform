@@ -405,8 +405,12 @@ function handleAiAnalyze() {
   });
 }
 
+let resizeTimer = null;
 function handleResize() {
-  chart && chart.resize();
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    chart && chart.resize();
+  }, 100);
 }
 
 onMounted(() => {
@@ -415,6 +419,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (resizeTimer) clearTimeout(resizeTimer);
   window.removeEventListener('resize', handleResize);
   if (chart) {
     chart.dispose();

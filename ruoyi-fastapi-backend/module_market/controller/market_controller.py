@@ -3,6 +3,8 @@ from typing import Annotated
 from fastapi import Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi.responses import StreamingResponse
+
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
@@ -24,6 +26,44 @@ from utils.response_util import ResponseUtil
 market_controller = APIRouterPro(
     prefix='/market', order_num=31, tags=['行情数据'], dependencies=[PreAuthDependency()]
 )
+
+
+import json  # noqa: E402
+import time  # noqa: E402
+from module_market.service.tradingview_service import TradingViewDatafeedService  # noqa: E402
+
+
+@market_controller.get('/tradingview/config', summary='TradingView 配置')
+async def tradingview_config(request: Request) -> Response:
+    return Response(content=json.dumps(TradingViewDatafeedService.get_config()), media_type='application/json')
+
+
+@market_controller.get('/tradingview/symbols', summary='TradingView 标的信息')
+async def tradingview_symbols(
+    request: Request, symbol: Annotated[str, Query(description='标的代码')] = 'AAPL.US'
+) -> Response:
+    return Response(
+        content=json.dumps(TradingViewDatafeedService.get_symbol_info(symbol)), media_type='application/json'
+    )
+
+
+@market_controller.get('/tradingview/history', summary='TradingView K线历史')
+async def tradingview_history(
+    request: Request,
+    symbol: Annotated[str, Query(description='标的代码')],
+    from_ts: Annotated[int | None, Query(alias='from')] = None,
+    to_ts: Annotated[int | None, Query(alias='to')] = None,
+    resolution: Annotated[str, Query()] = 'D',
+) -> Response:
+    bars = await TradingViewDatafeedService.get_history_bars(
+        symbol=symbol, from_ts=from_ts, to_ts=to_ts, resolution=resolution
+    )
+    return Response(content=json.dumps(bars), media_type='application/json')
+
+
+@market_controller.get('/tradingview/time', summary='TradingView 服务端时间')
+async def tradingview_time(request: Request) -> Response:
+    return Response(content=str(int(time.time())), media_type='text/plain')
 
 
 @market_controller.get(
@@ -135,6 +175,24 @@ async def market_ai_analyze(
     logger.info(f'行情AI分析完成: {analyze_body.symbol} -> {result.get("message")}')
 
     return ResponseUtil.success(data=result, msg=result.get('message', ''))
+
+
+@market_controller.get(
+    '/ai/analyze/stream',
+    summary='AI行情分析流式接口(SSE)',
+    description='对某标的做AI行情流式打字机分析输出',
+    dependencies=[UserInterfaceAuthDependency('market:ai:analyze')],
+)
+async def market_ai_analyze_stream(
+    request: Request,
+    symbol: Annotated[str, Query(description='标的代码')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/CN/HK')] = 'US',
+    days: Annotated[int, Query(description='分析天数')] = 90,
+) -> StreamingResponse:
+    analyze_body = MarketAiAnalyzeModel(symbol=symbol, market=market, days=days)
+    stream_gen = MarketService.ai_analyze_stream_services(query_db, analyze_body)
+    return StreamingResponse(stream_gen, media_type='text/event-stream')
 
 
 @market_controller.get(

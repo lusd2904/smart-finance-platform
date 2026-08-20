@@ -1,0 +1,47 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: smart-finance-prometheus
+    restart: unless-stopped
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sentiment-network
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: smart-finance-grafana
+    restart: unless-stopped
+    ports:
+      - "13000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - sentiment-network
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  sentiment-network:
+    external: true
+    name: sentiment-network

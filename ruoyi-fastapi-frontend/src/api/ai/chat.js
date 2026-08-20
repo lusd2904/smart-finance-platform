@@ -51,3 +51,21 @@ export function cancelChatRun(runId) {
     },
   });
 }
+
+export function analyzeOneshot(data) {
+  return request({
+    url: "/ai/chat/oneshot",
+    method: "post",
+    data,
+    timeout: 120000,
+  });
+}
+
+export function chatConsultant(data) {
+  return request({
+    url: "/ai/chat/consultant",
+    method: "post",
+    data,
+    timeout: 120000,
+  });
+}

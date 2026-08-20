@@ -29,6 +29,40 @@ ai_chat_controller = APIRouterPro(
 )
 
 
+from module_ai.service.ai_consultant_service import AiConsultantService  # noqa: E402
+from module_ai.service.unified_ai_service import UnifiedAiService  # noqa: E402
+
+
+@ai_chat_controller.post(
+    '/consultant',
+    summary='持仓投研智能顾问对话',
+)
+async def chat_consultant(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()],
+) -> Response:
+    message = str(body.get('message') or '')
+    history = body.get('history') or []
+    res = await AiConsultantService.chat_consultant(query_db, message=message, history=history)
+    return ResponseUtil.success(data=res)
+
+
+@ai_chat_controller.post(
+    '/oneshot',
+    summary='One-Shot 统一全景 AI 研判',
+)
+async def oneshot_analyze(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()],
+) -> Response:
+    symbol = str(body.get('symbol') or 'NVDA.US')
+    market = str(body.get('market') or 'US')
+    res = await UnifiedAiService.analyze_symbol_oneshot(query_db, symbol=symbol, market=market)
+    return ResponseUtil.success(data=res)
+
+
 @ai_chat_controller.post(
     '/send',
     summary='发送对话消息',

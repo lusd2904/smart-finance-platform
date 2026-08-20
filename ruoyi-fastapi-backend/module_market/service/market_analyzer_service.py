@@ -110,3 +110,54 @@ class MarketAiAnalyzer:
         except Exception as e:
             logger.error(f'[行情AI分析] 解析模型返回失败: {e}, raw={raw[:500]}')
             return {'ok': False, 'result': None, 'raw': raw, 'error': f'解析模型返回失败: {e}'}
+
+    @classmethod
+    async def analyze_stream(
+        cls,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+        symbol: str,
+        name: str,
+        klines: list[dict[str, Any]],
+        indicator_snapshot: dict[str, Any],
+        temperature: float = 0.2,
+    ):
+        """
+        调用OpenAI兼容 chat/completions 接口，流式返回行情分析文本片段。
+        """
+        url = base_url.rstrip('/')
+        if not url.endswith('/chat/completions'):
+            url = f'{url}/chat/completions'
+        payload = {
+            'model': model_name,
+            'temperature': temperature,
+            'stream': True,
+            'messages': [
+                {'role': 'system', 'content': MARKET_ANALYSIS_SYSTEM_PROMPT},
+                {'role': 'user', 'content': cls._build_user_prompt(symbol, name, klines, indicator_snapshot)},
+            ],
+        }
+        headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                async with client.stream('POST', url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith('data: '):
+                            data_str = line[6:].strip()
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk.get('choices', [{}])[0].get('delta', {})
+                                content = delta.get('content', '')
+                                if content:
+                                    yield content
+                            except Exception:
+                                continue
+        except Exception as e:
+            logger.error(f'[行情AI流式分析] 调用模型异常: {e}')
+            yield f'\n[分析异常: {e}]'
