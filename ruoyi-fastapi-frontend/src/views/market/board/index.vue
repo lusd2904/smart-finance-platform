@@ -30,7 +30,7 @@
   </div>
 </template>
 <script setup name="MarketBoard">
-import { listInstrument, getKline } from '@/api/market'
+import { getBoardQuotes } from '@/api/market'
 const router=useRouter()
 const loading=ref(false)
 const rows=ref([])
@@ -50,27 +50,24 @@ const sorted=computed(()=>{
 function onSort({prop,order}){ sortProp.value=prop; sortOrder.value=order }
 function goKline(r){ router.push({path:'/market/kline', query:{symbol:r.symbol, market:r.market||'US'}}) }
 function goDetail(r){ router.push({path:'/market/symbol', query:{symbol:r.symbol, market:r.market||'US'}}) }
-async function quote(item){
-  try{
-    const res=await getKline({symbol:item.symbol, market:item.market||'US', start:'-10d', stop:'now()'})
-    const kl=(res.data&&res.data.klines)||[]
-    if(!kl.length) return item
-    const last=kl[kl.length-1], prev=kl.length>1?kl[kl.length-2]:null
-    const price=Number(last.close)
-    let change=null
-    if(prev&&prev.close) change=((price-Number(prev.close))/Number(prev.close))*100
-    return {...item, price:price.toFixed(2), change, changeText: change==null?'--':`${change>=0?'+':''}${change.toFixed(2)}%`, up: change==null?true:change>=0}
-  }catch(e){ return item }
+function formatQuote(item){
+  const price = item.price == null ? null : Number(item.price)
+  const change = item.changeRate == null ? item.change : item.changeRate
+  return {
+    ...item,
+    price: price == null || Number.isNaN(price) ? null : price.toFixed(2),
+    change,
+    changeText: item.changeText || (change == null ? '--' : `${change >= 0 ? '+' : ''}${Number(change).toFixed(2)}%`),
+    up: item.up == null ? true : !!item.up
+  }
 }
 async function loadAll(){
   loading.value=true
   try{
-    const res=await listInstrument()
-    const all=(res.data||[]).map(r=>({symbol:r.symbol,name:r.name,market:r.market||'US',category:r.category}))
-    const idx=all.filter(i=>String(i.category)==='index'||String(i.symbol).startsWith('^'))
-    const rest=all.filter(i=>!idx.find(x=>x.symbol===i.symbol)).slice(0,40)
-    indices.value=await Promise.all(idx.map(quote))
-    rows.value=await Promise.all(rest.map(quote))
+    const res=await getBoardQuotes()
+    const payload=res.data||{}
+    indices.value=(payload.indices||[]).map(formatQuote)
+    rows.value=(payload.rows||payload.quotes||[]).map(formatQuote)
   } finally { loading.value=false }
 }
 onMounted(loadAll)

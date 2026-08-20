@@ -18,6 +18,14 @@
         <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
+    <el-alert
+      v-if="fallbackNotice"
+      class="mb12"
+      type="info"
+      show-icon
+      :closable="false"
+      :title="fallbackNotice"
+    />
     <el-card shadow="never"><div ref="chartRef" class="chart" v-loading="loading"/></el-card>
   </div>
 </template>
@@ -27,14 +35,27 @@ import { listInstrument, getKline } from '@/api/market'
 import { applyChartTheme } from '@/utils/echartsTheme'
 const route=useRoute()
 const instruments=ref([]); const symbol=ref(route.query.symbol||'AAPL'); const market=ref(route.query.market||'US')
-const range=ref('-1y'); const loading=ref(false); const chartRef=ref(); let chart
+const range=ref('-1y'); const loading=ref(false); const chartRef=ref(); const fallbackNotice=ref(''); let chart
 async function loadInst(){ instruments.value=((await listInstrument()).data)||[] }
 function ma(arr,n){const o=[];for(let i=0;i<arr.length;i++){if(i<n-1){o.push(null);continue}let s=0;for(let j=i-n+1;j<=i;j++)s+=arr[j];o.push(+(s/n).toFixed(2))}return o}
+async function fetchKlines(sym, mkt){
+  const res=await getKline({symbol:sym, market:mkt, start:range.value, stop:'now()'})
+  return (res.data&&res.data.klines)||[]
+}
 async function load(){
   loading.value=true
+  fallbackNotice.value=''
   try{
-    const res=await getKline({symbol:symbol.value, market:market.value, start:range.value, stop:'now()'})
-    const kl=(res.data&&res.data.klines)||[]
+    let kl=await fetchKlines(symbol.value, market.value)
+    if(!kl.length && (symbol.value||'').toUpperCase() !== 'AAPL'){
+      const aapl=await fetchKlines('AAPL','US')
+      if(aapl.length){
+        kl=aapl
+        symbol.value='AAPL'
+        market.value='US'
+        fallbackNotice.value='当前标的暂无真实K线，已回退到 Influx 中的 AAPL 实盘日K'
+      }
+    }
     if(!chart) chart=echarts.init(chartRef.value)
     const dates=kl.map(k=>k.date); const ohlc=kl.map(k=>[k.open,k.close,k.low,k.high]); const closes=kl.map(k=>Number(k.close))
     const vols=kl.map(k=>Number(k.volume||0))
@@ -68,4 +89,5 @@ onBeforeUnmount(()=>{ chart&&chart.dispose() })
 .page-hero{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .page-hero h2{margin:0 0 4px;color:var(--text-emphasis)} .page-hero p{margin:0;color:var(--text-muted);font-size:13px}
 .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center} .chart{height:560px;width:100%}
+.mb12{margin-bottom:12px}
 </style>

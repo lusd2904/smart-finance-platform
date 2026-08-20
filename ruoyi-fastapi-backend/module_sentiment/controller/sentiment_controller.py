@@ -77,10 +77,14 @@ async def collect_sentiment_news(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    result = await SentimentService.collect_news_services(query_db)
+    try:
+        result = await SentimentService.collect_news_services(query_db)
+    except Exception as exc:
+        logger.warning(f'舆情采集降级: {exc}')
+        result = {'fetched': 0, 'saved': 0, 'message': '资讯源暂时不可用，已返回空列表，请稍后重试'}
     logger.info(f'手动采集完成: {result}')
-
-    return ResponseUtil.success(data=result, msg=f'采集完成，抓取{result["fetched"]}条，新入库{result["saved"]}条')
+    msg = result.get('message') or f'采集完成，抓取{result["fetched"]}条，新入库{result["saved"]}条'
+    return ResponseUtil.success(data=result, msg=msg)
 
 
 @sentiment_controller.get(
@@ -148,8 +152,7 @@ async def run_sentiment_analysis(
 ) -> Response:
     result = await SentimentService.run_analysis_services(query_db)
     logger.info(f'手动分析完成: {result}')
-
-    return ResponseUtil.success(data=result, msg=result['message'])
+    return ResponseUtil.success(data=result, msg=result.get('message') or '操作成功')
 
 
 @sentiment_controller.get(

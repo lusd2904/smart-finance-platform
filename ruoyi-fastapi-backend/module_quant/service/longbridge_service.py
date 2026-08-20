@@ -613,8 +613,19 @@ class LongbridgeService:
         """把 {balances:[{totalCash, netAssets, ...}]} 压成前端常用扁平字段。"""
         balances = account_result.get('balances') or []
         first = balances[0] if balances else {}
+        configured = bool(account_result.get('configured'))
+        if not configured:
+            return {
+                'configured': False,
+                'message': account_result.get('message') or '长桥凭据未配置',
+                'currency': None,
+                'totalCash': None,
+                'availableCash': None,
+                'netAssets': None,
+                'balances': [],
+            }
         return {
-            'configured': bool(account_result.get('configured')),
+            'configured': True,
             'message': account_result.get('message'),
             'currency': first.get('currency') or 'USD',
             'totalCash': float(first.get('totalCash') or 0),

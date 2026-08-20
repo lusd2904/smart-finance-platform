@@ -9,6 +9,15 @@ export function listInstrument(category) {
   })
 }
 
+// 行情台批量报价（最近两根日K，单次请求）
+export function getBoardQuotes(query) {
+  return request({
+    url: '/market/board/quotes',
+    method: 'get',
+    params: query
+  })
+}
+
 // 查询K线数据
 export function getKline(query) {
   return request({
