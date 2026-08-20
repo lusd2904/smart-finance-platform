@@ -47,12 +47,14 @@ class ReadModelService:
             return cached
 
         acc = LongbridgeService.flatten_account(await LongbridgeService.get_account_balance_async())
+        configured = bool(acc.get('configured'))
         snapshot = {
-            'configured': acc.get('configured', False),
-            'totalCash': acc.get('totalCash') or 0.0,
-            'netAssets': acc.get('netAssets') or 0.0,
-            'availableCash': acc.get('availableCash') or 0.0,
-            'currency': acc.get('currency', 'USD'),
+            'configured': configured,
+            'message': acc.get('message') or (None if configured else '长桥凭据未配置'),
+            'totalCash': acc.get('totalCash') if configured else None,
+            'netAssets': acc.get('netAssets') if configured else None,
+            'availableCash': acc.get('availableCash') if configured else None,
+            'currency': acc.get('currency') if configured else None,
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
         await cls._set(cache_key, snapshot)
@@ -86,9 +88,12 @@ class ReadModelService:
 
         asset = await cls.get_account_asset_snapshot()
         pos = await cls.get_position_snapshot()
+        configured = bool(asset.get('configured'))
         snapshot = {
+            'configured': configured,
+            'message': asset.get('message') or (None if configured else '长桥凭据未配置'),
             'asset': asset,
-            'position': pos,
+            'position': pos if configured else {'count': 0, 'positions': [], 'totalMarketValue': None, 'totalUnrealizedPnl': None},
             'readModelVersion': 'v2.2',
             'refreshTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }

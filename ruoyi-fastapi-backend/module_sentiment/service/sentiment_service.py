@@ -78,11 +78,23 @@ class SentimentService:
 
         :return: {'fetched': 抓取条数, 'saved': 新入库条数}
         """
-        config = await cls.get_ai_config_services(query_db)
-        sources = (config.enabled_sources or 'eastmoney,sina,ths,wallstreetcn,google_news').split(',')
-        news_list = await SentimentCollector.collect(sources)
+        try:
+            config = await cls.get_ai_config_services(query_db)
+            sources = (config.enabled_sources or 'eastmoney,sina,ths,wallstreetcn,google_news').split(',')
+            news_list = await SentimentCollector.collect(sources)
+        except Exception as exc:
+            logger.warning(f'[舆情采集] 采集降级为空列表: {exc}')
+            return {
+                'fetched': 0,
+                'saved': 0,
+                'message': '资讯源暂时不可用（超时或限流），已返回空列表，请稍后重试',
+            }
         if not news_list:
-            return {'fetched': 0, 'saved': 0}
+            return {
+                'fetched': 0,
+                'saved': 0,
+                'message': '资讯源暂无新内容或上游不可用，已返回空列表',
+            }
         hashes = [n['uniq_hash'] for n in news_list]
         existing = await SentimentNewsDao.get_existing_hashes(query_db, hashes)
         fresh = [n for n in news_list if n['uniq_hash'] not in existing]
@@ -246,6 +258,14 @@ class SentimentService:
             news_list=news_list,
             temperature=config.temperature if config.temperature is not None else 0.2,
         )
+        if ai_result.get('code') == 429:
+            return {
+                'analyzed': 0,
+                'analysisId': None,
+                'rateLimited': True,
+                'retryAfter': ai_result.get('retryAfter') or 60,
+                'message': 'AI 分析触发限流，请稍后再试，不要连续点击',
+            }
         news_ids = [n['news_id'] for n in news_list]
         analysis_record: dict[str, Any] = {
             'news_count': len(news_ids),

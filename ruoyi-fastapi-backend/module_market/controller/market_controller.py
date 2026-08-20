@@ -67,6 +67,22 @@ async def tradingview_time(request: Request) -> Response:
 
 
 @market_controller.get(
+    '/board/quotes',
+    summary='行情台批量报价',
+    description='一次返回全部标的最近两根日K（Influx）。长桥密钥为空时仅用时序库，不编造价格。',
+    dependencies=[UserInterfaceAuthDependency('market:kline:list')],
+)
+async def get_market_board_quotes(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    category: Annotated[str | None, Query(description='可选分类')] = None,
+    market: Annotated[str | None, Query(description='可选市场')] = None,
+) -> Response:
+    data = await MarketService.get_board_quotes_services(query_db, category=category, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
     '/instrument/list',
     summary='获取行情标的列表接口',
     description='用于获取行情标的元数据列表（可按category过滤）',
@@ -302,7 +318,17 @@ async def get_finance_briefings(
     limit: Annotated[int, Query(ge=1, le=60)] = 20,
     refresh: Annotated[bool, Query()] = False,
 ) -> Response:
-    data = await MarketService.get_finance_briefings_services(
-        query_db, limit=limit, market=market, refresh=refresh
-    )
-    return ResponseUtil.success(data=data)
+    try:
+        data = await MarketService.get_finance_briefings_services(
+            query_db, limit=limit, market=market, refresh=refresh
+        )
+    except Exception as exc:
+        logger.warning(f'[财经资讯] 接口降级空列表: {exc}')
+        data = {
+            'success': True,
+            'data': [],
+            'message': '财经资讯源暂时不可用，已返回空列表，请稍后重试',
+            'meta': {'count': 0, 'market': market},
+        }
+    msg = data.get('message') or '操作成功'
+    return ResponseUtil.success(data=data, msg=msg)

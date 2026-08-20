@@ -8,10 +8,20 @@
       </div>
       <div class="dash-actions">
         <el-button type="primary" icon="Download" :loading="collectLoading" @click="handleCollect" v-hasPermi="['sentiment:news:collect']">立即采集</el-button>
-        <el-button type="success" icon="MagicStick" :loading="analyzeLoading" @click="handleAnalyze" v-hasPermi="['sentiment:analysis:run']">立即分析</el-button>
+        <el-button type="success" icon="MagicStick" :loading="analyzeLoading" :disabled="!!rateLimitedUntil" @click="handleAnalyze" v-hasPermi="['sentiment:analysis:run']">
+          {{ rateLimitedUntil ? `请稍后重试 (${retryLeft}s)` : '立即分析' }}
+        </el-button>
         <el-button icon="Refresh" circle @click="refreshAll" title="刷新" />
       </div>
     </div>
+    <el-alert
+      v-if="rateLimitMessage"
+      class="mb16"
+      type="warning"
+      show-icon
+      :closable="false"
+      :title="rateLimitMessage"
+    />
 
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb16">
@@ -116,6 +126,10 @@ const latest = ref({});
 const trendRef = ref(null);
 const collectLoading = ref(false);
 const analyzeLoading = ref(false);
+const rateLimitedUntil = ref(0);
+const retryLeft = ref(0);
+const rateLimitMessage = ref('');
+let retryTimer = null;
 let trendChart = null;
 
 /** 只展示可读时间，避免把整条 analysis 对象渲染成 JSON */
@@ -246,12 +260,49 @@ function handleCollect() {
   });
 }
 
+function startRateLimitCooldown(seconds, message) {
+  const wait = Math.max(15, Math.min(Number(seconds) || 60, 300));
+  rateLimitedUntil.value = Date.now() + wait * 1000;
+  rateLimitMessage.value = message || 'AI 分析触发限流，请稍后再试，不要连续点击';
+  retryLeft.value = wait;
+  if (retryTimer) clearInterval(retryTimer);
+  retryTimer = setInterval(() => {
+    const left = Math.ceil((rateLimitedUntil.value - Date.now()) / 1000);
+    retryLeft.value = Math.max(0, left);
+    if (left <= 0) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+      rateLimitedUntil.value = 0;
+      rateLimitMessage.value = '';
+    }
+  }, 1000);
+}
+
 /** 立即分析 */
 function handleAnalyze() {
+  if (rateLimitedUntil.value && Date.now() < rateLimitedUntil.value) {
+    return;
+  }
   analyzeLoading.value = true;
-  runAnalysis().then(() => {
+  runAnalysis().then((res) => {
+    const data = res.data || {};
+    if (data.rateLimited || data.code === 429) {
+      startRateLimitCooldown(data.retryAfter, data.message);
+      return;
+    }
+    const msg = data.message || res.msg || '';
+    if (msg.includes('限流') || msg.includes('过于频繁')) {
+      startRateLimitCooldown(60, msg);
+      return;
+    }
     proxy.$modal.msgSuccess('AI分析任务已触发');
     refreshAll();
+  }).catch((err) => {
+    const text = String(err && err.message ? err.message : err || '');
+    if (text.includes('429') || text.includes('限流') || text.includes('过于频繁')) {
+      startRateLimitCooldown(60, 'AI 分析触发限流，请稍后再试，不要连续点击');
+      return;
+    }
   }).finally(() => {
     analyzeLoading.value = false;
   });
@@ -275,6 +326,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
+  if (retryTimer) {
+    clearInterval(retryTimer);
+    retryTimer = null;
+  }
   if (trendChart) {
     trendChart.dispose();
     trendChart = null;

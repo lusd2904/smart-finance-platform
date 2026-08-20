@@ -205,6 +205,7 @@ class AutoTradeService:
         )
         return {
             'configured': configured,
+            'message': None if configured else '长桥凭据未配置，自动交易仅提供空状态',
             'tradingEnabled': trading_enabled,
             'submitAllowed': submit_allowed,
             'submitBlockReason': None if submit_allowed else submit_block_reason,

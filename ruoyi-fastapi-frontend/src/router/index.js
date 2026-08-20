@@ -139,8 +139,15 @@ export const dynamicRoutes = [
     path: '/monitor/job-log',
     component: Layout,
     hidden: true,
+    redirect: '/monitor/job-log/index/0',
     permissions: ['monitor:job:list'],
     children: [
+      {
+        path: '',
+        component: () => import('@/views/monitor/job/log'),
+        name: 'JobLogRoot',
+        meta: { title: '调度日志', activeMenu: '/monitor/job' }
+      },
       {
         path: 'index/:jobId(\\d+)',
         component: () => import('@/views/monitor/job/log'),
