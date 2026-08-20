@@ -60,6 +60,59 @@ async def trade_orders(
     return ResponseUtil.success(data=data)
 
 
+@trade_controller.get(
+    '/quote/depth',
+    summary='标的买卖盘',
+    description='长桥 QuoteContext.depth；A股返回空盘口提示，不补造档位',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_depth(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await TradeService.get_depth_services(query_db, symbol=symbol, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/trades',
+    summary='标的成交明细',
+    description='长桥 QuoteContext.trades；A股返回空列表提示',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_trades(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    count: Annotated[int, Query(description='条数 1-100')] = 30,
+) -> Response:
+    data = await TradeService.get_trades_services(query_db, symbol=symbol, market=market, count=count)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/kline',
+    summary='交易台K线',
+    description='Influx 日K/周K/月K；US/HK 分钟与分时在时序库为空时回退长桥 candlesticks/intraday',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_kline(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    period: Annotated[str, Query(description='intraday/1min/5min/15min/daily/weekly/monthly')] = 'daily',
+    limit: Annotated[int, Query(description='K线条数')] = 200,
+) -> Response:
+    data = await TradeService.get_quote_kline_services(
+        query_db, symbol=symbol, market=market, period=period, limit=limit
+    )
+    return ResponseUtil.success(data=data)
+
+
 @trade_controller.post(
     '/order',
     summary='提交订单',

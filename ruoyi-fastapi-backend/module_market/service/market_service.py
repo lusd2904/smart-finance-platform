@@ -25,8 +25,10 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.content_cache_service import SymbolContentService
 from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
+from module_market.service.kline_period import default_range_start, is_minute_period, normalize_kline_period, resample_how
 from module_market.service.market_analyzer_service import MarketAiAnalyzer
 from module_market.service.sync_service import MarketSyncService
+from module_market.service.tradingview_service import _resample_klines
 from module_quant.dao.quant_dao import QuantStrategyDao
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.common_util import CamelCaseUtil
@@ -86,17 +88,69 @@ class MarketService:
     async def get_kline_services(cls, query_object: KlineQueryModel) -> list[dict[str, Any]]:
         """
         查询K线service（Influx为同步IO，放线程池执行）。
+        daily/weekly/monthly 来自 daily_kline（周/月为真实日K聚合）；
+        分钟级只读 minute_kline，没有则空列表，不补造。
         """
         loop = asyncio.get_event_loop()
+        period = normalize_kline_period(query_object.period)
+        start = default_range_start(period, query_object.start)
+        if is_minute_period(period):
+            klines = await loop.run_in_executor(
+                None,
+                InfluxUtil.query_minute_klines,
+                query_object.market,
+                query_object.symbol,
+                start,
+                query_object.stop,
+            )
+            how = {'5min': '5min', '15min': '15min'}.get(period)
+            if how and klines:
+                klines = cls._resample_minute_bars(klines, how)
+            return klines
         klines = await loop.run_in_executor(
             None,
             InfluxUtil.query_klines,
             query_object.market,
             query_object.symbol,
-            query_object.start,
+            start,
             query_object.stop,
         )
-        return klines
+        how = resample_how(period) or 'D'
+        return _resample_klines(klines, how)
+
+    @staticmethod
+    def _resample_minute_bars(klines: list[dict[str, Any]], how: str) -> list[dict[str, Any]]:
+        """把 1 分钟真实 bar 聚合成 5/15 分钟，不补空档。"""
+        if not klines or how not in {'5min', '15min'}:
+            return klines
+        try:
+            import pandas as pd
+        except Exception:
+            return klines
+        df = pd.DataFrame(klines)
+        if df.empty or 'date' not in df.columns:
+            return klines
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date').sort_index()
+        rule = '5min' if how == '5min' else '15min'
+        agg = (
+            df.resample(rule)
+            .agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'})
+            .dropna(subset=['open', 'close'])
+        )
+        out: list[dict[str, Any]] = []
+        for idx, row in agg.iterrows():
+            out.append(
+                {
+                    'date': idx.strftime('%Y-%m-%d %H:%M'),
+                    'open': float(row['open']),
+                    'high': float(row['high']),
+                    'low': float(row['low']),
+                    'close': float(row['close']),
+                    'volume': float(row.get('volume') or 0),
+                }
+            )
+        return out
 
     # ---------- 技术指标 ----------
 
