@@ -61,6 +61,7 @@ class InfluxUtil:
     """行情时序库读写封装。"""
 
     MEASUREMENT = 'daily_kline'
+    MEASUREMENT_MINUTE = 'minute_kline'
 
     @classmethod
     def write_klines(cls, market: str, rows: list[dict[str, Any]]) -> int:
@@ -174,7 +175,6 @@ from(bucket: "{bucket}")
         if start_clause is None:
             return {}
         limit = max(1, min(int(n or 2), 10))
-        # Flux set literals: quoted strings only, already whitelist-checked
         set_literal = ', '.join(f'"{s}"' for s in safe_symbols)
         try:
             bucket = bucket_for_market(market)
@@ -205,12 +205,64 @@ from(bucket: "{bucket}")
                             'volume': record.values.get('volume'),
                         }
                     )
-            for sym, bars in grouped.items():
+            for bars in grouped.values():
                 bars.sort(key=lambda x: x.get('date') or '')
             return grouped
         except Exception as exc:
             logger.warning(f'[Influx] 批量最新K线失败 market={market}: {exc}')
             return {}
+
+    @classmethod
+    def query_minute_klines(
+        cls,
+        market: str,
+        symbol: str,
+        start: str = '-2d',
+        stop: str = 'now()',
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        查询分钟 K（measurement=minute_kline）。库中无该序列时返回空列表，不补造。
+        返回 [{date, open, high, low, close, volume}]，date 带时分。
+        """
+        try:
+            bucket = bucket_for_market(market)
+            symbol = _safe_symbol(symbol)
+            start_clause = _safe_time_clause(start)
+            stop_clause = _safe_time_clause(stop)
+            if symbol is None or start_clause is None or stop_clause is None:
+                logger.warning(f'[Influx] 非法分钟K参数 symbol={symbol} start={start} stop={stop}')
+                return []
+            tail_clause = ''
+            if isinstance(limit, int) and 1 <= limit <= 5000:
+                tail_clause = f'\n  |> tail(n: {int(limit)})'
+            flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: {start_clause}, stop: {stop_clause})
+  |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT_MINUTE}")
+  |> filter(fn: (r) => r.symbol == "{symbol}")
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"]){tail_clause}
+'''
+            tables = get_client().query_api().query(flux)
+            result: list[dict[str, Any]] = []
+            for table in tables:
+                for record in table.records:
+                    ts = record.get_time()
+                    result.append(
+                        {
+                            'date': ts.strftime('%Y-%m-%d %H:%M') if ts else '',
+                            'open': record.values.get('open'),
+                            'high': record.values.get('high'),
+                            'low': record.values.get('low'),
+                            'close': record.values.get('close'),
+                            'volume': record.values.get('volume'),
+                        }
+                    )
+            return result
+        except Exception as exc:
+            logger.warning(f'[Influx] 查询分钟K失败 market={market} symbol={symbol}: {exc}')
+            return []
 
     @classmethod
     def latest_date(cls, market: str, symbol: str) -> str | None:

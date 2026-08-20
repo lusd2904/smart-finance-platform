@@ -4,6 +4,18 @@ export function getTradeAccount() {
   return request({ url: '/trade/account', method: 'get' })
 }
 
+export function getTradeQuoteDepth(query) {
+  return request({ url: '/trade/quote/depth', method: 'get', params: query })
+}
+
+export function getTradeQuoteTrades(query) {
+  return request({ url: '/trade/quote/trades', method: 'get', params: query })
+}
+
+export function getTradeQuoteKline(query) {
+  return request({ url: '/trade/quote/kline', method: 'get', params: query })
+}
+
 export function getTradePositions() {
   return request({ url: '/trade/positions', method: 'get' })
 }
