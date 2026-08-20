@@ -35,8 +35,16 @@
     </el-row>
 
     <!-- 资讯卡片流 -->
+    <el-alert
+      v-if="notice"
+      class="mb16"
+      type="info"
+      show-icon
+      :closable="false"
+      :title="notice"
+    />
     <div v-loading="loading">
-      <el-empty v-if="!loading && filteredList.length === 0" description="暂无资讯，可点击刷新简报" />
+      <el-empty v-if="!loading && filteredList.length === 0" :description="notice || '暂无资讯，可点击刷新简报'" />
       <div v-for="item in filteredList" :key="item.id" class="news-card">
         <div class="news-tags">
           <el-tag size="small" effect="plain">{{ marketLabel(item.market) }}</el-tag>
@@ -81,6 +89,7 @@ const market = ref('')
 const keyword = ref('')
 const loading = ref(false)
 const list = ref([])
+const notice = ref('')
 const drawerVisible = ref(false)
 const currentItem = ref({})
 
@@ -139,6 +148,11 @@ function loadData(refresh = false) {
     .then(res => {
       const payload = res.data || {}
       list.value = payload.data || payload.items || []
+      notice.value = payload.message || payload.meta?.message || ''
+    })
+    .catch(() => {
+      list.value = []
+      notice.value = '财经资讯源暂时不可用，已返回空列表，请稍后重试'
     })
     .finally(() => {
       loading.value = false
@@ -154,6 +168,9 @@ onMounted(() => loadData(false))
 
 <style lang="scss" scoped>
 .finance-news {
+  .mb16 {
+    margin-bottom: 16px;
+  }
   .toolbar {
     display: flex;
     flex-wrap: wrap;
