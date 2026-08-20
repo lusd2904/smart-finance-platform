@@ -45,19 +45,30 @@
 
       <div class="portal-grid">
         <div
-          v-for="item in subsystems"
-          :key="item.path"
+          v-for="group in subsystemGroups"
+          :key="group.id"
           class="module-card glass-panel"
-          @click="navigateTo(item.path)"
+          @click="navigateTo(group.path)"
         >
           <div class="module-icon-wrap">
-            <el-icon class="module-icon"><component :is="item.icon" /></el-icon>
+            <el-icon class="module-icon"><component :is="group.icon" /></el-icon>
           </div>
           <div class="module-info">
-            <h3 class="module-name">{{ item.name }}</h3>
-            <p class="module-desc">{{ item.desc }}</p>
+            <h3 class="module-name">{{ group.name }}</h3>
+            <p class="module-desc">{{ group.desc }}</p>
           </div>
-          <div class="module-enter">进入系统 →</div>
+          <div class="module-links" @click.stop>
+            <button
+              v-for="link in group.links"
+              :key="link.path"
+              type="button"
+              class="module-link"
+              @click="navigateTo(link.path)"
+            >
+              {{ link.name }}
+            </button>
+          </div>
+          <div class="module-enter">进入 {{ group.name }} →</div>
         </div>
       </div>
 
@@ -72,8 +83,7 @@
 import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import {
-  Cpu, Histogram, TrendCharts, Money, DataLine, List, Star, Setting,
-  DataAnalysis, ChatDotRound, Monitor, Collection, Warning, ArrowDown
+  Histogram, TrendCharts, Money, DataAnalysis, Monitor, Warning, ArrowDown
 } from '@element-plus/icons-vue'
 import CyberBackground from '@/components/CyberBackground/index.vue'
 import useUserStore from '@/store/modules/user'
@@ -95,23 +105,77 @@ const roleLabel = computed(() => {
   return '平台用户'
 })
 
-const subsystems = [
-  { name: '舆情 AI 大盘', desc: '中文舆情采集、正文站内查看与大盘影响研判', path: '/sentiment/dashboard', icon: DataAnalysis },
-  { name: '全市场行情台', desc: '指数快照、目标池涨跌排序', path: '/market/board', icon: Histogram },
-  { name: 'AI 研判工作台', desc: '单标的 + 批量扫描任务历史', path: '/market/ai-workbench', icon: Cpu },
-  { name: '核心交易台', desc: '报价·资金·持仓·下单·委托', path: '/trade/trading', icon: Money },
-  { name: '持仓与订单', desc: '真实持仓、今日/历史订单', path: '/trade/positions', icon: List },
-  { name: '风控管理', desc: '规则、扫描与风险事件', path: '/trade/risk', icon: Warning },
-  { name: '量化策略中心', desc: '多因子信号、扫描台账与策略复盘', path: '/quant/strategy', icon: TrendCharts },
-  { name: '策略配置', desc: '档位阈值与因子权重', path: '/quant/strategy-config', icon: Setting },
-  { name: '策略回测', desc: 'Influx 日K 均线回测与曲线', path: '/trade/backtest', icon: DataLine },
-  { name: '高级图表', desc: '多周期K线与均线工作区', path: '/market/tradingview', icon: Histogram },
-  { name: '行情覆盖', desc: '目标标的 Influx 覆盖率检测', path: '/market/coverage', icon: Collection },
-  { name: '通知中心', desc: '持久化交易/风控/AI 通知', path: '/trade/notifications', icon: Star },
-  { name: '券商账户', desc: '长桥凭证与多券商扩展位', path: '/trade/broker', icon: Setting },
-  { name: 'AI 助手', desc: '统一模型对话，辅助研判与问答', path: '/ai/chat', icon: ChatDotRound },
-  { name: '系统监控', desc: '任务调度、在线用户与服务监控', path: '/monitor/job', icon: Monitor },
-  { name: '工作台首页', desc: '业务总览、行情快照与平台动态', path: '/index', icon: DataLine }
+const subsystemGroups = [
+  {
+    id: 'sentiment-ai',
+    name: '舆情与 AI 研判',
+    desc: '中文舆情采集、大盘影响研判与统一模型对话',
+    path: '/sentiment/dashboard',
+    icon: DataAnalysis,
+    links: [
+      { name: '舆情 AI 大盘', path: '/sentiment/dashboard' },
+      { name: 'AI 研判工作台', path: '/market/ai-workbench' },
+      { name: 'AI 助手', path: '/ai/chat' }
+    ]
+  },
+  {
+    id: 'market',
+    name: '行情与图表',
+    desc: '指数快照、多周期 K 线与行情覆盖检测',
+    path: '/market/board',
+    icon: Histogram,
+    links: [
+      { name: '全市场行情台', path: '/market/board' },
+      { name: '高级图表', path: '/market/tradingview' },
+      { name: '行情覆盖', path: '/market/coverage' }
+    ]
+  },
+  {
+    id: 'trade',
+    name: '核心交易',
+    desc: '报价下单、持仓订单、券商通道与通知',
+    path: '/trade/trading',
+    icon: Money,
+    links: [
+      { name: '核心交易台', path: '/trade/trading' },
+      { name: '持仓与订单', path: '/trade/positions' },
+      { name: '券商账户', path: '/trade/broker' },
+      { name: '通知中心', path: '/trade/notifications' }
+    ]
+  },
+  {
+    id: 'quant',
+    name: '量化策略',
+    desc: '多因子信号、档位阈值与 Influx 回测',
+    path: '/quant/strategy',
+    icon: TrendCharts,
+    links: [
+      { name: '量化策略中心', path: '/quant/strategy' },
+      { name: '策略配置', path: '/quant/strategy-config' },
+      { name: '策略回测', path: '/trade/backtest' }
+    ]
+  },
+  {
+    id: 'risk',
+    name: '风控管理',
+    desc: '规则、扫描与风险事件',
+    path: '/trade/risk',
+    icon: Warning,
+    links: [
+      { name: '风控管理', path: '/trade/risk' }
+    ]
+  },
+  {
+    id: 'platform',
+    name: '平台工作台',
+    desc: '业务总览、行情快照与系统监控',
+    path: '/index',
+    icon: Monitor,
+    links: [
+      { name: '工作台首页', path: '/index' },
+      { name: '系统监控', path: '/monitor/job' }
+    ]
+  }
 ]
 
 function navigateTo(path) {
@@ -156,10 +220,11 @@ watch(isDark, () => applyThemeAttr())
   width: 100vw;
   height: 100vh;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background: transparent;
 }
@@ -274,7 +339,7 @@ watch(isDark, () => applyThemeAttr())
   align-items: center;
   width: 100%;
   max-width: 1280px;
-  padding: 40px 28px;
+  padding: 112px 28px 40px;
 }
 
 .portal-header {
@@ -324,7 +389,7 @@ watch(isDark, () => applyThemeAttr())
 
 .portal-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 22px;
   width: 100%;
 }
@@ -332,11 +397,11 @@ watch(isDark, () => applyThemeAttr())
 .module-card {
   display: flex;
   flex-direction: column;
-  padding: 28px 22px 20px;
+  padding: 26px 22px 18px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   text-align: center;
-  min-height: 188px;
+  min-height: 248px;
 }
 
 .module-card:hover {
@@ -394,6 +459,43 @@ watch(isDark, () => applyThemeAttr())
   opacity: 0.75;
 }
 
+.module-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.module-link {
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  background: rgba(56, 189, 248, 0.08);
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.module-link:hover {
+  border-color: rgba(0, 240, 255, 0.55);
+  background: rgba(0, 195, 255, 0.18);
+  color: #7dd3fc;
+}
+
+.portal-container[data-theme='glass-light'] .module-link {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.portal-container[data-theme='glass-light'] .module-link:hover {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
 .module-enter {
   margin-top: 14px;
   font-size: 12px;
@@ -438,7 +540,7 @@ watch(isDark, () => applyThemeAttr())
 }
 
 @media (max-width: 1200px) {
-  .portal-grid { grid-template-columns: repeat(3, 1fr); }
+  .portal-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 900px) {
   .portal-grid { grid-template-columns: repeat(2, 1fr); }
