@@ -13,11 +13,26 @@ import asyncio
 import os
 from typing import Any
 
+from module_quant.service.longbridge_quote import (
+    CN_NO_DEPTH_MSG,
+    assemble_depth,
+    assemble_trades,
+    empty_depth,
+    empty_trades,
+    is_cn_market,
+    map_candlestick,
+    map_intraday_point,
+    overlay_last_bar,
+    quote_error_message,
+    quote_error_reason,
+)
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
 
 _QUOTE_CACHE_TTL = 15
 _ACCOUNT_CACHE_TTL = 30
+_DEPTH_CACHE_TTL = 3
+_TRADES_CACHE_TTL = 3
 
 
 def _resolve_region(region: str | None) -> str:
@@ -344,6 +359,218 @@ class LongbridgeService:
             return {'configured': True, 'message': f'获取静态信息失败: {exc}', 'items': []}
 
     @classmethod
+    def is_cn_market(cls, market: str | None, symbol: str | None = None) -> bool:
+        return is_cn_market(market, symbol)
+
+    @classmethod
+    def get_depth(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        """
+        买卖盘。A 股直接空盘口；凭据缺失/401 返回空列表 + 提示，不抛异常。
+        使用 QuoteContext.depth(symbol)。
+        """
+        if is_cn_market(market, symbol):
+            return empty_depth(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
+        if not cls.is_configured():
+            return empty_depth(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，盘口暂不可用')
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        try:
+            ctx = cls._build_quote_context()
+            if ctx is None or not hasattr(ctx, 'depth'):
+                return empty_depth(
+                    symbol, market, configured=True, reason='unavailable',
+                    message='长桥 QuoteContext.depth 不可用', lb_symbol=lb_symbol,
+                )
+            return assemble_depth(ctx.depth(lb_symbol), symbol, market, lb_symbol)
+        except Exception as exc:
+            logger.warning(f'[长桥] 获取盘口失败 {lb_symbol}: {exc}')
+            return empty_depth(
+                symbol, market, configured=True, reason=quote_error_reason(exc),
+                message=quote_error_message(exc, '盘口暂不可用'), lb_symbol=lb_symbol,
+            )
+
+    @classmethod
+    def get_trades(cls, symbol: str, market: str = 'US', count: int = 30) -> dict[str, Any]:
+        """最近成交。使用 QuoteContext.trades(symbol, count)。A 股空列表。"""
+        count = max(1, min(int(count or 30), 100))
+        if is_cn_market(market, symbol):
+            return empty_trades(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
+        if not cls.is_configured():
+            return empty_trades(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，成交明细暂不可用')
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        try:
+            ctx = cls._build_quote_context()
+            if ctx is None or not hasattr(ctx, 'trades'):
+                return empty_trades(
+                    symbol, market, configured=True, reason='unavailable',
+                    message='长桥 QuoteContext.trades 不可用', lb_symbol=lb_symbol,
+                )
+            return assemble_trades(ctx.trades(lb_symbol, count), symbol, market, lb_symbol, count)
+        except Exception as exc:
+            logger.warning(f'[长桥] 获取成交明细失败 {lb_symbol}: {exc}')
+            return empty_trades(
+                symbol, market, configured=True, reason=quote_error_reason(exc),
+                message=quote_error_message(exc, '成交明细暂不可用'), lb_symbol=lb_symbol,
+            )
+
+    @classmethod
+    def get_candlesticks(cls, symbol: str, market: str = 'US', period: str = '1min', count: int = 200) -> dict[str, Any]:
+        """最近 N 根 K。使用 QuoteContext.candlesticks；无数据则空列表，不补造。"""
+        count = max(1, min(int(count or 200), 1000))
+        if is_cn_market(market, symbol):
+            return {
+                'configured': cls.is_configured(),
+                'available': False,
+                'reason': 'cn_no_depth',
+                'message': 'A股K线请使用时序库',
+                'symbol': symbol,
+                'market': 'CN',
+                'period': period,
+                'klines': [],
+            }
+        if not cls.is_configured():
+            return {
+                'configured': False,
+                'available': False,
+                'reason': 'unconfigured',
+                'message': '长桥凭据未配置',
+                'symbol': symbol,
+                'market': market,
+                'period': period,
+                'klines': [],
+            }
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        try:
+            from longport.openapi import AdjustType
+
+            ctx = cls._build_quote_context()
+            period_enum = cls._resolve_lb_period(period)
+            if ctx is None or period_enum is None or not hasattr(ctx, 'candlesticks'):
+                return {
+                    'configured': True,
+                    'available': False,
+                    'reason': 'unavailable',
+                    'message': '长桥 candlesticks 不可用或周期不支持',
+                    'symbol': symbol,
+                    'market': market,
+                    'period': period,
+                    'klines': [],
+                }
+            adjust = getattr(AdjustType, 'NoAdjust', None) or getattr(AdjustType, 'NO_ADJUST', None)
+            raw = ctx.candlesticks(lb_symbol, period_enum, count, adjust)
+            with_time = str(period).lower() not in {'daily', 'day', 'd', '1d', 'weekly', 'week', 'w', 'monthly', 'month'}
+            klines = [map_candlestick(x, with_time=with_time) for x in (raw or [])]
+            klines = [x for x in klines if x.get('close') is not None]
+            klines.sort(key=lambda x: str(x.get('date') or ''))
+            return {
+                'configured': True,
+                'available': bool(klines),
+                'symbol': symbol,
+                'market': str(market or 'US').upper(),
+                'lbSymbol': lb_symbol,
+                'period': period,
+                'klines': klines,
+            }
+        except Exception as exc:
+            logger.warning(f'[长桥] 获取K线失败 {lb_symbol} {period}: {exc}')
+            return {
+                'configured': True,
+                'available': False,
+                'reason': quote_error_reason(exc),
+                'message': quote_error_message(exc, '长桥K线暂不可用'),
+                'symbol': symbol,
+                'market': market,
+                'period': period,
+                'klines': [],
+            }
+
+    @classmethod
+    def get_intraday(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        """分时线。使用 QuoteContext.intraday；失败则空列表。"""
+        if is_cn_market(market, symbol):
+            return {
+                'configured': cls.is_configured(),
+                'available': False,
+                'reason': 'cn_no_depth',
+                'message': 'A股分时请使用时序库',
+                'symbol': symbol,
+                'market': 'CN',
+                'period': 'intraday',
+                'klines': [],
+            }
+        if not cls.is_configured():
+            return {
+                'configured': False,
+                'available': False,
+                'reason': 'unconfigured',
+                'message': '长桥凭据未配置',
+                'symbol': symbol,
+                'market': market,
+                'period': 'intraday',
+                'klines': [],
+            }
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        try:
+            ctx = cls._build_quote_context()
+            if ctx is None or not hasattr(ctx, 'intraday'):
+                return {
+                    'configured': True,
+                    'available': False,
+                    'reason': 'unavailable',
+                    'message': '长桥 intraday 不可用',
+                    'symbol': symbol,
+                    'market': market,
+                    'period': 'intraday',
+                    'klines': [],
+                }
+            raw = ctx.intraday(lb_symbol)
+            klines = [map_intraday_point(x) for x in (raw or [])]
+            klines = [x for x in klines if x.get('close') is not None]
+            klines.sort(key=lambda x: str(x.get('date') or ''))
+            return {
+                'configured': True,
+                'available': bool(klines),
+                'symbol': symbol,
+                'market': str(market or 'US').upper(),
+                'lbSymbol': lb_symbol,
+                'period': 'intraday',
+                'klines': klines,
+            }
+        except Exception as exc:
+            logger.warning(f'[长桥] 获取分时失败 {lb_symbol}: {exc}')
+            return {
+                'configured': True,
+                'available': False,
+                'reason': quote_error_reason(exc),
+                'message': quote_error_message(exc, '分时暂不可用'),
+                'symbol': symbol,
+                'market': market,
+                'period': 'intraday',
+                'klines': [],
+            }
+
+    @classmethod
+    def _resolve_lb_period(cls, period: str) -> Any:
+        from module_market.service.kline_period import normalize_kline_period
+
+        key = normalize_kline_period(period)
+        names = {
+            '1min': ('Min_1', 'Minute_1', 'Min1'),
+            '5min': ('Min_5', 'Minute_5', 'Min5'),
+            '15min': ('Min_15', 'Minute_15', 'Min15'),
+            'daily': ('Day', 'Day_1'),
+            'weekly': ('Week', 'Week_1'),
+            'monthly': ('Month', 'Month_1'),
+        }.get(key) or ()
+        try:
+            from longport.openapi import Period
+        except Exception:
+            return None
+        for name in names:
+            if hasattr(Period, name):
+                return getattr(Period, name)
+        return None
+
+    @classmethod
     def fetch_symbol_content(cls, lb_symbol: str, content_types: list[str]) -> dict[str, list[Any]]:
         """
         拉取公告/资讯/讨论。announcement 走 QuoteContext.filings；
@@ -563,6 +790,8 @@ class LongbridgeService:
             'submittedAt': str(getattr(o, 'submitted_at', '') or getattr(o, 'updated_at', '') or ''),
         }
 
+    overlay_last_bar = staticmethod(overlay_last_bar)
+
     @staticmethod
     def _to_float(value: Any) -> float | None:
         """把 SDK 返回的 Decimal/数值安全转 float。"""
@@ -693,3 +922,39 @@ class LongbridgeService:
     @classmethod
     async def cancel_order_async(cls, order_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(cls.cancel_order, order_id)
+
+    @classmethod
+    async def get_depth_async(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        cache_key = f'lb:depth:{lb_symbol}'
+        cached = await cache_get_json(cache_key)
+        if cached:
+            cached['cached'] = True
+            return cached
+        data = await asyncio.to_thread(cls.get_depth, symbol, market)
+        if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('asks') or data.get('bids'):
+            await cache_set_json(cache_key, data, _DEPTH_CACHE_TTL)
+        return data
+
+    @classmethod
+    async def get_trades_async(cls, symbol: str, market: str = 'US', count: int = 30) -> dict[str, Any]:
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        cache_key = f'lb:trades:{lb_symbol}:{int(count or 30)}'
+        cached = await cache_get_json(cache_key)
+        if cached:
+            cached['cached'] = True
+            return cached
+        data = await asyncio.to_thread(cls.get_trades, symbol, market, count)
+        if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('trades'):
+            await cache_set_json(cache_key, data, _TRADES_CACHE_TTL)
+        return data
+
+    @classmethod
+    async def get_candlesticks_async(
+        cls, symbol: str, market: str = 'US', period: str = '1min', count: int = 200
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.get_candlesticks, symbol, market, period, count)
+
+    @classmethod
+    async def get_intraday_async(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        return await asyncio.to_thread(cls.get_intraday, symbol, market)

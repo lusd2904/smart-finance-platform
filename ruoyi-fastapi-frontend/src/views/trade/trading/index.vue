@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div>
         <h2>交易台</h2>
-        <p>账户 · 报价 · 持仓 · 下单 · 委托（长桥）</p>
+        <p>报价 · K线 · 买卖盘 · 成交明细 · 下单 · 委托（长桥）</p>
       </div>
       <div class="acts">
         <el-button @click="$router.push('/quant/longbridge')">长桥配置</el-button>
@@ -16,30 +16,110 @@
       type="warning"
       show-icon
       class="mb12"
-      title="长桥未配置或未连通：可浏览页面，真实下单/持仓需先配置凭证"
+      title="长桥未配置或未连通：K线仍可走时序库，真实盘口/下单/持仓需先配置凭证"
     />
-    <el-row :gutter="12">
-      <el-col :lg="6" :xs="24">
-        <el-card shadow="never" class="mb12">
-          <template #header>快速报价</template>
-          <el-input v-model="form.symbol" placeholder="代码" class="mb8" @keyup.enter="loadQuote">
-            <template #append><el-button @click="loadQuote">查价</el-button></template>
+
+    <el-card shadow="never" class="mb12 quote-hero-card">
+      <div class="quote-hero">
+        <div class="hero-left">
+          <el-input v-model="form.symbol" placeholder="代码" class="sym-input" @keyup.enter="onSymbolCommit" @change="onSymbolCommit">
+            <template #append>
+              <el-select v-model="form.market" style="width: 88px" @change="onSymbolCommit">
+                <el-option label="US" value="US" />
+                <el-option label="HK" value="HK" />
+                <el-option label="CN" value="CN" />
+              </el-select>
+            </template>
           </el-input>
-          <div v-if="quote.price" class="quote-box">
-            <div class="q-sym">{{ form.symbol }} <span class="muted">{{ form.market }}</span></div>
-            <div class="q-price" :class="quote.up ? 'up' : 'down'">{{ quote.price }}</div>
-            <div class="q-chg" :class="quote.up ? 'up' : 'down'">{{ quote.changeText }}</div>
-            <div class="q-meta">O {{ quote.open }} · H {{ quote.high }} · L {{ quote.low }} · V {{ quote.volume || '--' }}</div>
+          <div class="hero-name">{{ quoteName }}</div>
+        </div>
+        <div class="hero-price" :class="quote.up ? 'up' : (quote.changeRate < 0 ? 'down' : '')">
+          <div class="q-price">{{ fmt(quote.last || quote.price) }}</div>
+          <div class="q-chg">{{ fmtSigned(quote.change) }} / {{ fmtPct(quote.changeRate) }}</div>
+        </div>
+        <div class="hero-ohlc">
+          <span>开 {{ fmt(quote.open) }}</span>
+          <span>高 {{ fmt(quote.high) }}</span>
+          <span>低 {{ fmt(quote.low) }}</span>
+          <span>量 {{ fmtVol(quote.volume) }}</span>
+          <el-tag size="small" effect="plain">{{ quote.source || klineSource || '--' }}</el-tag>
+        </div>
+      </div>
+      <div class="period-bar">
+        <el-radio-group v-model="period" size="small" @change="loadKline">
+          <el-radio-button v-for="p in periods" :key="p.value" :label="p.value">{{ p.label }}</el-radio-button>
+        </el-radio-group>
+        <span class="muted">{{ klineHint }}</span>
+      </div>
+      <div v-loading="klineLoading" ref="chartRef" class="kline-chart"></div>
+      <el-empty v-if="!klineLoading && !klineItems.length" :description="klineEmptyText" :image-size="56" />
+    </el-card>
+
+    <el-row :gutter="12">
+      <el-col :lg="8" :xs="24">
+        <el-card shadow="never" class="mb12 book-card">
+          <template #header>
+            <div class="hdr">
+              <span>买卖盘</span>
+              <span class="muted">{{ depthHint }}</span>
+            </div>
+          </template>
+          <div v-if="showDepthEmpty" class="calm-empty">{{ depthEmptyText }}</div>
+          <div v-else class="order-book">
+            <div class="book-head"><span>卖盘</span><span>价格</span><span>数量</span></div>
+            <div
+              v-for="(row, idx) in displayAsks"
+              :key="'a' + idx"
+              class="book-row ask"
+              @click="useBookPrice(row.price)"
+            >
+              <i class="vol-bar" :style="{ width: barWidth(row.volume, maxBookVol) }" />
+              <span class="lv">{{ row.position || (displayAsks.length - idx) }}</span>
+              <span class="px">{{ fmt(row.price) }}</span>
+              <span class="sz">{{ fmtVol(row.volume) }}</span>
+            </div>
+            <div class="book-last" :class="quote.up ? 'up' : (quote.changeRate < 0 ? 'down' : '')">
+              {{ fmt(quote.last || quote.price) }}
+            </div>
+            <div
+              v-for="(row, idx) in displayBids"
+              :key="'b' + idx"
+              class="book-row bid"
+              @click="useBookPrice(row.price)"
+            >
+              <i class="vol-bar" :style="{ width: barWidth(row.volume, maxBookVol) }" />
+              <span class="lv">{{ row.position || idx + 1 }}</span>
+              <span class="px">{{ fmt(row.price) }}</span>
+              <span class="sz">{{ fmtVol(row.volume) }}</span>
+            </div>
+            <div class="book-head"><span>买盘</span><span>价格</span><span>数量</span></div>
           </div>
-          <el-empty v-else description="输入代码查询近价" :image-size="60" />
         </el-card>
-        <el-card shadow="never">
-          <template #header>资金</template>
-          <el-table :data="account.balances || []" size="small" empty-text="暂无">
-            <el-table-column prop="currency" label="币种" width="70" />
-            <el-table-column prop="netAssets" label="净资产" />
-            <el-table-column prop="availableCash" label="可用" />
-            <el-table-column prop="buyPower" label="购买力" />
+      </el-col>
+      <el-col :lg="8" :xs="24">
+        <el-card shadow="never" class="mb12 tape-card">
+          <template #header>
+            <div class="hdr">
+              <span>成交明细</span>
+              <span class="muted">{{ tapeHint }}</span>
+            </div>
+          </template>
+          <div v-if="showTapeEmpty" class="calm-empty">{{ tapeEmptyText }}</div>
+          <el-table v-else :data="trades" size="small" max-height="360" empty-text="暂无成交">
+            <el-table-column label="时间" width="92">
+              <template #default="{ row }">{{ fmtTime(row.time) }}</template>
+            </el-table-column>
+            <el-table-column label="价格" width="88">
+              <template #default="{ row }">
+                <span :class="sideClass(row.side)">{{ fmt(row.price) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="数量">
+              <template #default="{ row }">{{ fmtVol(row.volume || row.size) }}</template>
+            </el-table-column>
+            <el-table-column label="方向" width="56">
+              <template #default="{ row }">{{ sideLabel(row.side) }}</template>
+            </el-table-column>
           </el-table>
         </el-card>
       </el-col>
@@ -48,13 +128,13 @@
           <template #header>下单面板</template>
           <el-form label-width="72px">
             <el-form-item label="市场">
-              <el-select v-model="form.market" style="width: 100%" @change="loadQuote">
+              <el-select v-model="form.market" style="width: 100%" @change="onSymbolCommit">
                 <el-option label="US" value="US" />
                 <el-option label="HK" value="HK" />
                 <el-option label="CN" value="CN" />
               </el-select>
             </el-form-item>
-            <el-form-item label="代码"><el-input v-model="form.symbol" @change="loadQuote" /></el-form-item>
+            <el-form-item label="代码"><el-input v-model="form.symbol" @change="onSymbolCommit" /></el-form-item>
             <el-form-item label="方向">
               <el-radio-group v-model="form.side">
                 <el-radio-button label="buy">买入</el-radio-button>
@@ -70,7 +150,7 @@
             <el-form-item label="数量"><el-input-number v-model="form.quantity" :min="1" style="width: 100%" /></el-form-item>
             <el-form-item v-if="form.orderType === 'LO'" label="价格">
               <el-input-number v-model="form.price" :min="0.01" :step="0.01" style="width: 100%" />
-              <el-button link type="primary" @click="form.price = Number(quote.price || form.price)">用现价</el-button>
+              <el-button link type="primary" @click="form.price = Number(quote.last || quote.price || form.price)">用现价</el-button>
             </el-form-item>
             <el-form-item label="预估">
               <span class="muted">名义金额 ≈ {{ notional }} · 可用 {{ availableCashText }}</span>
@@ -81,7 +161,21 @@
           </el-form>
         </el-card>
       </el-col>
-      <el-col :lg="10" :xs="24">
+    </el-row>
+
+    <el-row :gutter="12">
+      <el-col :lg="8" :xs="24">
+        <el-card shadow="never" class="mb12">
+          <template #header>资金</template>
+          <el-table :data="account.balances || []" size="small" empty-text="暂无">
+            <el-table-column prop="currency" label="币种" width="70" />
+            <el-table-column prop="netAssets" label="净资产" />
+            <el-table-column prop="availableCash" label="可用" />
+            <el-table-column prop="buyPower" label="购买力" />
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :lg="16" :xs="24">
         <el-card shadow="never" class="mb12">
           <template #header>
             <div class="hdr">
@@ -89,107 +183,362 @@
               <el-button link type="primary" @click="$router.push('/trade/positions')">全部</el-button>
             </div>
           </template>
-          <el-table :data="positions" size="small" max-height="220" empty-text="暂无持仓">
-            <el-table-column prop="symbol" label="代码" width="90" />
-            <el-table-column prop="quantity" label="数量" width="70" />
-            <el-table-column prop="costPrice" label="成本" width="80" />
-            <el-table-column prop="marketValue" label="市值" width="90" />
+          <el-table :data="positions" size="small" max-height="220" empty-text="暂无持仓" @row-click="fillFromPos">
+            <el-table-column prop="symbol" label="代码" width="110" />
+            <el-table-column prop="quantity" label="数量" width="80" />
+            <el-table-column prop="costPrice" label="成本" width="90" />
+            <el-table-column prop="marketValue" label="市值" width="100" />
             <el-table-column label="操作" width="70">
-              <template #default="{ row }"><el-button link type="primary" @click="fillFromPos(row)">填入</el-button></template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-        <el-card shadow="never">
-          <template #header>
-            <div class="hdr">
-              <span>委托</span>
-              <div>
-                <el-radio-group v-model="orderScope" size="small" @change="loadOrders">
-                  <el-radio-button label="today">今日</el-radio-button>
-                  <el-radio-button label="history">历史</el-radio-button>
-                </el-radio-group>
-                <el-button link type="primary" class="ml8" @click="$router.push('/trade/orders')">全部</el-button>
-              </div>
-            </div>
-          </template>
-          <el-table v-loading="loading" :data="orders" size="small" max-height="260">
-            <el-table-column prop="symbol" label="标的" width="90" />
-            <el-table-column prop="side" label="方向" width="70" />
-            <el-table-column prop="status" label="状态" width="90" />
-            <el-table-column prop="quantity" label="量" width="70" />
-            <el-table-column prop="price" label="价" width="80" />
-            <el-table-column label="操作" width="70">
-              <template #default="{ row }">
-                <el-button v-if="row.orderId && orderScope === 'today'" link type="danger" @click="cancel(row)">撤</el-button>
-              </template>
+              <template #default="{ row }"><el-button link type="primary" @click.stop="fillFromPos(row)">填入</el-button></template>
             </el-table-column>
           </el-table>
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="never">
+      <template #header>
+        <div class="hdr">
+          <span>委托</span>
+          <div class="order-tools">
+            <el-checkbox v-model="onlyCurrentSymbol">仅当前标的</el-checkbox>
+            <el-radio-group v-model="orderScope" size="small" @change="loadOrders">
+              <el-radio-button label="today">今日</el-radio-button>
+              <el-radio-button label="history">历史</el-radio-button>
+            </el-radio-group>
+            <el-button link type="primary" class="ml8" @click="$router.push('/trade/orders')">全部</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table v-loading="loading" :data="visibleOrders" size="small" max-height="280">
+        <el-table-column prop="symbol" label="标的" width="110" />
+        <el-table-column prop="side" label="方向" width="80" />
+        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column prop="quantity" label="量" width="80" />
+        <el-table-column prop="price" label="价" width="90" />
+        <el-table-column prop="executedQuantity" label="已成" width="80" />
+        <el-table-column label="操作" width="70">
+          <template #default="{ row }">
+            <el-button v-if="row.orderId && orderScope === 'today'" link type="danger" @click="cancel(row)">撤</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 <script setup name="TradeTrading">
-import { getTradeAccount, getTradeOrders, getTradePositions, submitTradeOrder, cancelTradeOrder } from '@/api/trade'
-import { getKline } from '@/api/market'
+import * as echarts from 'echarts'
+import { applyChartTheme } from '@/utils/echartsTheme'
+import {
+  getTradeAccount,
+  getTradeOrders,
+  getTradePositions,
+  submitTradeOrder,
+  cancelTradeOrder,
+  getTradeQuoteDepth,
+  getTradeQuoteTrades,
+  getTradeQuoteKline
+} from '@/api/trade'
+
 const route = useRoute()
+const router = useRouter()
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
 const submitting = ref(false)
+const klineLoading = ref(false)
 const account = ref({ balances: [] })
 const orders = ref([])
 const positions = ref([])
 const configured = ref(true)
 const orderScope = ref('today')
+const onlyCurrentSymbol = ref(true)
+const period = ref('daily')
+const periods = [
+  { value: 'intraday', label: '分时' },
+  { value: '1min', label: '1分' },
+  { value: '5min', label: '5分' },
+  { value: '15min', label: '15分' },
+  { value: 'daily', label: '日K' },
+  { value: 'weekly', label: '周K' },
+  { value: 'monthly', label: '月K' }
+]
 const form = ref({
-  symbol: route.query.symbol || 'AAPL',
-  market: route.query.market || 'US',
+  symbol: 'AAPL',
+  market: 'US',
   side: 'buy',
   orderType: 'LO',
   quantity: 1,
   price: 100
 })
+applyRouteSymbol(route.query.symbol, route.query.market)
 const quote = ref({})
+const klineItems = ref([])
+const klineSource = ref('')
+const klineMessage = ref('')
+const asks = ref([])
+const bids = ref([])
+const trades = ref([])
+const depthMeta = ref({})
+const tapeMeta = ref({})
+const chartRef = ref(null)
+let chart = null
+let liveTimer = null
+
 const notional = computed(() => {
-  const p = form.value.orderType === 'MO' ? Number(quote.value.price || 0) : Number(form.value.price || 0)
+  const p = form.value.orderType === 'MO' ? Number(quote.value.last || quote.value.price || 0) : Number(form.value.price || 0)
   return (p * Number(form.value.quantity || 0)).toFixed(2)
 })
 const availableCashText = computed(() => {
   const b = (account.value.balances || [])[0]
   return b ? `${b.availableCash || '--'} ${b.currency || ''}` : '--'
 })
+const isCn = computed(() => String(form.value.market || '').toUpperCase() === 'CN')
+const quoteName = computed(() => `${form.value.symbol || '--'} · ${form.value.market || '--'}`)
+const displayAsks = computed(() => [...asks.value].slice(0, 10).reverse())
+const displayBids = computed(() => bids.value.slice(0, 10))
+const maxBookVol = computed(() => {
+  const vols = [...asks.value, ...bids.value].map(r => Number(r.volume || 0)).filter(n => Number.isFinite(n))
+  return vols.length ? Math.max(...vols) : 0
+})
+const showDepthEmpty = computed(() => !asks.value.length && !bids.value.length)
+const showTapeEmpty = computed(() => !trades.value.length)
+const depthEmptyText = computed(() => depthMeta.value.message || (isCn.value ? 'A股暂无实时盘口' : '暂无盘口'))
+const tapeEmptyText = computed(() => tapeMeta.value.message || (isCn.value ? 'A股暂无实时盘口' : '暂无成交'))
+const depthHint = computed(() => (depthMeta.value.available ? `${asks.value.length}档卖 / ${bids.value.length}档买` : '实时'))
+const tapeHint = computed(() => (trades.value.length ? `${trades.value.length} 笔` : ''))
+const klineHint = computed(() => {
+  if (!klineItems.value.length) return ''
+  return `${klineItems.value.length} 根 · ${klineSource.value || '--'}`
+})
+const klineEmptyText = computed(() => klineMessage.value || '暂无K线（不补造）')
+const visibleOrders = computed(() => {
+  if (!onlyCurrentSymbol.value) return orders.value
+  return orders.value.filter(row => orderMatches(row.symbol))
+})
+
+function applyRouteSymbol(rawSymbol, rawMarket) {
+  const parsed = parseSymbolMarket(rawSymbol, rawMarket || form.value.market)
+  form.value.symbol = parsed.symbol
+  form.value.market = parsed.market
+}
+function parseSymbolMarket(raw, fallbackMarket = 'US') {
+  const text = String(raw || '').trim().toUpperCase()
+  if (!text) return { symbol: form.value.symbol, market: fallbackMarket || 'US' }
+  if (text.includes('.')) {
+    const idx = text.lastIndexOf('.')
+    const code = text.slice(0, idx)
+    const suffix = text.slice(idx + 1)
+    if (['US', 'HK', 'SH', 'SZ'].includes(suffix)) {
+      return { symbol: code, market: suffix === 'SH' || suffix === 'SZ' ? 'CN' : suffix }
+    }
+  }
+  return { symbol: text, market: String(fallbackMarket || 'US').toUpperCase() }
+}
+function orderMatches(symbol) {
+  const s = String(symbol || '').toUpperCase()
+  const cur = String(form.value.symbol || '').toUpperCase()
+  const mkt = String(form.value.market || '').toUpperCase()
+  if (!cur) return true
+  return s === cur || s === `${cur}.${mkt}` || s.startsWith(`${cur}.`)
+}
+function fmt(v) {
+  if (v === null || v === undefined || v === '') return '--'
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : String(v)
+}
+function fmtSigned(v) {
+  if (v === null || v === undefined || v === '') return '--'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}`
+}
+function fmtPct(v) {
+  if (v === null || v === undefined || v === '') return '--'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`
+}
+function fmtVol(v) {
+  if (v === null || v === undefined || v === '') return '--'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return String(v)
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿'
+  if (n >= 1e4) return (n / 1e4).toFixed(2) + '万'
+  return n >= 1 ? n.toFixed(0) : n.toFixed(2)
+}
+function fmtTime(v) {
+  const text = String(v || '')
+  return text.length >= 19 ? text.slice(11, 19) : text || '--'
+}
+function sideLabel(side) {
+  if (side === 'buy') return '买'
+  if (side === 'sell') return '卖'
+  return '--'
+}
+function sideClass(side) {
+  if (side === 'buy') return 'up'
+  if (side === 'sell') return 'down'
+  return ''
+}
+function barWidth(vol, max) {
+  const n = Number(vol || 0)
+  if (!max || !n) return '0%'
+  return Math.max(6, Math.round((n / max) * 100)) + '%'
+}
+function useBookPrice(price) {
+  const n = Number(price)
+  if (Number.isFinite(n) && n > 0) form.value.price = n
+}
+function onSymbolCommit() {
+  const parsed = parseSymbolMarket(form.value.symbol, form.value.market)
+  form.value.symbol = parsed.symbol
+  form.value.market = parsed.market
+  router.replace({ path: '/trade/trading', query: { symbol: parsed.symbol, market: parsed.market } })
+  loadQuoteBoard()
+  restartLive()
+}
 function fillFromPos(row) {
-  form.value.symbol = row.symbol
+  const parsed = parseSymbolMarket(row.symbol, form.value.market)
+  form.value.symbol = parsed.symbol
+  form.value.market = parsed.market
   form.value.side = 'sell'
   if (row.quantity) form.value.quantity = Number(row.quantity) || form.value.quantity
-  loadQuote()
+  onSymbolCommit()
 }
-async function loadQuote() {
-  try {
-    const res = await getKline({ symbol: form.value.symbol, market: form.value.market, start: '-10d', stop: 'now()' })
-    const kl = (res.data && res.data.klines) || []
-    if (!kl.length) {
-      quote.value = {}
-      return
-    }
-    const last = kl[kl.length - 1]
-    const prev = kl.length > 1 ? kl[kl.length - 2] : null
-    const price = Number(last.close)
-    let ch = null
-    if (prev && prev.close) ch = ((price - Number(prev.close)) / Number(prev.close)) * 100
-    quote.value = {
-      price: price.toFixed(2),
-      open: last.open,
-      high: last.high,
-      low: last.low,
-      volume: last.volume,
-      up: ch == null ? true : ch >= 0,
-      changeText: ch == null ? '--' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`
-    }
-    if (form.value.orderType === 'LO' && !form.value.price) form.value.price = price
-  } catch (e) {
-    quote.value = {}
+function applyQuote(q) {
+  if (!q || (!q.last && !q.price && !q.close)) return
+  const last = q.last != null ? q.last : q.price != null ? q.price : q.close
+  const rate = q.changeRate
+  quote.value = {
+    ...quote.value,
+    ...q,
+    last,
+    price: last,
+    up: Number(rate) > 0,
+    changeRate: rate,
+    source: q.source || quote.value.source
   }
+  if (form.value.orderType === 'LO' && (form.value.price == null || form.value.price === 100)) {
+    const n = Number(last)
+    if (Number.isFinite(n) && n > 0) form.value.price = n
+  }
+}
+async function loadKline() {
+  if (!form.value.symbol) return
+  klineLoading.value = true
+  try {
+    const res = await getTradeQuoteKline({
+      symbol: form.value.symbol,
+      market: form.value.market,
+      period: period.value,
+      limit: period.value === 'intraday' ? 400 : 200
+    })
+    const data = res.data || {}
+    klineItems.value = data.klines || []
+    klineSource.value = data.source || ''
+    klineMessage.value = data.message || ''
+    if (data.configured === false) configured.value = false
+    if (data.quote) applyQuote(data.quote)
+    renderChart()
+  } catch (e) {
+    klineItems.value = []
+    klineMessage.value = 'K线加载失败'
+    renderChart()
+  } finally {
+    klineLoading.value = false
+  }
+}
+async function loadDepth() {
+  try {
+    const res = await getTradeQuoteDepth({ symbol: form.value.symbol, market: form.value.market })
+    const data = res.data || {}
+    asks.value = data.asks || []
+    bids.value = data.bids || []
+    depthMeta.value = data
+    if (data.configured === false) configured.value = false
+    if (data.last) applyQuote({ last: data.last, source: 'longbridge' })
+  } catch (e) {
+    asks.value = []
+    bids.value = []
+    depthMeta.value = { message: isCn.value ? 'A股暂无实时盘口' : '盘口加载失败' }
+  }
+}
+async function loadTrades() {
+  try {
+    const res = await getTradeQuoteTrades({ symbol: form.value.symbol, market: form.value.market, count: 40 })
+    const data = res.data || {}
+    trades.value = data.trades || []
+    tapeMeta.value = data
+    if (data.configured === false) configured.value = false
+  } catch (e) {
+    trades.value = []
+    tapeMeta.value = { message: isCn.value ? 'A股暂无实时盘口' : '成交明细加载失败' }
+  }
+}
+async function loadQuoteBoard() {
+  await Promise.all([loadKline(), loadDepth(), loadTrades()])
+}
+function renderChart() {
+  if (!chartRef.value) return
+  if (!chart) chart = echarts.init(chartRef.value)
+  const items = klineItems.value || []
+  if (!items.length) {
+    chart.clear()
+    return
+  }
+  const dates = items.map(i => i.date)
+  const isLine = period.value === 'intraday'
+  const up = '#f56c6c'
+  const down = '#67c23a'
+  const series = isLine
+    ? [{
+        name: '分时',
+        type: 'line',
+        data: items.map(i => i.close),
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2, color: up },
+        areaStyle: { opacity: 0.12, color: up }
+      }]
+    : [{
+        name: 'K线',
+        type: 'candlestick',
+        data: items.map(i => [i.open, i.close, i.low, i.high]),
+        itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down }
+      }]
+  series.push({
+    name: '成交量',
+    type: 'bar',
+    xAxisIndex: 1,
+    yAxisIndex: 1,
+    data: items.map(i => ({
+      value: i.volume,
+      itemStyle: { color: Number(i.close) >= Number(i.open) ? up : down }
+    }))
+  })
+  const option = applyChartTheme({
+    animation: false,
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    grid: [
+      { left: 48, right: 16, top: 24, height: '58%' },
+      { left: 48, right: 16, top: '78%', height: '14%' }
+    ],
+    xAxis: [
+      { type: 'category', data: dates, boundaryGap: !isLine, axisLine: { onZero: false } },
+      { type: 'category', gridIndex: 1, data: dates, boundaryGap: !isLine, axisLabel: { show: false }, axisTick: { show: false } }
+    ],
+    yAxis: [
+      { scale: true, splitLine: { lineStyle: { type: 'dashed' } } },
+      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, splitLine: { show: false } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: isLine ? 0 : 55, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], bottom: 4, height: 16, start: isLine ? 0 : 55, end: 100 }
+    ],
+    series
+  })
+  chart.setOption(option, true)
 }
 async function loadOrders() {
   const o = await getTradeOrders(orderScope.value)
@@ -204,7 +553,8 @@ async function refreshAll() {
     configured.value = account.value.configured !== false
     positions.value = (p.data && p.data.positions) || []
     await loadOrders()
-    await loadQuote()
+    await loadQuoteBoard()
+    restartLive()
   } finally {
     loading.value = false
   }
@@ -229,7 +579,32 @@ async function cancel(row) {
   d.ok ? proxy.$modal.msgSuccess(d.message || '已撤') : proxy.$modal.msgError(d.message || '失败')
   await refreshAll()
 }
-onMounted(refreshAll)
+function restartLive() {
+  if (liveTimer) {
+    clearInterval(liveTimer)
+    liveTimer = null
+  }
+  if (isCn.value || !configured.value) return
+  liveTimer = setInterval(() => {
+    loadDepth()
+    loadTrades()
+  }, 5000)
+}
+function handleResize() {
+  chart && chart.resize()
+}
+onMounted(() => {
+  refreshAll()
+  window.addEventListener('resize', handleResize)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (liveTimer) clearInterval(liveTimer)
+  if (chart) {
+    chart.dispose()
+    chart = null
+  }
+})
 </script>
 <style scoped>
 .page-hero { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -237,14 +612,75 @@ onMounted(refreshAll)
 .page-hero p { margin: 0; color: var(--text-muted); font-size: 13px; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .mb12 { margin-bottom: 12px; }
-.mb8 { margin-bottom: 8px; }
 .ml8 { margin-left: 8px; }
-.quote-box { text-align: center; padding: 8px 0; }
-.q-sym { font-weight: 700; color: var(--text-emphasis); }
 .muted { color: var(--text-muted); font-size: 12px; }
-.q-price { font-size: 32px; font-weight: 800; margin: 6px 0; }
+.hdr { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.quote-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.sym-input { width: 260px; max-width: 100%; }
+.hero-name { margin-top: 6px; color: var(--text-muted); font-size: 13px; }
+.hero-price { text-align: right; }
+.q-price { font-size: 32px; font-weight: 800; line-height: 1.1; }
+.q-chg { margin-top: 4px; font-size: 14px; }
+.hero-ohlc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.period-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.kline-chart { width: 100%; height: 360px; }
 .up { color: var(--stat-up, #f87171); }
 .down { color: var(--stat-down, #34d399); }
-.q-meta { font-size: 12px; color: var(--text-muted); }
-.hdr { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.calm-empty {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 16px;
+  text-align: center;
+}
+.order-book { position: relative; font-size: 13px; }
+.book-head, .book-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr;
+  gap: 8px;
+  padding: 4px 6px;
+  position: relative;
+}
+.book-head { color: var(--text-muted); font-size: 12px; }
+.book-row { cursor: pointer; border-radius: 4px; }
+.book-row:hover { background: var(--surface-hover); }
+.book-row .vol-bar {
+  position: absolute;
+  right: 0;
+  top: 2px;
+  bottom: 2px;
+  opacity: 0.16;
+  border-radius: 3px;
+}
+.book-row.ask .vol-bar { background: var(--stat-up, #f87171); }
+.book-row.bid .vol-bar { background: var(--stat-down, #34d399); }
+.book-row.ask .px { color: var(--stat-up, #f87171); }
+.book-row.bid .px { color: var(--stat-down, #34d399); }
+.book-last {
+  text-align: center;
+  font-weight: 800;
+  font-size: 18px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--border-glass);
+  border-bottom: 1px dashed var(--border-glass);
+  margin: 4px 0;
+}
+.order-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 </style>

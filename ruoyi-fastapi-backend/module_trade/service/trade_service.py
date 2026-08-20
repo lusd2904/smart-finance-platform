@@ -9,8 +9,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from module_market.entity.vo.market_vo import KlineQueryModel
+from module_market.service.kline_period import is_minute_period, normalize_kline_period
+from module_market.service.market_service import MarketService
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.dao.trade_dao import TradeDao
+from module_trade.service.auto_trade_service import parse_symbol_market
 from utils.log_util import logger
 
 
@@ -37,6 +41,122 @@ class TradeService:
         if scope == 'history':
             return await LongbridgeService.get_history_orders_async(100)
         return await LongbridgeService.get_today_orders_async()
+
+    @classmethod
+    async def get_depth_services(cls, query_db: AsyncSession, symbol: str, market: str = 'US') -> dict[str, Any]:
+        code, mkt = parse_symbol_market(symbol, market)
+        await cls._ensure(query_db)
+        return await LongbridgeService.get_depth_async(code, mkt)
+
+    @classmethod
+    async def get_trades_services(
+        cls, query_db: AsyncSession, symbol: str, market: str = 'US', count: int = 30
+    ) -> dict[str, Any]:
+        code, mkt = parse_symbol_market(symbol, market)
+        await cls._ensure(query_db)
+        return await LongbridgeService.get_trades_async(code, mkt, count)
+
+    @classmethod
+    async def get_quote_kline_services(
+        cls,
+        query_db: AsyncSession,
+        symbol: str,
+        market: str = 'US',
+        period: str = 'daily',
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """
+        交易台 K 线：优先 Influx 真实序列；US/HK 分钟/分时在时序库为空时回退长桥 candlesticks/intraday。
+        有实时价时只覆盖最后一根已有 K，不新增、不补空。
+        """
+        code, mkt = parse_symbol_market(symbol, market)
+        period_key = normalize_kline_period(period)
+        limit = max(20, min(int(limit or 200), 500))
+        await cls._ensure(query_db)
+
+        influx_klines = await MarketService.get_kline_services(
+            KlineQueryModel(symbol=code, market=mkt, period=period_key)
+        )
+        source = 'influx'
+        klines = list(influx_klines or [])
+        message = None
+
+        if not klines and is_minute_period(period_key) and mkt in {'US', 'HK'} and LongbridgeService.is_configured():
+            if period_key == 'intraday':
+                lb = await LongbridgeService.get_intraday_async(code, mkt)
+            else:
+                lb = await LongbridgeService.get_candlesticks_async(code, mkt, period_key, limit)
+            klines = list(lb.get('klines') or [])
+            if klines:
+                source = 'longbridge'
+            else:
+                message = lb.get('message') or '暂无K线'
+
+        if not klines and not message:
+            message = '暂无K线'
+
+        if klines and len(klines) > limit:
+            klines = klines[-limit:]
+
+        quote = cls._quote_from_klines(klines)
+        price_source = 'history'
+        if LongbridgeService.is_configured() and mkt in {'US', 'HK'} and not str(code).startswith('^'):
+            rt = await LongbridgeService.get_realtime_quote_async([code], mkt)
+            quotes = rt.get('quotes') or []
+            if quotes:
+                q0 = quotes[0]
+                last = q0.get('lastDone')
+                quote = {
+                    **quote,
+                    'last': last if last is not None else quote.get('last'),
+                    'open': q0.get('open') if q0.get('open') is not None else quote.get('open'),
+                    'high': q0.get('high') if q0.get('high') is not None else quote.get('high'),
+                    'low': q0.get('low') if q0.get('low') is not None else quote.get('low'),
+                    'volume': q0.get('volume') if q0.get('volume') is not None else quote.get('volume'),
+                    'change': q0.get('change'),
+                    'changeRate': q0.get('changeRate'),
+                    'prevClose': q0.get('prevClose'),
+                }
+                price_source = 'longbridge'
+                if klines and last is not None:
+                    LongbridgeService.overlay_last_bar(klines[-1], float(last))
+
+        return {
+            'symbol': code,
+            'market': mkt,
+            'period': period_key,
+            'source': source,
+            'priceSource': price_source,
+            'configured': LongbridgeService.is_configured(),
+            'message': message,
+            'klines': klines,
+            'quote': {**quote, 'source': price_source} if quote else {},
+        }
+
+    @staticmethod
+    def _quote_from_klines(klines: list[dict[str, Any]]) -> dict[str, Any]:
+        if not klines:
+            return {}
+        last = klines[-1]
+        prev = klines[-2] if len(klines) > 1 else None
+        change = change_rate = None
+        try:
+            if prev and prev.get('close') and last.get('close'):
+                change = round(float(last['close']) - float(prev['close']), 4)
+                change_rate = round(change / float(prev['close']) * 100, 4)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+        return {
+            'last': last.get('close'),
+            'open': last.get('open'),
+            'high': last.get('high'),
+            'low': last.get('low'),
+            'volume': last.get('volume'),
+            'tradeDate': last.get('date'),
+            'change': change,
+            'changeRate': change_rate,
+            'prevClose': prev.get('close') if prev else None,
+        }
 
     @classmethod
     async def submit_order_services(
