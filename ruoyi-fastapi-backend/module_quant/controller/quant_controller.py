@@ -42,8 +42,23 @@ async def readmodel_overview(
 ) -> Response:
     from module_quant.service.longbridge_service import LongbridgeService
 
-    await LongbridgeService.ensure_credentials_from_db(query_db)
-    snapshot = await ReadModelService.get_platform_overview_snapshot()
+    try:
+        await LongbridgeService.ensure_credentials_from_db(query_db)
+        snapshot = await ReadModelService.get_platform_overview_snapshot()
+    except Exception as exc:
+        logger.warning(f'[量化读模型] overview 降级空状态: {exc}')
+        snapshot = {
+            'configured': False,
+            'message': '量化读模型暂不可用，长桥服务或密钥未配置',
+            'asset': {
+                'configured': False,
+                'totalCash': None,
+                'netAssets': None,
+                'availableCash': None,
+                'currency': None,
+            },
+            'position': {'count': 0, 'positions': []},
+        }
     return ResponseUtil.success(data=snapshot)
 
 

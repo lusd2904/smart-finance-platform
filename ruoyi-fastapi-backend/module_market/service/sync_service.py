@@ -22,6 +22,7 @@ from module_market.constant.instruments import (
     TARGET_INSTRUMENTS,
     get_target_symbols,
 )
+from module_market.service.kline_sources import fetch_real_klines
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
@@ -269,7 +270,16 @@ class MarketSyncService:
         按 trade_date 合并多源日K。
         优先级：sina > quant_trade > local_mysql（后写覆盖前写时用更高优先级）。
         """
-        priority = {'sina': 3, 'quant_trade': 2, 'local_mysql': 1}
+        priority = {
+            'sina': 6,
+            'tencent': 5,
+            'eastmoney': 4,
+            'yahoo': 4,
+            'stooq': 3,
+            'netease': 3,
+            'quant_trade': 2,
+            'local_mysql': 1,
+        }
         by_date: dict[str, dict[str, Any]] = {}
         for rows in sources:
             for r in rows or []:
@@ -317,10 +327,13 @@ class MarketSyncService:
         if not symbol:
             return 0
 
-        sina_rows = cls._rows_from_sina(symbol, market, years)
+        real_rows, used_sources = fetch_real_klines(symbol, market, years)
+        sina_rows = cls._rows_from_sina(symbol, market, years) if not real_rows else []
         quant_rows = cls._rows_from_quant_mysql(symbol, market, years)
         local_rows = cls._rows_from_local_mysql(symbol, market, years)
-        rows = cls._merge_rows(local_rows, quant_rows, sina_rows)
+        rows = cls._merge_rows(local_rows, quant_rows, sina_rows, real_rows)
+        if used_sources:
+            logger.info(f'[行情同步] {symbol} 外网真源={used_sources}')
 
         if not rows:
             logger.warning(f'[行情同步] {symbol} 无可用真实行情数据')

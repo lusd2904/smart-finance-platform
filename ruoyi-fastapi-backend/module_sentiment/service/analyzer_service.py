@@ -93,9 +93,33 @@ class SentimentAiAnalyzer:
         try:
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code == 429:
+                    retry_after = resp.headers.get('Retry-After') or '60'
+                    logger.warning('[舆情AI分析] 模型限流 429，不重试')
+                    return {
+                        'ok': False,
+                        'result': None,
+                        'raw': '',
+                        'error': '模型调用过于频繁，请稍后再试',
+                        'code': 429,
+                        'retryAfter': int(retry_after) if str(retry_after).isdigit() else 60,
+                    }
                 resp.raise_for_status()
                 data = resp.json()
             raw = data['choices'][0]['message']['content'] or ''
+        except httpx.HTTPStatusError as e:
+            if e.response is not None and e.response.status_code == 429:
+                retry_after = e.response.headers.get('Retry-After') or '60'
+                return {
+                    'ok': False,
+                    'result': None,
+                    'raw': '',
+                    'error': '模型调用过于频繁，请稍后再试',
+                    'code': 429,
+                    'retryAfter': int(retry_after) if str(retry_after).isdigit() else 60,
+                }
+            logger.error(f'[舆情AI分析] 调用模型失败: {e}')
+            return {'ok': False, 'result': None, 'raw': '', 'error': f'调用模型失败: {e}'}
         except Exception as e:
             logger.error(f'[舆情AI分析] 调用模型失败: {e}')
             return {'ok': False, 'result': None, 'raw': '', 'error': f'调用模型失败: {e}'}

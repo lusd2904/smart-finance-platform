@@ -188,7 +188,18 @@ async def auto_trade_status(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    data = await AutoTradeService.get_status(query_db)
+    try:
+        data = await AutoTradeService.get_status(query_db)
+    except Exception as exc:
+        logger.warning(f'[自动交易] status 降级空状态: {exc}')
+        data = {
+            'configured': False,
+            'message': '自动交易服务暂不可用或密钥未配置',
+            'tradingEnabled': False,
+            'submitAllowed': False,
+            'recentRuns': [],
+            'recentDecisions': [],
+        }
     return ResponseUtil.success(data=data)
 
 
@@ -204,14 +215,25 @@ async def auto_trade_run(
     body: Annotated[dict, Body()] = None,
 ) -> Response:
     body = body or {}
-    data = await AutoTradeService.run_watchlist_strategy_cycle(
-        query_db,
-        symbols=body.get('symbols'),
-        source='manual_api',
-        execute=bool(body.get('execute')),
-        strategy_profile=body.get('strategyProfile', 'balanced'),
-        custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
-    )
+    try:
+        data = await AutoTradeService.run_watchlist_strategy_cycle(
+            query_db,
+            symbols=body.get('symbols'),
+            source='manual_api',
+            execute=bool(body.get('execute')),
+            strategy_profile=body.get('strategyProfile', 'balanced'),
+            custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
+        )
+    except Exception as exc:
+        logger.warning(f'[自动交易] run 降级空状态: {exc}')
+        data = {
+            'ok': True,
+            'configured': False,
+            'submittedOrdersCount': 0,
+            'message': '自动交易服务暂不可用或密钥未配置，已跳过委托',
+            'candidates': [],
+            'opportunities': [],
+        }
     return ResponseUtil.success(data=data, msg=data.get('message', '扫描完成'))
 
 

@@ -152,6 +152,67 @@ from(bucket: "{bucket}")
             return []
 
     @classmethod
+    def query_latest_klines(
+        cls,
+        market: str,
+        symbols: list[str],
+        n: int = 2,
+        start: str = '-60d',
+    ) -> dict[str, list[dict[str, Any]]]:
+        """
+        Batch-read the latest N daily bars for many symbols in one Flux query.
+        Returns {symbol: [{date, open, high, low, close, volume}, ...]} ascending.
+        """
+        safe_symbols = []
+        for raw in symbols or []:
+            cleaned = _safe_symbol(raw)
+            if cleaned:
+                safe_symbols.append(cleaned)
+        if not safe_symbols:
+            return {}
+        start_clause = _safe_time_clause(start)
+        if start_clause is None:
+            return {}
+        limit = max(1, min(int(n or 2), 10))
+        # Flux set literals: quoted strings only, already whitelist-checked
+        set_literal = ', '.join(f'"{s}"' for s in safe_symbols)
+        try:
+            bucket = bucket_for_market(market)
+            flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: {start_clause})
+  |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
+  |> filter(fn: (r) => contains(value: r.symbol, set: [{set_literal}]))
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> group(columns: ["symbol"])
+  |> sort(columns: ["_time"])
+  |> tail(n: {limit})
+'''
+            tables = get_client().query_api().query(flux)
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for table in tables:
+                for record in table.records:
+                    sym = str(record.values.get('symbol') or '')
+                    if not sym:
+                        continue
+                    grouped.setdefault(sym, []).append(
+                        {
+                            'date': record.get_time().strftime('%Y-%m-%d'),
+                            'open': record.values.get('open'),
+                            'high': record.values.get('high'),
+                            'low': record.values.get('low'),
+                            'close': record.values.get('close'),
+                            'volume': record.values.get('volume'),
+                        }
+                    )
+            for sym, bars in grouped.items():
+                bars.sort(key=lambda x: x.get('date') or '')
+            return grouped
+        except Exception as exc:
+            logger.warning(f'[Influx] 批量最新K线失败 market={market}: {exc}')
+            return {}
+
+    @classmethod
     def latest_date(cls, market: str, symbol: str) -> str | None:
         """返回某标的在时序库中的最新交易日(YYYY-MM-DD)，无数据返回None。"""
         bucket = bucket_for_market(market)
