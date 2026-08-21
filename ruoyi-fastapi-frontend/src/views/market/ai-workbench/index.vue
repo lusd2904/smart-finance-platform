@@ -149,16 +149,21 @@ async function loadSnap() {
 async function runAi() {
   loading.value = true
   try {
-    await loadSnap()
-    const res = await aiAnalyze({ symbol: symbol.value, market: market.value, days: days.value })
-    result.value = res.data || {}
-    snap.value = {
-      ...snap.value,
-      modelName: result.value.modelName,
-      price: result.value.price ?? snap.value.price,
-      klineCount: result.value.klineCount ?? snap.value.klineCount
-    }
-    proxy.$modal.msgSuccess(result.value.message || '完成')
+    await proxy.$modal.withLoading('研判中…', async () => {
+      await loadSnap()
+      const res = await aiAnalyze(
+        { symbol: symbol.value, market: market.value, days: days.value },
+        { skipPageLoading: true }
+      )
+      result.value = res.data || {}
+      snap.value = {
+        ...snap.value,
+        modelName: result.value.modelName,
+        price: result.value.price ?? snap.value.price,
+        klineCount: result.value.klineCount ?? snap.value.klineCount
+      }
+      proxy.$modal.msgSuccess(result.value.message || '完成')
+    })
   } finally {
     loading.value = false
   }
@@ -166,7 +171,9 @@ async function runAi() {
 async function runOneshot() {
   oneshotLoading.value = true
   try {
-    const res = await analyzeOneshot({ symbol: symbol.value, market: market.value })
+    const res = await proxy.$modal.withLoading('研判中…', () =>
+      analyzeOneshot({ symbol: symbol.value, market: market.value }, { skipPageLoading: true })
+    )
     const data = res.data || {}
     if (!data.ok) {
       proxy.$modal.msgError(data.message || 'One-Shot 失败')
@@ -223,7 +230,9 @@ async function loadBatches() {
 async function runBatch() {
   batchLoading.value = true
   try {
-    const res = await runAiBatch({ market: batchMarket.value, days: 90 })
+    const res = await proxy.$modal.withLoading('研判中…', () =>
+      runAiBatch({ market: batchMarket.value, days: 90 }, { skipPageLoading: true })
+    )
     proxy.$modal.msgSuccess(res.msg || '批量完成')
     await loadBatches()
     if (res.data && res.data.batchId) await showBatch({ batchId: res.data.batchId })
