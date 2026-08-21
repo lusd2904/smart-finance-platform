@@ -32,6 +32,7 @@ JOB_GROUPS = {
     'finance_briefings': 'market',
     'board_warmup': 'market',
     'symbol_content': 'market',
+    'market_heat_collect': 'market',
     'factor_scan': 'quant',
     'factor_qc': 'quant',
     'indicator_refresh': 'quant',
@@ -349,10 +350,26 @@ async def _sentiment_analyze(_payload: dict[str, Any]) -> dict[str, Any]:
         return await SentimentService.run_analysis_services(db)
 
 
+async def _market_heat_collect(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_market.service.heat_service import MarketHeatService
+    from utils.longbridge_breaker import LongbridgeBreaker
+
+    market = str(payload.get('market') or 'US').upper()
+    trade_date = payload.get('tradeDate')
+    if not LongbridgeBreaker.allow():
+        return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'market': market}
+    async with AsyncSessionLocal() as db:
+        return await MarketHeatService.collect_market(db, market=market, trade_date=trade_date)
+
+
 async def _watchlist_analyze(_payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal
     from module_market.service.watchlist_service import MarketWatchlistService
+    from utils.longbridge_breaker import LongbridgeBreaker
 
+    if not LongbridgeBreaker.allow():
+        return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message()}
     async with AsyncSessionLocal() as db:
         return await MarketWatchlistService.run_hourly_job(db)
 
@@ -414,6 +431,7 @@ HANDLERS = {
     'finance_briefings': _finance_briefings,
     'board_warmup': _board_warmup,
     'symbol_content': _symbol_content,
+    'market_heat_collect': _market_heat_collect,
     'factor_scan': _factor_scan,
     'factor_qc': _factor_qc,
     'sentiment_collect': _sentiment_collect,

@@ -132,3 +132,34 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
             logger.error(f'[自选综合分析任务] 失败: {e}')
             raise
 
+
+async def _collect_market_heat(market: str, trade_date: str | None = None) -> None:
+    from module_market.service.heat_service import MarketHeatService
+
+    payload = {'market': market.upper(), 'tradeDate': trade_date}
+    if await JobQueue.enqueue('market_heat_collect', payload):
+        logger.info(f'[热度采集任务] 已入队 market={market}')
+        return
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await MarketHeatService.collect_market(db, market=market, trade_date=trade_date)
+            logger.info(f'[热度采集任务] 完成 market={market}: {result}')
+        except Exception as e:
+            logger.error(f'[热度采集任务] 失败 market={market}: {e}')
+            raise
+
+
+async def collect_market_heat_us_job(*args, **kwargs) -> None:
+    """美股收盘后采集热度与 Top50。invoke_target: module_task.market_task.collect_market_heat_us_job"""
+    await _collect_market_heat('US')
+
+
+async def collect_market_heat_hk_job(*args, **kwargs) -> None:
+    """港股收盘后采集热度与 Top50。invoke_target: module_task.market_task.collect_market_heat_hk_job"""
+    await _collect_market_heat('HK')
+
+
+async def collect_market_heat_cn_job(*args, **kwargs) -> None:
+    """A股收盘后采集热度与 Top50。invoke_target: module_task.market_task.collect_market_heat_cn_job"""
+    await _collect_market_heat('CN')
+

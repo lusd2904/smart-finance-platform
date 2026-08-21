@@ -31,12 +31,15 @@ def test_401004_trips_immediately_and_blocks_quote_paths() -> None:
         depth = LongbridgeService.get_depth('AAPL', 'US')
         trades = LongbridgeService.get_trades('AAPL', 'US')
         content = LongbridgeService.fetch_symbol_content('AAPL.US', ['news'])
+        static = LongbridgeService.get_static_info(['AAPL.US'])
     assert quote['reason'] == 'circuit_open'
     assert quote['quotes'] == []
     assert depth['reason'] == 'circuit_open'
     assert depth['asks'] == []
     assert trades['reason'] == 'circuit_open'
     assert content['news'] == []
+    assert static['reason'] == 'circuit_open'
+    assert static['items'] == []
 
 
 def test_timeouts_open_after_threshold() -> None:

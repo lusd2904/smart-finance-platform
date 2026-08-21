@@ -373,8 +373,17 @@ class LongbridgeService:
         """获取静态基本面（名称/行业等），凭据缺失返回 configured=False。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'items': []}
+        if cls._blocked():
+            return {
+                'configured': True,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'items': [],
+            }
         try:
             ctx = cls._build_quote_context()
+            if ctx is None:
+                return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'items': []}
             raw = ctx.static_info(symbols)
             items = []
             for info in raw or []:
@@ -393,8 +402,10 @@ class LongbridgeService:
                         'dividendYield': cls._to_float(getattr(info, 'dividend_yield', None)),
                     }
                 )
+            LongbridgeBreaker.record_success()
             return {'configured': True, 'items': items}
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取静态信息失败: {exc}')
             return {'configured': True, 'message': f'获取静态信息失败: {exc}', 'items': []}
 
