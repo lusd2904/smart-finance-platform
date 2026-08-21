@@ -151,6 +151,7 @@ const subsystemGroups = [
     icon: TrendCharts,
     links: [
       { name: '量化策略中心', path: '/quant/strategy' },
+      { name: 'Alpha 快照', path: '/quant/alpha-snapshot' },
       { name: '策略配置', path: '/quant/strategy-config' },
       { name: '策略回测', path: '/trade/backtest' }
     ]
@@ -162,7 +163,8 @@ const subsystemGroups = [
     path: '/trade/risk',
     icon: Warning,
     links: [
-      { name: '风控管理', path: '/trade/risk' }
+      { name: '风控管理', path: '/trade/risk' },
+      { name: '风险复核', path: '/trade/risk-review' }
     ]
   },
   {
