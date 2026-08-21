@@ -130,6 +130,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 
 - `sentiment-menu.sql` / `market-menu.sql` / `quant-menu.sql`
 - `full-feature-menu.sql` / `deep-feature-menu.sql`
+- `risk-alpha-routes-menu.sql`（`/trade/risk-review`、`/quant/alpha-snapshot`）
 
 可按需导入以挂载业务菜单。
 
