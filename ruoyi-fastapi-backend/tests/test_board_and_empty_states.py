@@ -37,6 +37,32 @@ def test_flatten_account_unconfigured_is_null_not_zero() -> None:
 
 
 @pytest.mark.asyncio
+async def test_board_quotes_never_calls_longbridge() -> None:
+    fake_bars = {
+        'AAPL': [
+            {'date': '2024-06-03', 'open': 190, 'high': 192, 'low': 189, 'close': 191, 'volume': 1000},
+            {'date': '2024-06-04', 'open': 191, 'high': 193, 'low': 190, 'close': 192, 'volume': 1100},
+        ]
+    }
+
+    with (
+        patch.object(
+            MarketService,
+            'get_instrument_list_services',
+            new=AsyncMock(
+                return_value=[{'symbol': 'AAPL', 'name': 'Apple', 'market': 'US', 'category': 'stock'}]
+            ),
+        ),
+        patch('module_market.service.market_service.InfluxUtil.query_latest_klines', return_value=fake_bars),
+    ):
+        payload = await MarketService.get_board_quotes_services(AsyncMock(), category=None, market='US')
+
+    assert payload['source'] == 'influx'
+    assert payload['quotes'][0]['source'] == 'influx'
+    assert payload['quotes'][0]['price'] == 192
+
+
+@pytest.mark.asyncio
 async def test_readmodel_overview_null_when_unconfigured() -> None:
     with (
         patch.object(ReadModelService, '_get', new=AsyncMock(return_value=None)),
