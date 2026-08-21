@@ -137,6 +137,14 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment
 
 已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)（含 `market-menu-unify.sql`、`quant-longbridge-user.sql`）。
 
+补全市场代码与日K（本机 Docker 默认口，限流慢拉）：
+
+```bash
+ruoyi-fastapi-backend/.venv/bin/python scripts/sync_market_listings.py
+ruoyi-fastapi-backend/.venv/bin/python -u scripts/sync_klines_slow.py
+touch logs/kline_sync.stop   # 下一只标的前退出
+```
+
 ### 3. 桌面端
 
 ```bash
