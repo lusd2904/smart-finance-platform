@@ -25,6 +25,7 @@ from module_market.entity.vo.market_vo import (
     MarketWatchlistPageQueryModel,
 )
 from module_market.service.market_service import MarketService
+from module_market.service.market_review_service import MarketReviewService
 from module_market.service.watchlist_service import MarketWatchlistService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -472,3 +473,49 @@ async def get_market_watchlist_backtest(
         query_db, _current_user_id(current_user), limit=limit
     )
     return ResponseUtil.success(data=data, msg=data.get('message') or '回测完成')
+
+
+@market_controller.get(
+    '/review/latest',
+    summary='最新三市场收盘分析',
+    dependencies=[UserInterfaceAuthDependency('market:review:list')],
+)
+async def get_market_review_latest(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await MarketReviewService.latest_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/review/history',
+    summary='市场收盘分析历史',
+    dependencies=[UserInterfaceAuthDependency('market:review:list')],
+)
+async def get_market_review_history(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query()] = 60,
+) -> Response:
+    data = await MarketReviewService.history_services(query_db, market=market, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/review/analyze',
+    summary='立即生成市场收盘分析',
+    description='不传 market 则分析美股、港股、A股',
+    dependencies=[UserInterfaceAuthDependency('market:review:analyze')],
+)
+@Log(title='市场收盘分析', business_type=BusinessType.OTHER)
+async def analyze_market_review(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str | None, Query()] = None,
+) -> Response:
+    markets = [market] if market else None
+    data = await MarketReviewService.analyze_markets(query_db, markets)
+    logger.info(f'市场收盘分析: {data.get("message")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')

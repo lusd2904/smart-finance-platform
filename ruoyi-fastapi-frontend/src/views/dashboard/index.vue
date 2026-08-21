@@ -32,6 +32,31 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="panel-card mb16" v-loading="reviewLoading">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">市场分析</span>
+          <span class="panel-sub">美股 · 港股 · A股 收盘复盘</span>
+          <el-button link type="primary" @click="go('/market/review')">历史记录</el-button>
+        </div>
+      </template>
+      <el-row :gutter="12" v-if="marketReviews.length">
+        <el-col :xs="24" :md="8" v-for="item in marketReviews" :key="item.market">
+          <div class="review-card" :class="reviewTone(item.stance)" @click="go('/market/review')">
+            <div class="review-head">
+              <strong>{{ item.marketLabel }}</strong>
+              <el-tag size="small" :type="reviewTag(item.stance)" effect="dark">{{ item.stance || '待分析' }}</el-tag>
+            </div>
+            <div class="review-meta">{{ item.tradeDate || '--' }} · 温度 {{ item.score != null ? item.score : '--' }}</div>
+            <p class="review-summary">{{ item.summary || '暂无当日复盘' }}</p>
+          </div>
+        </el-col>
+      </el-row>
+      <el-empty v-else description="暂无收盘复盘，可到行情中心「市场分析」立即生成" :image-size="72">
+        <el-button type="primary" @click="go('/market/review')">去市场分析</el-button>
+      </el-empty>
+    </el-card>
+
     <!-- 快捷导航 -->
     <el-card shadow="never" class="panel-card mb16">
       <template #header>
@@ -164,7 +189,7 @@
 <script setup name="Index">
 import useUserStore from '@/store/modules/user'
 import { getStats, listAnalysis, listNews } from '@/api/sentiment'
-import { listInstrument, getKline } from '@/api/market'
+import { listInstrument, getKline, getMarketReviewLatest } from '@/api/market'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -176,6 +201,8 @@ const latestAnalysis = ref({})
 const activities = ref([])
 const quotes = ref([])
 const instrumentCount = ref(0)
+const marketReviews = ref([])
+const reviewLoading = ref(false)
 
 const displayName = computed(() => userStore.nickName || userStore.name || '管理员')
 
@@ -204,7 +231,8 @@ const navItems = [
   { title: '财经简报', desc: '市场资讯聚合', path: '/market/finance-news', icon: 'Notebook', bg: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
   { title: '量化策略', desc: '策略与扫描', path: '/quant/strategy', icon: 'Cpu', bg: 'linear-gradient(135deg,#8b5cf6,#a78bfa)' },
   { title: '自选池', desc: '关注标的管理', path: '/quant/watchlist', icon: 'Star', bg: 'linear-gradient(135deg,#ec4899,#f472b6)' },
-  { title: '行情自选', desc: '小时级综合建议', path: '/market/watchlist', icon: 'Aim', bg: 'linear-gradient(135deg,#f97316,#fb923c)' }
+  { title: '行情自选', desc: '小时级综合建议', path: '/market/watchlist', icon: 'Aim', bg: 'linear-gradient(135deg,#f97316,#fb923c)' },
+  { title: '市场分析', desc: '美股/港股/A股收盘复盘', path: '/market/review', icon: 'Notebook', bg: 'linear-gradient(135deg,#0ea5e9,#38bdf8)' }
 ]
 
 const modules = [
@@ -250,6 +278,16 @@ function go(path) {
   router.push(path).catch(() => {})
 }
 
+function reviewTag(stance) {
+  if (stance === '偏多') return 'danger'
+  if (stance === '偏空') return 'success'
+  return 'info'
+}
+function reviewTone(stance) {
+  if (stance === '偏多') return 'bull'
+  if (stance === '偏空') return 'bear'
+  return 'neutral'
+}
 function goKline(symbol) {
   router.push({ path: '/market/kline', query: { symbol } }).catch(() => {})
 }
@@ -303,6 +341,18 @@ async function loadSentiment() {
   }
 }
 
+async function loadMarketReviews() {
+  reviewLoading.value = true
+  try {
+    const res = await getMarketReviewLatest()
+    marketReviews.value = (res.data && res.data.items) || []
+  } catch (e) {
+    marketReviews.value = []
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
 async function loadMarket() {
   try {
     const res = await listInstrument()
@@ -342,7 +392,7 @@ async function refreshAll() {
   loading.value = true
   tickClock()
   try {
-    await Promise.all([loadSentiment(), loadMarket()])
+    await Promise.all([loadSentiment(), loadMarket(), loadMarketReviews()])
   } finally {
     loading.value = false
   }
@@ -482,6 +532,32 @@ onBeforeUnmount(() => {
 .panel-sub {
   font-size: 12px;
   color: #94a3b8;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.review-card {
+  border-radius: 12px;
+  padding: 14px;
+  min-height: 168px;
+  background: var(--surface-muted, #f8fafc);
+  border: 1px solid var(--border-soft, #eef2ff);
+  cursor: pointer;
+  margin-bottom: 8px;
+  &.bull { border-color: #fecaca; }
+  &.bear { border-color: #bbf7d0; }
+}
+.review-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.review-meta { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.review-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #334155;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .nav-item {
