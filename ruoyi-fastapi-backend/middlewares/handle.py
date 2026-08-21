@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from config.env import AppConfig
 from middlewares.api_response_header_middleware import add_api_response_header_middleware
+from middlewares.audit_middleware import add_audit_middleware
 from middlewares.context_middleware import add_context_cleanup_middleware
 from middlewares.cors_middleware import add_cors_middleware
 from middlewares.demo_mode_middleware import add_demo_mode_middleware
@@ -22,6 +23,7 @@ def handle_middleware(app: FastAPI) -> None:
     # 加载gzip压缩中间件
     add_gzip_middleware(app)
     add_metrics_middleware(app)
+    add_audit_middleware(app)
     # 加载接口响应头追加中间件
     add_api_response_header_middleware(app)
     # 加载trace中间件

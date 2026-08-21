@@ -115,8 +115,8 @@
 </template>
 
 <script setup name="SentimentDashboard">
-import * as echarts from 'echarts';
 import { applyChartTheme } from '@/utils/echartsTheme';
+import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
 
 const { proxy } = getCurrentInstance();
@@ -124,13 +124,13 @@ const { proxy } = getCurrentInstance();
 const stats = ref({});
 const latest = ref({});
 const trendRef = ref(null);
+const { setOption: setTrendOption, dispose: disposeTrend } = useEChart(trendRef);
 const collectLoading = ref(false);
 const analyzeLoading = ref(false);
 const rateLimitedUntil = ref(0);
 const retryLeft = ref(0);
 const rateLimitMessage = ref('');
 let retryTimer = null;
-let trendChart = null;
 
 /** 只展示可读时间，避免把整条 analysis 对象渲染成 JSON */
 const latestAnalysisTime = computed(() => {
@@ -223,9 +223,6 @@ function getTrendData() {
 
 function renderTrend(list) {
   if (!trendRef.value) return;
-  if (!trendChart) {
-    trendChart = echarts.init(trendRef.value);
-  }
   const times = list.map(item => item.createTime);
   const option = {
     tooltip: { trigger: 'axis' },
@@ -246,7 +243,7 @@ function renderTrend(list) {
       { name: 'A股', type: 'line', smooth: true, data: list.map(item => item.aScore), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } }
     ]
   };
-  trendChart.setOption(applyChartTheme(option));
+  setTrendOption(applyChartTheme(option));
 }
 
 /** 立即采集 */
@@ -315,25 +312,16 @@ function refreshAll() {
   getTrendData();
 }
 
-function handleResize() {
-  trendChart && trendChart.resize();
-}
-
 onMounted(() => {
   refreshAll();
-  window.addEventListener('resize', handleResize);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize);
   if (retryTimer) {
     clearInterval(retryTimer);
     retryTimer = null;
   }
-  if (trendChart) {
-    trendChart.dispose();
-    trendChart = null;
-  }
+  disposeTrend();
 });
 </script>
 

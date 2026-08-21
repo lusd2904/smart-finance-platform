@@ -12,6 +12,7 @@ from config.database import AsyncSessionLocal
 from module_market.entity.vo.market_vo import MarketSyncModel
 from module_market.service.market_service import MarketService
 from module_market.service.sync_service import MarketSyncService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 
 
@@ -26,6 +27,9 @@ async def sync_market_job(*args, **kwargs) -> None:
         except Exception as e:
             logger.warning(f'[行情定时任务] 初始化标的元数据失败(忽略继续): {e}')
 
+    if await JobQueue.enqueue('market_sync', {'years': 10}):
+        logger.info('[行情定时任务] 已入队 Redis 后台队列')
+        return
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, MarketSyncService.sync, None, 10)
@@ -99,6 +103,9 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
     """
     from module_market.service.watchlist_service import MarketWatchlistService
 
+    if await JobQueue.enqueue('watchlist_analyze', {}):
+        logger.info('[自选综合分析任务] 已入队 Redis 后台队列')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await MarketWatchlistService.run_hourly_job(db)

@@ -136,7 +136,7 @@
 </template>
 
 <script setup name="QuantFactor">
-import * as echarts from 'echarts';
+import { useEChart } from '@/composables/useEChart';
 import { getFactorSchema, computeFactor, listFactorSnapshots, runDailyFactorScan, getReadmodelOverview, getFactorQc, runFactorQc } from '@/api/quant';
 import { listInstrument } from '@/api/market';
 
@@ -158,7 +158,7 @@ const qcHint = ref('');
 const qcLoading = ref(false);
 
 const radarRef = ref(null);
-let radarChart = null;
+const { setOption: setRadarOption, dispose: disposeRadar } = useEChart(radarRef);
 
 function famColor(idx) { return FAM_COLORS[idx % FAM_COLORS.length]; }
 
@@ -348,13 +348,10 @@ function handleCompute() {
 /** 渲染雷达图 */
 function renderRadar() {
   if (!radarRef.value) return;
-  if (!radarChart) {
-    radarChart = echarts.init(radarRef.value);
-  }
   const rows = factorRows.value;
   const indicator = rows.map(r => ({ name: r.name, max: 100 }));
   const values = rows.map(r => (r.score != null ? Number(r.score) : 0));
-  radarChart.setOption({
+  setRadarOption({
     tooltip: {},
     radar: {
       indicator,
@@ -376,19 +373,15 @@ function renderRadar() {
   }, true);
 }
 
-function handleResize() { radarChart && radarChart.resize(); }
-
 onMounted(() => {
   loadSchema();
   loadInstruments();
   loadSnapshots();
   loadQc();
-  window.addEventListener('resize', handleResize);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize);
-  if (radarChart) { radarChart.dispose(); radarChart = null; }
+  disposeRadar();
 });
 </script>
 
