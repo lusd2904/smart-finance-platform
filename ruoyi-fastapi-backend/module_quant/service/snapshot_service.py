@@ -206,6 +206,13 @@ class SnapshotService:
         await QuantSnapshotDao.add_readmodel_snapshot(db, 'board', _json(payload))
         await db.commit()
         await ReadModelService.put_scheduled('board', payload, BOARD_TTL)
+        try:
+            from module_market.service.market_service import MarketService
+
+            quotes = await MarketService.refresh_board_quotes_cache(db)
+            payload['quotesCache'] = quotes
+        except Exception as exc:
+            logger.warning(f'[指标快照] 写入看板报价缓存失败: {exc}')
         return {'count': len(board), 'asOf': payload['asOf']}
 
     @classmethod

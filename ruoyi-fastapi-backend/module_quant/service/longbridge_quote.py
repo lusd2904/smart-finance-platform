@@ -45,10 +45,15 @@ def fmt_ts(value: Any, with_time: bool = False) -> str:
 
 
 def quote_error_reason(exc: Exception) -> str:
-    text = str(exc or '').lower()
-    if '401' in text or 'unauthorized' in text or 'unauth' in text:
+    text = str(exc or '')
+    lowered = text.lower()
+    if '401004' in text or 'circuit' in lowered:
+        return 'circuit_open' if 'circuit' in lowered else 'unauthorized'
+    if '401' in text or 'unauthorized' in lowered or 'unauth' in lowered:
         return 'unauthorized'
-    if '403' in text or 'no access' in text or 'no quotes' in text:
+    if 'timeout' in lowered or 'timed out' in lowered:
+        return 'timeout'
+    if '403' in lowered or 'no access' in lowered or 'no quotes' in lowered:
         return 'no_access'
     return 'error'
 

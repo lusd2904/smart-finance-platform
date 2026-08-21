@@ -7,6 +7,7 @@ invoke_target: module_task.market_task.sync_market_job
 """
 
 import asyncio
+from typing import Any
 
 from config.database import AsyncSessionLocal
 from module_market.entity.vo.market_vo import MarketSyncModel
@@ -58,6 +59,9 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
     """
     from module_market.service.finance_news_service import FinanceNewsService
 
+    if await JobQueue.enqueue('finance_briefings', {}):
+        logger.info('[财经资讯定时任务] 已入队')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await FinanceNewsService.refresh_all_markets(db)
@@ -67,12 +71,12 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
             raise
 
 
-async def refresh_symbol_content_job(*args, **kwargs) -> None:
-    """
-    定时刷新热门标的公告/资讯/讨论缓存。
-    invoke_target: module_task.market_task.refresh_symbol_content_job
-    """
+async def refresh_symbol_content_now() -> dict[str, Any]:
     from module_market.service.content_cache_service import SymbolContentService
+    from utils.longbridge_breaker import LongbridgeBreaker
+
+    if not LongbridgeBreaker.allow():
+        return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'total': 0}
 
     hot = ['AAPL', 'NVDA', 'MSFT', 'TSLA', '0700.HK', '9988.HK']
     markets = {
@@ -87,13 +91,24 @@ async def refresh_symbol_content_job(*args, **kwargs) -> None:
         total = 0
         for sym in hot:
             try:
-                # 内部统一用无后缀代码
                 clean = sym.replace('.HK', '').replace('.US', '').replace('.SH', '').replace('.SZ', '')
                 mkt = markets.get(sym, 'US')
                 total += await SymbolContentService.refresh_symbol(db, clean if mkt == 'US' else sym.split('.')[0], mkt)
             except Exception as e:
                 logger.warning(f'[内容缓存任务] {sym} 失败: {e}')
         logger.info(f'[内容缓存任务] 完成，合计写入约{total}条')
+        return {'total': total}
+
+
+async def refresh_symbol_content_job(*args, **kwargs) -> None:
+    """
+    定时刷新热门标的公告/资讯/讨论缓存。
+    invoke_target: module_task.market_task.refresh_symbol_content_job
+    """
+    if await JobQueue.enqueue('symbol_content', {}):
+        logger.info('[内容缓存任务] 已入队')
+        return
+    await refresh_symbol_content_now()
 
 
 async def analyze_watchlist_job(*args, **kwargs) -> None:

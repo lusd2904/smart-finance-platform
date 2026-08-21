@@ -249,9 +249,10 @@ function renderTrend(list) {
 /** 立即采集 */
 function handleCollect() {
   collectLoading.value = true;
-  collectNews().then(() => {
-    proxy.$modal.msgSuccess('采集任务已触发');
-    refreshAll();
+  collectNews().then((res) => {
+    const d = (res && res.data) || {};
+    proxy.$modal.msgSuccess((res && res.msg) || (d.accepted ? '已加入后台队列' : '采集任务已触发'));
+    if (!d.accepted) refreshAll();
   }).finally(() => {
     collectLoading.value = false;
   });
@@ -292,8 +293,8 @@ function handleAnalyze() {
       startRateLimitCooldown(60, msg);
       return;
     }
-    proxy.$modal.msgSuccess('AI分析任务已触发');
-    refreshAll();
+    proxy.$modal.msgSuccess(res.msg || data.message || (data.accepted ? '已加入后台队列' : 'AI分析任务已触发'));
+    if (!data.accepted) refreshAll();
   }).catch((err) => {
     const text = String(err && err.message ? err.message : err || '');
     if (text.includes('429') || text.includes('限流') || text.includes('过于频繁')) {

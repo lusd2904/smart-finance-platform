@@ -283,6 +283,14 @@ const tapeMeta = ref({})
 const chartRef = ref(null)
 let chart = null
 let liveTimer = null
+const liveBlocked = ref(false)
+const LIVE_MS = 20000
+const LIVE_SLOW_MS = 60000
+
+function isCircuit(data) {
+  const reason = data && data.reason
+  return reason === 'circuit_open' || reason === 'unauthorized'
+}
 
 const notional = computed(() => {
   const p = form.value.orderType === 'MO' ? Number(quote.value.last || quote.value.price || 0) : Number(form.value.price || 0)
@@ -457,6 +465,7 @@ async function loadDepth() {
     bids.value = data.bids || []
     depthMeta.value = data
     if (data.configured === false) configured.value = false
+    if (isCircuit(data)) liveBlocked.value = true
     if (data.last) applyQuote({ last: data.last, source: 'longbridge' })
   } catch (e) {
     asks.value = []
@@ -471,6 +480,7 @@ async function loadTrades() {
     trades.value = data.trades || []
     tapeMeta.value = data
     if (data.configured === false) configured.value = false
+    if (isCircuit(data)) liveBlocked.value = true
   } catch (e) {
     trades.value = []
     tapeMeta.value = { message: isCn.value ? 'A股暂无实时盘口' : '成交明细加载失败' }
@@ -547,6 +557,7 @@ async function loadOrders() {
   if (o.data && o.data.configured === false) configured.value = false
 }
 async function refreshAll() {
+  liveBlocked.value = false
   loading.value = true
   try {
     const [a, p] = await Promise.all([getTradeAccount(), getTradePositions()])
@@ -585,13 +596,14 @@ function restartLive() {
     clearInterval(liveTimer)
     liveTimer = null
   }
+  const ms = liveBlocked.value ? LIVE_SLOW_MS : LIVE_MS
   liveTimer = setInterval(() => {
-    loadQuoteBoard()
-    if (!isCn.value && configured.value) {
+    loadKline()
+    if (!isCn.value && configured.value && !liveBlocked.value) {
       loadDepth()
       loadTrades()
     }
-  }, 8000)
+  }, ms)
 }
 function handleResize() {
   chart && chart.resize()

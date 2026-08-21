@@ -375,9 +375,11 @@ function handleSync() {
   syncLoading.value = true;
   syncMarket(current.value ? { symbol: current.value.symbol } : {}).then(res => {
     const d = res.data || {};
-    proxy.$modal.msgSuccess(`同步完成，标的 ${d.syncedSymbols ?? '-'} 个，数据点 ${d.totalPoints ?? '-'}`);
-    loadKline();
-    loadIndicators();
+    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : `同步完成，标的 ${d.syncedSymbols ?? '-'} 个`));
+    if (!d.accepted) {
+      loadKline();
+      loadIndicators();
+    }
   }).finally(() => {
     syncLoading.value = false;
   });

@@ -29,10 +29,27 @@ async def _start_background_tasks(app: FastAPI) -> None:
     """
     from utils.job_queue import JobQueue
 
-    await SchedulerUtil.init_system_scheduler(app.state.redis)
+    SchedulerUtil.bind_redis(app.state.redis)
+    try:
+        from utils.longbridge_breaker import LongbridgeBreaker
+
+        await LongbridgeBreaker.hydrate_from_redis()
+    except Exception:
+        pass
+    if AppConfig.runs_scheduler():
+        await SchedulerUtil.init_system_scheduler(app.state.redis)
+    else:
+        logger.info(f'⏸️ APP_ROLE={AppConfig.app_role}，跳过 APScheduler，定时任务由 sentiment-jobs 执行')
     app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
-    app.state.job_queue_stop = asyncio.Event()
-    app.state.job_queue_task = asyncio.create_task(JobQueue.consume_forever(app.state.job_queue_stop))
+    if AppConfig.runs_job_queue_worker():
+        app.state.job_queue_stop = asyncio.Event()
+        app.state.job_queue_task = asyncio.create_task(
+            JobQueue.consume_forever(app.state.job_queue_stop, AppConfig.app_job_group)
+        )
+    else:
+        app.state.job_queue_stop = None
+        app.state.job_queue_task = None
+        logger.info(f'⏸️ APP_ROLE={AppConfig.app_role} group={AppConfig.app_job_group}，跳过 Redis 队列消费')
 
 
 async def _stop_background_tasks(app: FastAPI) -> None:
@@ -99,7 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             worker_id=SchedulerUtil._worker_id,
             lock_expire_seconds=LockConstant.LOCK_EXPIRE_SECONDS,
             interval_seconds=LockConstant.LOCK_RENEWAL_INTERVAL,
-            on_lock_lost=SchedulerUtil.on_lock_lost,
+            on_lock_lost=SchedulerUtil.on_lock_lost if AppConfig.app_role == 'all' else None,
         )
 
     with logger.contextualize(startup_phase=True, startup_log_enabled=startup_log_enabled):
@@ -180,6 +197,18 @@ def create_app() -> FastAPI:
     handle_exception(app)
     # 自动注册路由
     auto_register_routers(app)
+
+    @app.get('/health', summary='健康检查', include_in_schema=False)
+    async def health():
+        from utils.longbridge_breaker import LongbridgeBreaker
+
+        return {
+            'status': 'up',
+            'role': AppConfig.app_role,
+            'module': AppConfig.app_module,
+            'jobGroup': AppConfig.app_job_group,
+            'longbridge': LongbridgeBreaker.snapshot(),
+        }
 
     @app.get('/metrics', summary='Prometheus 监控指标', include_in_schema=False)
     async def metrics():

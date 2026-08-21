@@ -416,8 +416,9 @@ async function handleAnalyzeAll() {
   analyzeAllLoading.value = true
   try {
     const res = await analyzeMarketWatchlist({ refreshContent: true })
-    proxy.$modal.msgSuccess(res.msg || '分析完成')
-    await loadOverview()
+    const d = res.data || {}
+    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : '分析完成'))
+    if (!d.accepted) await loadOverview()
   } finally {
     analyzeAllLoading.value = false
   }

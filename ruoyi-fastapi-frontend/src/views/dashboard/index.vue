@@ -204,7 +204,8 @@ const navItems = [
   { title: '财经简报', desc: '市场资讯聚合', path: '/market/finance-news', icon: 'Notebook', bg: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
   { title: '量化策略', desc: '策略与扫描', path: '/quant/strategy', icon: 'Cpu', bg: 'linear-gradient(135deg,#8b5cf6,#a78bfa)' },
   { title: '自选池', desc: '关注标的管理', path: '/quant/watchlist', icon: 'Star', bg: 'linear-gradient(135deg,#ec4899,#f472b6)' },
-  { title: '行情自选', desc: '小时级综合建议', path: '/market/watchlist', icon: 'Aim', bg: 'linear-gradient(135deg,#f97316,#fb923c)' }
+  { title: '行情自选', desc: '小时级综合建议', path: '/market/watchlist', icon: 'Aim', bg: 'linear-gradient(135deg,#f97316,#fb923c)' },
+  { title: '自动分析任务', desc: '独立微服务调度', path: '/analysis/jobs', icon: 'Clock', bg: 'linear-gradient(135deg,#0f766e,#14b8a6)' }
 ]
 
 const modules = [

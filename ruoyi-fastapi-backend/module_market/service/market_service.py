@@ -33,7 +33,11 @@ from module_quant.dao.quant_dao import QuantStrategyDao
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+
+BOARD_QUOTES_CACHE_KEY = 'sfp:cache:board:quotes'
+BOARD_QUOTES_TTL_SECONDS = 24 * 3600
 
 # Common Service pattern - will use BaseService in future
 
@@ -85,6 +89,30 @@ class MarketService:
     # ---------- K线 ----------
 
     @classmethod
+    def _filter_board_payload(
+        cls,
+        payload: dict[str, Any],
+        category: str | None = None,
+        market: str | None = None,
+    ) -> dict[str, Any]:
+        quotes = list(payload.get('quotes') or [])
+        if market:
+            mkt = market.strip().upper()
+            quotes = [q for q in quotes if str(q.get('market') or '').upper() == mkt]
+        if category:
+            cat = category.strip()
+            quotes = [q for q in quotes if str(q.get('category') or '') == cat]
+        indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
+        index_symbols = {q['symbol'] for q in indices}
+        rows = [q for q in quotes if q.get('symbol') not in index_symbols]
+        filtered = dict(payload)
+        filtered['quotes'] = quotes
+        filtered['indices'] = indices
+        filtered['rows'] = rows
+        filtered['count'] = len(quotes)
+        return filtered
+
+    @classmethod
     async def get_board_quotes_services(
         cls,
         query_db: AsyncSession,
@@ -92,31 +120,87 @@ class MarketService:
         market: str | None = None,
     ) -> dict[str, Any]:
         """
-        One-shot board quotes: latest 2 daily bars from Influx per symbol.
-        Browse/list path — Influx/DB only; do not call Longbridge quote APIs here.
+        只读 Redis/SWR 缓存。全市场 Influx 扫描只允许在 jobs 里执行。
+        """
+        cached = await cache_get_json(BOARD_QUOTES_CACHE_KEY)
+        if isinstance(cached, dict) and (cached.get('quotes') or cached.get('rows')):
+            payload = cls._filter_board_payload(cached, category=category, market=market)
+            payload['source'] = payload.get('source') or 'cache'
+            payload['stale'] = False
+            return payload
+
+        from module_quant.service.readmodel_service import ReadModelService
+
+        scheduled = await ReadModelService.get_scheduled('board')
+        if isinstance(scheduled, dict) and scheduled.get('items'):
+            adapted = cls._adapt_scheduled_board(scheduled)
+            payload = cls._filter_board_payload(adapted, category=category, market=market)
+            payload['source'] = 'scheduled'
+            payload['stale'] = True
+            return payload
+
+        return {
+            'quotes': [],
+            'indices': [],
+            'rows': [],
+            'source': 'empty',
+            'stale': True,
+            'count': 0,
+            'message': '看板缓存尚未生成，请等待 jobs 预热',
+        }
+
+    @classmethod
+    def _adapt_scheduled_board(cls, scheduled: dict[str, Any]) -> dict[str, Any]:
+        quotes: list[dict[str, Any]] = []
+        for item in scheduled.get('items') or []:
+            change_rate = item.get('changeRate')
+            quotes.append(
+                {
+                    'symbol': item.get('symbol'),
+                    'name': item.get('name'),
+                    'market': item.get('market'),
+                    'category': item.get('category'),
+                    'price': item.get('close') if item.get('close') is not None else item.get('price'),
+                    'change': item.get('change'),
+                    'changeRate': change_rate,
+                    'volume': item.get('volume'),
+                    'tradeDate': item.get('asOf') or item.get('tradeDate'),
+                    'changeText': (
+                        f"{'+' if change_rate >= 0 else ''}{change_rate:.2f}%"
+                        if isinstance(change_rate, (int, float))
+                        else '--'
+                    ),
+                    'up': True if change_rate is None else change_rate >= 0,
+                    'source': 'scheduled',
+                }
+            )
+        return {
+            'quotes': quotes,
+            'asOf': scheduled.get('asOf'),
+            'source': 'scheduled',
+        }
+
+    @classmethod
+    async def refresh_board_quotes_cache(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        jobs 专用：扫描 Influx 最新两根日K，写入 Redis。请求线程禁止调用。
         """
         from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
 
-        instruments = await cls.get_instrument_list_services(
-            query_db, MarketInstrumentQueryModel(category=category, market=market)
-        )
+        instruments = await cls.get_instrument_list_services(query_db, MarketInstrumentQueryModel())
         by_market: dict[str, list[str]] = {}
-        meta_by_symbol: dict[str, dict[str, Any]] = {}
         for item in instruments:
             sym = str(item.get('symbol') or '').strip()
             if not sym:
                 continue
             mkt = str(item.get('market') or 'US').strip().upper() or 'US'
             by_market.setdefault(mkt, []).append(sym)
-            meta_by_symbol[sym] = item
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
         for mkt, symbols in by_market.items():
             grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
             bars_by_symbol.update(grouped or {})
-
-        # Browse/list path: do not batch-call Longbridge get_realtime_quote (slow + token failures).
 
         quotes: list[dict[str, Any]] = []
         for item in instruments:
@@ -156,13 +240,17 @@ class MarketService:
         indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
         index_symbols = {q['symbol'] for q in indices}
         rows = [q for q in quotes if q['symbol'] not in index_symbols]
-        return {
+        payload = {
             'quotes': quotes,
             'indices': indices,
             'rows': rows,
-            'source': 'influx',
+            'source': 'cache',
             'count': len(quotes),
+            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'stale': False,
         }
+        await cache_set_json(BOARD_QUOTES_CACHE_KEY, payload, BOARD_QUOTES_TTL_SECONDS)
+        return {'count': len(quotes), 'asOf': payload['asOf']}
 
     @classmethod
     async def get_kline_services(cls, query_object: KlineQueryModel) -> list[dict[str, Any]]:

@@ -19,7 +19,9 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentNewsModel,
     SentimentNewsPageQueryModel,
 )
+from exceptions.exception import ServiceException
 from module_sentiment.service.sentiment_service import SentimentService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -77,14 +79,11 @@ async def collect_sentiment_news(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    try:
-        result = await SentimentService.collect_news_services(query_db)
-    except Exception as exc:
-        logger.warning(f'舆情采集降级: {exc}')
-        result = {'fetched': 0, 'saved': 0, 'message': '资讯源暂时不可用，已返回空列表，请稍后重试'}
-    logger.info(f'手动采集完成: {result}')
-    msg = result.get('message') or f'采集完成，抓取{result["fetched"]}条，新入库{result["saved"]}条'
-    return ResponseUtil.success(data=result, msg=msg)
+    ticket = await JobQueue.submit('sentiment_collect', {'analyze': False})
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'舆情采集已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新资讯列表')
 
 
 @sentiment_controller.get(
@@ -150,9 +149,11 @@ async def run_sentiment_analysis(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    result = await SentimentService.run_analysis_services(query_db)
-    logger.info(f'手动分析完成: {result}')
-    return ResponseUtil.success(data=result, msg=result.get('message') or '操作成功')
+    ticket = await JobQueue.submit('sentiment_analyze', {})
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'舆情日评已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新分析结果')
 
 
 @sentiment_controller.get(

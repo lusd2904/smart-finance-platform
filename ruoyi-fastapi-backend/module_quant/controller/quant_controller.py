@@ -19,8 +19,10 @@ from module_quant.entity.vo.quant_vo import (
     QuantWatchlistPageQueryModel,
     RunStrategyModel,
 )
+from exceptions.exception import ServiceException
 from module_quant.service.factor_qc_service import FactorQcService
 from module_quant.service.quant_service import QuantService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -279,9 +281,14 @@ async def run_strategy(
     run_model: Annotated[RunStrategyModel, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    result = await QuantService.run_strategy_services(query_db, run_model)
-    logger.info(f'策略运行完成: {result.get("message")}')
-    return ResponseUtil.success(data=result, msg=result.get('message'))
+    ticket = await JobQueue.submit(
+        'strategy_run',
+        {'profile': getattr(run_model, 'profile', None) or 'balanced', 'symbols': getattr(run_model, 'symbols', None)},
+    )
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'策略运行已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后在策略历史中查看结果')
 
 
 @quant_controller.get(
