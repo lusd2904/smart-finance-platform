@@ -30,6 +30,7 @@ class MarketInstrumentQueryModel(BaseModel):
     category: str | None = Field(default=None, description='分类')
     market: str | None = Field(default=None, description='市场')
     enabled: str | None = Field(default=None, description='是否启用')
+    keyword: str | None = Field(default=None, description='代码或名称关键字')
 
 
 class KlineQueryModel(BaseModel):

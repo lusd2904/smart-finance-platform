@@ -4,6 +4,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.watchlist_analyzer import WatchlistAiAnalyzer, rule_based_analysis
+from module_market.service.watchlist_service import REC_SIGN, forward_returns_from_klines
 
 
 def test_rule_based_bullish_ma() -> None:
@@ -31,6 +32,25 @@ def test_rule_based_overbought() -> None:
         }
     )
     assert result['recommendation'] == '减仓'
+
+
+def test_forward_returns_from_analysis_date() -> None:
+    klines = [
+        {'date': '2024-06-03', 'close': 100},
+        {'date': '2024-06-04', 'close': 110},
+        {'date': '2024-06-05', 'close': 105},
+        {'date': '2024-06-06', 'close': 108},
+        {'date': '2024-06-07', 'close': 112},
+        {'date': '2024-06-10', 'close': 120},
+    ]
+    out = forward_returns_from_klines(klines, '2024-06-03 15:00:00')
+    assert out['fwd1'] == 10.0
+    assert out['fwd5'] == 20.0
+    pending = forward_returns_from_klines(klines, '2024-06-10')
+    assert pending['fwd1'] is None
+    assert pending['fwd5'] is None
+    assert REC_SIGN['买入'] == 1
+    assert REC_SIGN['卖出'] == -1
 
 
 def test_parse_json_from_markdown() -> None:

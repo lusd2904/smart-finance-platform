@@ -12,7 +12,9 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "test": "node src/gateway.test.js"
   },
   "build": {
     "appId": "com.smartfinance.nexus",
@@ -20,6 +22,7 @@
     "directories": {
       "output": "release"
     },
+    "asar": true,
     "files": [
       "src/**/*",
       "package.json"

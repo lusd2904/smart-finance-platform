@@ -1,8 +1,17 @@
 <template>
   <div class="app-container">
     <div class="page-hero">
-      <div><h2>全市场行情台</h2><p>指数快照 + 目标池涨跌排序</p></div>
-      <el-button type="primary" :loading="loading" icon="Refresh" @click="loadAll">刷新</el-button>
+      <div><h2>全市场行情台</h2><p>指数快照 + 目标池涨跌排序 · 约 8 秒刷新最新价</p></div>
+      <div class="acts">
+        <el-select v-model="market" clearable placeholder="市场" style="width:110px" @change="() => loadAll(false)">
+          <el-option label="全部" value="" />
+          <el-option label="美股" value="US" />
+          <el-option label="港股" value="HK" />
+          <el-option label="A股" value="CN" />
+        </el-select>
+        <el-input v-model="keyword" clearable placeholder="代码/名称" style="width:160px" />
+        <el-button type="primary" :loading="loading" icon="Refresh" @click="() => loadAll(false)">刷新</el-button>
+      </div>
     </div>
     <el-row :gutter="12" class="mb16">
       <el-col :xs="24" :sm="8" v-for="ix in indices" :key="ix.symbol">
@@ -14,6 +23,7 @@
       </el-col>
     </el-row>
     <el-table v-loading="loading" :data="sorted" stripe @sort-change="onSort">
+      <el-table-column prop="market" label="市场" width="80"/>
       <el-table-column prop="symbol" label="代码" width="110" sortable="custom"/>
       <el-table-column prop="name" label="名称" min-width="120"/>
       <el-table-column prop="price" label="最新价" width="110" sortable="custom"/>
@@ -35,10 +45,15 @@ const router=useRouter()
 const loading=ref(false)
 const rows=ref([])
 const indices=ref([])
+const market=ref('')
+const keyword=ref('')
 const sortProp=ref('change')
 const sortOrder=ref('descending')
+let quoteTimer=null
 const sorted=computed(()=>{
-  const arr=[...rows.value]
+  const kw=String(keyword.value||'').trim().toUpperCase()
+  let arr=[...rows.value]
+  if(kw) arr=arr.filter(r=>String(r.symbol||'').toUpperCase().includes(kw)||String(r.name||'').toUpperCase().includes(kw))
   const p=sortProp.value, o=sortOrder.value
   if(!p||!o) return arr
   arr.sort((a,b)=>{
@@ -61,19 +76,24 @@ function formatQuote(item){
     up: item.up == null ? true : !!item.up
   }
 }
-async function loadAll(){
-  loading.value=true
+async function loadAll(silent=false){
+  if(!silent) loading.value=true
   try{
-    const res=await getBoardQuotes()
+    const res=await getBoardQuotes({ market: market.value || undefined })
     const payload=res.data||{}
     indices.value=(payload.indices||[]).map(formatQuote)
     rows.value=(payload.rows||payload.quotes||[]).map(formatQuote)
-  } finally { loading.value=false }
+  } finally { if(!silent) loading.value=false }
 }
-onMounted(loadAll)
+onMounted(()=>{
+  loadAll()
+  quoteTimer=setInterval(()=>loadAll(true), 8000)
+})
+onBeforeUnmount(()=>{ if(quoteTimer) clearInterval(quoteTimer) })
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .page-hero h2{margin:0 0 4px;color:var(--text-emphasis)} .page-hero p{margin:0;color:var(--text-muted);font-size:13px}
 .mb16{margin-bottom:16px}
 .idx-card{background:var(--surface-card,#fff);border:1px solid var(--border-soft);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}

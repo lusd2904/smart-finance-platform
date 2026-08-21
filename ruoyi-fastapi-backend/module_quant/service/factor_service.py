@@ -730,7 +730,7 @@ class FactorService:
     def get_factor_schema(cls) -> dict[str, Any]:
         """返回 8 大因子族体系定义（供前端展示）。"""
         advanced = alpha_schema()
-        families = list(FACTOR_SCHEMA) + [advanced['alpha101'], advanced['alpha158']]
+        families = list(FACTOR_SCHEMA) + [advanced['alpha101'], advanced['alpha158'], advanced['alpha101Cs']]
         return {
             'version': FACTOR_SCHEMA_VERSION,
             'familyCount': len(families),

@@ -454,3 +454,21 @@ async def analyze_market_watchlist(
     )
     logger.info(f'自选综合分析完成: {data.get("message")}')
     return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')
+
+
+@market_controller.get(
+    '/watchlist/backtest',
+    summary='自选建议前瞻回测',
+    description='对买入/加仓/减仓/卖出建议计算 1/5 个交易日前瞻收益与命中率',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_backtest(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    limit: Annotated[int, Query()] = 200,
+) -> Response:
+    data = await MarketWatchlistService.backtest_services(
+        query_db, _current_user_id(current_user), limit=limit
+    )
+    return ResponseUtil.success(data=data, msg=data.get('message') or '回测完成')

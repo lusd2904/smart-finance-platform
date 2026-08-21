@@ -45,6 +45,63 @@ def _fmt_dt(value: datetime | None) -> str | None:
     return value.strftime('%Y-%m-%d %H:%M:%S') if value else None
 
 
+REC_SIGN = {
+    '买入': 1,
+    '加仓': 1,
+    '减仓': -1,
+    '卖出': -1,
+}
+
+
+def forward_returns_from_klines(
+    klines: list[dict[str, Any]], as_of: str, horizons: tuple[int, ...] = (1, 5)
+) -> dict[str, float | None]:
+    """以 as_of 当日（或之前最近一根）收盘为基准，取之后 1/5 个交易日的涨跌幅（百分比）。"""
+    as_of = str(as_of or '')[:10]
+    dates: list[str] = []
+    closes: list[float] = []
+    for row in klines or []:
+        day = str(row.get('date') or '')[:10]
+        try:
+            close = float(row.get('close'))
+        except (TypeError, ValueError):
+            continue
+        if day:
+            dates.append(day)
+            closes.append(close)
+    entry = None
+    for i, day in enumerate(dates):
+        if day <= as_of:
+            entry = i
+        elif entry is not None:
+            break
+    out: dict[str, float | None] = {f'fwd{h}': None for h in horizons}
+    if entry is None:
+        return out
+    base = closes[entry]
+    if not base:
+        return out
+    for h in horizons:
+        idx = entry + h
+        if idx < len(closes):
+            out[f'fwd{h}'] = round((closes[idx] / base - 1.0) * 100, 4)
+    return out
+
+
+def _avg(vals: list[float | None]) -> float | None:
+    nums = [v for v in vals if v is not None]
+    if not nums:
+        return None
+    return round(sum(nums) / len(nums), 4)
+
+
+def _hit_rate(flags: list[bool | None]) -> float | None:
+    known = [1 if flag else 0 for flag in flags if flag is not None]
+    if not known:
+        return None
+    return round(sum(known) / len(known), 4)
+
+
 class MarketWatchlistService:
     """行情自选清单服务。"""
 
@@ -488,6 +545,26 @@ class MarketWatchlistService:
             },
         )
         payload = cls.serialize_analysis(row) or {}
+        rec = payload.get('recommendation')
+        if rec in REC_SIGN:
+            try:
+                from module_trade.dao.trade_dao import TradeDao
+
+                await TradeDao.add_notification(
+                    query_db,
+                    {
+                        'title': f'自选建议 {symbol} {rec}',
+                        'content': (
+                            f'{symbol} {payload.get("stance") or ""} · '
+                            f'置信度 {payload.get("confidence") if payload.get("confidence") is not None else "--"} · '
+                            f'{(payload.get("summary") or "")[:180]}'
+                        ),
+                        'level': 'warning' if rec in {'减仓', '卖出'} else 'success',
+                        'category': 'watchlist',
+                    },
+                )
+            except Exception as exc:
+                logger.info(f'[自选分析] 写通知跳过: {exc}')
         await query_db.commit()
         payload.update(
             {
@@ -576,6 +653,64 @@ class MarketWatchlistService:
             'items': results,
             'failed': failed,
             'message': f'完成 {len(results)} 只，失败 {len(failed)} 只',
+        }
+
+    @classmethod
+    async def backtest_services(
+        cls, query_db: AsyncSession, user_id: int, limit: int = 200
+    ) -> dict[str, Any]:
+        rows = await MarketWatchlistAnalysisDao.list_recent_by_user(query_db, user_id, limit=limit)
+        kline_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            rec = row.recommendation or ''
+            sign = REC_SIGN.get(rec)
+            if not sign:
+                continue
+            symbol = row.symbol
+            market = (row.market or 'US').upper()
+            as_of = _fmt_dt(row.analysis_time) or ''
+            cache_key = (symbol, market)
+            if cache_key not in kline_cache:
+                kline_cache[cache_key] = await asyncio.to_thread(
+                    InfluxUtil.query_klines, market, symbol, '-400d', 'now()', 400
+                )
+            fwds = forward_returns_from_klines(kline_cache[cache_key], as_of)
+            fwd1 = fwds.get('fwd1')
+            fwd5 = fwds.get('fwd5')
+            signed1 = None if fwd1 is None else round(fwd1 * sign, 4)
+            signed5 = None if fwd5 is None else round(fwd5 * sign, 4)
+            items.append(
+                {
+                    'analysisId': row.analysis_id,
+                    'symbol': symbol,
+                    'market': market,
+                    'recommendation': rec,
+                    'stance': row.stance,
+                    'confidence': row.confidence,
+                    'analysisTime': as_of,
+                    'price': row.price,
+                    'fwd1': fwd1,
+                    'fwd5': fwd5,
+                    'signed1': signed1,
+                    'signed5': signed5,
+                    'hit1': None if signed1 is None else signed1 > 0,
+                    'hit5': None if signed5 is None else signed5 > 0,
+                }
+            )
+        pending = sum(1 for it in items if it['fwd1'] is None)
+        return {
+            'count': len(items),
+            'pendingCount': pending,
+            'scoredCount': len(items) - pending,
+            'avgFwd1': _avg([it['fwd1'] for it in items]),
+            'avgFwd5': _avg([it['fwd5'] for it in items]),
+            'avgSigned1': _avg([it['signed1'] for it in items]),
+            'avgSigned5': _avg([it['signed5'] for it in items]),
+            'hitRate1': _hit_rate([it['hit1'] for it in items]),
+            'hitRate5': _hit_rate([it['hit5'] for it in items]),
+            'items': items[:80],
+            'message': '买入/加仓视为多，减仓/卖出视为空；收益为建议日后 1/5 个交易日涨跌幅。持有与观望不计入。',
         }
 
     @classmethod

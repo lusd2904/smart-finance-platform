@@ -300,6 +300,24 @@ class PlatformExtService:
         )
         if not ok:
             raise ServiceException(message='更新风控状态失败')
+        try:
+            label = STATUS_LABELS.get(values['review_status'], values['review_status'])
+            await TradeDao.add_notification(
+                db,
+                {
+                    'title': f'风控事件已{label}',
+                    'content': (
+                        f'事件 #{event_id} {getattr(event, "symbol", None) or ""} · '
+                        f'{values.get("handle_remark") or values.get("handled_by") or ""}'
+                    ).strip(),
+                    'level': 'warning'
+                    if values['review_status'] in {'need_review', 'pending_review', 'overdue'}
+                    else 'info',
+                    'category': 'risk',
+                },
+            )
+        except Exception as exc:
+            logger.info(f'[风控] 写通知跳过: {exc}')
         await db.commit()
         return {
             'eventId': event_id,

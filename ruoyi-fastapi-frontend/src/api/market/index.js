@@ -1,11 +1,14 @@
 import request from '@/utils/request'
 
 // 查询标的列表（可选按分类过滤）
-export function listInstrument(category) {
+export function listInstrument(categoryOrQuery) {
+  const params = typeof categoryOrQuery === 'string' || categoryOrQuery == null
+    ? { category: categoryOrQuery }
+    : categoryOrQuery
   return request({
     url: '/market/instrument/list',
     method: 'get',
-    params: { category: category }
+    params
   })
 }
 
@@ -158,6 +161,14 @@ export function analyzeMarketWatchlist(data) {
 export function getMarketWatchlistAnalysis(query) {
   return request({
     url: '/market/watchlist/analysis',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketWatchlistBacktest(query) {
+  return request({
+    url: '/market/watchlist/backtest',
     method: 'get',
     params: query
   })

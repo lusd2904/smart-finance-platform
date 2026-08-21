@@ -59,5 +59,5 @@ def test_momentum_ic_positive_on_trending_panel() -> None:
 
 def test_factor_specs_cover_core_families() -> None:
     keys = {s['key'] for s in factor_specs()}
-    assert {'mom20', 'reversal5', 'rsi14', 'ma_spread', 'vol_ratio20'} <= keys
+    assert {'mom20', 'reversal5', 'rsi14', 'ma_spread', 'vol_ratio20', 'cs_mom20', 'cs_vol_ratio'} <= keys
     assert ENGINE_VERSION.startswith('alphalens')

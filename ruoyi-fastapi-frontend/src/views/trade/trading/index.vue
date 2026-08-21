@@ -585,11 +585,13 @@ function restartLive() {
     clearInterval(liveTimer)
     liveTimer = null
   }
-  if (isCn.value || !configured.value) return
   liveTimer = setInterval(() => {
-    loadDepth()
-    loadTrades()
-  }, 5000)
+    loadQuoteBoard()
+    if (!isCn.value && configured.value) {
+      loadDepth()
+      loadTrades()
+    }
+  }, 8000)
 }
 function handleResize() {
   chart && chart.resize()

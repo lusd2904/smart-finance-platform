@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
+from module_quant.service.alpha_engine import attach_cross_section_alphas
 from module_quant.service.factor_service import FactorService
 from module_quant.service.readmodel_service import (
     BOARD_TTL,
@@ -74,6 +75,12 @@ class SnapshotService:
             'alpha158Count': metrics.get('alpha158Count') or alpha.get('alpha158Count') or 0,
             'alpha101': metrics.get('alpha101') or alpha.get('alpha101') or {},
             'alpha158Top': _top_alpha(metrics.get('alpha158') or alpha.get('alpha158') or {}),
+            'return20': metrics.get('return20'),
+            'rsi14': metrics.get('rsi14'),
+            'volumeRatio20': metrics.get('volumeRatio20'),
+            'distanceHigh20': metrics.get('distanceHigh20'),
+            'alpha006': (metrics.get('alpha101') or alpha.get('alpha101') or {}).get('alpha006')
+            or alpha.get('alpha006'),
         }
 
     @classmethod
@@ -85,6 +92,7 @@ class SnapshotService:
         universe = cls._scan_universe()
         ok_items: list[dict[str, Any]] = []
         failed: list[dict[str, str]] = []
+        snaps: list[dict[str, Any]] = []
         profile_cfg = await QuantService.load_profile_config(db, profile)
         for symbol, _name, market in universe:
             try:
@@ -95,7 +103,13 @@ class SnapshotService:
             if not snap.get('ok'):
                 failed.append({'symbol': symbol, 'reason': snap.get('reason') or '失败'})
                 continue
+            snap['name'] = _name
+            snaps.append(snap)
+        attach_cross_section_alphas(snaps)
+        for snap in snaps:
             score = snap.get('score') or {}
+            symbol = snap.get('symbol')
+            market = snap.get('market')
             await QuantSnapshotDao.upsert_factor_snapshot(
                 db,
                 {
@@ -112,6 +126,7 @@ class SnapshotService:
                         {
                             'alpha101': snap.get('alpha101') or {},
                             'alpha158Top': snap.get('alpha158Top') or {},
+                            'alphaCs': snap.get('alphaCs') or {},
                         }
                     ),
                 },
@@ -120,12 +135,13 @@ class SnapshotService:
                 {
                     'symbol': symbol,
                     'market': market,
-                    'name': _name,
+                    'name': snap.get('name'),
                     'total': score.get('total'),
                     'riskLevel': score.get('riskLevel'),
                     'trendDirection': score.get('trendDirection'),
                     'alpha101Count': snap.get('alpha101Count'),
                     'alpha158Count': snap.get('alpha158Count'),
+                    'alphaCsCount': snap.get('alphaCsCount') or 0,
                 }
             )
         ok_items.sort(key=lambda x: float(x.get('total') or 0), reverse=True)
@@ -304,6 +320,8 @@ class SnapshotService:
         rows = await QuantSnapshotDao.list_latest_factor_snapshots(db, limit=limit)
         items = []
         for r in rows:
+            alpha = _loads(r.alpha_json) if getattr(r, 'alpha_json', None) else {}
+            alpha_cs = (alpha or {}).get('alphaCs') or {}
             items.append(
                 {
                     'symbol': r.symbol,
@@ -314,6 +332,8 @@ class SnapshotService:
                     'trendDirection': r.trend_direction,
                     'alpha101Count': r.alpha101_count,
                     'alpha158Count': r.alpha158_count,
+                    'alphaCsCount': len(alpha_cs),
+                    'alphaCs': alpha_cs,
                     'createTime': r.create_time.strftime('%Y-%m-%d %H:%M:%S') if r.create_time else None,
                 }
             )
@@ -325,7 +345,18 @@ class SnapshotService:
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(
-            ['symbol', 'market', 'asOf', 'total', 'riskLevel', 'trendDirection', 'alpha101Count', 'alpha158Count', 'createTime']
+            [
+                'symbol',
+                'market',
+                'asOf',
+                'total',
+                'riskLevel',
+                'trendDirection',
+                'alpha101Count',
+                'alpha158Count',
+                'alphaCsCount',
+                'createTime',
+            ]
         )
         for it in items:
             writer.writerow(
@@ -338,6 +369,7 @@ class SnapshotService:
                     it.get('trendDirection'),
                     it.get('alpha101Count'),
                     it.get('alpha158Count'),
+                    it.get('alphaCsCount'),
                     it.get('createTime'),
                 ]
             )

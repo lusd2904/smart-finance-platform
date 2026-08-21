@@ -93,6 +93,24 @@ class QuantService:
                 'ok': False,
                 'reason': result.get('reason') or '因子计算失败',
             }
+        if query_db is not None:
+            try:
+                from module_quant.dao.quant_dao import QuantSnapshotDao
+
+                snap = await QuantSnapshotDao.get_factor_snapshot(
+                    query_db, symbol.strip().upper(), (market or 'US').upper()
+                )
+                if snap and snap.alpha_json:
+                    payload = json.loads(snap.alpha_json or '{}') or {}
+                    alpha_cs = payload.get('alphaCs') or {}
+                    result['alphaCs'] = alpha_cs
+                    result['alphaCsCount'] = len(alpha_cs)
+                    metrics = result.get('metrics') or {}
+                    metrics['alphaCs'] = alpha_cs
+                    metrics['alphaCsCount'] = len(alpha_cs)
+                    result['metrics'] = metrics
+            except Exception as exc:
+                logger.info(f'[因子] 截面 rank 附加跳过: {exc}')
         return result
 
     # ------------------------------------------------------------ 自选池 ---
