@@ -1,0 +1,54 @@
+{
+  "name": "smart-finance-desktop",
+  "productName": "智慧金融",
+  "version": "1.0.0",
+  "description": "智慧金融分析平台桌面端。启动后先配置网关地址，再进入登录。",
+  "main": "src/main.js",
+  "author": "smart-finance-platform",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.smartfinance.nexus",
+    "productName": "智慧金融",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^34.5.8",
+    "electron-builder": "^26.0.12"
+  }
+}

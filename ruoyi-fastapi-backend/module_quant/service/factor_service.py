@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from module_quant.service.alpha_engine import alpha_schema, compute_advanced_factors
+
 try:
     import pandas_ta as ta  # noqa: F401
 
@@ -81,7 +83,7 @@ FACTOR_SCHEMA: list[dict[str, Any]] = [
     },
 ]
 
-FACTOR_SCHEMA_VERSION = 'quant-factor-v1'
+FACTOR_SCHEMA_VERSION = 'quant-factor-v2'
 
 # 策略档位 -> 因子族权重（含综合分基线偏移）
 PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
@@ -407,6 +409,11 @@ def compute_metrics(klines: list[dict[str, Any]]) -> dict[str, Any]:
         # 高阶 Alpha 因子
         'alphaFactors': compute_alpha_factors(df),
     }
+    advanced = metrics['alphaFactors']
+    metrics['alpha101'] = advanced.get('alpha101') or {}
+    metrics['alpha158'] = advanced.get('alpha158') or {}
+    metrics['alpha101Count'] = advanced.get('alpha101Count') or 0
+    metrics['alpha158Count'] = advanced.get('alpha158Count') or 0
     return metrics
 
 
@@ -676,57 +683,9 @@ def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -
 
 def compute_alpha_factors(df: pd.DataFrame) -> dict[str, Any]:
     """
-    计算经典 WorldQuant Alpha101 及 Microsoft Qlib 高阶因子
+    计算 WorldQuant Alpha101 及 Qlib Alpha158 高阶因子（末根 K 线取值）。
     """
-    if len(df) < 20:
-        return {}
-
-    close = df['close'].astype(float)
-    open_p = df['open'].astype(float)
-    high = df['high'].astype(float)
-    low = df['low'].astype(float)
-    volume = df['volume'].astype(float)
-    returns = close.pct_change()
-
-    alpha_res = {}
-
-    try:
-        # Alpha006: -1 * correlation(open, volume, 10)
-        cov = open_p.rolling(10).corr(volume).iloc[-1]
-        alpha_res['alpha006'] = round(float(-1 * cov), 4) if not math.isnan(cov) else 0.0
-    except Exception:
-        alpha_res['alpha006'] = 0.0
-
-    try:
-        # Alpha012: sign(delta(volume, 1)) * (-1 * delta(close, 1))
-        d_vol = volume.diff(1).iloc[-1]
-        d_close = close.diff(1).iloc[-1]
-        sign_vol = 1 if d_vol > 0 else (-1 if d_vol < 0 else 0)
-        alpha_res['alpha012'] = round(float(sign_vol * (-1 * d_close)), 4)
-    except Exception:
-        alpha_res['alpha012'] = 0.0
-
-    try:
-        # Alpha054: (-1 * ((low - close) * (open^5))) / ((low - high) * (close^5))
-        c5 = close.iloc[-1] ** 5
-        o5 = open_p.iloc[-1] ** 5
-        denom = (low.iloc[-1] - high.iloc[-1]) * c5
-        numer = -1 * (low.iloc[-1] - close.iloc[-1]) * o5
-        alpha_res['alpha054'] = round(float(numer / denom), 4) if denom != 0 else 0.0
-    except Exception:
-        alpha_res['alpha054'] = 0.0
-
-    try:
-        # Qlib-style 动量与波动率特征
-        ret20 = returns.rolling(20).mean().iloc[-1]
-        vol20 = returns.rolling(20).std().iloc[-1]
-        alpha_res['qlib_sharpe20'] = round(float(ret20 / (vol20 + 1e-6)), 4)
-        alpha_res['qlib_vol_spread'] = round(float(vol20 * math.sqrt(252)), 4)
-    except Exception:
-        alpha_res['qlib_sharpe20'] = 0.0
-        alpha_res['qlib_vol_spread'] = 0.0
-
-    return alpha_res
+    return compute_advanced_factors(df)
 
 
 class FactorService:
@@ -737,11 +696,14 @@ class FactorService:
     @classmethod
     def get_factor_schema(cls) -> dict[str, Any]:
         """返回 8 大因子族体系定义（供前端展示）。"""
+        advanced = alpha_schema()
+        families = list(FACTOR_SCHEMA) + [advanced['alpha101'], advanced['alpha158']]
         return {
             'version': FACTOR_SCHEMA_VERSION,
-            'familyCount': len(FACTOR_SCHEMA),
+            'familyCount': len(families),
             'profiles': list(PROFILE_WEIGHTS.keys()),
-            'families': FACTOR_SCHEMA,
+            'families': families,
+            'alphaEngine': advanced['version'],
         }
 
     @classmethod

@@ -158,6 +158,8 @@ node_modules/
 **/node_modules/
 .playwright-cli/
 **/.playwright-cli/
+.playwright-browsers/
+desktop/release/
 output/
 package-lock.json
 .env

@@ -41,7 +41,9 @@
               <el-option v-for="it in instruments" :key="it.symbol + it.market" :label="`${it.name} (${it.symbol})`" :value="it.symbol + '|' + it.market" />
             </el-select>
             <el-button type="primary" icon="MagicStick" :loading="computeLoading" :disabled="!selectedSymbol" @click="handleCompute" v-hasPermi="['quant:factor:compute']">计算因子</el-button>
+            <el-button :loading="scanLoading" @click="handleScan" v-hasPermi="['quant:strategy:run']">全市场日扫</el-button>
           </div>
+          <div v-if="snapshotHint" class="snap-hint">{{ snapshotHint }}</div>
 
           <div v-if="computeResult">
             <div class="score-banner">
@@ -63,6 +65,19 @@
                 </template>
               </el-table-column>
             </el-table>
+            <div v-if="alphaRows.length" class="alpha-block">
+              <div class="alpha-title">
+                高阶因子
+                <el-tag size="small" effect="plain">Alpha101 {{ alpha101Count }}</el-tag>
+                <el-tag size="small" effect="plain">Alpha158 {{ alpha158Count }}</el-tag>
+              </div>
+              <el-table :data="alphaRows" size="small" max-height="240">
+                <el-table-column prop="key" label="因子" min-width="120" />
+                <el-table-column label="值" width="140" align="right">
+                  <template #default="scope">{{ formatValue(scope.row.value) }}</template>
+                </el-table-column>
+              </el-table>
+            </div>
           </div>
           <el-empty v-else description="选择标的后计算因子" :image-size="80" />
         </el-card>
@@ -73,7 +88,7 @@
 
 <script setup name="QuantFactor">
 import * as echarts from 'echarts';
-import { getFactorSchema, computeFactor } from '@/api/quant';
+import { getFactorSchema, computeFactor, listFactorSnapshots, runDailyFactorScan, getReadmodelOverview } from '@/api/quant';
 import { listInstrument } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
@@ -87,6 +102,8 @@ const instruments = ref([]);
 const selectedSymbol = ref('');
 const computeResult = ref(null);
 const computeLoading = ref(false);
+const scanLoading = ref(false);
+const snapshotHint = ref('');
 
 const radarRef = ref(null);
 let radarChart = null;
@@ -128,6 +145,19 @@ const factorRows = computed(() => {
     if (v && typeof v === 'object') return { name: k, value: v.value, score: v.score };
     return { name: k, value: v, score: v };
   });
+});
+
+const alpha101Count = computed(() => Number(computeResult.value?.metrics?.alpha101Count || 0));
+const alpha158Count = computed(() => Number(computeResult.value?.metrics?.alpha158Count || 0));
+const alphaRows = computed(() => {
+  const metrics = computeResult.value?.metrics || {};
+  const a101 = metrics.alpha101 || {};
+  const a158 = metrics.alpha158 || {};
+  const rows = [
+    ...Object.keys(a101).map(k => ({ key: k, value: a101[k] })),
+    ...Object.keys(a158).slice(0, 24).map(k => ({ key: k, value: a158[k] })),
+  ];
+  return rows.filter(r => r.value != null).slice(0, 30);
 });
 
 const totalScore = computed(() => {
@@ -183,6 +213,31 @@ function loadInstruments() {
   });
 }
 
+function loadSnapshots() {
+  Promise.allSettled([listFactorSnapshots(12), getReadmodelOverview()]).then(([snapRes, overviewRes]) => {
+    const snaps = snapRes.status === 'fulfilled' ? (snapRes.value.data || []) : [];
+    const overview = overviewRes.status === 'fulfilled' ? (overviewRes.value.data || {}) : {};
+    const asOf = overview.factorScan?.asOf || overview.refreshTime;
+    const source = overview.source === 'scheduled' ? '定时快照' : '实时';
+    if (snaps.length) {
+      snapshotHint.value = `${source} · 已落库 ${snaps.length} 个标的` + (asOf ? ` · ${asOf}` : '');
+    } else if (asOf) {
+      snapshotHint.value = `${source} · ${asOf}`;
+    }
+  });
+}
+
+async function handleScan() {
+  scanLoading.value = true;
+  try {
+    const res = await runDailyFactorScan('balanced');
+    proxy.$modal.msgSuccess(res.msg || '日扫完成');
+    loadSnapshots();
+  } finally {
+    scanLoading.value = false;
+  }
+}
+
 function onSymbolChange() {
   computeResult.value = null;
 }
@@ -236,6 +291,7 @@ function handleResize() { radarChart && radarChart.resize(); }
 onMounted(() => {
   loadSchema();
   loadInstruments();
+  loadSnapshots();
   window.addEventListener('resize', handleResize);
 });
 
@@ -273,5 +329,8 @@ onBeforeUnmount(() => {
     .score-num { font-size: 40px; font-weight: 700; line-height: 1; }
   }
   .radar-chart { width: 100%; height: 340px; margin-bottom: 12px; }
+  .snap-hint { font-size: 12px; color: var(--text-muted, #909399); margin: -8px 0 12px; }
+  .alpha-block { margin-top: 12px; }
+  .alpha-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; color: var(--text-emphasis, #303133); }
 }
 </style>
