@@ -86,8 +86,11 @@ export function saveRiskRule(data) {
 export function deleteRiskRule(ruleId) {
   return request({ url: '/trade/risk/rules/' + ruleId, method: 'delete' })
 }
-export function listRiskEvents(limit = 50) {
-  return request({ url: '/trade/risk/events', method: 'get', params: { limit } })
+export function listRiskEvents(limit = 50, status) {
+  return request({ url: '/trade/risk/events', method: 'get', params: { limit, status } })
+}
+export function updateRiskEventStatus(eventId, data) {
+  return request({ url: '/trade/risk/events/' + eventId + '/status', method: 'put', data })
 }
 export function evaluateRisk() {
   return request({ url: '/trade/risk/evaluate', method: 'post', timeout: 60000 })

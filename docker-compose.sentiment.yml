@@ -79,6 +79,8 @@ services:
       - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
       - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
       - ./ruoyi-fastapi-test/disable_captcha.sql:/docker-entrypoint-initdb.d/08-disable-captcha.sql
+      - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
+      - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1
     networks:
       - sentiment-network

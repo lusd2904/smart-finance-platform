@@ -24,6 +24,31 @@ export function computeFactor(query) {
   })
 }
 
+export function listFactorSnapshots(limit = 80) {
+  return request({
+    url: '/quant/factor/snapshots',
+    method: 'get',
+    params: { limit }
+  })
+}
+
+export function runDailyFactorScan(profile = 'balanced') {
+  return request({
+    url: '/quant/scan/daily',
+    method: 'post',
+    params: { profile },
+    timeout: 180000
+  })
+}
+
+export function runIndicatorRefresh() {
+  return request({
+    url: '/quant/scan/indicators',
+    method: 'post',
+    timeout: 60000
+  })
+}
+
 // 查询自选池列表
 export function listWatchlist(query) {
   return request({

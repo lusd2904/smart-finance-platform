@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_trade.dao.trade_dao import TradeDao
+from module_trade.service.platform_ext_service import PlatformExtService
 from module_trade.service.trade_service import TradeService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -361,8 +363,6 @@ async def trade_auto_decisions(
 
 # ---------------- 平台加深：覆盖/策略配置/风控/批量AI/持久通知 ----------------
 
-from module_trade.service.platform_ext_service import PlatformExtService  # noqa: E402
-
 
 @trade_controller.get(
     '/coverage',
@@ -458,8 +458,11 @@ async def risk_events(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     limit: Annotated[int, Query()] = 50,
+    status: Annotated[str | None, Query()] = None,
 ) -> Response:
-    return ResponseUtil.success(data=await PlatformExtService.list_risk_events(query_db, limit))
+    return ResponseUtil.success(
+        data=await PlatformExtService.list_risk_events(query_db, limit, status=status)
+    )
 
 
 @trade_controller.post(
@@ -487,11 +490,15 @@ async def update_risk_event_status(
     event_id: Annotated[int, Path()],
     body: Annotated[dict, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    handled = str(body.get('handled') or '1')
-    await TradeDao.update_risk_event_status(query_db, event_id=event_id, handled=handled)
-    await query_db.commit()
-    return ResponseUtil.success(msg='更新风控状态成功')
+    operator = None
+    if current_user.user is not None:
+        operator = current_user.user.user_name
+    data = await PlatformExtService.update_risk_event_review(
+        query_db, event_id, body or {}, operator=operator
+    )
+    return ResponseUtil.success(data=data, msg='更新风控状态成功')
 
 
 @trade_controller.get(

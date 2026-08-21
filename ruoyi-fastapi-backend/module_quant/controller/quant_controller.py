@@ -90,6 +90,69 @@ async def compute_factor(
     return ResponseUtil.success(data=result)
 
 
+@quant_controller.get(
+    '/factor/snapshots',
+    summary='最新因子定时快照',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def list_factor_snapshots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 80,
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.list_factor_snapshots(query_db, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@quant_controller.post(
+    '/scan/daily',
+    summary='立即执行全市场因子日扫并写入读模型快照',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+)
+@Log(title='因子日扫', business_type=BusinessType.OTHER)
+async def run_daily_factor_scan(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    profile: Annotated[str, Query()] = 'balanced',
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_daily_factor_scan(query_db, profile=profile)
+    return ResponseUtil.success(data=data, msg=f"因子日扫完成，成功 {data.get('symbolCount', 0)} 个标的")
+
+
+@quant_controller.post(
+    '/scan/indicators',
+    summary='立即刷新行情看板指标快照',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:compute')],
+)
+async def run_indicator_refresh(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_indicator_refresh(query_db)
+    return ResponseUtil.success(data=data, msg='指标快照已刷新')
+
+
+@quant_controller.post(
+    '/scan/positions',
+    summary='立即执行持仓止损监控',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+)
+async def run_position_monitor(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_position_monitor(query_db)
+    return ResponseUtil.success(data=data, msg='持仓监控已执行')
+
+
 # ---------------------------------------------------------------- 自选池 ---
 
 

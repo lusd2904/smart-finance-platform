@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from module_quant.entity.do.quant_do import (
+    QuantFactorSnapshot,
     QuantLongbridgeConfig,
+    QuantReadmodelSnapshot,
     QuantStrategyRun,
     QuantStrategySignal,
     QuantWatchlist,
@@ -227,3 +229,87 @@ class QuantLongbridgeConfigDao:
         db.add(db_config)
         await db.flush()
         return db_config
+
+
+class QuantSnapshotDao:
+    """因子快照与读模型聚合快照。"""
+
+    @classmethod
+    async def upsert_factor_snapshot(cls, db: AsyncSession, item: dict[str, Any]) -> QuantFactorSnapshot:
+        existing = (
+            (
+                await db.execute(
+                    select(QuantFactorSnapshot).where(
+                        QuantFactorSnapshot.symbol == item['symbol'],
+                        QuantFactorSnapshot.market == item['market'],
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        now = datetime.now()
+        if existing:
+            existing.as_of = item.get('as_of')
+            existing.score_total = item.get('score_total')
+            existing.risk_level = item.get('risk_level')
+            existing.trend_direction = item.get('trend_direction')
+            existing.alpha101_count = item.get('alpha101_count') or 0
+            existing.alpha158_count = item.get('alpha158_count') or 0
+            existing.score_json = item.get('score_json')
+            existing.alpha_json = item.get('alpha_json')
+            existing.create_time = now
+            await db.flush()
+            return existing
+        row = QuantFactorSnapshot(create_time=now, **item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def list_latest_factor_snapshots(
+        cls, db: AsyncSession, limit: int = 80
+    ) -> list[QuantFactorSnapshot]:
+        limit = max(1, min(int(limit or 80), 200))
+        rows = (
+            (
+                await db.execute(
+                    select(QuantFactorSnapshot)
+                    .order_by(desc(QuantFactorSnapshot.score_total), desc(QuantFactorSnapshot.create_time))
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
+    async def add_readmodel_snapshot(
+        cls, db: AsyncSession, snapshot_type: str, payload_json: str
+    ) -> QuantReadmodelSnapshot:
+        row = QuantReadmodelSnapshot(
+            snapshot_type=snapshot_type,
+            payload_json=payload_json,
+            create_time=datetime.now(),
+        )
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def get_latest_readmodel(
+        cls, db: AsyncSession, snapshot_type: str
+    ) -> QuantReadmodelSnapshot | None:
+        return (
+            (
+                await db.execute(
+                    select(QuantReadmodelSnapshot)
+                    .where(QuantReadmodelSnapshot.snapshot_type == snapshot_type)
+                    .order_by(desc(QuantReadmodelSnapshot.create_time))
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
