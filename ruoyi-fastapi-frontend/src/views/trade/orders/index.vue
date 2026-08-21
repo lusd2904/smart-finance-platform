@@ -15,11 +15,15 @@
       <el-table-column prop="symbol" label="标的" width="110"/>
       <el-table-column prop="side" label="方向" width="80"/>
       <el-table-column prop="orderType" label="类型" width="90"/>
-      <el-table-column prop="status" label="状态" width="110"/>
+      <el-table-column prop="status" label="状态" width="110">
+        <template #default="{row}">{{ row.statusLabel || row.status || '--' }}</template>
+      </el-table-column>
       <el-table-column prop="quantity" label="数量" width="90"/>
       <el-table-column prop="price" label="价格" width="90"/>
       <el-table-column prop="executedQuantity" label="成交量" width="90"/>
-      <el-table-column prop="submittedAt" label="时间" min-width="160"/>
+      <el-table-column prop="executedPrice" label="成交价" width="90"/>
+      <el-table-column prop="updatedAt" label="更新" min-width="150"/>
+      <el-table-column prop="submittedAt" label="提交" min-width="150"/>
       <el-table-column label="操作" width="90">
         <template #default="{row}">
           <el-button link type="danger" @click="cancel(row)" v-if="row.orderId && scope==='today'">撤单</el-button>
@@ -43,7 +47,12 @@ async function cancel(row){
   if(d.ok) proxy.$modal.msgSuccess(d.message||'已撤'); else proxy.$modal.msgError(d.message||'失败')
   load()
 }
-onMounted(load)
+let timer = null
+onMounted(() => {
+  load()
+  timer = setInterval(load, 15000)
+})
+onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

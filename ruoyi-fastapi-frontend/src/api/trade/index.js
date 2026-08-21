@@ -24,6 +24,10 @@ export function getTradeOrders(scope = 'today') {
   return request({ url: '/trade/orders', method: 'get', params: { scope } })
 }
 
+export function getTradeOrder(orderId) {
+  return request({ url: '/trade/order/' + encodeURIComponent(orderId), method: 'get' })
+}
+
 export function submitTradeOrder(data) {
   return request({ url: '/trade/order', method: 'post', data, timeout: 60000 })
 }

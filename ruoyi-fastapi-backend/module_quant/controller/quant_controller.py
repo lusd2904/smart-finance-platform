@@ -82,11 +82,12 @@ async def get_factor_schema(request: Request) -> Response:
 )
 async def compute_factor(
     request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
     symbol: Annotated[str, Query(description='标的代码')],
     market: Annotated[str, Query(description='市场（US/HK/CN）')] = 'US',
     profile: Annotated[str, Query(description='策略档位')] = 'balanced',
 ) -> Response:
-    result = await QuantService.compute_factor_services(symbol, market, profile)
+    result = await QuantService.compute_factor_services(symbol, market, profile, query_db=query_db)
     logger.info(f'计算标的{symbol}因子完成')
     return ResponseUtil.success(data=result)
 
@@ -105,6 +106,27 @@ async def list_factor_snapshots(
 
     data = await SnapshotService.list_factor_snapshots(query_db, limit=limit)
     return ResponseUtil.success(data=data)
+
+
+@quant_controller.get(
+    '/factor/snapshots/export',
+    summary='导出最新因子快照 CSV',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def export_factor_snapshots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from fastapi.responses import StreamingResponse
+
+    from module_quant.service.snapshot_service import SnapshotService
+
+    filename, content = await SnapshotService.export_factor_snapshots_csv(query_db)
+    return StreamingResponse(
+        iter([content]),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 @quant_controller.post(

@@ -223,9 +223,11 @@ class MarketWatchlistDao:
     async def get_watchlist(
         cls, db: AsyncSession, query_object: MarketWatchlistPageQueryModel, is_page: bool = False
     ) -> PageModel | list[dict[str, Any]]:
+        user_id = getattr(query_object, 'user_id', None)
         query = (
             select(MarketWatchlist)
             .where(
+                MarketWatchlist.user_id == user_id if user_id is not None else True,
                 MarketWatchlist.symbol.like(f'%{query_object.symbol}%') if query_object.symbol else True,
                 MarketWatchlist.market == query_object.market if query_object.market else True,
                 MarketWatchlist.enabled == query_object.enabled if query_object.enabled else True,
@@ -235,18 +237,12 @@ class MarketWatchlistDao:
         return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
 
     @classmethod
-    async def get_enabled(cls, db: AsyncSession) -> list[MarketWatchlist]:
-        rows = (
-            (
-                await db.execute(
-                    select(MarketWatchlist)
-                    .where(MarketWatchlist.enabled == '1')
-                    .order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
-                )
-            )
-            .scalars()
-            .all()
-        )
+    async def get_enabled(cls, db: AsyncSession, user_id: int | None = None) -> list[MarketWatchlist]:
+        query = select(MarketWatchlist).where(MarketWatchlist.enabled == '1')
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        query = query.order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+        rows = (await db.execute(query)).scalars().all()
         return list(rows)
 
     @classmethod
@@ -256,18 +252,15 @@ class MarketWatchlistDao:
         )
 
     @classmethod
-    async def get_by_symbol(cls, db: AsyncSession, symbol: str, market: str) -> MarketWatchlist | None:
-        return (
-            (
-                await db.execute(
-                    select(MarketWatchlist).where(
-                        MarketWatchlist.symbol == symbol, MarketWatchlist.market == market
-                    )
-                )
-            )
-            .scalars()
-            .first()
+    async def get_by_symbol(
+        cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None
+    ) -> MarketWatchlist | None:
+        query = select(MarketWatchlist).where(
+            MarketWatchlist.symbol == symbol, MarketWatchlist.market == market
         )
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        return (await db.execute(query)).scalars().first()
 
     @classmethod
     async def add(cls, db: AsyncSession, item: dict[str, Any]) -> MarketWatchlist:
@@ -277,10 +270,13 @@ class MarketWatchlistDao:
         return row
 
     @classmethod
-    async def delete_by_ids(cls, db: AsyncSession, ids: list[int]) -> None:
+    async def delete_by_ids(cls, db: AsyncSession, ids: list[int], user_id: int | None = None) -> None:
         if not ids:
             return
-        await db.execute(delete(MarketWatchlist).where(MarketWatchlist.id.in_(ids)))
+        query = delete(MarketWatchlist).where(MarketWatchlist.id.in_(ids))
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        await db.execute(query)
 
 
 class MarketWatchlistAnalysisDao:
@@ -294,28 +290,40 @@ class MarketWatchlistAnalysisDao:
         return row
 
     @classmethod
-    async def get_latest(cls, db: AsyncSession, symbol: str, market: str | None = None) -> MarketWatchlistAnalysis | None:
+    async def get_latest(
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str | None = None,
+        user_id: int | None = None,
+    ) -> MarketWatchlistAnalysis | None:
         query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
         if market:
             query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
         query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id)).limit(1)
         return (await db.execute(query)).scalars().first()
 
     @classmethod
     async def list_latest_by_symbols(
-        cls, db: AsyncSession, pairs: list[tuple[str, str]]
+        cls,
+        db: AsyncSession,
+        pairs: list[tuple[str, str]],
+        user_id: int | None = None,
     ) -> dict[tuple[str, str], MarketWatchlistAnalysis]:
         """每个 (symbol, market) 取最新一条。"""
         result: dict[tuple[str, str], MarketWatchlistAnalysis] = {}
         if not pairs:
             return result
         symbols = list({p[0] for p in pairs})
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol.in_(symbols))
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
         rows = (
             (
                 await db.execute(
-                    select(MarketWatchlistAnalysis)
-                    .where(MarketWatchlistAnalysis.symbol.in_(symbols))
-                    .order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id))
+                    query.order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id))
                 )
             )
             .scalars()
@@ -330,12 +338,19 @@ class MarketWatchlistAnalysisDao:
 
     @classmethod
     async def list_history(
-        cls, db: AsyncSession, symbol: str, market: str | None = None, limit: int = 12
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str | None = None,
+        limit: int = 12,
+        user_id: int | None = None,
     ) -> list[MarketWatchlistAnalysis]:
         limit = max(1, min(int(limit or 12), 50))
         query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
         if market:
             query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
         query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time)).limit(limit)
         return list((await db.execute(query)).scalars().all())
 

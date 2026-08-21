@@ -12,6 +12,15 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="overview.aiHint"
+      :title="overview.aiHint"
+      type="warning"
+      show-icon
+      class="mb16"
+      :closable="false"
+    />
+
     <el-row :gutter="16" class="mb16">
       <el-col :xs="12" :sm="6" v-for="card in statCards" :key="card.label">
         <div class="stat-card" :class="card.tone">
@@ -42,8 +51,11 @@
             <el-table-column label="市场" prop="market" width="70" align="center">
               <template #default="scope">{{ marketLabel(scope.row.market) }}</template>
             </el-table-column>
-            <el-table-column label="最新价" width="110" align="right">
-              <template #default="scope">{{ formatNum(scope.row.last) }}</template>
+            <el-table-column label="最新价" width="130" align="right">
+              <template #default="scope">
+                <span>{{ formatNum(scope.row.last) }}</span>
+                <el-tag v-if="scope.row.quoteSource === 'longbridge'" size="small" type="success" effect="plain" class="src-tag">实时</el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="涨跌" width="100" align="right">
               <template #default="scope">
@@ -106,6 +118,11 @@
               <p class="tab-body">{{ (current.analysis && current.analysis.sentimentReview) || '暂无舆情解读' }}</p>
             </el-tab-pane>
           </el-tabs>
+          <div class="hist-block">
+            <div class="hist-title">分析历史</div>
+            <div v-show="historySeries.length" ref="histRef" class="hist-chart"></div>
+            <el-empty v-if="!historySeries.length" description="暂无历史，分析后可看置信度变化" :image-size="48" />
+          </div>
           <div class="drawer-foot">
             <span class="muted">{{ current.analysisTime || '尚未分析' }}</span>
             <el-button link type="primary" @click="openSymbol(current)">打开标的详情</el-button>
@@ -137,11 +154,13 @@
 </template>
 
 <script setup name="MarketWatchlist">
+import * as echarts from 'echarts'
 import {
   getMarketWatchlistOverview,
   addMarketWatchlist,
   delMarketWatchlist,
   analyzeMarketWatchlist,
+  getMarketWatchlistAnalysis,
   listInstrument
 } from '@/api/market'
 
@@ -151,7 +170,10 @@ const router = useRouter()
 const loading = ref(false)
 const analyzeAllLoading = ref(false)
 const analyzingId = ref(null)
-const overview = ref({ items: [], count: 0, bullish: 0, bearish: 0, neutral: 0, lastAnalysisTime: null })
+const overview = ref({ items: [], count: 0, bullish: 0, bearish: 0, neutral: 0, lastAnalysisTime: null, aiHint: null })
+const historySeries = ref([])
+const histRef = ref(null)
+let histChart = null
 const items = computed(() => overview.value.items || [])
 const current = ref(null)
 const activeTab = ref('advice')
@@ -199,6 +221,34 @@ function recType(rec) {
 function selectRow(row) {
   current.value = row
   activeTab.value = 'advice'
+  loadHistory(row)
+}
+
+function loadHistory(row) {
+  if (!row || !row.symbol) {
+    historySeries.value = []
+    return
+  }
+  getMarketWatchlistAnalysis({ symbol: row.symbol, market: row.market || 'US', limit: 24 }).then(res => {
+    const data = res.data || {}
+    historySeries.value = data.series || []
+    nextTick(renderHistory)
+  }).catch(() => {
+    historySeries.value = []
+  })
+}
+
+function renderHistory() {
+  if (!histRef.value) return
+  if (!histChart) histChart = echarts.init(histRef.value)
+  const series = historySeries.value
+  histChart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 36, right: 12, top: 16, bottom: 24 },
+    xAxis: { type: 'category', data: series.map(s => (s.time || '').slice(5, 16)), axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', min: 0, max: 100, splitNumber: 4 },
+    series: [{ type: 'line', data: series.map(s => s.confidence), smooth: true, symbol: 'circle', areaStyle: { opacity: 0.12 } }]
+  }, true)
 }
 
 function openSymbol(row) {
@@ -217,6 +267,7 @@ async function loadOverview() {
     } else {
       current.value = rows[0] || null
     }
+    if (current.value) loadHistory(current.value)
   } finally {
     loading.value = false
   }
@@ -333,4 +384,8 @@ onMounted(() => {
 .tab-body { margin: 0; line-height: 1.8; color: #475569; white-space: pre-wrap; }
 .risk { margin-top: 10px; color: #b45309; font-size: 13px; }
 .drawer-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.src-tag { margin-left: 6px; }
+.hist-block { margin-top: 12px; }
+.hist-title { font-weight: 600; margin-bottom: 6px; }
+.hist-chart { height: 160px; }
 </style>

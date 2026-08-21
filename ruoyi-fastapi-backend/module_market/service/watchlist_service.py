@@ -54,16 +54,22 @@ class MarketWatchlistService:
         query_db: AsyncSession,
         query_object: MarketWatchlistPageQueryModel,
         is_page: bool = True,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
+        query_object.user_id = user_id
         return await MarketWatchlistDao.get_watchlist(query_db, query_object, is_page)
 
     @classmethod
-    async def add_services(cls, query_db: AsyncSession, add_model: AddMarketWatchlistModel) -> CrudResponseModel:
+    async def add_services(
+        cls, query_db: AsyncSession, add_model: AddMarketWatchlistModel, user_id: int
+    ) -> CrudResponseModel:
         symbol = (add_model.symbol or '').strip().upper()
         market = (add_model.market or 'US').strip().upper()
         if not symbol:
             raise ServiceException(message='标的代码不能为空')
-        existing = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market)
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
+        existing = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
         if existing:
             raise ServiceException(message=f'{symbol}({market}) 已在自选清单中')
         name = None
@@ -79,6 +85,7 @@ class MarketWatchlistService:
             await MarketWatchlistDao.add(
                 query_db,
                 {
+                    'user_id': user_id,
                     'symbol': symbol,
                     'market': market,
                     'name': name,
@@ -96,7 +103,7 @@ class MarketWatchlistService:
             raise
 
     @classmethod
-    async def delete_services(cls, query_db: AsyncSession, ids: str) -> CrudResponseModel:
+    async def delete_services(cls, query_db: AsyncSession, ids: str, user_id: int) -> CrudResponseModel:
         if not ids:
             raise ServiceException(message='传入ID为空')
         try:
@@ -104,7 +111,7 @@ class MarketWatchlistService:
         except ValueError:
             raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
         try:
-            await MarketWatchlistDao.delete_by_ids(query_db, id_list)
+            await MarketWatchlistDao.delete_by_ids(query_db, id_list, user_id=user_id)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception:
@@ -136,10 +143,10 @@ class MarketWatchlistService:
         }
 
     @classmethod
-    async def overview_services(cls, query_db: AsyncSession) -> dict[str, Any]:
-        items = await MarketWatchlistDao.get_enabled(query_db)
+    async def overview_services(cls, query_db: AsyncSession, user_id: int) -> dict[str, Any]:
+        items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
-        latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs)
+        latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
         quotes: dict[str, dict[str, Any]] = {}
         by_market: dict[str, list[str]] = {}
         for row in items:
@@ -150,6 +157,42 @@ class MarketWatchlistService:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
                     quotes[symbol] = quote
+        quote_source = 'influx'
+        try:
+            from module_quant.service.longbridge_service import LongbridgeService
+
+            await LongbridgeService.ensure_credentials_from_db(query_db)
+            if LongbridgeService.is_configured() and items:
+                lb_symbols = [
+                    LongbridgeService.to_longbridge_symbol(r.symbol, r.market or 'US')
+                    for r in items
+                    if r.symbol and not str(r.symbol).startswith('^')
+                ]
+                rt = await asyncio.to_thread(LongbridgeService.get_realtime_quote, lb_symbols) if lb_symbols else {}
+                lb_map: dict[str, dict[str, Any]] = {}
+                for q in rt.get('quotes') or []:
+                    raw = str(q.get('symbol') or '').upper()
+                    lb_map[raw] = q
+                    if '.' in raw:
+                        lb_map[raw.split('.', 1)[0]] = q
+                for row in items:
+                    overlay = lb_map.get(str(row.symbol).upper()) or lb_map.get(
+                        LongbridgeService.to_longbridge_symbol(row.symbol, row.market or 'US').upper()
+                    )
+                    if not overlay:
+                        continue
+                    current = quotes.get(row.symbol) or {}
+                    quotes[row.symbol] = {
+                        **current,
+                        'last': overlay.get('lastDone') if overlay.get('lastDone') is not None else current.get('last'),
+                        'changeRate': overlay.get('changeRate')
+                        if overlay.get('changeRate') is not None
+                        else current.get('changeRate'),
+                        'change': overlay.get('change') if overlay.get('change') is not None else current.get('change'),
+                    }
+                    quote_source = 'longbridge'
+        except Exception as exc:
+            logger.info(f'[自选总览] 长桥实时价跳过: {exc}')
 
         rows = []
         stance_count = {'偏多': 0, '偏空': 0, '中性': 0}
@@ -175,6 +218,7 @@ class MarketWatchlistService:
                     'last': quote.get('last'),
                     'changeRate': quote.get('changeRate'),
                     'tradeDate': quote.get('tradeDate'),
+                    'quoteSource': quote_source,
                     'analysis': analysis,
                     'recommendation': (analysis or {}).get('recommendation'),
                     'stance': (analysis or {}).get('stance'),
@@ -184,25 +228,53 @@ class MarketWatchlistService:
                     'source': (analysis or {}).get('source'),
                 }
             )
+        ai_conf = await cls._resolve_ai(query_db)
         return {
             'count': len(rows),
             'bullish': stance_count['偏多'],
             'bearish': stance_count['偏空'],
             'neutral': stance_count['中性'],
             'lastAnalysisTime': last_time,
+            'quoteSource': quote_source,
+            'aiAvailable': bool(ai_conf.get('available')),
+            'aiModel': ai_conf.get('modelName'),
+            'aiHint': None
+            if ai_conf.get('available')
+            else '未配置可用 AI 模型，小时分析将使用技术指标兜底。请在「AI 模型管理」填写 Base URL / API Key / 模型。',
             'items': rows,
         }
 
     @classmethod
     async def history_services(
-        cls, query_db: AsyncSession, symbol: str, market: str = 'US', limit: int = 12
+        cls,
+        query_db: AsyncSession,
+        symbol: str,
+        market: str = 'US',
+        limit: int = 24,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         symbol = (symbol or '').strip().upper()
-        rows = await MarketWatchlistAnalysisDao.list_history(query_db, symbol, market, limit=limit)
+        rows = await MarketWatchlistAnalysisDao.list_history(
+            query_db, symbol, market, limit=limit, user_id=user_id
+        )
+        items = [cls.serialize_analysis(r) for r in rows]
+        series = [
+            {
+                'time': it.get('analysisTime'),
+                'confidence': it.get('confidence'),
+                'recommendation': it.get('recommendation'),
+                'stance': it.get('stance'),
+                'price': it.get('price'),
+            }
+            for it in items
+            if it
+        ]
+        series.reverse()
         return {
             'symbol': symbol,
             'market': (market or 'US').upper(),
-            'items': [cls.serialize_analysis(r) for r in rows],
+            'items': items,
+            'series': series,
             'count': len(rows),
         }
 
@@ -211,7 +283,7 @@ class MarketWatchlistService:
         base_url = api_key = model_name = None
         temperature = 0.2
         try:
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
+            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'market')
             if ai_model:
                 base_url = ai_model.base_url
                 api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
@@ -349,6 +421,7 @@ class MarketWatchlistService:
         market: str = 'US',
         name: str | None = None,
         watchlist_id: int | None = None,
+        user_id: int | None = None,
         refresh_content: bool = False,
         ai_conf: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -386,6 +459,7 @@ class MarketWatchlistService:
             query_db,
             {
                 'watchlist_id': watchlist_id,
+                'user_id': user_id,
                 'symbol': symbol,
                 'market': market,
                 'price': context.get('price'),
@@ -430,29 +504,41 @@ class MarketWatchlistService:
 
     @classmethod
     async def analyze_services(
-        cls, query_db: AsyncSession, body: MarketWatchlistAnalyzeModel
+        cls,
+        query_db: AsyncSession,
+        body: MarketWatchlistAnalyzeModel,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         ai_conf = await cls._resolve_ai(query_db)
         targets: list[dict[str, Any]] = []
         if body.symbol:
             symbol = body.symbol.strip().upper()
             market = (body.market or 'US').strip().upper()
-            item = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market)
+            item = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
             meta = get_instrument_meta(symbol)
             targets.append(
                 {
                     'id': item.id if item else None,
+                    'userId': (item.user_id if item else None) or user_id,
                     'symbol': symbol,
                     'market': market,
                     'name': (item.name if item else None) or (meta[1] if meta else symbol),
                 }
             )
         else:
-            enabled = await MarketWatchlistDao.get_enabled(query_db)
+            enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
             if not enabled:
                 raise ServiceException(message='自选清单为空，请先添加关注标的')
             for row in enabled[:MAX_WATCHLIST_BATCH]:
-                targets.append({'id': row.id, 'symbol': row.symbol, 'market': row.market, 'name': row.name})
+                targets.append(
+                    {
+                        'id': row.id,
+                        'userId': row.user_id,
+                        'symbol': row.symbol,
+                        'market': row.market,
+                        'name': row.name,
+                    }
+                )
 
         results = []
         failed = []
@@ -465,6 +551,7 @@ class MarketWatchlistService:
                         market=target['market'] or 'US',
                         name=target.get('name'),
                         watchlist_id=target.get('id'),
+                        user_id=target.get('userId') or user_id,
                         refresh_content=bool(body.refresh_content),
                         ai_conf=ai_conf,
                     )
@@ -493,9 +580,9 @@ class MarketWatchlistService:
 
     @classmethod
     async def run_hourly_job(cls, query_db: AsyncSession) -> dict[str, Any]:
-        enabled = await MarketWatchlistDao.get_enabled(query_db)
+        enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=None)
         if not enabled:
             return {'ok': True, 'count': 0, 'failedCount': 0, 'skipped': True, 'message': '自选清单为空，跳过'}
         return await cls.analyze_services(
-            query_db, MarketWatchlistAnalyzeModel(symbol=None, refresh_content=True)
+            query_db, MarketWatchlistAnalyzeModel(symbol=None, refresh_content=True), user_id=None
         )

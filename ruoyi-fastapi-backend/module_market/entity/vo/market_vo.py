@@ -128,6 +128,7 @@ class MarketWatchlistModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
 
     id: int | None = Field(default=None, description='主键')
+    user_id: int | None = Field(default=None, description='用户ID')
     symbol: str | None = Field(default=None, description='标的代码')
     market: str | None = Field(default=None, description='市场')
     name: str | None = Field(default=None, description='名称')
@@ -145,6 +146,7 @@ class MarketWatchlistPageQueryModel(BaseModel):
     symbol: str | None = Field(default=None, description='标的代码')
     market: str | None = Field(default=None, description='市场')
     enabled: str | None = Field(default=None, description='是否启用')
+    user_id: int | None = Field(default=None, description='用户ID（服务端填充）')
     page_num: int = Field(default=1, description='当前页码')
     page_size: int = Field(default=20, description='每页记录数')
 

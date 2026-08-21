@@ -10,6 +10,7 @@
           <el-radio-button :label="100">100</el-radio-button>
         </el-radio-group>
         <el-button icon="Refresh" @click="loadList">刷新</el-button>
+        <el-button icon="Download" @click="handleExport">导出因子快照</el-button>
       </el-space>
     </div>
 
@@ -84,6 +85,7 @@
 <script setup name="QuantScanRunsIndex">
 import { listScanRuns, getScanRunDetail } from '@/api/quant'
 
+const { proxy } = getCurrentInstance()
 const loading = ref(false)
 const list = ref([])
 const summary = ref({})
@@ -91,6 +93,9 @@ const limit = ref(20)
 const details = ref({})
 const detailLoading = ref({})
 
+function handleExport() {
+  proxy.download.zip('/quant/factor/snapshots/export', 'factor_snapshots.csv')
+}
 function statusLabel(s) {
   return { completed: '已完成', running: '运行中', failed: '失败', skipped: '已跳过' }[s] || s || '--'
 }

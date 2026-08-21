@@ -4,6 +4,7 @@
   "description": "Playwright smoke helpers for local verification",
   "scripts": {
     "smoke:pages": "node scripts/page_smoke.mjs",
+    "e2e:web": "node scripts/web_e2e.mjs",
     "desktop": "npm start --prefix desktop"
   },
   "devDependencies": {

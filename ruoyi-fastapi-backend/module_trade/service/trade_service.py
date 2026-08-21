@@ -43,6 +43,11 @@ class TradeService:
         return await LongbridgeService.get_today_orders_async()
 
     @classmethod
+    async def get_order_services(cls, query_db: AsyncSession, order_id: str) -> dict[str, Any]:
+        await cls._ensure(query_db)
+        return await LongbridgeService.get_order_async(order_id)
+
+    @classmethod
     async def get_depth_services(cls, query_db: AsyncSession, symbol: str, market: str = 'US') -> dict[str, Any]:
         code, mkt = parse_symbol_market(symbol, market)
         await cls._ensure(query_db)

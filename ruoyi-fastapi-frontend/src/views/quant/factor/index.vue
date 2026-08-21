@@ -42,6 +42,7 @@
             </el-select>
             <el-button type="primary" icon="MagicStick" :loading="computeLoading" :disabled="!selectedSymbol" @click="handleCompute" v-hasPermi="['quant:factor:compute']">计算因子</el-button>
             <el-button :loading="scanLoading" @click="handleScan" v-hasPermi="['quant:strategy:run']">全市场日扫</el-button>
+            <el-button icon="Download" @click="handleExport" v-hasPermi="['quant:factor:list']">导出快照</el-button>
           </div>
           <div v-if="snapshotHint" class="snap-hint">{{ snapshotHint }}</div>
 
@@ -296,6 +297,10 @@ function loadSnapshots() {
       snapshotHint.value = `${source} · ${asOf}`;
     }
   });
+}
+
+function handleExport() {
+  proxy.download.zip('/quant/factor/snapshots/export', 'factor_snapshots.csv')
 }
 
 async function handleScan() {

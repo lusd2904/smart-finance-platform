@@ -775,20 +775,72 @@ class LongbridgeService:
 
     @classmethod
     def _map_order(cls, o: Any) -> dict[str, Any]:
+        status = str(getattr(o, 'status', '') or '')
+        executed_qty = cls._to_float(getattr(o, 'executed_quantity', None))
+        qty = cls._to_float(getattr(o, 'quantity', None) or getattr(o, 'submitted_quantity', None))
         return {
             'orderId': getattr(o, 'order_id', None) or getattr(o, 'orderId', None),
             'symbol': getattr(o, 'symbol', None),
             'stockName': getattr(o, 'stock_name', None) or getattr(o, 'symbol_name', None),
             'side': str(getattr(o, 'side', '') or ''),
-            'status': str(getattr(o, 'status', '') or ''),
+            'status': status,
+            'statusLabel': cls._order_status_label(status),
             'orderType': str(getattr(o, 'order_type', '') or ''),
-            'quantity': cls._to_float(getattr(o, 'quantity', None) or getattr(o, 'submitted_quantity', None)),
+            'quantity': qty,
             'price': cls._to_float(getattr(o, 'price', None) or getattr(o, 'submitted_price', None)),
-            'executedQuantity': cls._to_float(getattr(o, 'executed_quantity', None)),
+            'executedQuantity': executed_qty,
             'executedPrice': cls._to_float(getattr(o, 'executed_price', None)),
             'currency': getattr(o, 'currency', None),
-            'submittedAt': str(getattr(o, 'submitted_at', '') or getattr(o, 'updated_at', '') or ''),
+            'submittedAt': str(getattr(o, 'submitted_at', '') or ''),
+            'updatedAt': str(getattr(o, 'updated_at', '') or getattr(o, 'last_done', '') or ''),
+            'remark': str(getattr(o, 'msg', '') or getattr(o, 'remark', '') or ''),
+            'filled': bool(executed_qty and qty and executed_qty >= qty),
+            'open': status.lower() in {'submitted', 'new', 'wait_to_new', 'partial_filled', 'wait_to_cancel'},
         }
+
+    @staticmethod
+    def _order_status_label(status: str) -> str:
+        text = str(status or '').lower().replace('_', '').replace(' ', '')
+        checks = (
+            ('partialfilled', '部分成交'),
+            ('waittocancel', '待撤'),
+            ('waittonew', '待报'),
+            ('submitted', '已提交'),
+            ('cancelled', '已撤'),
+            ('canceled', '已撤'),
+            ('rejected', '已拒绝'),
+            ('expired', '已过期'),
+            ('filled', '已成交'),
+        )
+        for key, label in checks:
+            if key in text:
+                return label
+        if text in {'new', 'notreported'}:
+            return '待成交'
+        return status or '--'
+
+    @classmethod
+    def get_order(cls, order_id: str) -> dict[str, Any]:
+        """在今日与历史委托中查找单笔订单。"""
+        oid = str(order_id or '').strip()
+        if not oid:
+            return {'configured': cls.is_configured(), 'ok': False, 'message': '订单号为空', 'order': None}
+        today = cls.get_today_orders()
+        if not today.get('configured'):
+            return {
+                'configured': False,
+                'ok': False,
+                'message': today.get('message') or '长桥凭据未配置',
+                'order': None,
+            }
+        for item in today.get('orders') or []:
+            if str(item.get('orderId') or '') == oid:
+                return {'configured': True, 'ok': True, 'order': item, 'scope': 'today'}
+        history = cls.get_history_orders(100)
+        for item in history.get('orders') or []:
+            if str(item.get('orderId') or '') == oid:
+                return {'configured': True, 'ok': True, 'order': item, 'scope': 'history'}
+        return {'configured': True, 'ok': False, 'message': '未找到该订单', 'order': None}
 
     overlay_last_bar = staticmethod(overlay_last_bar)
 
@@ -903,6 +955,10 @@ class LongbridgeService:
     @classmethod
     async def get_today_orders_async(cls) -> dict[str, Any]:
         return await asyncio.to_thread(cls.get_today_orders)
+
+    @classmethod
+    async def get_order_async(cls, order_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.get_order, order_id)
 
     @classmethod
     async def get_history_orders_async(cls, limit: int = 50) -> dict[str, Any]:

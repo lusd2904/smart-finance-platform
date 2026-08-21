@@ -33,21 +33,30 @@ _SEEDS_DONE = False
 DEFAULT_STRATEGY_PROFILES = {
     'conservative': {
         'name': '保守',
-        'buyThreshold': 65,
-        'sellThreshold': 40,
-        'weights': {'trend': 0.25, 'momentum': 0.15, 'volatility': 0.2, 'volume': 0.1, 'value': 0.15, 'quality': 0.15},
+        'buyThreshold': 72,
+        'sellThreshold': 42,
+        'weights': {
+            'trend': 0.24, 'priceAction': 0.14, 'momentum': 0.10, 'breakout': 0.06,
+            'volumeFlow': 0.10, 'reversion': 0.20, 'volatility': 0.16, 'liquidity': 0.10,
+        },
     },
     'balanced': {
         'name': '均衡',
-        'buyThreshold': 58,
-        'sellThreshold': 42,
-        'weights': {'trend': 0.3, 'momentum': 0.2, 'volatility': 0.15, 'volume': 0.15, 'value': 0.1, 'quality': 0.1},
+        'buyThreshold': 64,
+        'sellThreshold': 38,
+        'weights': {
+            'trend': 0.30, 'priceAction': 0.14, 'momentum': 0.18, 'breakout': 0.16,
+            'volumeFlow': 0.12, 'reversion': 0.08, 'volatility': 0.10, 'liquidity': 0.06,
+        },
     },
     'aggressive': {
         'name': '进取',
-        'buyThreshold': 52,
-        'sellThreshold': 45,
-        'weights': {'trend': 0.35, 'momentum': 0.3, 'volatility': 0.1, 'volume': 0.15, 'value': 0.05, 'quality': 0.05},
+        'buyThreshold': 56,
+        'sellThreshold': 32,
+        'weights': {
+            'trend': 0.34, 'priceAction': 0.12, 'momentum': 0.26, 'breakout': 0.28,
+            'volumeFlow': 0.16, 'reversion': 0.02, 'volatility': 0.06, 'liquidity': 0.05,
+        },
     },
 }
 
