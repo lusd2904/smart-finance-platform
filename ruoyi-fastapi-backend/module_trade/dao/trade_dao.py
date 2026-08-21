@@ -157,8 +157,37 @@ class TradeDao:
 
     # ---------------- 风控事件 ----------------
     @classmethod
+    async def ensure_risk_event_table(cls, db: AsyncSession) -> None:
+        """确保 plat_risk_event 表存在（重复执行安全）。"""
+        await db.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS plat_risk_event (
+                  event_id BIGINT NOT NULL AUTO_INCREMENT COMMENT '事件ID',
+                  rule_id BIGINT NULL COMMENT '关联规则ID',
+                  event_level VARCHAR(16) NOT NULL DEFAULT 'warn' COMMENT '事件等级',
+                  title VARCHAR(200) NOT NULL COMMENT '事件标题',
+                  content VARCHAR(1000) NULL COMMENT '事件详情',
+                  symbol VARCHAR(32) NULL COMMENT '标的代码',
+                  handled CHAR(1) NOT NULL DEFAULT '0' COMMENT '是否已处理（0否 1是）',
+                  review_status VARCHAR(32) NOT NULL DEFAULT 'pending_review' COMMENT '复核状态',
+                  handle_remark VARCHAR(500) NULL COMMENT '处理备注',
+                  handled_by VARCHAR(64) NULL COMMENT '处理人',
+                  handle_time DATETIME NULL COMMENT '处理时间',
+                  create_time DATETIME NULL COMMENT '触发时间',
+                  PRIMARY KEY (event_id),
+                  KEY ix_review_status (review_status),
+                  KEY ix_create_time (create_time)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='风控触发事件表'
+                """
+            )
+        )
+        await db.commit()
+
+    @classmethod
     async def ensure_risk_event_schema(cls, db: AsyncSession) -> None:
         """给已有 plat_risk_event 表补齐审批流字段，重复执行安全。"""
+        await cls.ensure_risk_event_table(db)
         alters = [
             "ALTER TABLE plat_risk_event ADD COLUMN review_status VARCHAR(32) NOT NULL DEFAULT 'pending_review'",
             'ALTER TABLE plat_risk_event ADD COLUMN handle_remark VARCHAR(500) NULL',

@@ -46,6 +46,11 @@ async def readmodel_overview(
     try:
         await LongbridgeService.ensure_credentials_from_db(query_db)
         snapshot = await ReadModelService.get_platform_overview_snapshot()
+        from module_quant.service.snapshot_service import SnapshotService
+
+        snapshot['factorScan'] = await SnapshotService.build_factor_scan_payload(
+            query_db, snapshot.get('factorScan') or {}
+        )
     except Exception as exc:
         logger.warning(f'[量化读模型] overview 降级空状态: {exc}')
         snapshot = {
