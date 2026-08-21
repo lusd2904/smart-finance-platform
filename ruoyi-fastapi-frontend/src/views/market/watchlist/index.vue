@@ -205,7 +205,7 @@
 </template>
 
 <script setup name="MarketWatchlist">
-import * as echarts from 'echarts'
+import { useEChart } from '@/composables/useEChart'
 import {
   getMarketWatchlistOverview,
   addMarketWatchlist,
@@ -225,7 +225,7 @@ const analyzingId = ref(null)
 const overview = ref({ items: [], count: 0, bullish: 0, bearish: 0, neutral: 0, lastAnalysisTime: null, aiHint: null })
 const historySeries = ref([])
 const histRef = ref(null)
-let histChart = null
+const { setOption: setHistOption, dispose: disposeHist } = useEChart(histRef)
 const items = computed(() => overview.value.items || [])
 const current = ref(null)
 const activeTab = ref('advice')
@@ -312,9 +312,8 @@ function loadHistory(row) {
 
 function renderHistory() {
   if (!histRef.value) return
-  if (!histChart) histChart = echarts.init(histRef.value)
   const series = historySeries.value
-  histChart.setOption({
+  setHistOption({
     tooltip: { trigger: 'axis' },
     grid: { left: 36, right: 12, top: 16, bottom: 24 },
     xAxis: { type: 'category', data: series.map(s => (s.time || '').slice(5, 16)), axisLabel: { fontSize: 10 } },
@@ -457,10 +456,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (quoteTimer) clearInterval(quoteTimer)
-  if (histChart) {
-    histChart.dispose()
-    histChart = null
-  }
+  disposeHist()
 })
 </script>
 
