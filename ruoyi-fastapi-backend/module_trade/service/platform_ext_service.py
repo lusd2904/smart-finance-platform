@@ -71,7 +71,6 @@ class PlatformExtService:
 
         try:
             await TradeDao.ensure_risk_event_schema(db)
-            # 策略配置种子
             profiles = await TradeDao.list_strategy_profiles(db)
             existing_codes = {p.profile_code for p in profiles}
             for code, cfg in DEFAULT_STRATEGY_PROFILES.items():
@@ -232,10 +231,14 @@ class PlatformExtService:
         cls, db: AsyncSession, limit: int = 50, status: str | None = None
     ) -> list[dict[str, Any]]:
         await cls.ensure_seed_data(db)
-        expired = await TradeDao.expire_overdue_risk_events(db)
-        if expired:
-            await db.commit()
-        rows = await TradeDao.list_risk_events(db, limit=limit, status=status)
+        try:
+            expired = await TradeDao.expire_overdue_risk_events(db)
+            if expired:
+                await db.commit()
+            rows = await TradeDao.list_risk_events(db, limit=limit, status=status)
+        except Exception as exc:
+            logger.warning(f'[风控事件] 列表降级空状态: {exc}')
+            return []
         items = []
         for r in rows:
             stored = normalize_status(getattr(r, 'review_status', None), r.handled)

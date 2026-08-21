@@ -103,7 +103,7 @@
               </template>
             </el-table-column>
             <template #empty>
-              <el-empty description="暂无该状态的风控事件" :image-size="56"/>
+              <el-empty :description="emptyDescription" :image-size="56"/>
             </template>
           </el-table>
         </el-card>
@@ -164,6 +164,7 @@ const actionDlg = ref(false)
 const actionRow = ref({})
 const actionStatus = ref('')
 const actionRemark = ref('')
+const loadError = ref(false)
 
 const ALLOWED = {
   pending_review: ['confirmed', 'ignored', 'need_review'],
@@ -197,6 +198,14 @@ const filteredEvents = computed(() => {
 
 const actionTitle = computed(() => ACTION_LABEL[actionStatus.value] || '处理事件')
 
+const emptyDescription = computed(() => {
+  if (loadError.value) return '风控事件加载失败，请稍后重试'
+  if (filter.value === 'all' && events.value.length === 0) {
+    return '暂无风控事件（规则探测器未命中），可点击右上角「执行扫描」复检'
+  }
+  return '暂无该状态的风控事件'
+})
+
 function statusTone(status) {
   return {
     pending_review: 'warning',
@@ -214,10 +223,14 @@ function canAct(row, dest) {
 
 async function load() {
   loading.value = true
+  loadError.value = false
   try {
     const [r, e] = await Promise.all([listRiskRules(), listRiskEvents(200)])
     rules.value = r.data || []
     events.value = e.data || []
+  } catch {
+    loadError.value = true
+    events.value = []
   } finally {
     loading.value = false
   }

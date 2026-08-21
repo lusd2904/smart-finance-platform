@@ -475,9 +475,12 @@ async def risk_events(
     limit: Annotated[int, Query()] = 50,
     status: Annotated[str | None, Query()] = None,
 ) -> Response:
-    return ResponseUtil.success(
-        data=await PlatformExtService.list_risk_events(query_db, limit, status=status)
-    )
+    try:
+        data = await PlatformExtService.list_risk_events(query_db, limit, status=status)
+    except Exception as exc:
+        logger.warning(f'[风控事件] API 降级空状态: {exc}')
+        data = []
+    return ResponseUtil.success(data=data)
 
 
 @trade_controller.post(
