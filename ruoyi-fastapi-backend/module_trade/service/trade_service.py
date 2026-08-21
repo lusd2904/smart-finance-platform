@@ -22,8 +22,8 @@ class TradeService:
     """Trade Service using standard DAO pattern and async operations"""
 
     @classmethod
-    async def _ensure(cls, query_db: AsyncSession) -> None:
-        await LongbridgeService.ensure_credentials_from_db(query_db)
+    async def _ensure(cls, query_db: AsyncSession, user_id: int | None = None) -> None:
+        await LongbridgeService.ensure_credentials_from_db(query_db, user_id)
 
     @classmethod
     async def get_account_services(cls, query_db: AsyncSession) -> dict[str, Any]:

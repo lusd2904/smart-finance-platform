@@ -203,24 +203,45 @@ class QuantStrategyDao:
         return list(rows)
 
 
+ADMIN_LONGBRIDGE_USER_ID = 1
+
+
 class QuantLongbridgeConfigDao:
     """
-    长桥凭据配置数据库操作层
+    长桥凭据配置数据库操作层（按 user_id 一行）
     """
 
     @classmethod
-    async def get_config(cls, db: AsyncSession) -> QuantLongbridgeConfig | None:
-        """获取长桥凭据（单行）"""
+    def _resolve_user_id(cls, user_id: int | None, config: dict | None = None) -> int:
+        if user_id is not None:
+            return int(user_id)
+        if config and config.get('user_id') is not None:
+            return int(config['user_id'])
+        return ADMIN_LONGBRIDGE_USER_ID
+
+    @classmethod
+    async def get_config(cls, db: AsyncSession, user_id: int | None = None) -> QuantLongbridgeConfig | None:
+        """获取指定用户的长桥凭据。user_id 为空时回退管理员（user_id=1）。"""
+        target_id = cls._resolve_user_id(user_id)
         return (
-            (await db.execute(select(QuantLongbridgeConfig).order_by(QuantLongbridgeConfig.id).limit(1)))
+            (
+                await db.execute(
+                    select(QuantLongbridgeConfig)
+                    .where(QuantLongbridgeConfig.user_id == target_id)
+                    .order_by(QuantLongbridgeConfig.id)
+                    .limit(1)
+                )
+            )
             .scalars()
             .first()
         )
 
     @classmethod
-    async def save_config(cls, db: AsyncSession, config: dict) -> QuantLongbridgeConfig:
-        """保存长桥凭据（存在则更新，不存在则新增）"""
-        existing = await cls.get_config(db)
+    async def save_config(cls, db: AsyncSession, config: dict, user_id: int | None = None) -> QuantLongbridgeConfig:
+        """按 user_id 保存长桥凭据（存在则更新，不存在则新增）。"""
+        target_id = cls._resolve_user_id(user_id, config)
+        config = {**config, 'user_id': target_id}
+        existing = await cls.get_config(db, target_id)
         if existing:
             config['id'] = existing.id
             await db.execute(update(QuantLongbridgeConfig), [config])
