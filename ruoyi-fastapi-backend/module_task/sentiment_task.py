@@ -5,6 +5,7 @@ invoke_target: module_task.sentiment_task.collect_and_analyze_job
 
 from config.database import AsyncSessionLocal
 from module_sentiment.service.sentiment_service import SentimentService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 
 
@@ -12,6 +13,9 @@ async def collect_and_analyze_job(*args, **kwargs) -> None:
     """
     定时采集舆情并自动AI分析（异步任务）
     """
+    if await JobQueue.enqueue('sentiment_collect', {'analyze': True}):
+        logger.info('[舆情定时任务] 已入队')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await SentimentService.collect_and_analyze_services(db)
@@ -25,6 +29,9 @@ async def collect_only_job(*args, **kwargs) -> None:
     """
     定时仅采集舆情（异步任务）
     """
+    if await JobQueue.enqueue('sentiment_collect', {'analyze': False}):
+        logger.info('[舆情采集任务] 已入队')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await SentimentService.collect_news_services(db)

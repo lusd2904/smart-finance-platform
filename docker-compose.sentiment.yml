@@ -1,3 +1,5 @@
+# 监控栈（Prometheus/Grafana）另起：
+#   docker compose -f docker-compose.monitor.yml up -d
 services:
   # 前端服务
   sentiment-frontend:
