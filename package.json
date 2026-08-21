@@ -3,7 +3,8 @@
   "private": true,
   "description": "Playwright smoke helpers for local verification",
   "scripts": {
-    "smoke:pages": "node scripts/page_smoke.mjs"
+    "smoke:pages": "node scripts/page_smoke.mjs",
+    "desktop": "npm start --prefix desktop"
   },
   "devDependencies": {
     "playwright": "^1.50.0"

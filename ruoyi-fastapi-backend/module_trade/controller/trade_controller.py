@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_trade.dao.trade_dao import TradeDao
+from module_trade.service.platform_ext_service import PlatformExtService
 from module_trade.service.trade_service import TradeService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -57,6 +59,59 @@ async def trade_orders(
     scope: Annotated[str, Query(description='today|history')] = 'today',
 ) -> Response:
     data = await TradeService.get_orders_services(query_db, scope=scope)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/depth',
+    summary='标的买卖盘',
+    description='长桥 QuoteContext.depth；A股返回空盘口提示，不补造档位',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_depth(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await TradeService.get_depth_services(query_db, symbol=symbol, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/trades',
+    summary='标的成交明细',
+    description='长桥 QuoteContext.trades；A股返回空列表提示',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_trades(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    count: Annotated[int, Query(description='条数 1-100')] = 30,
+) -> Response:
+    data = await TradeService.get_trades_services(query_db, symbol=symbol, market=market, count=count)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/kline',
+    summary='交易台K线',
+    description='Influx 日K/周K/月K；US/HK 分钟与分时在时序库为空时回退长桥 candlesticks/intraday',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_kline(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    period: Annotated[str, Query(description='intraday/1min/5min/15min/daily/weekly/monthly')] = 'daily',
+    limit: Annotated[int, Query(description='K线条数')] = 200,
+) -> Response:
+    data = await TradeService.get_quote_kline_services(
+        query_db, symbol=symbol, market=market, period=period, limit=limit
+    )
     return ResponseUtil.success(data=data)
 
 
@@ -188,7 +243,18 @@ async def auto_trade_status(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    data = await AutoTradeService.get_status(query_db)
+    try:
+        data = await AutoTradeService.get_status(query_db)
+    except Exception as exc:
+        logger.warning(f'[自动交易] status 降级空状态: {exc}')
+        data = {
+            'configured': False,
+            'message': '自动交易服务暂不可用或密钥未配置',
+            'tradingEnabled': False,
+            'submitAllowed': False,
+            'recentRuns': [],
+            'recentDecisions': [],
+        }
     return ResponseUtil.success(data=data)
 
 
@@ -204,14 +270,25 @@ async def auto_trade_run(
     body: Annotated[dict, Body()] = None,
 ) -> Response:
     body = body or {}
-    data = await AutoTradeService.run_watchlist_strategy_cycle(
-        query_db,
-        symbols=body.get('symbols'),
-        source='manual_api',
-        execute=bool(body.get('execute')),
-        strategy_profile=body.get('strategyProfile', 'balanced'),
-        custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
-    )
+    try:
+        data = await AutoTradeService.run_watchlist_strategy_cycle(
+            query_db,
+            symbols=body.get('symbols'),
+            source='manual_api',
+            execute=bool(body.get('execute')),
+            strategy_profile=body.get('strategyProfile', 'balanced'),
+            custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
+        )
+    except Exception as exc:
+        logger.warning(f'[自动交易] run 降级空状态: {exc}')
+        data = {
+            'ok': True,
+            'configured': False,
+            'submittedOrdersCount': 0,
+            'message': '自动交易服务暂不可用或密钥未配置，已跳过委托',
+            'candidates': [],
+            'opportunities': [],
+        }
     return ResponseUtil.success(data=data, msg=data.get('message', '扫描完成'))
 
 
@@ -285,8 +362,6 @@ async def trade_auto_decisions(
 
 
 # ---------------- 平台加深：覆盖/策略配置/风控/批量AI/持久通知 ----------------
-
-from module_trade.service.platform_ext_service import PlatformExtService  # noqa: E402
 
 
 @trade_controller.get(
@@ -383,8 +458,11 @@ async def risk_events(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     limit: Annotated[int, Query()] = 50,
+    status: Annotated[str | None, Query()] = None,
 ) -> Response:
-    return ResponseUtil.success(data=await PlatformExtService.list_risk_events(query_db, limit))
+    return ResponseUtil.success(
+        data=await PlatformExtService.list_risk_events(query_db, limit, status=status)
+    )
 
 
 @trade_controller.post(
@@ -412,11 +490,15 @@ async def update_risk_event_status(
     event_id: Annotated[int, Path()],
     body: Annotated[dict, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    handled = str(body.get('handled') or '1')
-    await TradeDao.update_risk_event_status(query_db, event_id=event_id, handled=handled)
-    await query_db.commit()
-    return ResponseUtil.success(msg='更新风控状态成功')
+    operator = None
+    if current_user.user is not None:
+        operator = current_user.user.user_name
+    data = await PlatformExtService.update_risk_event_review(
+        query_db, event_id, body or {}, operator=operator
+    )
+    return ResponseUtil.success(data=data, msg='更新风控状态成功')
 
 
 @trade_controller.get(

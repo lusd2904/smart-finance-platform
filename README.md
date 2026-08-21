@@ -60,6 +60,7 @@ Smart Finance Platform 在 RuoYi 权限体系之上，扩展了面向二级市�
 - 单标的深度研判（支撑/压力/建议/风险）
 - **批量 AI 扫描** + 批次历史明细
 - 模型与对话能力继承自 RuoYi-AI 模块
+- 舆情/全局模型 Base URL 在「AI 管理」配置（占位 `https://your-openai-compatible-endpoint/v1`），不要写死临时隧道主机
 
 ### 体验
 - 全局深色主题与门户入口（Cyber / Glass 风格）
@@ -84,7 +85,8 @@ smart-finance-platform/
 │   └── sql/                       # 菜单与业务 SQL
 ├── ruoyi-fastapi-frontend/        # Vue3 管理端
 │   └── src/views/{market,quant,trade,sentiment,portal}/
-└── ruoyi-fastapi-app/             # 移动端（RuoYi-App 基线）
+├── ruoyi-fastapi-app/             # 移动端（RuoYi-App 基线）
+└── desktop/                       # Electron 桌面端（先配网关再登录）
 ```
 
 ---
@@ -138,6 +140,16 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 npm install
 npm run smoke:pages
 ```
+
+### 5. 桌面端（本机 / 云上网关）
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+启动后先填写前端网关再登录：本机 Docker 为 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。详见 [desktop/README.md](./desktop/README.md)。
 
 ---
 

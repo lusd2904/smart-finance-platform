@@ -5,6 +5,41 @@ from module_market.constant.instruments import get_instrument_meta
 from utils.influx_util import InfluxUtil
 
 
+def resolve_symbol_candidates(symbol: str) -> list[tuple[str, str]]:
+    """
+    TradingView / Influx lookup order: original ticker, then suffix-stripped.
+    HK bars stored as 0700.HK must not be dropped when the widget sends 0700.HK.
+    """
+    clean = (symbol or '').strip().upper()
+    if not clean:
+        return []
+    seen: set[tuple[str, str]] = set()
+    out: list[tuple[str, str]] = []
+
+    def _add(query_symbol: str, market: str) -> None:
+        key = (query_symbol, market)
+        if not query_symbol or key in seen:
+            return
+        seen.add(key)
+        out.append(key)
+
+    market = 'US'
+    if clean.endswith('.HK'):
+        market = 'HK'
+    elif clean.endswith('.US'):
+        market = 'US'
+    elif clean.endswith('.SH') or clean.endswith('.SZ'):
+        market = 'CN'
+    elif clean.startswith(('00', '30', '60', '68')) and clean[:6].isdigit():
+        market = 'CN'
+
+    _add(clean, market)
+    if '.' in clean:
+        stripped = clean.rsplit('.', 1)[0]
+        _add(stripped, market)
+    return out
+
+
 def _flux_from_ts(ts: int | None, fallback: str) -> str:
     if not ts:
         return fallback
@@ -96,31 +131,38 @@ class TradingViewDatafeedService:
         }
 
     @classmethod
+    def _query_first_available(
+        cls, symbol: str, start: str, stop: str, allow_aapl_fallback: bool = True
+    ) -> list[dict[str, Any]]:
+        klines: list[dict[str, Any]] = []
+        for query_symbol, market in resolve_symbol_candidates(symbol):
+            try:
+                klines = InfluxUtil.query_klines(market, query_symbol, start=start, stop=stop, limit=800)
+            except Exception:
+                klines = []
+            if klines:
+                return klines
+        requested = (symbol or '').strip().upper()
+        if allow_aapl_fallback and not requested:
+            try:
+                klines = InfluxUtil.query_klines('US', 'AAPL', start=start, stop=stop, limit=800)
+            except Exception:
+                klines = []
+            if klines:
+                return klines
+        return []
+
+    @classmethod
     async def get_history_bars(
         cls, symbol: str, from_ts: int | None = None, to_ts: int | None = None, resolution: str = 'D'
     ) -> dict[str, Any]:
-        clean_symbol = symbol.strip().upper()
-        market = 'US'
-        query_symbol = clean_symbol
-        if clean_symbol.endswith('.HK'):
-            market = 'HK'
-            query_symbol = clean_symbol[:-3]
-        elif clean_symbol.endswith('.US'):
-            query_symbol = clean_symbol[:-3]
-        elif clean_symbol.endswith('.SH') or clean_symbol.endswith('.SZ'):
-            market = 'CN'
-            query_symbol = clean_symbol[:-3]
-
         how = _normalize_resolution(resolution)
         if how not in {'D', 'W', 'M'}:
             return {'s': 'no_data', 'nextTime': None}
 
         start = _flux_from_ts(from_ts, '-2y')
         stop = _flux_from_ts(to_ts, 'now()')
-        try:
-            klines = InfluxUtil.query_klines(market, query_symbol, start=start, stop=stop, limit=800)
-        except Exception:
-            klines = []
+        klines = cls._query_first_available(symbol, start, stop, allow_aapl_fallback=True)
         klines = _resample_klines(klines, how)
         if not klines:
             return {'s': 'no_data', 'nextTime': None}
