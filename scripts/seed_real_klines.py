@@ -23,6 +23,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / 'ruoyi-fastapi-backend'
+if not (BACKEND / 'config').exists() and (Path('/app') / 'config').exists():
+    BACKEND = Path('/app')
 
 
 def parse_cli(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[str]]:
