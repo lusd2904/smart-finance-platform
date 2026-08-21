@@ -4,7 +4,7 @@ Redis 列表队列：把长任务从 API worker 卸到独立 jobs 消费组。
 三组队列（同一套代码，不复制后端）：
 - market：行情同步 / 简报 / 看板预热 / 内容缓存
 - quant：因子 / 策略 / 止损 / 指标快照
-- llm：舆情采集分析 / 自选研判 / 日评
+- llm：舆情采集分析 / 自选研判 / 日评 / 需求沟通 summarize 与群聊回复
 
 调度任务优先入队；HTTP 重操作只入队并立即返回 jobId。
 """
@@ -41,6 +41,8 @@ JOB_GROUPS = {
     'sentiment_analyze': 'llm',
     'watchlist_analyze': 'llm',
     'daily_review': 'llm',
+    'req_send': 'llm',
+    'req_summarize': 'llm',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -391,6 +393,22 @@ async def _daily_review(payload: dict[str, Any]) -> dict[str, Any]:
     return await _sentiment_collect(merged)
 
 
+async def _req_send(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_ai.service.ai_req_service import AiReqService
+
+    async with AsyncSessionLocal() as db:
+        return await AiReqService.process_send_job(db, payload or {})
+
+
+async def _req_summarize(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_ai.service.ai_req_service import AiReqService
+
+    async with AsyncSessionLocal() as db:
+        return await AiReqService.process_summarize_job(db, payload or {})
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'finance_briefings': _finance_briefings,
@@ -405,4 +423,6 @@ HANDLERS = {
     'strategy_run': _strategy_run,
     'position_monitor': _position_monitor,
     'daily_review': _daily_review,
+    'req_send': _req_send,
+    'req_summarize': _req_summarize,
 }

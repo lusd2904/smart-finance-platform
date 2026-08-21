@@ -35,6 +35,8 @@ class AppSettings(BaseSettings):
     app_job_group: Literal['none', 'market', 'quant', 'llm', 'all'] = 'all'
     # all=挂全部路由；其余按菜单板块只注册对应模块
     app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai'] = 'all'
+    # 对外需求清单 GET /open/requirements 的 X-Req-Token，空则关闭
+    requirements_export_token: str = ''
 
     def runs_scheduler(self) -> bool:
         return self.app_role in {'scheduler', 'all'}

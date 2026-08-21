@@ -34,6 +34,8 @@ def test_handlers_cover_known_jobs() -> None:
     assert group_for('position_monitor') == 'quant'
     assert group_for('watchlist_analyze') == 'llm'
     assert group_for('sentiment_analyze') == 'llm'
+    assert group_for('req_send') == 'llm'
+    assert group_for('req_summarize') == 'llm'
     assert JobQueue.consume_keys('none') == []
     assert 'sfp:job:queue:market' in JobQueue.consume_keys('market')
     assert 'sfp:job:queue:quant' in JobQueue.consume_keys('all')
