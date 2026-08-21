@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from module_quant.service.alpha_engine import alpha_schema, compute_advanced_factors
+
 try:
     import pandas_ta as ta  # noqa: F401
 
@@ -81,7 +83,7 @@ FACTOR_SCHEMA: list[dict[str, Any]] = [
     },
 ]
 
-FACTOR_SCHEMA_VERSION = 'quant-factor-v1'
+FACTOR_SCHEMA_VERSION = 'quant-factor-v2'
 
 # 策略档位 -> 因子族权重（含综合分基线偏移）
 PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
@@ -100,6 +102,35 @@ PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
 }
 # 风险扣分放大系数：保守型对风险更敏感
 PROFILE_RISK_MULTIPLIER = {'conservative': 1.4, 'balanced': 1.0, 'aggressive': 0.7}
+
+WEIGHT_ALIASES = {
+    'volume': 'volumeFlow',
+    'volume_flow': 'volumeFlow',
+    'price_action': 'priceAction',
+    'priceaction': 'priceAction',
+    'value': 'reversion',
+    'quality': 'liquidity',
+}
+
+
+def merge_profile_weights(profile: str, custom: dict[str, Any] | None = None) -> dict[str, float]:
+    """把落库的策略权重合并进 8 大因子族默认权重。"""
+    key = profile if profile in PROFILE_WEIGHTS else 'balanced'
+    weights = dict(PROFILE_WEIGHTS[key])
+    if not custom:
+        return weights
+    raw = custom.get('weights') if isinstance(custom.get('weights'), dict) else custom
+    if not isinstance(raw, dict):
+        return weights
+    for name, value in raw.items():
+        mapped = WEIGHT_ALIASES.get(str(name), str(name))
+        if mapped not in weights:
+            continue
+        try:
+            weights[mapped] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return weights
 
 
 # ---------------------------------------------------------------------- 工具函数 ---
@@ -407,13 +438,22 @@ def compute_metrics(klines: list[dict[str, Any]]) -> dict[str, Any]:
         # 高阶 Alpha 因子
         'alphaFactors': compute_alpha_factors(df),
     }
+    advanced = metrics['alphaFactors']
+    metrics['alpha101'] = advanced.get('alpha101') or {}
+    metrics['alpha158'] = advanced.get('alpha158') or {}
+    metrics['alpha101Count'] = advanced.get('alpha101Count') or 0
+    metrics['alpha158Count'] = advanced.get('alpha158Count') or 0
     return metrics
 
 
 # ------------------------------------------------------------------ 打分 ---
 
 
-def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -> dict[str, Any]:
+def score_metrics(
+    metrics: dict[str, Any],
+    strategy_profile: str = 'balanced',
+    weights: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     对指标快照按 8 大因子族打分，返回各族得分 + 综合分 + 风险等级 + 标签。
 
@@ -639,7 +679,7 @@ def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -
         risk_level = 'medium' if risk_level == 'low' else risk_level
     risk_penalty *= PROFILE_RISK_MULTIPLIER.get(profile, 1.0)
 
-    weights = PROFILE_WEIGHTS[profile]
+    weights = merge_profile_weights(profile, weights)
     raw_total = (
         42
         + trend * weights['trend']
@@ -676,57 +716,9 @@ def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -
 
 def compute_alpha_factors(df: pd.DataFrame) -> dict[str, Any]:
     """
-    计算经典 WorldQuant Alpha101 及 Microsoft Qlib 高阶因子
+    计算 WorldQuant Alpha101 及 Qlib Alpha158 高阶因子（末根 K 线取值）。
     """
-    if len(df) < 20:
-        return {}
-
-    close = df['close'].astype(float)
-    open_p = df['open'].astype(float)
-    high = df['high'].astype(float)
-    low = df['low'].astype(float)
-    volume = df['volume'].astype(float)
-    returns = close.pct_change()
-
-    alpha_res = {}
-
-    try:
-        # Alpha006: -1 * correlation(open, volume, 10)
-        cov = open_p.rolling(10).corr(volume).iloc[-1]
-        alpha_res['alpha006'] = round(float(-1 * cov), 4) if not math.isnan(cov) else 0.0
-    except Exception:
-        alpha_res['alpha006'] = 0.0
-
-    try:
-        # Alpha012: sign(delta(volume, 1)) * (-1 * delta(close, 1))
-        d_vol = volume.diff(1).iloc[-1]
-        d_close = close.diff(1).iloc[-1]
-        sign_vol = 1 if d_vol > 0 else (-1 if d_vol < 0 else 0)
-        alpha_res['alpha012'] = round(float(sign_vol * (-1 * d_close)), 4)
-    except Exception:
-        alpha_res['alpha012'] = 0.0
-
-    try:
-        # Alpha054: (-1 * ((low - close) * (open^5))) / ((low - high) * (close^5))
-        c5 = close.iloc[-1] ** 5
-        o5 = open_p.iloc[-1] ** 5
-        denom = (low.iloc[-1] - high.iloc[-1]) * c5
-        numer = -1 * (low.iloc[-1] - close.iloc[-1]) * o5
-        alpha_res['alpha054'] = round(float(numer / denom), 4) if denom != 0 else 0.0
-    except Exception:
-        alpha_res['alpha054'] = 0.0
-
-    try:
-        # Qlib-style 动量与波动率特征
-        ret20 = returns.rolling(20).mean().iloc[-1]
-        vol20 = returns.rolling(20).std().iloc[-1]
-        alpha_res['qlib_sharpe20'] = round(float(ret20 / (vol20 + 1e-6)), 4)
-        alpha_res['qlib_vol_spread'] = round(float(vol20 * math.sqrt(252)), 4)
-    except Exception:
-        alpha_res['qlib_sharpe20'] = 0.0
-        alpha_res['qlib_vol_spread'] = 0.0
-
-    return alpha_res
+    return compute_advanced_factors(df)
 
 
 class FactorService:
@@ -737,16 +729,22 @@ class FactorService:
     @classmethod
     def get_factor_schema(cls) -> dict[str, Any]:
         """返回 8 大因子族体系定义（供前端展示）。"""
+        advanced = alpha_schema()
+        families = list(FACTOR_SCHEMA) + [advanced['alpha101'], advanced['alpha158'], advanced['alpha101Cs']]
         return {
             'version': FACTOR_SCHEMA_VERSION,
-            'familyCount': len(FACTOR_SCHEMA),
+            'familyCount': len(families),
             'profiles': list(PROFILE_WEIGHTS.keys()),
-            'families': FACTOR_SCHEMA,
+            'families': families,
+            'alphaEngine': advanced['version'],
         }
 
     @classmethod
     def compute_from_klines(
-        cls, klines: list[dict[str, Any]], strategy_profile: str = 'balanced'
+        cls,
+        klines: list[dict[str, Any]],
+        strategy_profile: str = 'balanced',
+        weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """
         对给定K线计算因子 + 打分（纯计算，不访问数据库/行情源）。
@@ -756,12 +754,17 @@ class FactorService:
         metrics = compute_metrics(klines)
         if not metrics.get('ok'):
             return {'ok': False, 'reason': metrics.get('reason'), 'historyCount': metrics.get('historyCount', 0)}
-        score = score_metrics(metrics, strategy_profile)
+        score = score_metrics(metrics, strategy_profile, weights=weights)
         return {'ok': True, 'metrics': metrics, 'score': score}
 
     @classmethod
     def compute_symbol(
-        cls, symbol: str, market: str = 'US', strategy_profile: str = 'balanced', start: str = '-1y'
+        cls,
+        symbol: str,
+        market: str = 'US',
+        strategy_profile: str = 'balanced',
+        start: str = '-1y',
+        weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """
         拉取时序库K线并计算某标的因子 + 打分。
@@ -777,7 +780,7 @@ class FactorService:
             klines = InfluxUtil.query_klines(market, symbol, start=start, limit=320)
         except Exception as exc:  # 时序库不可用时不崩溃
             return {'ok': False, 'symbol': symbol, 'market': market, 'reason': f'K线拉取失败: {exc}'}
-        result = cls.compute_from_klines(klines, strategy_profile)
+        result = cls.compute_from_klines(klines, strategy_profile, weights=weights)
         result['symbol'] = symbol
         result['market'] = market
         return result

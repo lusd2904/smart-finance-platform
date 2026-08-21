@@ -41,7 +41,10 @@
               <el-option v-for="it in instruments" :key="it.symbol + it.market" :label="`${it.name} (${it.symbol})`" :value="it.symbol + '|' + it.market" />
             </el-select>
             <el-button type="primary" icon="MagicStick" :loading="computeLoading" :disabled="!selectedSymbol" @click="handleCompute" v-hasPermi="['quant:factor:compute']">计算因子</el-button>
+            <el-button :loading="scanLoading" @click="handleScan" v-hasPermi="['quant:strategy:run']">全市场日扫</el-button>
+            <el-button icon="Download" @click="handleExport" v-hasPermi="['quant:factor:list']">导出快照</el-button>
           </div>
+          <div v-if="snapshotHint" class="snap-hint">{{ snapshotHint }}</div>
 
           <div v-if="computeResult">
             <div class="score-banner">
@@ -63,17 +66,78 @@
                 </template>
               </el-table-column>
             </el-table>
+            <div v-if="alphaRows.length" class="alpha-block">
+              <div class="alpha-title">
+                高阶因子
+                <el-tag size="small" effect="plain">Alpha101 {{ alpha101Count }}</el-tag>
+                <el-tag size="small" effect="plain">Alpha158 {{ alpha158Count }}</el-tag>
+              </div>
+              <el-table :data="alphaRows" size="small" max-height="240">
+                <el-table-column prop="key" label="因子" min-width="120" />
+                <el-table-column label="值" width="140" align="right">
+                  <template #default="scope">{{ formatValue(scope.row.value) }}</template>
+                </el-table-column>
+              </el-table>
+              <div v-if="alphaCsRows.length" class="alpha-title" style="margin-top:12px">
+                截面 rank
+                <el-tag size="small" effect="plain">Alpha101 CS {{ alphaCsRows.length }}</el-tag>
+              </div>
+              <el-table v-if="alphaCsRows.length" :data="alphaCsRows" size="small" max-height="200">
+                <el-table-column prop="key" label="因子" min-width="120" />
+                <el-table-column label="百分位" width="140" align="right">
+                  <template #default="scope">{{ formatValue(scope.row.value) }}</template>
+                </el-table-column>
+              </el-table>
+            </div>
           </div>
           <el-empty v-else description="选择标的后计算因子" :image-size="80" />
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="never" class="panel-card qc-card">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">因子质检（Alphalens 风格）</span>
+          <div class="qc-actions">
+            <span class="panel-sub">{{ qcHint || '截面 Spearman IC / IR / 五分位收益' }}</span>
+            <el-button type="primary" plain :loading="qcLoading" @click="handleQc" v-hasPermi="['quant:factor:compute']">运行质检</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="qcRows" size="small" v-loading="qcLoading">
+        <el-table-column prop="factorLabel" label="因子" min-width="140" />
+        <el-table-column prop="horizon" label="周期" width="70" align="center">
+          <template #default="scope">{{ scope.row.horizon }}D</template>
+        </el-table-column>
+        <el-table-column label="IC" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.icMean) }}</template>
+        </el-table-column>
+        <el-table-column label="IR" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.ir) }}</template>
+        </el-table-column>
+        <el-table-column label="IC>0占比" width="100" align="right">
+          <template #default="scope">{{ formatPct(scope.row.icPositiveRatio) }}</template>
+        </el-table-column>
+        <el-table-column label="Q1" width="80" align="right">
+          <template #default="scope">{{ formatValue(scope.row.quantiles && scope.row.quantiles.q1) }}</template>
+        </el-table-column>
+        <el-table-column label="Q5" width="80" align="right">
+          <template #default="scope">{{ formatValue(scope.row.quantiles && scope.row.quantiles.q5) }}</template>
+        </el-table-column>
+        <el-table-column label="多空价差" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.spread) }}</template>
+        </el-table-column>
+        <el-table-column prop="sampleDates" label="样本日" width="80" align="center" />
+      </el-table>
+      <el-empty v-if="!qcRows.length && !qcLoading" description="尚未运行质检，点击右上角生成 IC/IR 报告" :image-size="70" />
+    </el-card>
   </div>
 </template>
 
 <script setup name="QuantFactor">
 import * as echarts from 'echarts';
-import { getFactorSchema, computeFactor } from '@/api/quant';
+import { getFactorSchema, computeFactor, listFactorSnapshots, runDailyFactorScan, getReadmodelOverview, getFactorQc, runFactorQc } from '@/api/quant';
 import { listInstrument } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
@@ -87,6 +151,11 @@ const instruments = ref([]);
 const selectedSymbol = ref('');
 const computeResult = ref(null);
 const computeLoading = ref(false);
+const scanLoading = ref(false);
+const snapshotHint = ref('');
+const qcRows = ref([]);
+const qcHint = ref('');
+const qcLoading = ref(false);
 
 const radarRef = ref(null);
 let radarChart = null;
@@ -130,6 +199,23 @@ const factorRows = computed(() => {
   });
 });
 
+const alpha101Count = computed(() => Number(computeResult.value?.metrics?.alpha101Count || 0));
+const alpha158Count = computed(() => Number(computeResult.value?.metrics?.alpha158Count || 0));
+const alphaRows = computed(() => {
+  const metrics = computeResult.value?.metrics || {};
+  const a101 = metrics.alpha101 || {};
+  const a158 = metrics.alpha158 || {};
+  const rows = [
+    ...Object.keys(a101).map(k => ({ key: k, value: a101[k] })),
+    ...Object.keys(a158).slice(0, 24).map(k => ({ key: k, value: a158[k] })),
+  ];
+  return rows.filter(r => r.value != null).slice(0, 30);
+});
+const alphaCsRows = computed(() => {
+  const cs = computeResult.value?.alphaCs || computeResult.value?.metrics?.alphaCs || {};
+  return Object.keys(cs).map(k => ({ key: k, value: cs[k] }));
+});
+
 const totalScore = computed(() => {
   const res = computeResult.value;
   if (!res) return '--';
@@ -142,6 +228,36 @@ function formatValue(v) {
   if (v == null) return '--';
   if (typeof v === 'number') return Number(v.toFixed(4));
   return v;
+}
+
+function formatPct(v) {
+  if (v == null || v === '') return '--';
+  const n = Number(v);
+  if (Number.isNaN(n)) return '--';
+  return (n * 100).toFixed(1) + '%';
+}
+
+function applyQcPayload(payload) {
+  const data = payload || {};
+  qcRows.value = data.items || [];
+  const asOf = data.asOf ? `截至 ${data.asOf}` : '';
+  const count = data.symbolCount ? `${data.symbolCount} 只标的` : '';
+  qcHint.value = [data.message, asOf, count].filter(Boolean).join(' · ');
+}
+
+function loadQc() {
+  getFactorQc('US').then(res => applyQcPayload(res.data)).catch(() => {});
+}
+
+async function handleQc() {
+  qcLoading.value = true;
+  try {
+    const res = await runFactorQc('US');
+    applyQcPayload(res.data);
+    proxy.$modal.msgSuccess(res.msg || '质检完成');
+  } finally {
+    qcLoading.value = false;
+  }
 }
 
 function scoreColor(score) {
@@ -181,6 +297,35 @@ function loadInstruments() {
   listInstrument().then(response => {
     instruments.value = response.data || response.rows || [];
   });
+}
+
+function loadSnapshots() {
+  Promise.allSettled([listFactorSnapshots(12), getReadmodelOverview()]).then(([snapRes, overviewRes]) => {
+    const snaps = snapRes.status === 'fulfilled' ? (snapRes.value.data || []) : [];
+    const overview = overviewRes.status === 'fulfilled' ? (overviewRes.value.data || {}) : {};
+    const asOf = overview.factorScan?.asOf || overview.refreshTime;
+    const source = overview.source === 'scheduled' ? '定时快照' : '实时';
+    if (snaps.length) {
+      snapshotHint.value = `${source} · 已落库 ${snaps.length} 个标的` + (asOf ? ` · ${asOf}` : '');
+    } else if (asOf) {
+      snapshotHint.value = `${source} · ${asOf}`;
+    }
+  });
+}
+
+function handleExport() {
+  proxy.download.zip('/quant/factor/snapshots/export', 'factor_snapshots.csv')
+}
+
+async function handleScan() {
+  scanLoading.value = true;
+  try {
+    const res = await runDailyFactorScan('balanced');
+    proxy.$modal.msgSuccess(res.msg || '日扫完成');
+    loadSnapshots();
+  } finally {
+    scanLoading.value = false;
+  }
 }
 
 function onSymbolChange() {
@@ -236,6 +381,8 @@ function handleResize() { radarChart && radarChart.resize(); }
 onMounted(() => {
   loadSchema();
   loadInstruments();
+  loadSnapshots();
+  loadQc();
   window.addEventListener('resize', handleResize);
 });
 
@@ -273,5 +420,10 @@ onBeforeUnmount(() => {
     .score-num { font-size: 40px; font-weight: 700; line-height: 1; }
   }
   .radar-chart { width: 100%; height: 340px; margin-bottom: 12px; }
+  .snap-hint { font-size: 12px; color: var(--text-muted, #909399); margin: -8px 0 12px; }
+  .alpha-block { margin-top: 12px; }
+  .alpha-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; color: var(--text-emphasis, #303133); }
+  .qc-card { margin-top: 16px; }
+  .qc-actions { display: flex; align-items: center; gap: 12px; }
 }
 </style>

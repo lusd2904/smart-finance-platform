@@ -1,16 +1,20 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, desc, or_, select, update
+from sqlalchemy import and_, delete, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.vo import PageModel
 from module_market.entity.do.market_do import (
     FinanceBriefing,
     MarketInstrument,
+    MarketWatchlist,
+    MarketWatchlistAnalysis,
     SymbolAiAnalysis,
     SymbolContentCache,
 )
-from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+from module_market.entity.vo.market_vo import MarketInstrumentQueryModel, MarketWatchlistPageQueryModel
+from utils.page_util import PageUtil
 
 
 class MarketInstrumentDao:
@@ -32,6 +36,10 @@ class MarketInstrumentDao:
             )
             .order_by(MarketInstrument.category, MarketInstrument.symbol)
         )
+        keyword = (getattr(query_object, 'keyword', None) or '').strip().replace('%', '').replace('_', '')[:32]
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.where(or_(MarketInstrument.symbol.like(like), MarketInstrument.name.like(like)))
         rows = (await db.execute(query)).scalars().all()
         return list(rows)
 
@@ -209,4 +217,161 @@ class SymbolContentCacheDao:
                 SymbolContentCache.expires_at.is_not(None), SymbolContentCache.expires_at < before
             )
         )
+        await db.flush()
+
+
+class MarketWatchlistDao:
+    """行情中心自选清单 DAO"""
+
+    @classmethod
+    async def get_watchlist(
+        cls, db: AsyncSession, query_object: MarketWatchlistPageQueryModel, is_page: bool = False
+    ) -> PageModel | list[dict[str, Any]]:
+        user_id = getattr(query_object, 'user_id', None)
+        query = (
+            select(MarketWatchlist)
+            .where(
+                MarketWatchlist.user_id == user_id if user_id is not None else True,
+                MarketWatchlist.symbol.like(f'%{query_object.symbol}%') if query_object.symbol else True,
+                MarketWatchlist.market == query_object.market if query_object.market else True,
+                MarketWatchlist.enabled == query_object.enabled if query_object.enabled else True,
+            )
+            .order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+        )
+        return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
+
+    @classmethod
+    async def get_enabled(cls, db: AsyncSession, user_id: int | None = None) -> list[MarketWatchlist]:
+        query = select(MarketWatchlist).where(MarketWatchlist.enabled == '1')
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        query = query.order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+        rows = (await db.execute(query)).scalars().all()
+        return list(rows)
+
+    @classmethod
+    async def get_by_id(cls, db: AsyncSession, watchlist_id: int) -> MarketWatchlist | None:
+        return (
+            (await db.execute(select(MarketWatchlist).where(MarketWatchlist.id == watchlist_id))).scalars().first()
+        )
+
+    @classmethod
+    async def get_by_symbol(
+        cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None
+    ) -> MarketWatchlist | None:
+        query = select(MarketWatchlist).where(
+            MarketWatchlist.symbol == symbol, MarketWatchlist.market == market
+        )
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        return (await db.execute(query)).scalars().first()
+
+    @classmethod
+    async def add(cls, db: AsyncSession, item: dict[str, Any]) -> MarketWatchlist:
+        row = MarketWatchlist(**item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def delete_by_ids(cls, db: AsyncSession, ids: list[int], user_id: int | None = None) -> None:
+        if not ids:
+            return
+        query = delete(MarketWatchlist).where(MarketWatchlist.id.in_(ids))
+        if user_id is not None:
+            query = query.where(MarketWatchlist.user_id == user_id)
+        await db.execute(query)
+
+
+class MarketWatchlistAnalysisDao:
+    """自选综合分析 DAO"""
+
+    @classmethod
+    async def add(cls, db: AsyncSession, item: dict[str, Any]) -> MarketWatchlistAnalysis:
+        row = MarketWatchlistAnalysis(**item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def get_latest(
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str | None = None,
+        user_id: int | None = None,
+    ) -> MarketWatchlistAnalysis | None:
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
+        if market:
+            query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
+        query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id)).limit(1)
+        return (await db.execute(query)).scalars().first()
+
+    @classmethod
+    async def list_latest_by_symbols(
+        cls,
+        db: AsyncSession,
+        pairs: list[tuple[str, str]],
+        user_id: int | None = None,
+    ) -> dict[tuple[str, str], MarketWatchlistAnalysis]:
+        """每个 (symbol, market) 取最新一条。"""
+        result: dict[tuple[str, str], MarketWatchlistAnalysis] = {}
+        if not pairs:
+            return result
+        symbols = list({p[0] for p in pairs})
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol.in_(symbols))
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
+        rows = (
+            (
+                await db.execute(
+                    query.order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        wanted = {(s.upper(), m.upper()) for s, m in pairs}
+        for row in rows:
+            key = (row.symbol.upper(), (row.market or 'US').upper())
+            if key in wanted and key not in result:
+                result[key] = row
+        return result
+
+    @classmethod
+    async def list_history(
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str | None = None,
+        limit: int = 12,
+        user_id: int | None = None,
+    ) -> list[MarketWatchlistAnalysis]:
+        limit = max(1, min(int(limit or 12), 50))
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
+        if market:
+            query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        if user_id is not None:
+            query = query.where(MarketWatchlistAnalysis.user_id == user_id)
+        query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time)).limit(limit)
+        return list((await db.execute(query)).scalars().all())
+
+    @classmethod
+    async def list_recent_by_user(
+        cls, db: AsyncSession, user_id: int, limit: int = 200
+    ) -> list[MarketWatchlistAnalysis]:
+        limit = max(1, min(int(limit or 200), 400))
+        query = (
+            select(MarketWatchlistAnalysis)
+            .where(MarketWatchlistAnalysis.user_id == user_id)
+            .order_by(desc(MarketWatchlistAnalysis.analysis_time))
+            .limit(limit)
+        )
+        return list((await db.execute(query)).scalars().all())
+
+    @classmethod
+    async def prune_older_than(cls, db: AsyncSession, before: datetime) -> None:
+        await db.execute(delete(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.analysis_time < before))
         await db.flush()

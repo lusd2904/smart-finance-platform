@@ -8,8 +8,10 @@ import { handleThemeStyle } from '@/utils/theme'
 
 onMounted(() => {
   nextTick(() => {
+    const settingsStore = useSettingsStore()
     // 初始化主题样式
-    handleThemeStyle(useSettingsStore().theme)
+    handleThemeStyle(settingsStore.theme)
+    settingsStore.applyTheme()
   })
 })
 </script>
