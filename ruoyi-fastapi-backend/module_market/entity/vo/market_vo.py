@@ -120,3 +120,50 @@ class FinanceBriefingQueryModel(BaseModel):
     market: str | None = Field(default=None, description='市场 US/CN/HK，空=全部')
     limit: int = Field(default=20, description='条数，最大60')
     refresh: bool = Field(default=False, description='是否强制重新生成后再查询')
+
+
+class MarketWatchlistModel(BaseModel):
+    """行情中心自选清单"""
+
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+
+    id: int | None = Field(default=None, description='主键')
+    symbol: str | None = Field(default=None, description='标的代码')
+    market: str | None = Field(default=None, description='市场')
+    name: str | None = Field(default=None, description='名称')
+    note: str | None = Field(default=None, description='备注')
+    enabled: str | None = Field(default=None, description='是否启用')
+    sort_order: int | None = Field(default=None, description='排序')
+    create_time: datetime | None = Field(default=None, description='加入时间')
+
+
+class MarketWatchlistPageQueryModel(BaseModel):
+    """自选清单分页查询"""
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    symbol: str | None = Field(default=None, description='标的代码')
+    market: str | None = Field(default=None, description='市场')
+    enabled: str | None = Field(default=None, description='是否启用')
+    page_num: int = Field(default=1, description='当前页码')
+    page_size: int = Field(default=20, description='每页记录数')
+
+
+class AddMarketWatchlistModel(BaseModel):
+    """新增行情自选"""
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    symbol: str = Field(description='标的代码')
+    market: str = Field(default='US', description='市场 US/HK/CN')
+    note: str | None = Field(default=None, description='备注')
+
+
+class MarketWatchlistAnalyzeModel(BaseModel):
+    """触发自选综合分析"""
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+    symbol: str | None = Field(default=None, description='指定标的，空则分析全部启用自选')
+    market: str | None = Field(default=None, description='市场')
+    refresh_content: bool = Field(default=True, description='分析前是否刷新长桥资讯缓存')

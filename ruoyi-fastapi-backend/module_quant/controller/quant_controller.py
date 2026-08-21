@@ -19,6 +19,7 @@ from module_quant.entity.vo.quant_vo import (
     QuantWatchlistPageQueryModel,
     RunStrategyModel,
 )
+from module_quant.service.factor_qc_service import FactorQcService
 from module_quant.service.quant_service import QuantService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -151,6 +152,38 @@ async def run_position_monitor(
 
     data = await SnapshotService.run_position_monitor(query_db)
     return ResponseUtil.success(data=data, msg='持仓监控已执行')
+
+
+@quant_controller.get(
+    '/factor/qc',
+    summary='最新 Alphalens 风格因子质检',
+    description='返回截面 IC / IR / 分位收益，默认美股股票池',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def get_factor_qc(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await FactorQcService.latest_report(query_db, market=market)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '操作成功')
+
+
+@quant_controller.post(
+    '/factor/qc/run',
+    summary='立即运行因子质检',
+    description='用目标股票池日K 计算 Alphalens 风格 IC/IR 与五分位收益并落库',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:compute')],
+)
+@Log(title='因子质检', business_type=BusinessType.OTHER)
+async def run_factor_qc(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await FactorQcService.run_and_store(query_db, market=market)
+    logger.info(f'因子质检完成: market={market} items={data.get("itemCount")} saved={data.get("saved")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '质检完成')
 
 
 # ---------------------------------------------------------------- 自选池 ---

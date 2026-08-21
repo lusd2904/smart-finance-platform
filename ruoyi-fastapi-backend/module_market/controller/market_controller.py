@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from fastapi import Path, Query, Request, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from fastapi import Body, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
@@ -11,15 +10,20 @@ from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from common.vo import ResponseBaseModel
+from common.vo import PageResponseModel, ResponseBaseModel
 from module_market.entity.vo.market_vo import (
+    AddMarketWatchlistModel,
     IndicatorQueryModel,
     KlineQueryModel,
     MarketAiAnalyzeModel,
     MarketInstrumentQueryModel,
     MarketSyncModel,
+    MarketWatchlistAnalyzeModel,
+    MarketWatchlistModel,
+    MarketWatchlistPageQueryModel,
 )
 from module_market.service.market_service import MarketService
+from module_market.service.watchlist_service import MarketWatchlistService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -332,3 +336,99 @@ async def get_finance_briefings(
         }
     msg = data.get('message') or '操作成功'
     return ResponseUtil.success(data=data, msg=msg)
+
+
+@market_controller.get(
+    '/watchlist/overview',
+    summary='行情自选清单总览',
+    description='启用自选 + 最新报价 + 最近一次综合分析',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_overview(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await MarketWatchlistService.overview_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/watchlist/list',
+    summary='行情自选清单分页',
+    response_model=PageResponseModel[MarketWatchlistModel],
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_list(
+    request: Request,
+    watchlist_page_query: Annotated[MarketWatchlistPageQueryModel, Query()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await MarketWatchlistService.get_list_services(query_db, watchlist_page_query, is_page=True)
+    return ResponseUtil.success(model_content=result)
+
+
+@market_controller.post(
+    '/watchlist',
+    summary='新增行情自选',
+    response_model=ResponseBaseModel,
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:add')],
+)
+@Log(title='行情自选清单', business_type=BusinessType.INSERT)
+async def add_market_watchlist(
+    request: Request,
+    add_model: AddMarketWatchlistModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await MarketWatchlistService.add_services(query_db, add_model)
+    logger.info(result.message)
+    return ResponseUtil.success(msg=result.message)
+
+
+@market_controller.delete(
+    '/watchlist/{ids}',
+    summary='删除行情自选',
+    response_model=ResponseBaseModel,
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:remove')],
+)
+@Log(title='行情自选清单', business_type=BusinessType.DELETE)
+async def delete_market_watchlist(
+    request: Request,
+    ids: Annotated[str, Path(description='需要删除的自选ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await MarketWatchlistService.delete_services(query_db, ids)
+    logger.info(result.message)
+    return ResponseUtil.success(msg=result.message)
+
+
+@market_controller.get(
+    '/watchlist/analysis',
+    summary='自选综合分析历史',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_analysis(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query()] = 'US',
+    limit: Annotated[int, Query()] = 12,
+) -> Response:
+    data = await MarketWatchlistService.history_services(query_db, symbol, market, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/watchlist/analyze',
+    summary='立即执行自选综合分析',
+    description='综合技术指标、长桥资讯与舆情给出建议；不传 symbol 则分析全部启用自选',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:analyze')],
+)
+@Log(title='行情自选分析', business_type=BusinessType.OTHER)
+async def analyze_market_watchlist(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
+) -> Response:
+    data = await MarketWatchlistService.analyze_services(query_db, body)
+    logger.info(f'自选综合分析完成: {data.get("message")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')

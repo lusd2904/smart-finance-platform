@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from module_quant.entity.do.quant_do import (
+    QuantFactorQc,
     QuantFactorSnapshot,
     QuantLongbridgeConfig,
     QuantReadmodelSnapshot,
@@ -313,3 +314,57 @@ class QuantSnapshotDao:
             .scalars()
             .first()
         )
+
+
+class QuantFactorQcDao:
+    """Alphalens 风格因子质检结果。"""
+
+    @classmethod
+    async def upsert(cls, db: AsyncSession, item: dict[str, Any]) -> QuantFactorQc:
+        existing = (
+            (
+                await db.execute(
+                    select(QuantFactorQc).where(
+                        QuantFactorQc.factor_key == item['factor_key'],
+                        QuantFactorQc.market == item['market'],
+                        QuantFactorQc.horizon == item['horizon'],
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        now = datetime.now()
+        if existing:
+            existing.factor_label = item.get('factor_label')
+            existing.ic_mean = item.get('ic_mean')
+            existing.ic_std = item.get('ic_std')
+            existing.ir = item.get('ir')
+            existing.spread = item.get('spread')
+            existing.sample_dates = item.get('sample_dates') or 0
+            existing.symbol_count = item.get('symbol_count') or 0
+            existing.as_of = item.get('as_of')
+            existing.quantile_json = item.get('quantile_json')
+            existing.payload_json = item.get('payload_json')
+            existing.create_time = now
+            await db.flush()
+            return existing
+        row = QuantFactorQc(create_time=now, **item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def list_latest(cls, db: AsyncSession, market: str = 'US') -> list[QuantFactorQc]:
+        rows = (
+            (
+                await db.execute(
+                    select(QuantFactorQc)
+                    .where(QuantFactorQc.market == (market or 'US').upper())
+                    .order_by(QuantFactorQc.factor_key, QuantFactorQc.horizon)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)

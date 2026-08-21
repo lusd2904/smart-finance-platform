@@ -85,6 +85,7 @@ graph TD
 
 - [x] **2.1 高阶因子库扩容 (`AdvancedFactorEngine`)**（Alpha101 时序子集 + Qlib Alpha158 全窗口特征；截面 rank 退化为滚动分位）
   - 在 `factor_service.py` 基础上扩展引入 **WorldQuant Alpha101** 及 **Microsoft Qlib Alpha158** 经典因子算法。
+  - Alphalens 风格截面 IC / IR / 五分位收益质检（`factor_qc_service.py`，不依赖停更的 alphalens 包）。
 - [x] **2.2 盘前/盘中/盘后自动化定时扫描任务群**
   - `DailyMarketScanScheduler`：全市场每日收盘后因子全量计算入库；
   - `PositionMonitorScheduler`：持仓标的异动与止损实时监控；

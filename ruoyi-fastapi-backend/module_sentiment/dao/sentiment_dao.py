@@ -1,7 +1,7 @@
 from datetime import datetime, time
 from typing import Any
 
-from sqlalchemy import delete, desc, func, select, update
+from sqlalchemy import delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
@@ -61,6 +61,35 @@ class SentimentNewsDao:
         db.add_all(db_news_list)
         await db.flush()
         return db_news_list
+
+    @classmethod
+    async def search_news_by_keywords(
+        cls, db: AsyncSession, keywords: list[str], limit: int = 8
+    ) -> list[SentimentNews]:
+        """按标题/正文关键词检索近期舆情资讯。"""
+        conds = []
+        seen: set[str] = set()
+        for raw in keywords:
+            kw = str(raw or '').strip()
+            if len(kw) < 2 or kw.upper() in seen:
+                continue
+            seen.add(kw.upper())
+            like = f'%{kw}%'
+            conds.append(SentimentNews.title.like(like))
+            conds.append(SentimentNews.content.like(like))
+        if not conds:
+            return []
+        limit = max(1, min(int(limit or 8), 30))
+        rows = (
+            (
+                await db.execute(
+                    select(SentimentNews).where(or_(*conds)).order_by(desc(SentimentNews.pub_time)).limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
 
     @classmethod
     async def get_unanalyzed_news(cls, db: AsyncSession, limit: int = 30) -> list[SentimentNews]:
