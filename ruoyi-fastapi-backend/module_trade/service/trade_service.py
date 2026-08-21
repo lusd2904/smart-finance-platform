@@ -67,7 +67,7 @@ class TradeService:
     ) -> dict[str, Any]:
         """
         交易台 K 线：优先 Influx 真实序列；US/HK 分钟/分时在时序库为空时回退长桥 candlesticks/intraday。
-        有实时价时只覆盖最后一根已有 K，不新增、不补空。
+        Influx 已有 K 时不再额外打长桥实时报价；仅在无历史 bar 时取 lastDone，不新增、不补空。
         """
         code, mkt = parse_symbol_market(symbol, market)
         period_key = normalize_kline_period(period)
@@ -100,7 +100,14 @@ class TradeService:
 
         quote = cls._quote_from_klines(klines)
         price_source = 'history'
-        if LongbridgeService.is_configured() and mkt in {'US', 'HK'} and not str(code).startswith('^'):
+        # Influx already has real bars: skip the extra QuoteContext.quote (~4s).
+        # Live lastDone is only fetched when history is empty (or Longbridge fallback bars).
+        if (
+            not influx_klines
+            and LongbridgeService.is_configured()
+            and mkt in {'US', 'HK'}
+            and not str(code).startswith('^')
+        ):
             rt = await LongbridgeService.get_realtime_quote_async([code], mkt)
             quotes = rt.get('quotes') or []
             if quotes:

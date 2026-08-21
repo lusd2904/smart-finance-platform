@@ -33,6 +33,8 @@ _QUOTE_CACHE_TTL = 15
 _ACCOUNT_CACHE_TTL = 30
 _DEPTH_CACHE_TTL = 3
 _TRADES_CACHE_TTL = 3
+# Longbridge QuoteContext.quote returns 301607 when the batch is too large.
+_QUOTE_SYMBOL_LIMIT = 100
 
 
 def _resolve_region(region: str | None) -> str:
@@ -292,6 +294,11 @@ class LongbridgeService:
         if isinstance(symbols, str):
             symbols = [symbols]
         symbols = [s for s in (str(x).strip() for x in (symbols or [])) if s]
+        if len(symbols) > _QUOTE_SYMBOL_LIMIT:
+            logger.warning(
+                f'[长桥] quote 请求 {len(symbols)} 个标的，超过上限 {_QUOTE_SYMBOL_LIMIT}，已截断'
+            )
+            symbols = symbols[:_QUOTE_SYMBOL_LIMIT]
         if not symbols:
             return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
         if not cls.is_configured():

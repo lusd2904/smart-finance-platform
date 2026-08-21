@@ -15,6 +15,105 @@ from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.tradingview_service import TradingViewDatafeedService
 
 
+def test_board_overlay_set_is_small_and_skips_caret_cn() -> None:
+    instruments = [
+        {'symbol': '^DJI', 'name': '道指', 'market': 'US', 'category': 'index'},
+        {'symbol': 'AAPL', 'name': '苹果', 'market': 'US', 'category': 'mag7'},
+        {'symbol': '600519', 'name': '茅台', 'market': 'CN', 'category': 'star'},
+        {'symbol': 'WATCH1', 'name': '自选', 'market': 'US', 'category': 'star'},
+    ]
+    instruments.extend(
+        {'symbol': f'SYM{i}', 'name': f'N{i}', 'market': 'US', 'category': 'star'} for i in range(200)
+    )
+    selected = MarketService.select_board_overlay_instruments(
+        instruments, {'WATCH1', 'MISSING'}, max_symbols=100, watchlist_max=40, top_n=40
+    )
+    symbols = [str(i['symbol']) for i in selected]
+    assert '^DJI' not in symbols
+    assert '600519' not in symbols
+    assert 'AAPL' in symbols
+    assert 'WATCH1' in symbols
+    assert len(selected) <= 100
+    assert len(selected) < 50
+
+
+@pytest.mark.asyncio
+async def test_board_quotes_does_not_send_full_universe_to_longbridge() -> None:
+    instruments = [
+        {'symbol': '^DJI', 'name': '道指', 'market': 'US', 'category': 'index'},
+        {'symbol': 'AAPL', 'name': '苹果', 'market': 'US', 'category': 'mag7'},
+    ]
+    instruments.extend(
+        {'symbol': f'SYM{i:03d}', 'name': f'N{i}', 'market': 'US', 'category': 'star'} for i in range(200)
+    )
+    quoted: list[str] = []
+
+    def fake_influx(mkt, symbols, n, start):
+        return {
+            s: [
+                {'date': '2024-06-03', 'open': 10, 'high': 11, 'low': 9, 'close': 10.5, 'volume': 100},
+                {'date': '2024-06-04', 'open': 10.5, 'high': 12, 'low': 10.4, 'close': 11.55, 'volume': 120},
+            ]
+            for s in symbols
+        }
+
+    def fake_quote(symbols):
+        quoted.extend(list(symbols))
+        return {
+            'configured': True,
+            'quotes': [
+                {
+                    'symbol': 'AAPL.US',
+                    'lastDone': 190.0,
+                    'open': 189,
+                    'high': 191,
+                    'low': 188,
+                    'volume': 1,
+                    'change': 1,
+                    'changeRate': 0.5,
+                    'prevClose': 189,
+                }
+            ],
+        }
+
+    with (
+        patch.object(MarketService, 'get_instrument_list_services', new=AsyncMock(return_value=instruments)),
+        patch.object(MarketService, '_load_watchlist_symbols', new=AsyncMock(return_value=set())),
+        patch('module_market.service.market_service.InfluxUtil.query_latest_klines', side_effect=fake_influx),
+        patch.object(LongbridgeService, 'ensure_credentials_from_db', new=AsyncMock()),
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'get_realtime_quote', side_effect=fake_quote),
+    ):
+        data = await MarketService.get_board_quotes_services(MagicMock())
+
+    assert len(quoted) <= 100
+    assert len(quoted) < 200
+    assert all(not str(s).startswith('^') for s in quoted)
+    aapl = next(q for q in data['quotes'] if q['symbol'] == 'AAPL')
+    filler = next(q for q in data['quotes'] if q['symbol'] == 'SYM199')
+    assert aapl['source'] == 'longbridge'
+    assert filler['source'] == 'influx'
+    assert filler['price'] == 11.55
+    assert data['source'] == 'longbridge'
+    assert data['overlayCount'] == 1
+
+
+def test_realtime_quote_caps_batch_at_100() -> None:
+    seen: dict[str, int] = {}
+
+    class DummyCtx:
+        def quote(self, symbols):
+            seen['n'] = len(symbols)
+            return []
+
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, '_build_quote_context', return_value=DummyCtx()),
+    ):
+        LongbridgeService.get_realtime_quote([f'S{i}.US' for i in range(250)])
+    assert seen['n'] == 100
+
+
 def test_quote_from_two_real_bars() -> None:
     quote = MarketService._build_quote_from_klines(
         [

@@ -549,12 +549,15 @@ async function loadOrders() {
 async function refreshAll() {
   loading.value = true
   try {
-    const [a, p] = await Promise.all([getTradeAccount(), getTradePositions()])
+    const [a, p] = await Promise.all([
+      getTradeAccount(),
+      getTradePositions(),
+      loadOrders(),
+      loadQuoteBoard()
+    ])
     account.value = a.data || { balances: [] }
     configured.value = account.value.configured !== false
     positions.value = (p.data && p.data.positions) || []
-    await loadOrders()
-    await loadQuoteBoard()
     restartLive()
   } finally {
     loading.value = false
@@ -589,7 +592,7 @@ function restartLive() {
   liveTimer = setInterval(() => {
     loadDepth()
     loadTrades()
-  }, 5000)
+  }, 15000)
 }
 function handleResize() {
   chart && chart.resize()

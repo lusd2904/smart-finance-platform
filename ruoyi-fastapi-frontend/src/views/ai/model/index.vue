@@ -233,7 +233,10 @@
           </el-col>
           <el-col :span="24">
             <el-form-item label="Base URL" prop="baseUrl">
-              <el-input v-model="form.baseUrl" placeholder="请输入Base URL" />
+              <el-input
+                v-model="form.baseUrl"
+                placeholder="https://your-openai-compatible-endpoint/v1"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">

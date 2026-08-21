@@ -1,6 +1,9 @@
 import os
 import sys
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -105,6 +108,54 @@ def test_overlay_last_bar_does_not_create_bar() -> None:
     assert bars[0]['close'] == 12.0
     assert bars[0]['high'] == 12.0
     assert bars[0]['low'] == 9
+
+
+@pytest.mark.asyncio
+async def test_quote_kline_skips_realtime_when_influx_has_bars() -> None:
+    from module_market.service.market_service import MarketService
+    from module_quant.service.longbridge_service import LongbridgeService
+    from module_trade.service.trade_service import TradeService
+
+    bars = [{'date': '2024-06-04', 'open': 10, 'high': 12, 'low': 9, 'close': 11, 'volume': 100}]
+    rt = AsyncMock()
+    with (
+        patch.object(MarketService, 'get_kline_services', new=AsyncMock(return_value=bars)),
+        patch.object(TradeService, '_ensure', new=AsyncMock()),
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'get_realtime_quote_async', rt),
+    ):
+        data = await TradeService.get_quote_kline_services(MagicMock(), 'AAPL', 'US', 'daily', 200)
+    rt.assert_not_called()
+    assert data['source'] == 'influx'
+    assert data['priceSource'] == 'history'
+    assert data['klines'][0]['close'] == 11
+    assert data['quote']['last'] == 11
+
+
+@pytest.mark.asyncio
+async def test_quote_kline_fetches_realtime_only_when_influx_empty() -> None:
+    from module_market.service.market_service import MarketService
+    from module_quant.service.longbridge_service import LongbridgeService
+    from module_trade.service.trade_service import TradeService
+
+    rt = AsyncMock(
+        return_value={
+            'configured': True,
+            'quotes': [{'lastDone': 190.15, 'open': 189, 'high': 191, 'low': 188, 'volume': 10}],
+        }
+    )
+    with (
+        patch.object(MarketService, 'get_kline_services', new=AsyncMock(return_value=[])),
+        patch.object(TradeService, '_ensure', new=AsyncMock()),
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'get_intraday_async', new=AsyncMock(return_value={'klines': []})),
+        patch.object(LongbridgeService, 'get_realtime_quote_async', rt),
+    ):
+        data = await TradeService.get_quote_kline_services(MagicMock(), 'AAPL', 'US', 'daily', 200)
+    rt.assert_awaited()
+    assert data['klines'] == []
+    assert data['priceSource'] == 'longbridge'
+    assert data['quote']['last'] == 190.15
 
 
 if __name__ == '__main__':
