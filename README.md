@@ -146,6 +146,8 @@ npm run smoke:pages
 # 增量 SQL（已有库务必执行）
 docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
   < ruoyi-fastapi-backend/sql/web-polish.sql
+docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
+  < ruoyi-fastapi-backend/sql/quant-longbridge-user.sql
 
 # 关键路径
 npm install
