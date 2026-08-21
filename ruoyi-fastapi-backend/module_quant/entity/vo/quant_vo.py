@@ -88,6 +88,7 @@ class QuantLongbridgeConfigModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
 
     id: int | None = Field(default=None, description='配置ID')
+    user_id: int | None = Field(default=None, description='用户ID')
     app_key: str | None = Field(default=None, description='长桥App Key')
     app_secret: str | None = Field(default=None, description='长桥App Secret')
     access_token: str | None = Field(default=None, description='长桥Access Token')

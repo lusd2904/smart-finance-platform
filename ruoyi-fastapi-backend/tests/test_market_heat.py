@@ -70,13 +70,13 @@ async def test_market_watchlist_add_idempotent() -> None:
     from module_market.service.watchlist_service import MarketWatchlistService
 
     db = AsyncMock()
-    with patch('module_market.service.watchlist_service.QuantWatchlistDao.get_by_symbol', new=AsyncMock(return_value=object())):
+    with patch('module_market.service.watchlist_service.MarketWatchlistDao.get_by_symbol', new=AsyncMock(return_value=object())):
         result = await MarketWatchlistService.add_services(
             db, AddMarketWatchlistModel(symbol='AAPL', market='US'), user_id=1
         )
     assert isinstance(result, CrudResponseModel)
     assert result.is_success is True
-    assert '已在自选池' in result.message
+    assert '已在自选' in result.message
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 -- 市场热度看板 + Top50 快照：表 + 菜单 + 收盘采集任务 + 默认权重配置
--- menu_id 2140-2145；job_id 113-115；config_id 500-502
+-- menu_id 2600-2602（避开 ai-requirement-board 的 2140-2146）；job_id 113-115；config_id 500-502
 -- 可重复执行。不删除 ai_req_item 与其它业务数据。
 
 CREATE TABLE IF NOT EXISTS market_heat_daily (
@@ -46,16 +46,16 @@ CREATE TABLE IF NOT EXISTS market_top50_snapshot (
   KEY ix_market_top50_market_date (market, trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分市场 Top50 成交额快照';
 
-DELETE FROM sys_role_menu WHERE menu_id BETWEEN 2140 AND 2142;
-DELETE FROM sys_menu WHERE menu_id BETWEEN 2140 AND 2142;
+DELETE FROM sys_role_menu WHERE menu_id BETWEEN 2600 AND 2602;
+DELETE FROM sys_menu WHERE menu_id BETWEEN 2600 AND 2602;
 DELETE FROM sys_job WHERE job_id BETWEEN 113 AND 115;
 
 INSERT INTO sys_menu VALUES
-('2140', '市场热度看板', '2100', '3', 'heat', 'market/heat/index', '', 'MarketHeatIndex', 1, 0, 'C', '0', '0', 'market:heat:list', 'data-analysis', 'admin', sysdate(), '', null, '三市场热度与 Top50 快照'),
-('2141', '热度查询', '2140', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:heat:list', '#', 'admin', sysdate(), '', null, ''),
-('2142', '热度采集', '2140', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:heat:collect', '#', 'admin', sysdate(), '', null, '');
+('2600', '市场热度', '2100', '1', 'heat', 'market/heat/index', '', 'MarketHeatIndex', 1, 0, 'C', '0', '0', 'market:heat:list', 'data-analysis', 'admin', sysdate(), '', null, '三市场热度与 Top50 快照'),
+('2601', '热度查询', '2600', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:heat:list', '#', 'admin', sysdate(), '', null, ''),
+('2602', '热度采集', '2600', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:heat:collect', '#', 'admin', sysdate(), '', null, '');
 
-INSERT INTO sys_role_menu VALUES ('2', '2140'), ('2', '2141'), ('2', '2142');
+INSERT INTO sys_role_menu VALUES ('2', '2600'), ('2', '2601'), ('2', '2602');
 
 INSERT INTO sys_job VALUES
 (113, 'A股收盘热度采集', 'default', 'default', 'module_task.market_task.collect_market_heat_cn_job', NULL, NULL, '0 5 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后采集指数/成交额/A-D 与 Top50'),

@@ -58,16 +58,20 @@ class QuantWatchlist(Base):
 
 class QuantLongbridgeConfig(Base):
     """
-    长桥凭据配置表
+    长桥凭据配置表（按用户一行）
     """
 
     __tablename__ = 'quant_longbridge_config'
-    __table_args__ = {'comment': '长桥凭据配置表'}
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uk_quant_longbridge_user'),
+        {'comment': '长桥凭据配置表'},
+    )
 
     id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='配置ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', comment='用户ID')
     app_key = Column(String(255), nullable=True, comment='长桥App Key')
     app_secret = Column(String(255), nullable=True, comment='长桥App Secret')
-    access_token = Column(String(512), nullable=True, comment='长桥Access Token')
+    access_token = Column(String(2048), nullable=True, comment='长桥Access Token')
     region = Column(String(10), nullable=True, server_default="'cn'", comment='区域（cn/hk等）')
     update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
 

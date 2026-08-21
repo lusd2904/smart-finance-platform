@@ -13,7 +13,7 @@
         <el-button type="primary" icon="Refresh" :loading="loading" @click="refreshAll">刷新数据</el-button>
         <el-button icon="Grid" @click="go('/portal')">子系统门户</el-button>
         <el-button icon="DataLine" @click="go('/sentiment/dashboard')">舆情大盘</el-button>
-        <el-button icon="TrendCharts" @click="go('/market/kline')">行情 K 线</el-button>
+        <el-button icon="TrendCharts" @click="go('/market/heat')">行情中心</el-button>
       </div>
     </div>
 
@@ -120,7 +120,7 @@
           <template #header>
             <div class="panel-header">
               <span class="panel-title">行情快照</span>
-              <el-button link type="primary" @click="go('/market/kline')">K 线中心</el-button>
+              <el-button link type="primary" @click="go('/market/board')">行情台</el-button>
             </div>
           </template>
           <div v-if="quotes.length" class="quote-list">
@@ -136,7 +136,7 @@
             </div>
           </div>
           <el-empty v-else description="暂无行情，请先同步至时序库" :image-size="80">
-            <el-button type="primary" @click="go('/market/dashboard')">去行情中心</el-button>
+            <el-button type="primary" @click="go('/market/heat')">去行情中心</el-button>
           </el-empty>
         </el-card>
 
@@ -192,15 +192,15 @@ const statCards = computed(() => [
   { key: 'total', label: '舆情资讯', value: stats.value.total ?? 0, icon: 'Document', tone: 'tone-blue', path: '/sentiment/news' },
   { key: 'today', label: '今日新增', value: stats.value.today ?? 0, icon: 'Calendar', tone: 'tone-green', path: '/sentiment/news' },
   { key: 'wait', label: '待分析', value: stats.value.unanalyzed ?? 0, icon: 'Clock', tone: 'tone-orange', path: '/sentiment/dashboard' },
-  { key: 'inst', label: '行情标的', value: instrumentCount.value ?? 0, icon: 'Coin', tone: 'tone-purple', path: '/market/symbol' }
+  { key: 'inst', label: '行情标的', value: instrumentCount.value ?? 0, icon: 'Coin', tone: 'tone-purple', path: '/market/board' }
 ])
 
 const navItems = [
   { title: '舆情大盘', desc: 'AI 影响分与趋势', path: '/sentiment/dashboard', icon: 'DataAnalysis', bg: 'linear-gradient(135deg,#6366f1,#8b5cf6)' },
   { title: '资讯列表', desc: '正文站内查看', path: '/sentiment/news', icon: 'Reading', bg: 'linear-gradient(135deg,#0ea5e9,#38bdf8)' },
   { title: '分析结果', desc: '历史研判记录', path: '/sentiment/analysis', icon: 'Tickets', bg: 'linear-gradient(135deg,#10b981,#34d399)' },
-  { title: '行情中心', desc: '标的与同步', path: '/market/dashboard', icon: 'TrendCharts', bg: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
-  { title: 'K 线指标', desc: '真实行情时序', path: '/market/kline', icon: 'DataLine', bg: 'linear-gradient(135deg,#ef4444,#f87171)' },
+  { title: '行情中心', desc: '热度与报价台', path: '/market/heat', icon: 'TrendCharts', bg: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
+  { title: '行情台', desc: '全市场报价', path: '/market/board', icon: 'DataLine', bg: 'linear-gradient(135deg,#ef4444,#f87171)' },
   { title: '财经简报', desc: '市场资讯聚合', path: '/market/finance-news', icon: 'Notebook', bg: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
   { title: '量化策略', desc: '策略与扫描', path: '/quant/strategy', icon: 'Cpu', bg: 'linear-gradient(135deg,#8b5cf6,#a78bfa)' },
   { title: '自选池', desc: '关注标的管理', path: '/quant/watchlist', icon: 'Star', bg: 'linear-gradient(135deg,#ec4899,#f472b6)' },

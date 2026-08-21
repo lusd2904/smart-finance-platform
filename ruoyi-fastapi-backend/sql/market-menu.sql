@@ -1,5 +1,5 @@
 -- ----------------------------
--- 行情数据中心 菜单/权限/定时任务
+-- 行情中心 菜单/权限/定时任务
 -- 适用库：同 sentiment（智慧金融分析平台）
 -- menu_id 使用 2100-2107 段（扩展菜单见 market-feature-extension / feature-extension / full-feature / deep-feature）
 -- ----------------------------
@@ -11,15 +11,16 @@ delete from sys_menu where menu_id between 2100 and 2107;
 delete from sys_job where job_id = 101;
 
 -- ----------------------------
--- A. 一级目录：行情数据中心
+-- A. 一级目录：行情中心
 -- ----------------------------
-insert into sys_menu values('2100', '行情数据中心', '0', '6', 'market', null, '', '', 1, 0, 'M', '0', '0', '', 'chart', 'admin', sysdate(), '', null, '行情数据中心目录');
+insert into sys_menu values('2100', '行情中心', '0', '2', 'market', null, '', '', 1, 0, 'M', '0', '0', '', 'chart', 'admin', sysdate(), '', null, '行情中心目录');
 
 -- ----------------------------
 -- B. 二级页面菜单（route_name 与线上一致，避免与舆情 dashboard 冲突）
+-- 行情K线 / 行情概览从列表点入，默认不占侧栏（visible=1）
 -- ----------------------------
-insert into sys_menu values('2101', '行情K线', '2100', '1', 'kline',     'market/kline/index',     '', 'MarketKlineIndex', 1, 0, 'C', '0', '0', 'market:kline:list',      'chart',     'admin', sysdate(), '', null, '行情K线菜单');
-insert into sys_menu values('2102', '行情概览', '2100', '2', 'dashboard', 'market/dashboard/index', '', 'MarketDashboardIndex', 1, 0, 'C', '0', '0', 'market:instrument:list', 'dashboard', 'admin', sysdate(), '', null, '行情概览菜单');
+insert into sys_menu values('2101', '行情K线', '2100', '21', 'kline',     'market/kline/index',     '', 'MarketKlineIndex', 1, 0, 'C', '1', '0', 'market:kline:list',      'chart',     'admin', sysdate(), '', null, '从行情台点入，不单独占侧栏');
+insert into sys_menu values('2102', '行情概览', '2100', '22', 'dashboard', 'market/dashboard/index', '', 'MarketDashboardIndex', 1, 0, 'C', '1', '0', 'market:instrument:list', 'dashboard', 'admin', sysdate(), '', null, '与行情台重叠，不单独占侧栏');
 
 -- ----------------------------
 -- C. 按钮权限

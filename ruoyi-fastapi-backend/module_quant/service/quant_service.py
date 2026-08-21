@@ -27,7 +27,7 @@ from module_quant.entity.vo.quant_vo import (
     RunStrategyModel,
 )
 from module_quant.service.factor_service import FactorService
-from module_quant.service.longbridge_service import LongbridgeService
+from module_quant.service.longbridge_service import LongbridgeService, resolve_longbridge_user_id
 from module_quant.service.strategy_service import StrategyService
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
@@ -404,58 +404,55 @@ class QuantService:
     # ------------------------------------------------------------ 长桥 ---
 
     @classmethod
-    async def _sync_longbridge_credentials(cls, query_db: AsyncSession) -> None:
-        """从DB读取长桥凭据注入到 LongbridgeService（DB优先于env）。"""
-        config = await QuantLongbridgeConfigDao.get_config(query_db)
-        if config and (config.app_key or config.app_secret or config.access_token):
-            LongbridgeService.set_credentials(
-                {
-                    'app_key': config.app_key,
-                    'app_secret': cls._decrypt_or_raw(config.app_secret),
-                    'access_token': cls._decrypt_or_raw(config.access_token),
-                    'region': config.region,
-                }
-            )
-        else:
-            LongbridgeService.set_credentials(None)
+    async def _sync_longbridge_credentials(cls, query_db: AsyncSession, user_id: int | None = None) -> None:
+        """从DB读取当前用户长桥凭据注入到 LongbridgeService（DB优先于env）。"""
+        await LongbridgeService.ensure_credentials_from_db(query_db, user_id)
 
     @classmethod
-    async def test_longbridge_services(cls, query_db: AsyncSession) -> dict[str, Any]:
-        """长桥连通性测试"""
-        await cls._sync_longbridge_credentials(query_db)
+    async def test_longbridge_services(cls, query_db: AsyncSession, user_id: int | None = None) -> dict[str, Any]:
+        """长桥连通性测试，只使用当前用户自己的凭据行。"""
+        target_id = resolve_longbridge_user_id(user_id)
+        config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
+        if not config or not (config.app_key or config.app_secret or config.access_token):
+            return {'configured': False, 'connected': False, 'message': '长桥凭据未配置'}
+        await cls._sync_longbridge_credentials(query_db, target_id)
         return LongbridgeService.test_connection()
 
     @classmethod
-    async def get_longbridge_config_services(cls, query_db: AsyncSession) -> QuantLongbridgeConfigModel:
+    async def get_longbridge_config_services(
+        cls, query_db: AsyncSession, user_id: int | None = None
+    ) -> QuantLongbridgeConfigModel:
         """
-        获取长桥凭据配置（app_secret/access_token 脱敏，仅回显是否已设置）。
+        获取当前用户长桥凭据配置（app_secret/access_token 脱敏）。
+        无本行时返回空配置，不读取其他用户或 env 以免串号。
         """
-        config = await QuantLongbridgeConfigDao.get_config(query_db)
+        target_id = resolve_longbridge_user_id(user_id)
+        config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
         if config:
             return QuantLongbridgeConfigModel(
                 id=config.id,
+                userId=getattr(config, 'user_id', None) or target_id,
                 appKey=config.app_key or '',
                 appSecret=cls._mask(cls._decrypt_or_raw(config.app_secret)),
                 accessToken=cls._mask(cls._decrypt_or_raw(config.access_token)),
                 region=config.region or 'cn',
                 updateTime=config.update_time,
             )
-        # 回退展示 env 是否配置
-        creds = LongbridgeService.resolve_credentials()
         return QuantLongbridgeConfigModel(
-            appKey=creds['app_key'],
-            appSecret=cls._mask(creds['app_secret']),
-            accessToken=cls._mask(creds['access_token']),
-            region=creds['region'],
+            userId=target_id,
+            appKey='',
+            appSecret='',
+            accessToken='',
+            region='cn',
         )
 
     @classmethod
     async def save_longbridge_config_services(
-        cls, query_db: AsyncSession, config: QuantLongbridgeConfigModel
+        cls, query_db: AsyncSession, config: QuantLongbridgeConfigModel, user_id: int | None = None
     ) -> CrudResponseModel:
-        """保存长桥凭据配置，保存后即时生效（DB覆盖env）。"""
-        # 前端回显的是 ****xxxx 脱敏值：用户未改动直接保存时必须保留库中原值，否则会用掩码覆盖毁掉真实密钥
-        existing = await QuantLongbridgeConfigDao.get_config(query_db)
+        """保存当前用户长桥凭据；忽略请求体中的 user_id，以登录用户为准。"""
+        target_id = resolve_longbridge_user_id(user_id)
+        existing = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
         app_secret = config.app_secret
         access_token = config.access_token
         if cls._is_masked(app_secret):
@@ -467,6 +464,7 @@ class QuantService:
         else:
             access_token = CryptoUtil.encrypt(access_token) if access_token else ''
         config_dict = {
+            'user_id': target_id,
             'app_key': config.app_key,
             'app_secret': app_secret,
             'access_token': access_token,
@@ -474,9 +472,9 @@ class QuantService:
             'update_time': datetime.now(),
         }
         try:
-            await QuantLongbridgeConfigDao.save_config(query_db, config_dict)
+            await QuantLongbridgeConfigDao.save_config(query_db, config_dict, target_id)
             await query_db.commit()
-            await cls._sync_longbridge_credentials(query_db)
+            await cls._sync_longbridge_credentials(query_db, target_id)
             return CrudResponseModel(is_success=True, message='保存成功')
         except Exception as e:
             await query_db.rollback()

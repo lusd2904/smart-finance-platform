@@ -2,7 +2,7 @@
   <div class="app-container">
     <div class="page-hero">
       <div>
-        <h2>市场热度看板</h2>
+        <h2>市场热度</h2>
         <p>三市场切换 · 收盘快照 Top50 · 与量化自选池同源</p>
       </div>
       <div class="acts">

@@ -250,6 +250,16 @@ class MarketWatchlistDao:
         return list(rows)
 
     @classmethod
+    async def get_all_enabled(cls, db: AsyncSession) -> list[MarketWatchlist]:
+        query = (
+            select(MarketWatchlist)
+            .where(MarketWatchlist.enabled == '1')
+            .order_by(MarketWatchlist.user_id, MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+        )
+        rows = (await db.execute(query)).scalars().all()
+        return list(rows)
+
+    @classmethod
     async def get_by_id(cls, db: AsyncSession, watchlist_id: int) -> MarketWatchlist | None:
         return (
             (await db.execute(select(MarketWatchlist).where(MarketWatchlist.id == watchlist_id))).scalars().first()

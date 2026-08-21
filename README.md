@@ -132,6 +132,8 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 
 - `sentiment-menu.sql` / `market-menu.sql` / `quant-menu.sql`
 - `full-feature-menu.sql` / `deep-feature-menu.sql`
+- 已有库整合行情侧栏：`market-menu-unify.sql`
+- 长桥凭据按用户隔离：`quant-longbridge-user.sql`
 
 可按需导入以挂载业务菜单。
 
