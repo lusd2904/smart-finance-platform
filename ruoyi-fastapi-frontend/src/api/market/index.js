@@ -14,7 +14,9 @@ export function getBoardQuotes(query) {
   return request({
     url: '/market/board/quotes',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 60000,
+    loadingText: '加载中…'
   })
 }
 
@@ -45,12 +47,15 @@ export function syncMarket(data) {
   })
 }
 
-// AI行情研判
-export function aiAnalyze(data) {
+// AI行情研判（模型调用约 47–90s，需长于默认超时）
+export function aiAnalyze(data, options = {}) {
   return request({
     url: '/market/ai/analyze',
     method: 'post',
-    data: data
+    data: data,
+    timeout: 120000,
+    loadingText: '研判中…',
+    ...options
   })
 }
 
@@ -82,11 +87,14 @@ export function getSymbolContent(symbol, query) {
 }
 
 // 触发标的AI研判
-export function symbolAiAnalyze(symbol, query) {
+export function symbolAiAnalyze(symbol, query, options = {}) {
   return request({
     url: '/market/symbols/' + encodeURIComponent(symbol) + '/ai-analyze',
     method: 'post',
-    params: query
+    params: query,
+    timeout: 120000,
+    loadingText: '研判中…',
+    ...options
   })
 }
 

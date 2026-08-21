@@ -138,8 +138,8 @@ const categoryCards = computed(() => {
 });
 
 /** 加载全部 */
-function loadAll() {
-  loadInstruments();
+async function loadAll() {
+  await proxy.$modal.withLoading('加载中…', () => loadInstruments())
 }
 
 function loadInstruments() {
