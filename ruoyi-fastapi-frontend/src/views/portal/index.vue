@@ -173,6 +173,7 @@ const subsystemGroups = [
     icon: Monitor,
     links: [
       { name: '工作台首页', path: '/index' },
+      { name: '自动分析任务', path: '/analysis/jobs' },
       { name: '系统监控', path: '/monitor/job' }
     ]
   }

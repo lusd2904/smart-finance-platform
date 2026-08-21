@@ -28,6 +28,9 @@ async def run_strategy_job(*args, **kwargs) -> None:
     elif kwargs.get('profile'):
         profile = str(kwargs['profile']).strip()
 
+    if await JobQueue.enqueue('strategy_run', {'profile': profile}):
+        logger.info(f'[量化定时任务] 已入队 profile={profile}')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await QuantService.run_strategy_services(db, RunStrategyModel(profile=profile))
@@ -56,6 +59,9 @@ async def run_daily_factor_scan_job(*args, **kwargs) -> None:
 
 async def run_position_monitor_job(*args, **kwargs) -> None:
     """持仓异动与止损监控。"""
+    if await JobQueue.enqueue('position_monitor', {}):
+        logger.info('[持仓监控任务] 已入队')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await SnapshotService.run_position_monitor(db)

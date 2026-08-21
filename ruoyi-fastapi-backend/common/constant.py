@@ -141,8 +141,20 @@ class LockConstant:
     """
 
     APP_STARTUP_LOCK_KEY = 'app:startup:lock'
+    SCHEDULER_LOCK_KEY = 'app:scheduler:lock'
     LOCK_EXPIRE_SECONDS = 60
     LOCK_RENEWAL_INTERVAL = 20
+
+
+class SchedulerConstant:
+    """
+    分析调度微服务常量
+    """
+
+    COMMAND_CHANNEL = 'sfp:scheduler:command'
+    HEARTBEAT_KEY = 'sfp:scheduler:heartbeat'
+    RUNNING_KEY = 'sfp:job:running'
+    HEARTBEAT_TTL_SECONDS = 25
 
 
 class ApiNamespace:

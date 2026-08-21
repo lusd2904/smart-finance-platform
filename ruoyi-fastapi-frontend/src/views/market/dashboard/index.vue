@@ -199,8 +199,8 @@ function handleSync() {
   syncLoading.value = true;
   syncMarket({}).then(res => {
     const d = res.data || {};
-    proxy.$modal.msgSuccess(`同步完成，标的 ${d.syncedSymbols ?? '-'} 个，数据点 ${d.totalPoints ?? '-'}`);
-    loadAll();
+    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : `同步完成，标的 ${d.syncedSymbols ?? '-'} 个`));
+    if (!d.accepted) loadAll();
   }).finally(() => {
     syncLoading.value = false;
   });

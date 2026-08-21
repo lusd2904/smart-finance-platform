@@ -26,6 +26,7 @@ from module_market.entity.vo.market_vo import (
 )
 from module_market.service.market_service import MarketService
 from module_market.service.watchlist_service import MarketWatchlistService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -159,13 +160,14 @@ async def sync_market(
     request: Request,
     sync_body: MarketSyncModel,
 ) -> Response:
-    result = await MarketService.sync_services(sync_body)
-    logger.info(f'手动行情同步完成: {result}')
-
-    return ResponseUtil.success(
-        data=result,
-        msg=f'同步完成，标的{len(result["synced_symbols"])}个，写入Influx {result["total_points"]}点',
+    ticket = await JobQueue.submit(
+        'market_sync',
+        {'years': getattr(sync_body, 'years', None) or 10, 'symbol': getattr(sync_body, 'symbol', None)},
     )
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'手动行情同步已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新查看结果')
 
 
 @market_controller.post(
@@ -449,6 +451,15 @@ async def analyze_market_watchlist(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
 ) -> Response:
+    if not getattr(body, 'symbol', None):
+        ticket = await JobQueue.submit(
+            'watchlist_analyze',
+            {'userId': _current_user_id(current_user), 'refreshContent': getattr(body, 'refresh_content', None)},
+        )
+        if not ticket:
+            raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+        logger.info(f'自选全部分析已入队: {ticket}')
+        return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新清单查看结果')
     data = await MarketWatchlistService.analyze_services(
         query_db, body, user_id=_current_user_id(current_user)
     )
