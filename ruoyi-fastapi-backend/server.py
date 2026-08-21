@@ -27,8 +27,12 @@ async def _start_background_tasks(app: FastAPI) -> None:
     :param app: FastAPI对象
     :return: None
     """
+    from utils.job_queue import JobQueue
+
     await SchedulerUtil.init_system_scheduler(app.state.redis)
     app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
+    app.state.job_queue_stop = asyncio.Event()
+    app.state.job_queue_task = asyncio.create_task(JobQueue.consume_forever(app.state.job_queue_stop))
 
 
 async def _stop_background_tasks(app: FastAPI) -> None:
@@ -43,6 +47,16 @@ async def _stop_background_tasks(app: FastAPI) -> None:
         log_task.cancel()
         try:
             await log_task
+        except asyncio.CancelledError:
+            pass
+    stop = getattr(app.state, 'job_queue_stop', None)
+    if stop:
+        stop.set()
+    job_task = getattr(app.state, 'job_queue_task', None)
+    if job_task:
+        job_task.cancel()
+        try:
+            await job_task
         except asyncio.CancelledError:
             pass
     lock_task = getattr(app.state, 'lock_renewal_task', None)

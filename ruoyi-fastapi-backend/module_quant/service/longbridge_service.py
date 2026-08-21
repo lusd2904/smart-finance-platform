@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any
 
 from module_quant.service.longbridge_quote import (
@@ -33,6 +34,9 @@ _QUOTE_CACHE_TTL = 15
 _ACCOUNT_CACHE_TTL = 30
 _DEPTH_CACHE_TTL = 3
 _TRADES_CACHE_TTL = 3
+_LB_MIN_INTERVAL = 0.12
+_lb_lock = asyncio.Lock()
+_lb_last_call = 0.0
 
 
 def _resolve_region(region: str | None) -> str:
@@ -916,6 +920,16 @@ class LongbridgeService:
         }
 
     @classmethod
+    async def _throttle(cls) -> None:
+        global _lb_last_call
+        async with _lb_lock:
+            now = time.monotonic()
+            wait = _LB_MIN_INTERVAL - (now - _lb_last_call)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            _lb_last_call = time.monotonic()
+
+    @classmethod
     async def get_realtime_quote_async(cls, symbols: list[str] | str, market: str = 'US') -> dict[str, Any]:
         normalized = cls.normalize_symbols(symbols, market)
         cache_key = 'lb:quote:' + ','.join(sorted(normalized))
@@ -923,6 +937,7 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        await cls._throttle()
         data = await asyncio.to_thread(cls.get_realtime_quote, normalized)
         if data.get('quotes'):
             await cache_set_json(cache_key, data, _QUOTE_CACHE_TTL)
@@ -935,6 +950,7 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        await cls._throttle()
         data = await asyncio.to_thread(cls.get_account_balance)
         if data.get('configured') and data.get('balances'):
             await cache_set_json(cache_key, data, _ACCOUNT_CACHE_TTL)
@@ -947,6 +963,7 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        await cls._throttle()
         data = await asyncio.to_thread(cls.get_positions)
         if data.get('configured'):
             await cache_set_json(cache_key, data, _ACCOUNT_CACHE_TTL)
@@ -998,6 +1015,7 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        await cls._throttle()
         data = await asyncio.to_thread(cls.get_depth, symbol, market)
         if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('asks') or data.get('bids'):
             await cache_set_json(cache_key, data, _DEPTH_CACHE_TTL)
@@ -1011,6 +1029,7 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        await cls._throttle()
         data = await asyncio.to_thread(cls.get_trades, symbol, market, count)
         if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('trades'):
             await cache_set_json(cache_key, data, _TRADES_CACHE_TTL)

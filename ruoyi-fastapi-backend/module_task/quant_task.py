@@ -11,6 +11,7 @@ from config.database import AsyncSessionLocal
 from module_quant.entity.vo.quant_vo import RunStrategyModel
 from module_quant.service.quant_service import QuantService
 from module_quant.service.snapshot_service import SnapshotService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 
 
@@ -39,6 +40,9 @@ async def run_strategy_job(*args, **kwargs) -> None:
 async def run_daily_factor_scan_job(*args, **kwargs) -> None:
     """全市场收盘后因子全量计算入库。"""
     profile = str(kwargs.get('profile') or (args[0] if args else 'balanced') or 'balanced')
+    if await JobQueue.enqueue('factor_scan', {'profile': profile}):
+        logger.info(f'[因子日扫任务] 已入队 profile={profile}')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await SnapshotService.run_daily_factor_scan(db, profile=profile)
@@ -65,6 +69,9 @@ async def run_position_monitor_job(*args, **kwargs) -> None:
 
 async def run_indicator_refresh_job(*args, **kwargs) -> None:
     """行情看板 / 指标快照刷新。"""
+    if await JobQueue.enqueue('indicator_refresh', {}):
+        logger.info('[指标快照任务] 已入队')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await SnapshotService.run_indicator_refresh(db)
@@ -79,6 +86,9 @@ async def run_factor_qc_job(*args, **kwargs) -> None:
     from module_quant.service.factor_qc_service import FactorQcService
 
     market = str(kwargs.get('market') or (args[0] if args else 'US') or 'US')
+    if await JobQueue.enqueue('factor_qc', {'market': market}):
+        logger.info(f'[因子质检任务] 已入队 market={market}')
+        return
     async with AsyncSessionLocal() as db:
         try:
             result = await FactorQcService.run_and_store(db, market=market)

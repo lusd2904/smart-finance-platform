@@ -25,6 +25,8 @@ const pages = [
   { path: '/trade/orders', text: '订单' },
   { path: '/market/board', text: '全市场行情台' },
   { path: '/trade/notifications', text: '通知中心' },
+  { path: '/market/stocks', text: '分市场标的' },
+  { path: '/sentiment/dashboard', text: '舆情' },
 ]
 
 const browser = await chromium.launch({ headless: true })

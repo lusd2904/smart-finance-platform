@@ -185,7 +185,15 @@ npm start
 | `/trade/ai/batch*` | 批量 AI 任务 |
 | `/trade/notifications` | 通知（持久化 + 运行时） |
 
-完整文档：启动后访问 `http://127.0.0.1:19099/docs`
+完整文档：启动后访问 `http://127.0.0.1:19099/docs`。部署、监控与可选 Postgres 见 [docs/DEPLOY.md](./docs/DEPLOY.md)。
+
+监控（可选）：
+
+```bash
+docker compose -f docker-compose.monitor.yml up -d
+```
+
+Prometheus `19090` · Grafana `13000` · 后端 `/metrics`。
 
 ---
 
