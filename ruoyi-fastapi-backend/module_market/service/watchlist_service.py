@@ -18,9 +18,8 @@ from module_market.constant.instruments import get_instrument_meta
 from module_market.dao.market_dao import (
     MarketInstrumentDao,
     MarketWatchlistAnalysisDao,
+    MarketWatchlistDao,
 )
-from module_quant.dao.quant_dao import QuantWatchlistDao
-from module_quant.entity.vo.quant_vo import QuantWatchlistPageQueryModel
 from module_market.entity.vo.market_vo import (
     AddMarketWatchlistModel,
     MarketWatchlistAnalyzeModel,
@@ -47,27 +46,44 @@ def _resolve_watchlist_name(symbol: str, market: str, stored_name: str | None = 
     return symbol
 
 
-def _serialize_quant_watchlist_row(row: Any) -> dict[str, Any]:
+def parse_note_groups(note: str | None) -> list[str]:
+    """note 里用逗号分隔分组名（兼容中文逗号）。空 note 不算分组。"""
+    if not note:
+        return []
+    parts = [p.strip() for p in str(note).replace('，', ',').split(',')]
+    seen: list[str] = []
+    for part in parts:
+        if part and part not in seen:
+            seen.append(part)
+    return seen
+
+
+def _serialize_market_watchlist_row(row: Any) -> dict[str, Any]:
     if isinstance(row, dict):
-        symbol = row.get('symbol')
+        symbol = str(row.get('symbol') or '')
         market = (row.get('market') or 'US').upper()
+        note = row.get('note')
         return {
             **row,
-            'name': row.get('name') or _resolve_watchlist_name(str(symbol or ''), market),
+            'market': market,
+            'name': row.get('name') or _resolve_watchlist_name(symbol, market),
+            'groups': parse_note_groups(note),
         }
     symbol = row.symbol
     market = (row.market or 'US').upper()
+    note = row.note
     return {
         'id': row.id,
-        'userId': None,
+        'userId': row.user_id,
         'symbol': symbol,
         'market': market,
-        'name': _resolve_watchlist_name(symbol, market),
-        'note': row.note,
+        'name': _resolve_watchlist_name(symbol, market, getattr(row, 'name', None)),
+        'note': note,
+        'groups': parse_note_groups(note),
         'enabled': row.enabled,
-        'sortOrder': 0,
+        'sortOrder': getattr(row, 'sort_order', 0) or 0,
         'createTime': _fmt_dt(row.create_time),
-        'updateTime': _fmt_dt(row.create_time),
+        'updateTime': _fmt_dt(getattr(row, 'update_time', None) or row.create_time),
     }
 
 
@@ -147,19 +163,14 @@ class MarketWatchlistService:
         is_page: bool = True,
         user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        _ = user_id
-        quant_query = QuantWatchlistPageQueryModel(
-            page_num=query_object.page_num,
-            page_size=query_object.page_size,
-            symbol=query_object.symbol,
-            market=query_object.market,
-            enabled=query_object.enabled,
-        )
-        result = await QuantWatchlistDao.get_watchlist(query_db, quant_query, is_page)
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
+        query_object.user_id = user_id
+        result = await MarketWatchlistDao.get_watchlist(query_db, query_object, is_page)
         if isinstance(result, PageModel):
-            result.rows = [_serialize_quant_watchlist_row(row) for row in (result.rows or [])]
+            result.rows = [_serialize_market_watchlist_row(row) for row in (result.rows or [])]
             return result
-        return [_serialize_quant_watchlist_row(row) for row in (result or [])]
+        return [_serialize_market_watchlist_row(row) for row in (result or [])]
 
     @classmethod
     async def add_services(
@@ -171,9 +182,9 @@ class MarketWatchlistService:
             raise ServiceException(message='标的代码不能为空')
         if not user_id:
             raise ServiceException(message='无法识别当前用户')
-        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
+        existing = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
         if existing:
-            return CrudResponseModel(is_success=True, message=f'{symbol}({market}) 已在自选池中')
+            return CrudResponseModel(is_success=True, message=f'{symbol}({market}) 已在自选中')
         name = None
         inst = await MarketInstrumentDao.get_by_symbol(query_db, symbol)
         if inst:
@@ -183,15 +194,20 @@ class MarketWatchlistService:
             meta = get_instrument_meta(symbol)
             if meta:
                 name = meta[1]
+        now = datetime.now()
         try:
-            await QuantWatchlistDao.add_watchlist(
+            await MarketWatchlistDao.add(
                 query_db,
                 {
+                    'user_id': user_id,
                     'symbol': symbol,
                     'market': market,
+                    'name': name,
                     'note': add_model.note,
                     'enabled': '1',
-                    'create_time': datetime.now(),
+                    'sort_order': 0,
+                    'create_time': now,
+                    'update_time': now,
                 },
             )
             await query_db.commit()
@@ -202,6 +218,8 @@ class MarketWatchlistService:
 
     @classmethod
     async def delete_services(cls, query_db: AsyncSession, ids: str, user_id: int) -> CrudResponseModel:
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
         if not ids:
             raise ServiceException(message='传入ID为空')
         try:
@@ -209,7 +227,7 @@ class MarketWatchlistService:
         except ValueError:
             raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
         try:
-            await QuantWatchlistDao.delete_watchlist(query_db, id_list)
+            await MarketWatchlistDao.delete_by_ids(query_db, id_list, user_id=user_id)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception:
@@ -242,7 +260,9 @@ class MarketWatchlistService:
 
     @classmethod
     async def overview_services(cls, query_db: AsyncSession, user_id: int) -> dict[str, Any]:
-        items = await QuantWatchlistDao.get_enabled_symbols(query_db)
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
+        items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
         quotes: dict[str, dict[str, Any]] = {}
@@ -270,14 +290,18 @@ class MarketWatchlistService:
             if analysis and analysis.get('analysisTime'):
                 candidates = [x for x in (last_time, analysis['analysisTime']) if x]
                 last_time = max(candidates) if candidates else last_time
+            groups = parse_note_groups(row.note)
             rows.append(
                 {
                     'id': row.id,
+                    'userId': row.user_id,
                     'symbol': row.symbol,
                     'market': row.market,
-                    'name': _resolve_watchlist_name(row.symbol, row.market or 'US'),
+                    'name': _resolve_watchlist_name(row.symbol, row.market or 'US', getattr(row, 'name', None)),
                     'note': row.note,
+                    'groups': groups,
                     'enabled': row.enabled,
+                    'sortOrder': getattr(row, 'sort_order', 0) or 0,
                     'createTime': _fmt_dt(row.create_time),
                     'last': quote.get('last'),
                     'changeRate': quote.get('changeRate'),
@@ -292,6 +316,11 @@ class MarketWatchlistService:
                     'source': (analysis or {}).get('source'),
                 }
             )
+        group_counts: dict[str, int] = {}
+        for row in rows:
+            for name in row.get('groups') or []:
+                group_counts[name] = group_counts.get(name, 0) + 1
+        groups = [{'name': name, 'count': count} for name, count in sorted(group_counts.items(), key=lambda x: (-x[1], x[0]))]
         ai_conf = await cls._resolve_ai(query_db)
         return {
             'count': len(rows),
@@ -305,6 +334,7 @@ class MarketWatchlistService:
             'aiHint': None
             if ai_conf.get('available')
             else '未配置可用 AI 模型，小时分析将使用技术指标兜底。请在「AI 模型管理」填写 Base URL / API Key / 模型。',
+            'groups': groups,
             'items': rows,
         }
 
@@ -598,19 +628,26 @@ class MarketWatchlistService:
         if body.symbol:
             symbol = body.symbol.strip().upper()
             market = (body.market or 'US').strip().upper()
-            item = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
-            meta = get_instrument_meta(symbol)
+            item = (
+                await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
+                if user_id
+                else None
+            )
             targets.append(
                 {
                     'id': item.id if item else None,
                     'userId': user_id,
                     'symbol': symbol,
                     'market': market,
-                    'name': _resolve_watchlist_name(symbol, market),
+                    'name': _resolve_watchlist_name(
+                        symbol, market, getattr(item, 'name', None) if item else None
+                    ),
                 }
             )
         else:
-            enabled = await QuantWatchlistDao.get_enabled_symbols(query_db)
+            if not user_id:
+                raise ServiceException(message='无法识别当前用户')
+            enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
             if not enabled:
                 raise ServiceException(message='自选清单为空，请先添加关注标的')
             for row in enabled[:MAX_WATCHLIST_BATCH]:
@@ -620,7 +657,7 @@ class MarketWatchlistService:
                         'userId': row.user_id,
                         'symbol': row.symbol,
                         'market': row.market,
-                        'name': _resolve_watchlist_name(row.symbol, row.market or 'US'),
+                        'name': _resolve_watchlist_name(row.symbol, row.market or 'US', getattr(row, 'name', None)),
                     }
                 )
 
@@ -733,9 +770,19 @@ class MarketWatchlistService:
                 'reason': 'circuit_open',
                 'message': LongbridgeBreaker.blocked_message(),
             }
-        enabled = await QuantWatchlistDao.get_enabled_symbols(query_db)
+        enabled = await MarketWatchlistDao.get_all_enabled(query_db)
         if not enabled:
             return {'ok': True, 'count': 0, 'failedCount': 0, 'skipped': True, 'message': '自选清单为空，跳过'}
-        return await cls.analyze_services(
-            query_db, MarketWatchlistAnalyzeModel(symbol=None, refresh_content=True), user_id=None
-        )
+        user_ids = sorted({int(row.user_id or 1) for row in enabled})
+        total = {'ok': True, 'count': 0, 'failedCount': 0, 'users': len(user_ids), 'items': [], 'failed': []}
+        for uid in user_ids:
+            part = await cls.analyze_services(
+                query_db, MarketWatchlistAnalyzeModel(symbol=None, refresh_content=True), user_id=uid
+            )
+            total['count'] += int(part.get('count') or 0)
+            total['failedCount'] += int(part.get('failedCount') or 0)
+            total['ok'] = bool(total['ok'] and part.get('ok'))
+            total['items'].extend(part.get('items') or [])
+            total['failed'].extend(part.get('failed') or [])
+        total['message'] = f'完成 {total["count"]} 只，失败 {total["failedCount"]} 只，覆盖 {len(user_ids)} 个用户'
+        return total

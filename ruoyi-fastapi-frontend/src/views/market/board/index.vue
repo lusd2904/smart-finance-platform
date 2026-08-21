@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-hero">
-      <div><h2>全市场行情台</h2><p>只读缓存报价 · jobs 定时预热全市场扫描</p></div>
+      <div><h2>行情台</h2><p>只读缓存报价 · 点入 K 线、详情或 AI 研判</p></div>
       <div class="acts">
         <el-select v-model="market" clearable placeholder="市场" style="width:110px" @change="() => loadAll(false)">
           <el-option label="全部" value="" />
@@ -30,10 +30,11 @@
       <el-table-column prop="change" label="涨跌幅%" width="120" sortable="custom">
         <template #default="{row}"><span :class="row.up?'up':'down'">{{ row.changeText }}</span></template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="操作" width="200">
         <template #default="{row}">
           <el-button link type="primary" @click="goKline(row)">K线</el-button>
           <el-button link type="primary" @click="goDetail(row)">详情</el-button>
+          <el-button link type="primary" @click="goAi(row)">AI研判</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -65,6 +66,7 @@ const sorted=computed(()=>{
 function onSort({prop,order}){ sortProp.value=prop; sortOrder.value=order }
 function goKline(r){ router.push({path:'/market/kline', query:{symbol:r.symbol, market:r.market||'US'}}) }
 function goDetail(r){ router.push({path:'/market/symbol', query:{symbol:r.symbol, market:r.market||'US'}}) }
+function goAi(r){ router.push({path:'/market/ai-workbench', query:{symbol:r.symbol, market:r.market||'US'}}) }
 function formatQuote(item){
   const price = item.price == null ? null : Number(item.price)
   const change = item.changeRate == null ? item.change : item.changeRate

@@ -495,10 +495,13 @@ async def get_market_watchlist_backtest(
 async def get_market_heat_daily(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
     trade_date: Annotated[str | None, Query(alias='tradeDate', description='交易日 YYYY-MM-DD')] = None,
 ) -> Response:
-    data = await MarketHeatService.get_daily_services(query_db, market=market, trade_date=trade_date)
+    data = await MarketHeatService.get_daily_services(
+        query_db, market=market, trade_date=trade_date, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data)
 
 

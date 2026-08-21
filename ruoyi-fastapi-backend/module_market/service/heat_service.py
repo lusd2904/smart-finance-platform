@@ -20,9 +20,8 @@ from module_market.config.heat_config import (
 )
 from module_market.constant.instruments import get_instrument_meta
 from module_market.dao.heat_dao import MarketHeatDao
-from module_market.dao.market_dao import MarketInstrumentDao
+from module_market.dao.market_dao import MarketInstrumentDao, MarketWatchlistDao
 from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
-from module_quant.dao.quant_dao import QuantWatchlistDao
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
@@ -433,7 +432,11 @@ class MarketHeatService:
 
     @classmethod
     async def get_daily_services(
-        cls, db: AsyncSession, market: str, trade_date: str | None = None
+        cls,
+        db: AsyncSession,
+        market: str,
+        trade_date: str | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         market = _normalize_market(market)
         session_date = trade_date[:10] if trade_date else None
@@ -456,7 +459,7 @@ class MarketHeatService:
             }
 
         top50_rows = await MarketHeatDao.list_top50(db, market, heat_row.trade_date)
-        watchlist = await QuantWatchlistDao.get_enabled_symbols(db)
+        watchlist = await MarketWatchlistDao.get_enabled(db, user_id=user_id) if user_id else []
         watch_set = {(w.symbol.upper(), (w.market or 'US').upper()) for w in watchlist}
         top50 = cls._serialize_top50(top50_rows)
         for item in top50:

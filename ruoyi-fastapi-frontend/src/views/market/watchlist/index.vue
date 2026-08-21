@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div>
         <h2>自选清单</h2>
-        <p>关注自选股的价格、技术指标、长桥资讯与舆情。系统每小时综合分析一次并给出建议。</p>
+        <p>按登录账号隔离。左侧分组来自备注（逗号分隔），中间看图，右侧看详情与分析。</p>
       </div>
       <div class="hero-actions">
         <el-button type="primary" icon="Plus" @click="handleAdd" v-hasPermi="['market:watchlist:add']">新增自选</el-button>
@@ -66,109 +66,119 @@
       <el-empty v-if="!(backtest.items || []).length && !backtestLoading" description="暂无买入/卖出类建议，分析后再回测" :image-size="56" />
     </el-card>
 
-    <el-row :gutter="16">
-      <el-col :xs="24" :lg="15">
-        <el-card shadow="never" class="panel" v-loading="loading">
-          <template #header>
-            <div class="panel-header">
-              <span class="panel-title">关注标的</span>
-              <span class="panel-sub">最近分析 {{ overview.lastAnalysisTime || '尚未运行' }}</span>
+    <div class="watch-shell" v-loading="loading">
+      <aside class="col-left">
+        <div class="group-bar">
+          <button
+            type="button"
+            class="group-chip"
+            :class="{ active: activeGroup === '' }"
+            @click="activeGroup = ''"
+          >全部 {{ items.length }}</button>
+          <button
+            v-for="g in groups"
+            :key="g.name"
+            type="button"
+            class="group-chip"
+            :class="{ active: activeGroup === g.name }"
+            @click="activeGroup = g.name"
+          >{{ g.name }} {{ g.count }}</button>
+        </div>
+        <el-input v-model="keyword" clearable size="small" placeholder="搜索代码/名称" class="mb8" />
+        <el-scrollbar class="sym-scroll">
+          <div
+            v-for="row in filteredItems"
+            :key="row.id"
+            class="sym-row"
+            :class="{ active: current && current.id === row.id }"
+            @click="selectRow(row)"
+          >
+            <div class="sym-cell">
+              <strong>{{ row.symbol }}</strong>
+              <span>{{ row.name || '--' }}</span>
             </div>
-          </template>
-          <el-table :data="items" highlight-current-row @row-click="selectRow">
-            <el-table-column label="标的" min-width="160">
-              <template #default="scope">
-                <div class="sym-cell">
-                  <strong>{{ scope.row.symbol }}</strong>
-                  <span>{{ scope.row.name || '--' }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="市场" prop="market" width="70" align="center">
-              <template #default="scope">{{ marketLabel(scope.row.market) }}</template>
-            </el-table-column>
-            <el-table-column label="最新价" width="130" align="right">
-              <template #default="scope">
-                <span>{{ formatNum(scope.row.last) }}</span>
-                <el-tag v-if="scope.row.quoteSource === 'longbridge'" size="small" type="success" effect="plain" class="src-tag">实时</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="涨跌" width="100" align="right">
-              <template #default="scope">
-                <span :class="chgClass(scope.row.changeRate)">{{ formatPct(scope.row.changeRate) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="建议" width="90" align="center">
-              <template #default="scope">
-                <el-tag v-if="scope.row.recommendation" size="small" :type="recType(scope.row.recommendation)" effect="dark">
-                  {{ scope.row.recommendation }}
-                </el-tag>
-                <span v-else class="muted">待分析</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="立场" width="80" align="center">
-              <template #default="scope">{{ scope.row.stance || '--' }}</template>
-            </el-table-column>
-            <el-table-column label="置信度" width="80" align="center">
-              <template #default="scope">{{ scope.row.confidence != null ? scope.row.confidence : '--' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
-              <template #default="scope">
-                <el-button link type="primary" @click.stop="openSymbol(scope.row)">详情</el-button>
-                <el-button link type="success" :loading="analyzingId === scope.row.id" @click.stop="handleAnalyzeOne(scope.row)" v-hasPermi="['market:watchlist:analyze']">分析</el-button>
-                <el-button link type="danger" @click.stop="handleDelete(scope.row)" v-hasPermi="['market:watchlist:remove']">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!items.length && !loading" description="还没有自选股，点击「新增自选」开始关注" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="9">
+            <div class="sym-quote">
+              <span>{{ formatNum(row.last) }}</span>
+              <span :class="chgClass(row.changeRate)">{{ formatPct(row.changeRate) }}</span>
+            </div>
+          </div>
+          <el-empty v-if="!filteredItems.length" description="当前分组没有标的" :image-size="56" />
+        </el-scrollbar>
+      </aside>
+
+      <section class="col-mid">
+        <div class="mid-head" v-if="current">
+          <div>
+            <strong>{{ current.name || current.symbol }}</strong>
+            <span class="muted">{{ current.symbol }} · {{ marketLabel(current.market) }}</span>
+          </div>
+          <div class="mid-acts">
+            <el-radio-group v-model="period" size="small" @change="loadChart">
+              <el-radio-button label="daily">日K</el-radio-button>
+              <el-radio-button label="weekly">周K</el-radio-button>
+              <el-radio-button label="monthly">月K</el-radio-button>
+            </el-radio-group>
+            <el-button link type="primary" @click="openSymbol(current)">详情</el-button>
+            <el-button link type="success" :loading="analyzingId === current.id" @click="handleAnalyzeOne(current)" v-hasPermi="['market:watchlist:analyze']">分析</el-button>
+            <el-button link type="danger" @click="handleDelete(current)" v-hasPermi="['market:watchlist:remove']">移除</el-button>
+          </div>
+        </div>
+        <div ref="chartRef" class="kline-chart" v-show="current" v-loading="chartLoading" />
+        <el-empty v-if="!current" description="选择左侧一只自选股查看走势" :image-size="72" />
+      </section>
+
+      <aside class="col-right" v-if="showDetailPane">
         <el-card shadow="never" class="panel" v-if="current">
           <template #header>
             <div class="panel-header">
-              <span class="panel-title">{{ current.symbol }} {{ current.name || '' }}</span>
+              <span class="panel-title">详情</span>
               <el-tag v-if="current.recommendation" size="small" :type="recType(current.recommendation)" effect="dark">{{ current.recommendation }}</el-tag>
             </div>
           </template>
+          <div class="quote-line">
+            <b :class="chgClass(current.changeRate)">{{ formatNum(current.last) }}</b>
+            <span :class="chgClass(current.changeRate)">{{ formatPct(current.changeRate) }}</span>
+          </div>
+          <div class="meta-grid">
+            <div><span>市场</span><b>{{ marketLabel(current.market) }}</b></div>
+            <div><span>分组</span><b>{{ (current.groups || []).join('、') || '未分组' }}</b></div>
+            <div><span>备注</span><b>{{ current.note || '--' }}</b></div>
+            <div><span>分析</span><b>{{ current.analysisTime || '尚未分析' }}</b></div>
+          </div>
+          <div class="row-acts">
+            <el-button link type="primary" @click="openSymbol(current)">标的详情</el-button>
+            <el-button link type="success" :loading="analyzingId === current.id" @click="handleAnalyzeOne(current)" v-hasPermi="['market:watchlist:analyze']">分析</el-button>
+            <el-button link type="danger" @click="handleDelete(current)" v-hasPermi="['market:watchlist:remove']">移除</el-button>
+          </div>
           <div class="advice-block">
-            <div class="advice-meta">
-              <span>立场 {{ current.stance || '--' }}</span>
-              <span>置信度 {{ current.confidence != null ? current.confidence : '--' }}</span>
-              <span>{{ current.source === 'rule' ? '指标兜底' : (current.source === 'ai' ? 'AI 综合' : '未分析') }}</span>
-            </div>
-            <p class="advice-summary">{{ current.summary || '暂无分析摘要，请点击「分析」。' }}</p>
+            <p class="advice-summary">{{ current.summary || '暂无分析摘要，请点「分析」。' }}</p>
           </div>
           <el-tabs v-model="activeTab">
-            <el-tab-pane label="操作建议" name="advice">
+            <el-tab-pane label="建议" name="advice">
               <p class="tab-body">{{ (current.analysis && current.analysis.operationAdvice) || '暂无' }}</p>
               <p class="risk" v-if="current.analysis && current.analysis.riskWarning">风险：{{ current.analysis.riskWarning }}</p>
             </el-tab-pane>
-            <el-tab-pane label="技术指标" name="indicator">
-              <p class="tab-body">{{ (current.analysis && current.analysis.indicatorReview) || '暂无指标解读' }}</p>
+            <el-tab-pane label="指标" name="indicator">
+              <p class="tab-body">{{ (current.analysis && current.analysis.indicatorReview) || '暂无' }}</p>
             </el-tab-pane>
-            <el-tab-pane label="长桥资讯" name="news">
-              <p class="tab-body">{{ (current.analysis && current.analysis.newsReview) || '暂无资讯解读' }}</p>
+            <el-tab-pane label="资讯" name="news">
+              <p class="tab-body">{{ (current.analysis && current.analysis.newsReview) || '暂无' }}</p>
             </el-tab-pane>
             <el-tab-pane label="舆情" name="sentiment">
-              <p class="tab-body">{{ (current.analysis && current.analysis.sentimentReview) || '暂无舆情解读' }}</p>
+              <p class="tab-body">{{ (current.analysis && current.analysis.sentimentReview) || '暂无' }}</p>
             </el-tab-pane>
           </el-tabs>
           <div class="hist-block">
             <div class="hist-title">分析历史</div>
             <div v-show="historySeries.length" ref="histRef" class="hist-chart"></div>
-            <el-empty v-if="!historySeries.length" description="暂无历史，分析后可看置信度变化" :image-size="48" />
-          </div>
-          <div class="drawer-foot">
-            <span class="muted">{{ current.analysisTime || '尚未分析' }}</span>
-            <el-button link type="primary" @click="openSymbol(current)">打开标的详情</el-button>
+            <el-empty v-if="!historySeries.length" description="暂无历史" :image-size="40" />
           </div>
         </el-card>
         <el-card shadow="never" class="panel" v-else>
-          <el-empty description="选择左侧一只自选股查看综合建议" :image-size="80" />
+          <el-empty description="选择左侧一只自选股查看详情" :image-size="64" />
         </el-card>
-      </el-col>
-    </el-row>
+      </aside>
+    </div>
 
     <el-dialog title="新增自选" v-model="open" width="480px" append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
@@ -192,8 +202,8 @@
             <el-option v-for="it in instruments" :key="it.symbol + it.market" :label="`${it.name} (${it.symbol})`" :value="it.symbol + '|' + it.market" />
           </el-select>
         </el-form-item>
-        <el-form-item label="备注" prop="note">
-          <el-input v-model="form.note" type="textarea" :rows="3" placeholder="可选备注，例如持仓理由" />
+        <el-form-item label="分组" prop="note">
+          <el-input v-model="form.note" placeholder="分组名，多个用逗号，如 七巨头,持仓" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -213,7 +223,8 @@ import {
   analyzeMarketWatchlist,
   getMarketWatchlistAnalysis,
   getMarketWatchlistBacktest,
-  listInstrument
+  listInstrument,
+  getKline
 } from '@/api/market'
 
 const { proxy } = getCurrentInstance()
@@ -227,6 +238,24 @@ const historySeries = ref([])
 const histRef = ref(null)
 const { setOption: setHistOption, dispose: disposeHist } = useEChart(histRef)
 const items = computed(() => overview.value.items || [])
+const groups = computed(() => overview.value.groups || [])
+const activeGroup = ref('')
+const keyword = ref('')
+const period = ref('daily')
+const chartLoading = ref(false)
+const chartRef = ref(null)
+const { setOption: setChartOption, dispose: disposeChart } = useEChart(chartRef)
+const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+const showDetailPane = computed(() => viewportWidth.value >= 1100)
+const filteredItems = computed(() => {
+  const kw = (keyword.value || '').trim().toLowerCase()
+  return items.value.filter(row => {
+    const groupOk = !activeGroup.value || (row.groups || []).includes(activeGroup.value)
+    if (!groupOk) return false
+    if (!kw) return true
+    return `${row.symbol} ${row.name || ''} ${row.note || ''}`.toLowerCase().includes(kw)
+  })
+})
 const current = ref(null)
 const activeTab = ref('advice')
 const instruments = ref([])
@@ -294,6 +323,33 @@ function selectRow(row) {
   current.value = row
   activeTab.value = 'advice'
   loadHistory(row)
+  loadChart()
+}
+
+async function loadChart() {
+  if (!current.value || !chartRef.value) return
+  chartLoading.value = true
+  try {
+    const res = await getKline({
+      symbol: current.value.symbol,
+      market: current.value.market || 'US',
+      period: period.value
+    })
+    const rows = (res.data && (res.data.klines || res.data.rows)) || res.rows || []
+    const dates = rows.map(d => d.date)
+    const ohlc = rows.map(d => [d.open, d.close, d.low, d.high])
+    setChartOption({
+      tooltip: { trigger: 'axis' },
+      grid: { left: 48, right: 16, top: 16, bottom: 28 },
+      xAxis: { type: 'category', data: dates, axisLabel: { formatter: v => String(v).slice(5) } },
+      yAxis: { type: 'value', scale: true, splitNumber: 4 },
+      series: [{ type: 'candlestick', data: ohlc, itemStyle: { color: '#ef4444', color0: '#10b981', borderColor: '#ef4444', borderColor0: '#10b981' } }]
+    }, true)
+  } catch {
+    setChartOption({ series: [] }, true)
+  } finally {
+    chartLoading.value = false
+  }
 }
 
 function loadHistory(row) {
@@ -338,7 +394,10 @@ async function loadOverview() {
     } else {
       current.value = rows[0] || null
     }
-    if (current.value) loadHistory(current.value)
+    if (current.value) {
+      loadHistory(current.value)
+      nextTick(loadChart)
+    }
   } finally {
     loading.value = false
   }
@@ -449,15 +508,22 @@ async function loadOverviewQuiet() {
   }
 }
 
+function onResize() {
+  viewportWidth.value = window.innerWidth
+}
+
 onMounted(() => {
   loadInstruments()
   loadOverview()
   loadBacktest()
   quoteTimer = setInterval(loadOverviewQuiet, 8000)
+  window.addEventListener('resize', onResize)
 })
 onBeforeUnmount(() => {
   if (quoteTimer) clearInterval(quoteTimer)
+  window.removeEventListener('resize', onResize)
   disposeHist()
+  disposeChart()
 })
 </script>
 
@@ -502,4 +568,45 @@ onBeforeUnmount(() => {
 .mini-stat { background: var(--surface-card, #f8fafc); border: 1px solid var(--border-soft, #e5e7eb); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
 .mini-label { font-size: 12px; color: #909399; }
 .mini-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.watch-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1.35fr) minmax(300px, 0.9fr);
+  gap: 12px;
+  min-height: 620px;
+  align-items: stretch;
+}
+.col-left, .col-mid, .col-right { min-width: 0; }
+.col-left, .col-mid {
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  padding: 12px;
+}
+.group-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.group-chip {
+  border: 1px solid var(--el-border-color); background: transparent; border-radius: 999px;
+  padding: 2px 10px; font-size: 12px; cursor: pointer; color: inherit;
+}
+.group-chip.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+.mb8 { margin-bottom: 8px; }
+.sym-scroll { height: 520px; }
+.sym-row {
+  display: flex; justify-content: space-between; gap: 8px; padding: 8px 6px;
+  border-radius: 8px; cursor: pointer;
+}
+.sym-row:hover, .sym-row.active { background: var(--el-fill-color-light); }
+.sym-quote { text-align: right; font-size: 12px; display: flex; flex-direction: column; }
+.mid-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.mid-acts { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.kline-chart { height: 520px; }
+.quote-line { display: flex; gap: 10px; align-items: baseline; margin-bottom: 10px; b { font-size: 22px; } }
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;
+  span { display: block; font-size: 12px; color: #909399; }
+  b { font-size: 13px; font-weight: 600; }
+}
+.row-acts { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+@media (max-width: 1100px) {
+  .watch-shell { grid-template-columns: 240px minmax(0, 1fr); }
+  .col-right { display: none; }
+}
 </style>

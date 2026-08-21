@@ -53,7 +53,7 @@ DELETE FROM sys_menu WHERE menu_id BETWEEN 2132 AND 2136;
 DELETE FROM sys_job WHERE job_id = 109;
 
 INSERT INTO sys_menu VALUES
-('2132', '自选清单', '2100', '12', 'watchlist', 'market/watchlist/index', '', 'MarketWatchlistIndex', 1, 0, 'C', '0', '0', 'market:watchlist:list', 'star', 'admin', sysdate(), '', null, '行情中心自选清单，小时级 AI 综合分析'),
+('2132', '自选清单', '2100', '3', 'watchlist', 'market/watchlist/index', '', 'MarketWatchlistIndex', 1, 0, 'C', '0', '0', 'market:watchlist:list', 'star', 'admin', sysdate(), '', null, '行情中心自选与小时综合分析'),
 ('2133', '自选查询', '2132', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:watchlist:list', '#', 'admin', sysdate(), '', null, ''),
 ('2134', '自选新增', '2132', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:watchlist:add', '#', 'admin', sysdate(), '', null, ''),
 ('2135', '自选删除', '2132', '3', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:watchlist:remove', '#', 'admin', sysdate(), '', null, ''),

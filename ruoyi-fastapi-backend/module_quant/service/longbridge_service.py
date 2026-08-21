@@ -3,15 +3,18 @@
 
 设计要点：
 - 所有 longport 导入均放在函数内部（延迟导入），凭据为空/SDK缺失时不崩溃。
-- 凭据来源优先级：DB 表 quant_longbridge_config > LongbridgeConfig(env)。
+- 凭据来源优先级：当前用户 DB 行 >（无用户上下文时管理员 user_id=1）> LongbridgeConfig(env)。
+- 请求级凭据存放在 ContextVar，避免并发请求互相覆盖。
 - 通过环境变量把凭据交给官方 SDK 的 Config.from_apikey 构建 QuoteContext/TradeContext。
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import time
+from contextvars import ContextVar
 from typing import Any
 
 from module_quant.service.longbridge_quote import (
@@ -38,6 +41,10 @@ _TRADES_CACHE_TTL = 3
 _LB_MIN_INTERVAL = 0.12
 _lb_lock = asyncio.Lock()
 _lb_last_call = 0.0
+ADMIN_LONGBRIDGE_USER_ID = 1
+_request_credentials: ContextVar[dict[str, str] | None] = ContextVar(
+    'longbridge_request_credentials', default=None
+)
 
 
 def _resolve_region(region: str | None) -> str:
@@ -60,58 +67,88 @@ def _endpoints(region: str) -> dict[str, str]:
     }
 
 
+def peek_request_user_id() -> int | None:
+    """读取请求上下文中的登录用户；后台任务无上下文时返回 None。"""
+    try:
+        from common.context import current_user
+
+        ctx = current_user.get()
+        user_id = getattr(getattr(ctx, 'user', None), 'user_id', None)
+        if user_id:
+            return int(user_id)
+    except Exception:
+        return None
+    return None
+
+
+def resolve_longbridge_user_id(user_id: int | None = None) -> int:
+    """解析长桥凭据所属用户：显式 user_id > 请求用户 > 管理员(1)。"""
+    if user_id is not None:
+        return int(user_id)
+    peeked = peek_request_user_id()
+    if peeked is not None:
+        return peeked
+    return ADMIN_LONGBRIDGE_USER_ID
+
+
+def _decrypt_or_raw(value: str | None) -> str:
+    """解密凭据；兼容历史明文存量（解密失败按原值返回）。"""
+    if not value:
+        return ''
+    try:
+        from utils.crypto_util import CryptoUtil
+
+        return CryptoUtil.decrypt(value)
+    except Exception:
+        return str(value)
+
+
 class LongbridgeService:
     """
     长桥行情/交易封装。凭据缺失时所有方法返回 configured=False，不抛异常。
     """
 
-    # 运行期凭据覆盖（由 service 层在读取 DB 后注入，避免此模块直接依赖 DB）
-    _override_credentials: dict[str, str] | None = None
-    _cached_creds_sig: str | None = None
-    _cached_quote_ctx: Any = None
-    _cached_trade_ctx: Any = None
-    _cached_content_ctx: Any = None
+    # 运行期凭据覆盖在 ContextVar（请求隔离）；上下文按凭据签名缓存
+    _cached_quote_ctxs: dict[str, Any] = {}
+    _cached_trade_ctxs: dict[str, Any] = {}
+    _cached_content_ctxs: dict[str, Any] = {}
 
     @classmethod
     def _clear_cached_contexts(cls) -> None:
         """清理已缓存的上下文对象"""
-        cls._cached_quote_ctx = None
-        cls._cached_trade_ctx = None
-        cls._cached_content_ctx = None
-        cls._cached_creds_sig = None
+        cls._cached_quote_ctxs.clear()
+        cls._cached_trade_ctxs.clear()
+        cls._cached_content_ctxs.clear()
 
     @classmethod
     def set_credentials(cls, credentials: dict[str, str] | None) -> None:
         """
-        设置来自 DB 的凭据覆盖（优先级高于 env）。传 None 清除覆盖。
-
-        :param credentials: {'app_key','app_secret','access_token','region'}
+        设置来自 DB 的凭据覆盖（优先级高于 env，仅作用于当前任务/请求）。
+        传 None 清除覆盖。
         """
         if credentials and any(
             credentials.get(k) for k in ('app_key', 'app_secret', 'access_token')
         ):
-            cls._override_credentials = credentials
+            _request_credentials.set(credentials)
         else:
-            cls._override_credentials = None
-        cls._clear_cached_contexts()
+            _request_credentials.set(None)
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
         """
-        解析当前生效凭据：DB覆盖 > env(LongbridgeConfig)。
-
-        :return: {'app_key','app_secret','access_token','region','source'}
+        解析当前生效凭据：请求级 DB 覆盖 > env(LongbridgeConfig)。
         """
-        if cls._override_credentials:
-            creds = cls._override_credentials
+        override = _request_credentials.get()
+        if override:
+            creds = override
             return {
                 'app_key': str(creds.get('app_key') or ''),
                 'app_secret': str(creds.get('app_secret') or ''),
                 'access_token': str(creds.get('access_token') or ''),
                 'region': _resolve_region(creds.get('region')),
                 'source': 'db',
+                'user_id': str(creds.get('user_id') or ''),
             }
-        # 回退到 env 配置
         try:
             from config.env import LongbridgeConfig
 
@@ -121,10 +158,18 @@ class LongbridgeService:
                 'access_token': str(LongbridgeConfig.longport_access_token or ''),
                 'region': _resolve_region(LongbridgeConfig.longport_region),
                 'source': 'env',
+                'user_id': '',
             }
         except Exception as exc:  # pragma: no cover
             logger.warning(f'[长桥] 读取env凭据失败: {exc}')
-            return {'app_key': '', 'app_secret': '', 'access_token': '', 'region': 'cn', 'source': 'none'}
+            return {
+                'app_key': '',
+                'app_secret': '',
+                'access_token': '',
+                'region': 'cn',
+                'source': 'none',
+                'user_id': '',
+            }
 
     @classmethod
     def is_configured(cls) -> bool:
@@ -148,7 +193,21 @@ class LongbridgeService:
     @classmethod
     def _get_creds_signature(cls, creds: dict[str, str]) -> str:
         """计算凭证摘要用于缓存失效检测"""
-        return f"{creds.get('app_key')}:{creds.get('app_secret')}:{creds.get('access_token')}:{creds.get('region')}"
+        return (
+            f"{creds.get('user_id')}:{creds.get('app_key')}:{creds.get('app_secret')}:"
+            f"{creds.get('access_token')}:{creds.get('region')}"
+        )
+
+    @classmethod
+    def _creds_cache_tag(cls) -> str:
+        """账户/持仓缓存分片：按用户或凭据摘要隔离，避免串号。"""
+        creds = cls.resolve_credentials()
+        user_id = str(creds.get('user_id') or '').strip()
+        if user_id:
+            return f'u{user_id}'
+        token = creds.get('access_token') or creds.get('app_key') or 'none'
+        digest = hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]
+        return f'e{digest}'
 
     @classmethod
     def _build_config(cls) -> Any:
@@ -194,8 +253,9 @@ class LongbridgeService:
             return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
-        if cls._cached_quote_ctx is not None and cls._cached_creds_sig == sig:
-            return cls._cached_quote_ctx
+        cached = cls._cached_quote_ctxs.get(sig)
+        if cached is not None:
+            return cached
 
         config = cls._build_config()
         if config is None:
@@ -203,9 +263,9 @@ class LongbridgeService:
         from longport.openapi import QuoteContext
 
         try:
-            cls._cached_quote_ctx = QuoteContext(config)
-            cls._cached_creds_sig = sig
-            return cls._cached_quote_ctx
+            ctx = QuoteContext(config)
+            cls._cached_quote_ctxs[sig] = ctx
+            return ctx
         except Exception as exc:
             cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 构建QuoteContext失败: {exc}')
@@ -218,8 +278,9 @@ class LongbridgeService:
             return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
-        if cls._cached_trade_ctx is not None and cls._cached_creds_sig == sig:
-            return cls._cached_trade_ctx
+        cached = cls._cached_trade_ctxs.get(sig)
+        if cached is not None:
+            return cached
 
         config = cls._build_config()
         if config is None:
@@ -227,9 +288,9 @@ class LongbridgeService:
         from longport.openapi import TradeContext
 
         try:
-            cls._cached_trade_ctx = TradeContext(config)
-            cls._cached_creds_sig = sig
-            return cls._cached_trade_ctx
+            ctx = TradeContext(config)
+            cls._cached_trade_ctxs[sig] = ctx
+            return ctx
         except Exception as exc:
             cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 构建TradeContext失败: {exc}')
@@ -280,26 +341,31 @@ class LongbridgeService:
         return f'{raw}.{suffix}'
 
     @classmethod
-    async def ensure_credentials_from_db(cls, query_db: Any) -> None:
+    async def ensure_credentials_from_db(cls, query_db: Any, user_id: int | None = None) -> None:
         """
-        从 quant_longbridge_config 注入凭据（DB 优先）。
-        延迟导入 DAO 避免循环依赖。
+        从 quant_longbridge_config 注入当前用户凭据（DB 优先）。
+        有登录用户时只读该用户行；无用户上下文时回退管理员 user_id=1，再交给 env。
         """
         try:
             from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
 
-            config = await QuantLongbridgeConfigDao.get_config(query_db)
+            target_id = resolve_longbridge_user_id(user_id)
+            config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
             if config and (config.app_key or config.app_secret or config.access_token):
                 cls.set_credentials(
                     {
-                        'app_key': config.app_key,
-                        'app_secret': config.app_secret,
-                        'access_token': config.access_token,
+                        'app_key': config.app_key or '',
+                        'app_secret': _decrypt_or_raw(config.app_secret),
+                        'access_token': _decrypt_or_raw(config.access_token),
                         'region': config.region,
+                        'user_id': str(getattr(config, 'user_id', None) or target_id),
                     }
                 )
+            else:
+                cls.set_credentials(None)
         except Exception as exc:
             logger.warning(f'[长桥] 从DB加载凭据失败: {exc}')
+            cls.set_credentials(None)
 
     @classmethod
     def get_realtime_quote(cls, symbols: list[str] | str) -> dict[str, Any]:
@@ -703,8 +769,9 @@ class LongbridgeService:
             return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
-        if cls._cached_content_ctx is not None and cls._cached_creds_sig == sig:
-            return cls._cached_content_ctx
+        cached = cls._cached_content_ctxs.get(sig)
+        if cached is not None:
+            return cached
 
         config = cls._build_config()
         if config is None:
@@ -712,9 +779,9 @@ class LongbridgeService:
         try:
             from longport.openapi import ContentContext
 
-            cls._cached_content_ctx = ContentContext(config)
-            cls._cached_creds_sig = sig
-            return cls._cached_content_ctx
+            ctx = ContentContext(config)
+            cls._cached_content_ctxs[sig] = ctx
+            return ctx
         except Exception as exc:
             logger.warning(f'[长桥] ContentContext 不可用: {exc}')
             return None
@@ -1037,7 +1104,7 @@ class LongbridgeService:
     @classmethod
     async def get_realtime_quote_async(cls, symbols: list[str] | str, market: str = 'US') -> dict[str, Any]:
         normalized = cls.normalize_symbols(symbols, market)
-        cache_key = 'lb:quote:' + ','.join(sorted(normalized))
+        cache_key = f'lb:quote:{cls._creds_cache_tag()}:' + ','.join(sorted(normalized))
         cached = await cache_get_json(cache_key)
         if cached:
             cached['cached'] = True
@@ -1058,7 +1125,7 @@ class LongbridgeService:
 
     @classmethod
     async def get_account_balance_async(cls) -> dict[str, Any]:
-        cache_key = 'lb:account'
+        cache_key = f'lb:account:{cls._creds_cache_tag()}'
         cached = await cache_get_json(cache_key)
         if cached:
             cached['cached'] = True
@@ -1073,7 +1140,7 @@ class LongbridgeService:
 
     @classmethod
     async def get_positions_async(cls) -> dict[str, Any]:
-        cache_key = 'lb:positions'
+        cache_key = f'lb:positions:{cls._creds_cache_tag()}'
         cached = await cache_get_json(cache_key)
         if cached:
             cached['cached'] = True
