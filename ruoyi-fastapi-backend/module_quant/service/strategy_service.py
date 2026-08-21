@@ -90,7 +90,7 @@ class StrategyService:
 
         :return: {symbol, market, signal, score, confidence, reason, factor_json(dict)} 或 {ok:False}
         """
-        result = FactorService.compute_symbol(symbol, market, strategy_profile)
+        result = FactorService.compute_symbol(symbol, market, strategy_profile, weights=custom_config)
         if not result.get('ok'):
             logger.warning(f'[量化策略] {symbol}({market}) 因子计算跳过: {result.get("reason")}')
             return {

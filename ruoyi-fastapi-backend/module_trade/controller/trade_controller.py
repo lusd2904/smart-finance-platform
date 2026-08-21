@@ -63,6 +63,21 @@ async def trade_orders(
 
 
 @trade_controller.get(
+    '/order/{order_id}',
+    summary='单笔订单状态',
+    description='在今日与历史委托中查找，返回最新状态/成交量',
+    dependencies=[UserInterfaceAuthDependency('trade:order:list')],
+)
+async def trade_order_detail(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    order_id: Annotated[str, Path(description='长桥订单号')],
+) -> Response:
+    data = await TradeService.get_order_services(query_db, order_id)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
     '/quote/depth',
     summary='标的买卖盘',
     description='长桥 QuoteContext.depth；A股返回空盘口提示，不补造档位',

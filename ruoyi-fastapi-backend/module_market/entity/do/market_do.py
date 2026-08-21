@@ -131,11 +131,12 @@ class MarketWatchlist(Base):
 
     __tablename__ = 'market_watchlist'
     __table_args__ = (
-        UniqueConstraint('symbol', 'market', name='uk_market_watchlist_symbol'),
+        UniqueConstraint('user_id', 'symbol', 'market', name='uk_market_watchlist_user_symbol'),
         {'comment': '行情中心自选清单'},
     )
 
     id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场 US/HK/CN')
     name = Column(String(100), nullable=True, comment='名称')
@@ -156,6 +157,7 @@ class MarketWatchlistAnalysis(Base):
 
     analysis_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='分析ID')
     watchlist_id = Column(BigInteger, nullable=True, index=True, comment='自选ID')
+    user_id = Column(BigInteger, nullable=True, server_default='1', index=True, comment='用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
     price = Column(Float, nullable=True, comment='分析时价格')

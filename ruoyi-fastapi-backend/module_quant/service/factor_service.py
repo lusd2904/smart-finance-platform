@@ -103,6 +103,35 @@ PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
 # 风险扣分放大系数：保守型对风险更敏感
 PROFILE_RISK_MULTIPLIER = {'conservative': 1.4, 'balanced': 1.0, 'aggressive': 0.7}
 
+WEIGHT_ALIASES = {
+    'volume': 'volumeFlow',
+    'volume_flow': 'volumeFlow',
+    'price_action': 'priceAction',
+    'priceaction': 'priceAction',
+    'value': 'reversion',
+    'quality': 'liquidity',
+}
+
+
+def merge_profile_weights(profile: str, custom: dict[str, Any] | None = None) -> dict[str, float]:
+    """把落库的策略权重合并进 8 大因子族默认权重。"""
+    key = profile if profile in PROFILE_WEIGHTS else 'balanced'
+    weights = dict(PROFILE_WEIGHTS[key])
+    if not custom:
+        return weights
+    raw = custom.get('weights') if isinstance(custom.get('weights'), dict) else custom
+    if not isinstance(raw, dict):
+        return weights
+    for name, value in raw.items():
+        mapped = WEIGHT_ALIASES.get(str(name), str(name))
+        if mapped not in weights:
+            continue
+        try:
+            weights[mapped] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return weights
+
 
 # ---------------------------------------------------------------------- 工具函数 ---
 
@@ -420,7 +449,11 @@ def compute_metrics(klines: list[dict[str, Any]]) -> dict[str, Any]:
 # ------------------------------------------------------------------ 打分 ---
 
 
-def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -> dict[str, Any]:
+def score_metrics(
+    metrics: dict[str, Any],
+    strategy_profile: str = 'balanced',
+    weights: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     对指标快照按 8 大因子族打分，返回各族得分 + 综合分 + 风险等级 + 标签。
 
@@ -646,7 +679,7 @@ def score_metrics(metrics: dict[str, Any], strategy_profile: str = 'balanced') -
         risk_level = 'medium' if risk_level == 'low' else risk_level
     risk_penalty *= PROFILE_RISK_MULTIPLIER.get(profile, 1.0)
 
-    weights = PROFILE_WEIGHTS[profile]
+    weights = merge_profile_weights(profile, weights)
     raw_total = (
         42
         + trend * weights['trend']
@@ -708,7 +741,10 @@ class FactorService:
 
     @classmethod
     def compute_from_klines(
-        cls, klines: list[dict[str, Any]], strategy_profile: str = 'balanced'
+        cls,
+        klines: list[dict[str, Any]],
+        strategy_profile: str = 'balanced',
+        weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """
         对给定K线计算因子 + 打分（纯计算，不访问数据库/行情源）。
@@ -718,12 +754,17 @@ class FactorService:
         metrics = compute_metrics(klines)
         if not metrics.get('ok'):
             return {'ok': False, 'reason': metrics.get('reason'), 'historyCount': metrics.get('historyCount', 0)}
-        score = score_metrics(metrics, strategy_profile)
+        score = score_metrics(metrics, strategy_profile, weights=weights)
         return {'ok': True, 'metrics': metrics, 'score': score}
 
     @classmethod
     def compute_symbol(
-        cls, symbol: str, market: str = 'US', strategy_profile: str = 'balanced', start: str = '-1y'
+        cls,
+        symbol: str,
+        market: str = 'US',
+        strategy_profile: str = 'balanced',
+        start: str = '-1y',
+        weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """
         拉取时序库K线并计算某标的因子 + 打分。
@@ -739,7 +780,7 @@ class FactorService:
             klines = InfluxUtil.query_klines(market, symbol, start=start, limit=320)
         except Exception as exc:  # 时序库不可用时不崩溃
             return {'ok': False, 'symbol': symbol, 'market': market, 'reason': f'K线拉取失败: {exc}'}
-        result = cls.compute_from_klines(klines, strategy_profile)
+        result = cls.compute_from_klines(klines, strategy_profile, weights=weights)
         result['symbol'] = symbol
         result['market'] = market
         return result

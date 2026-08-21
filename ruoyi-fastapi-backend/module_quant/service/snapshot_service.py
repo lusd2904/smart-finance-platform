@@ -7,6 +7,8 @@ Phase 2 定时扫描与读模型快照：
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import datetime
 from typing import Any
@@ -43,8 +45,14 @@ class SnapshotService:
         return rows
 
     @classmethod
-    def compute_symbol_snapshot(cls, symbol: str, market: str, profile: str = 'balanced') -> dict[str, Any]:
-        result = FactorService.compute_symbol(symbol, market, profile)
+    def compute_symbol_snapshot(
+        cls,
+        symbol: str,
+        market: str,
+        profile: str = 'balanced',
+        weights: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = FactorService.compute_symbol(symbol, market, profile, weights=weights)
         if not result.get('ok'):
             return {
                 'ok': False,
@@ -72,12 +80,15 @@ class SnapshotService:
     async def run_daily_factor_scan(
         cls, db: AsyncSession, profile: str = 'balanced'
     ) -> dict[str, Any]:
+        from module_quant.service.quant_service import QuantService
+
         universe = cls._scan_universe()
         ok_items: list[dict[str, Any]] = []
         failed: list[dict[str, str]] = []
+        profile_cfg = await QuantService.load_profile_config(db, profile)
         for symbol, _name, market in universe:
             try:
-                snap = await _to_thread(cls.compute_symbol_snapshot, symbol, market, profile)
+                snap = await _to_thread(cls.compute_symbol_snapshot, symbol, market, profile, profile_cfg)
             except Exception as exc:
                 failed.append({'symbol': symbol, 'reason': str(exc)})
                 continue
@@ -307,6 +318,31 @@ class SnapshotService:
                 }
             )
         return items
+
+    @classmethod
+    async def export_factor_snapshots_csv(cls, db: AsyncSession) -> tuple[str, bytes]:
+        items = await cls.list_factor_snapshots(db, limit=200)
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            ['symbol', 'market', 'asOf', 'total', 'riskLevel', 'trendDirection', 'alpha101Count', 'alpha158Count', 'createTime']
+        )
+        for it in items:
+            writer.writerow(
+                [
+                    it.get('symbol'),
+                    it.get('market'),
+                    it.get('asOf'),
+                    it.get('total'),
+                    it.get('riskLevel'),
+                    it.get('trendDirection'),
+                    it.get('alpha101Count'),
+                    it.get('alpha158Count'),
+                    it.get('createTime'),
+                ]
+            )
+        filename = f'factor_snapshots_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        return filename, ('\ufeff' + buf.getvalue()).encode('utf-8')
 
 
 def _top_alpha(values: dict[str, Any], limit: int = 12) -> dict[str, float]:

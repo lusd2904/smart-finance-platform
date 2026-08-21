@@ -140,7 +140,28 @@ npm install
 npm run smoke:pages
 ```
 
-### 5. 桌面端（本机 / 云上网关）
+### 5. 上线前检查
+
+```bash
+# 增量 SQL（已有库务必执行）
+docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
+  < ruoyi-fastapi-backend/sql/web-polish.sql
+
+# 关键路径
+npm install
+npx playwright install chromium
+npm run e2e:web
+```
+
+生产注意：
+
+1. 修改默认密码 `admin / admin123`，换掉 JWT 与数据库密码。
+2. 在 **AI 模型管理** 配置 Base URL / API Key / 模型（自选小时分析、行情研判共用）。
+3. 在 **长桥配置** 填写凭证后，自选清单才能叠实时价、交易台才能下单。
+4. 任务管理启用「自选清单小时分析」；因子质检 / 日扫按需打开。
+5. 策略配置页保存的 8 大因子族权重会进入打分与扫描。
+
+### 6. 桌面端（本机 / 云上网关）
 
 ```bash
 cd desktop

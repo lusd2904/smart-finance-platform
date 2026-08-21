@@ -4,6 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS market_watchlist (
   id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT NOT NULL DEFAULT 1 COMMENT '用户ID',
   symbol VARCHAR(32) NOT NULL COMMENT '标的代码',
   market VARCHAR(10) NOT NULL DEFAULT 'US' COMMENT '市场 US/HK/CN',
   name VARCHAR(100) NULL COMMENT '名称',
@@ -13,12 +14,14 @@ CREATE TABLE IF NOT EXISTS market_watchlist (
   create_time DATETIME NULL COMMENT '加入时间',
   update_time DATETIME NULL COMMENT '更新时间',
   PRIMARY KEY (id),
-  UNIQUE KEY uk_market_watchlist_symbol (symbol, market)
+  UNIQUE KEY uk_market_watchlist_user_symbol (user_id, symbol, market),
+  KEY ix_watchlist_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行情中心自选清单';
 
 CREATE TABLE IF NOT EXISTS market_watchlist_analysis (
   analysis_id BIGINT NOT NULL AUTO_INCREMENT COMMENT '分析ID',
   watchlist_id BIGINT NULL COMMENT '自选ID',
+  user_id BIGINT NULL DEFAULT 1 COMMENT '用户ID',
   symbol VARCHAR(32) NOT NULL COMMENT '标的代码',
   market VARCHAR(10) NOT NULL DEFAULT 'US' COMMENT '市场',
   price DOUBLE NULL COMMENT '分析时价格',
@@ -41,7 +44,8 @@ CREATE TABLE IF NOT EXISTS market_watchlist_analysis (
   analysis_time DATETIME NULL COMMENT '分析时间',
   PRIMARY KEY (analysis_id),
   KEY ix_watchlist_symbol_time (symbol, analysis_time),
-  KEY ix_watchlist_id (watchlist_id)
+  KEY ix_watchlist_id (watchlist_id),
+  KEY ix_watchlist_analysis_user (user_id, symbol, analysis_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行情自选综合分析';
 
 DELETE FROM sys_role_menu WHERE menu_id BETWEEN 2132 AND 2136;

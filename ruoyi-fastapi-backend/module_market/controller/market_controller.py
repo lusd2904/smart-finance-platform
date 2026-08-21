@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
@@ -26,6 +28,14 @@ from module_market.service.market_service import MarketService
 from module_market.service.watchlist_service import MarketWatchlistService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
+
+
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
 
 market_controller = APIRouterPro(
     prefix='/market', order_num=31, tags=['行情数据'], dependencies=[PreAuthDependency()]
@@ -347,8 +357,9 @@ async def get_finance_briefings(
 async def get_market_watchlist_overview(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    data = await MarketWatchlistService.overview_services(query_db)
+    data = await MarketWatchlistService.overview_services(query_db, _current_user_id(current_user))
     return ResponseUtil.success(data=data)
 
 
@@ -362,8 +373,11 @@ async def get_market_watchlist_list(
     request: Request,
     watchlist_page_query: Annotated[MarketWatchlistPageQueryModel, Query()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await MarketWatchlistService.get_list_services(query_db, watchlist_page_query, is_page=True)
+    result = await MarketWatchlistService.get_list_services(
+        query_db, watchlist_page_query, is_page=True, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(model_content=result)
 
 
@@ -378,8 +392,9 @@ async def add_market_watchlist(
     request: Request,
     add_model: AddMarketWatchlistModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await MarketWatchlistService.add_services(query_db, add_model)
+    result = await MarketWatchlistService.add_services(query_db, add_model, _current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -395,8 +410,9 @@ async def delete_market_watchlist(
     request: Request,
     ids: Annotated[str, Path(description='需要删除的自选ID')],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await MarketWatchlistService.delete_services(query_db, ids)
+    result = await MarketWatchlistService.delete_services(query_db, ids, _current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -409,11 +425,14 @@ async def delete_market_watchlist(
 async def get_market_watchlist_analysis(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     symbol: Annotated[str, Query(description='标的代码')],
     market: Annotated[str, Query()] = 'US',
-    limit: Annotated[int, Query()] = 12,
+    limit: Annotated[int, Query()] = 24,
 ) -> Response:
-    data = await MarketWatchlistService.history_services(query_db, symbol, market, limit=limit)
+    data = await MarketWatchlistService.history_services(
+        query_db, symbol, market, limit=limit, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data)
 
 
@@ -427,8 +446,11 @@ async def get_market_watchlist_analysis(
 async def analyze_market_watchlist(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
 ) -> Response:
-    data = await MarketWatchlistService.analyze_services(query_db, body)
+    data = await MarketWatchlistService.analyze_services(
+        query_db, body, user_id=_current_user_id(current_user)
+    )
     logger.info(f'自选综合分析完成: {data.get("message")}')
     return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')

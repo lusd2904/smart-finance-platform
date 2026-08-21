@@ -87,6 +87,7 @@ services:
       - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
       - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
       - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
+      - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1
     networks:
       - sentiment-network

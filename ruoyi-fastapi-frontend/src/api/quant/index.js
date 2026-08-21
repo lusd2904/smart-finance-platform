@@ -32,6 +32,14 @@ export function listFactorSnapshots(limit = 80) {
   })
 }
 
+export function exportFactorSnapshots() {
+  return request({
+    url: '/quant/factor/snapshots/export',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
 export function runDailyFactorScan(profile = 'balanced') {
   return request({
     url: '/quant/scan/daily',
