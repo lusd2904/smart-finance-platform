@@ -60,6 +60,7 @@ Smart Finance Platform 在 RuoYi 权限体系之上，扩展了面向二级市�
 - 单标的深度研判（支撑/压力/建议/风险）
 - **批量 AI 扫描** + 批次历史明细
 - 模型与对话能力继承自 RuoYi-AI 模块
+- 舆情/全局模型 Base URL 在「AI 管理」配置（占位 `https://your-openai-compatible-endpoint/v1`），不要写死临时隧道主机
 
 ### 体验
 - 全局深色主题与门户入口（Cyber / Glass 风格）

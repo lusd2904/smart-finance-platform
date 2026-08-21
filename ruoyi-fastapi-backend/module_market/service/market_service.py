@@ -101,14 +101,12 @@ class MarketService:
             query_db, MarketInstrumentQueryModel(category=category, market=market)
         )
         by_market: dict[str, list[str]] = {}
-        meta_by_symbol: dict[str, dict[str, Any]] = {}
         for item in instruments:
             sym = str(item.get('symbol') or '').strip()
             if not sym:
                 continue
             mkt = str(item.get('market') or 'US').strip().upper() or 'US'
             by_market.setdefault(mkt, []).append(sym)
-            meta_by_symbol[sym] = item
 
         loop = asyncio.get_event_loop()
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}

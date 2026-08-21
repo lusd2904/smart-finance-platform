@@ -83,7 +83,7 @@ async def tradingview_time(request: Request) -> Response:
 @market_controller.get(
     '/board/quotes',
     summary='行情台批量报价',
-    description='一次返回全部标的最近两根日K（Influx）。长桥密钥为空时仅用时序库，不编造价格。',
+    description='一次返回全部标的最近两根日K（Influx/DB only）。不调用长桥批量报价，不编造价格。',
     dependencies=[UserInterfaceAuthDependency('market:kline:list')],
 )
 async def get_market_board_quotes(
