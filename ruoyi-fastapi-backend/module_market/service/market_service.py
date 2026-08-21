@@ -75,7 +75,8 @@ class MarketService:
         获取标的列表service（若表为空则先初始化目标标的）。
         """
         existing = await MarketInstrumentDao.get_all_symbols(query_db)
-        if not existing:
+        missing = [item[0] for item in TARGET_INSTRUMENTS if item[0] not in existing]
+        if not existing or missing:
             await cls.init_instruments_services(query_db)
         rows = await MarketInstrumentDao.get_instrument_list(query_db, query_object)
         return [

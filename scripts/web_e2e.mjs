@@ -23,6 +23,8 @@ const pages = [
   { path: '/quant/strategy-config', text: '策略配置' },
   { path: '/trade/trading', text: '交易台' },
   { path: '/trade/orders', text: '订单' },
+  { path: '/market/board', text: '全市场行情台' },
+  { path: '/trade/notifications', text: '通知中心' },
 ]
 
 const browser = await chromium.launch({ headless: true })

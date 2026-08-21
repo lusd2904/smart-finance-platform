@@ -268,6 +268,23 @@ class QuantSnapshotDao:
         return row
 
     @classmethod
+    async def get_factor_snapshot(
+        cls, db: AsyncSession, symbol: str, market: str = 'US'
+    ) -> QuantFactorSnapshot | None:
+        return (
+            (
+                await db.execute(
+                    select(QuantFactorSnapshot).where(
+                        QuantFactorSnapshot.symbol == symbol,
+                        QuantFactorSnapshot.market == market,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
     async def list_latest_factor_snapshots(
         cls, db: AsyncSession, limit: int = 80
     ) -> list[QuantFactorSnapshot]:

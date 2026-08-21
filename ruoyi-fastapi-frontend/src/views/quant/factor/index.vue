@@ -78,6 +78,16 @@
                   <template #default="scope">{{ formatValue(scope.row.value) }}</template>
                 </el-table-column>
               </el-table>
+              <div v-if="alphaCsRows.length" class="alpha-title" style="margin-top:12px">
+                截面 rank
+                <el-tag size="small" effect="plain">Alpha101 CS {{ alphaCsRows.length }}</el-tag>
+              </div>
+              <el-table v-if="alphaCsRows.length" :data="alphaCsRows" size="small" max-height="200">
+                <el-table-column prop="key" label="因子" min-width="120" />
+                <el-table-column label="百分位" width="140" align="right">
+                  <template #default="scope">{{ formatValue(scope.row.value) }}</template>
+                </el-table-column>
+              </el-table>
             </div>
           </div>
           <el-empty v-else description="选择标的后计算因子" :image-size="80" />
@@ -200,6 +210,10 @@ const alphaRows = computed(() => {
     ...Object.keys(a158).slice(0, 24).map(k => ({ key: k, value: a158[k] })),
   ];
   return rows.filter(r => r.value != null).slice(0, 30);
+});
+const alphaCsRows = computed(() => {
+  const cs = computeResult.value?.alphaCs || computeResult.value?.metrics?.alphaCs || {};
+  return Object.keys(cs).map(k => ({ key: k, value: cs[k] }));
 });
 
 const totalScore = computed(() => {

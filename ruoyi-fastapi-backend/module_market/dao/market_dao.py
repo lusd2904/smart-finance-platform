@@ -36,6 +36,10 @@ class MarketInstrumentDao:
             )
             .order_by(MarketInstrument.category, MarketInstrument.symbol)
         )
+        keyword = (getattr(query_object, 'keyword', None) or '').strip().replace('%', '').replace('_', '')[:32]
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.where(or_(MarketInstrument.symbol.like(like), MarketInstrument.name.like(like)))
         rows = (await db.execute(query)).scalars().all()
         return list(rows)
 
@@ -352,6 +356,19 @@ class MarketWatchlistAnalysisDao:
         if user_id is not None:
             query = query.where(MarketWatchlistAnalysis.user_id == user_id)
         query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time)).limit(limit)
+        return list((await db.execute(query)).scalars().all())
+
+    @classmethod
+    async def list_recent_by_user(
+        cls, db: AsyncSession, user_id: int, limit: int = 200
+    ) -> list[MarketWatchlistAnalysis]:
+        limit = max(1, min(int(limit or 200), 400))
+        query = (
+            select(MarketWatchlistAnalysis)
+            .where(MarketWatchlistAnalysis.user_id == user_id)
+            .order_by(desc(MarketWatchlistAnalysis.analysis_time))
+            .limit(limit)
+        )
         return list((await db.execute(query)).scalars().all())
 
     @classmethod

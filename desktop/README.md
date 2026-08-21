@@ -22,7 +22,7 @@ npm install
 npm start
 ```
 
-首次启动会打开配置窗。可用菜单 **平台 → 网关设置** 随时改地址。
+**每次启动都会先打开网关配置窗**（已保存的地址会预填）。探测通过并点「进入」后才打开登录页。菜单 **平台 → 网关设置** 可随时改地址。
 
 ## 打包
 
@@ -30,6 +30,7 @@ npm start
 cd desktop
 npm run dist:mac    # macOS dmg/zip
 npm run dist:win    # Windows 安装包
+npm run dist:linux  # AppImage
 ```
 
-产物在 `desktop/release/`。
+产物在 `desktop/release/`。安装包同样会先弹出网关配置窗，探测通过后才打开登录页。

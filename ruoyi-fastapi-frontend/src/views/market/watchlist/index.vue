@@ -8,6 +8,7 @@
       <div class="hero-actions">
         <el-button type="primary" icon="Plus" @click="handleAdd" v-hasPermi="['market:watchlist:add']">新增自选</el-button>
         <el-button type="success" icon="MagicStick" :loading="analyzeAllLoading" @click="handleAnalyzeAll" v-hasPermi="['market:watchlist:analyze']">立即分析全部</el-button>
+        <el-button :loading="backtestLoading" @click="loadBacktest">建议回测</el-button>
         <el-button icon="Refresh" :loading="loading" @click="loadOverview">刷新</el-button>
       </div>
     </div>
@@ -29,6 +30,41 @@
         </div>
       </el-col>
     </el-row>
+
+    <el-card v-if="backtest.count != null" shadow="never" class="panel mb16" v-loading="backtestLoading">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">建议回测（1/5 日）</span>
+          <span class="panel-sub">{{ backtest.message || '买入/加仓为多，减仓/卖出为空' }}</span>
+        </div>
+      </template>
+      <el-row :gutter="12" class="mb16">
+        <el-col :xs="12" :sm="6" v-for="card in backtestCards" :key="card.label">
+          <div class="mini-stat">
+            <div class="mini-label">{{ card.label }}</div>
+            <div class="mini-value">{{ card.value }}</div>
+          </div>
+        </el-col>
+      </el-row>
+      <el-table :data="backtest.items || []" size="small" max-height="280">
+        <el-table-column prop="analysisTime" label="分析时间" width="160" />
+        <el-table-column prop="symbol" label="标的" width="100" />
+        <el-table-column prop="recommendation" label="建议" width="80" />
+        <el-table-column label="1日收益" width="100" align="right">
+          <template #default="scope">{{ formatPct(scope.row.fwd1) }}</template>
+        </el-table-column>
+        <el-table-column label="5日收益" width="100" align="right">
+          <template #default="scope">{{ formatPct(scope.row.fwd5) }}</template>
+        </el-table-column>
+        <el-table-column label="1日方向" width="90" align="center">
+          <template #default="scope">{{ hitLabel(scope.row.hit1) }}</template>
+        </el-table-column>
+        <el-table-column label="5日方向" width="90" align="center">
+          <template #default="scope">{{ hitLabel(scope.row.hit5) }}</template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!(backtest.items || []).length && !backtestLoading" description="暂无买入/卖出类建议，分析后再回测" :image-size="56" />
+    </el-card>
 
     <el-row :gutter="16">
       <el-col :xs="24" :lg="15">
@@ -136,8 +172,23 @@
 
     <el-dialog title="新增自选" v-model="open" width="480px" append-to-body>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
+        <el-form-item label="市场" prop="market">
+          <el-select v-model="form.market" style="width: 100%">
+            <el-option label="美股 US" value="US" />
+            <el-option label="港股 HK" value="HK" />
+            <el-option label="A股 CN" value="CN" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="标的" prop="symbolKey">
-          <el-select v-model="form.symbolKey" filterable placeholder="选择关注标的" style="width: 100%" @change="onSymbolChange">
+          <el-select
+            v-model="form.symbolKey"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="选择或输入代码，如 AAPL / 0700.HK / 600519"
+            style="width: 100%"
+            @change="onSymbolChange"
+          >
             <el-option v-for="it in instruments" :key="it.symbol + it.market" :label="`${it.name} (${it.symbol})`" :value="it.symbol + '|' + it.market" />
           </el-select>
         </el-form-item>
@@ -161,6 +212,7 @@ import {
   delMarketWatchlist,
   analyzeMarketWatchlist,
   getMarketWatchlistAnalysis,
+  getMarketWatchlistBacktest,
   listInstrument
 } from '@/api/market'
 
@@ -182,13 +234,22 @@ const open = ref(false)
 const submitLoading = ref(false)
 const formRef = ref()
 const form = ref({ symbolKey: '', symbol: '', market: 'US', note: '' })
-const rules = { symbolKey: [{ required: true, message: '请选择标的', trigger: 'change' }] }
+const rules = { symbolKey: [{ required: true, message: '请选择或输入标的', trigger: 'change' }] }
+const backtest = ref({})
+const backtestLoading = ref(false)
+let quoteTimer = null
 
 const statCards = computed(() => [
   { label: '自选数量', value: overview.value.count || 0, tone: 't-blue' },
   { label: '偏多', value: overview.value.bullish || 0, tone: 't-green' },
   { label: '偏空', value: overview.value.bearish || 0, tone: 't-red' },
   { label: '中性', value: overview.value.neutral || 0, tone: 't-gray' }
+])
+const backtestCards = computed(() => [
+  { label: '可计样本', value: backtest.value.scoredCount || 0 },
+  { label: '1日命中率', value: formatHitRate(backtest.value.hitRate1) },
+  { label: '5日命中率', value: formatHitRate(backtest.value.hitRate5) },
+  { label: '方向收益(1/5日)', value: `${formatPct(backtest.value.avgSigned1)} / ${formatPct(backtest.value.avgSigned5)}` }
 ])
 
 function marketLabel(market) {
@@ -210,6 +271,17 @@ function chgClass(v) {
   const n = Number(v)
   if (Number.isNaN(n) || n === 0) return ''
   return n > 0 ? 'up' : 'down'
+}
+function formatHitRate(v) {
+  if (v == null || v === '') return '--'
+  const n = Number(v)
+  if (Number.isNaN(n)) return '--'
+  return (n * 100).toFixed(1) + '%'
+}
+function hitLabel(v) {
+  if (v === true) return '命中'
+  if (v === false) return '未中'
+  return '待观察'
 }
 function recType(rec) {
   if (['买入', '加仓'].includes(rec)) return 'danger'
@@ -287,16 +359,24 @@ function handleAdd() {
 
 function onSymbolChange(val) {
   if (!val) return
-  const [symbol, market] = val.split('|')
-  form.value.symbol = symbol
-  form.value.market = market
+  if (val.includes('|')) {
+    const [symbol, market] = val.split('|')
+    form.value.symbol = String(symbol || '').toUpperCase()
+    if (market) form.value.market = market
+    return
+  }
+  form.value.symbol = String(val).trim().toUpperCase()
 }
 
 function submitForm() {
   formRef.value.validate(valid => {
     if (!valid) return
     submitLoading.value = true
-    addMarketWatchlist({ symbol: form.value.symbol, market: form.value.market, note: form.value.note })
+    addMarketWatchlist({
+      symbol: form.value.symbol || String(form.value.symbolKey || '').split('|')[0],
+      market: form.value.market,
+      note: form.value.note
+    })
       .then(() => {
         proxy.$modal.msgSuccess('新增成功')
         open.value = false
@@ -344,9 +424,43 @@ async function handleAnalyzeAll() {
   }
 }
 
+async function loadBacktest() {
+  backtestLoading.value = true
+  try {
+    const res = await getMarketWatchlistBacktest({ limit: 200 })
+    backtest.value = res.data || {}
+  } finally {
+    backtestLoading.value = false
+  }
+}
+
+async function loadOverviewQuiet() {
+  try {
+    const res = await getMarketWatchlistOverview()
+    const data = res.data || { items: [] }
+    overview.value = data
+    const rows = data.items || []
+    if (current.value) {
+      const hit = rows.find(r => r.id === current.value.id)
+      if (hit) current.value = hit
+    }
+  } catch {
+    /* ignore live poll errors */
+  }
+}
+
 onMounted(() => {
   loadInstruments()
   loadOverview()
+  loadBacktest()
+  quoteTimer = setInterval(loadOverviewQuiet, 8000)
+})
+onBeforeUnmount(() => {
+  if (quoteTimer) clearInterval(quoteTimer)
+  if (histChart) {
+    histChart.dispose()
+    histChart = null
+  }
 })
 </script>
 
@@ -388,4 +502,7 @@ onMounted(() => {
 .hist-block { margin-top: 12px; }
 .hist-title { font-weight: 600; margin-bottom: 6px; }
 .hist-chart { height: 160px; }
+.mini-stat { background: var(--surface-card, #f8fafc); border: 1px solid var(--border-soft, #e5e7eb); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+.mini-label { font-size: 12px; color: #909399; }
+.mini-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
 </style>

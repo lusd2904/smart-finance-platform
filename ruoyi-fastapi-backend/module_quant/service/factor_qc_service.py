@@ -101,6 +101,18 @@ def factor_specs() -> list[dict[str, Any]]:
             'family': 'volumeFlow',
             'func': lambda close, volume: volume / volume.rolling(20).mean(),
         },
+        {
+            'key': 'cs_mom20',
+            'label': 'Alpha101 截面动量 rank',
+            'family': 'alpha101Cs',
+            'func': lambda close, volume: close.pct_change(20).rank(axis=1, pct=True),
+        },
+        {
+            'key': 'cs_vol_ratio',
+            'label': 'Alpha101 截面量比 rank',
+            'family': 'alpha101Cs',
+            'func': lambda close, volume: (volume / volume.rolling(20).mean()).rank(axis=1, pct=True),
+        },
     ]
 
 

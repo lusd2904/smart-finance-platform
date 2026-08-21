@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron')
 const path = require('path')
 const { PRESETS, loadGateway, saveGateway, probeGateway, normalizeGateway } = require('./gateway')
+const { mustConfigureGateway } = require('./main-boot')
 
 let setupWindow = null
 let mainWindow = null
@@ -29,7 +30,7 @@ function createSetupWindow(notice) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   })
   setupWindow.loadFile(path.join(__dirname, 'setup.html'))
@@ -57,7 +58,7 @@ function createMainWindow(gatewayUrl) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   })
   mainWindow.loadURL(gatewayUrl)
@@ -132,7 +133,7 @@ function registerIpc() {
     }
     const saved = saveGateway(userDataDir(), {
       url,
-      confirmOnLaunch: payload.confirmOnLaunch !== false,
+      confirmOnLaunch: true,
       lastVerifiedAt: new Date().toISOString(),
     })
     createMainWindow(saved.url)
@@ -146,12 +147,11 @@ function registerIpc() {
 async function boot() {
   buildMenu()
   registerIpc()
-  const config = loadGateway(userDataDir())
-  const forceSetup = app.commandLine.hasSwitch('setup') || process.env.SFP_FORCE_SETUP === '1'
-  if (!config.url || forceSetup || config.confirmOnLaunch !== false) {
+  if (mustConfigureGateway()) {
     createSetupWindow()
     return
   }
+  const config = loadGateway(userDataDir())
   const probed = await probeGateway(config.url)
   if (!probed.ok) {
     createSetupWindow(probed.message)

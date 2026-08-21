@@ -419,4 +419,79 @@ def alpha_schema() -> dict[str, Any]:
             'desc': 'K 线形态 + OPEN/HIGH/LOW/VWAP/VOLUME 相对收盘 + 5/10/20/30/60 滚动算子（ROC/MA/STD/BETA/CORR/RSV 等）',
             'inputs': ['KMID', 'KLEN', 'ROC5', 'MA20', 'STD20', 'CORR20', 'RSV20', 'SUMD20'],
         },
+        'alpha101Cs': {
+            'key': 'alpha101Cs',
+            'label': 'Alpha101 截面 rank',
+            'desc': '对当日全市场因子值做百分位 rank，还原原文截面 rank() 口径',
+            'inputs': [
+                'csMom20',
+                'csVolRatio20',
+                'csRsi14',
+                'csBreakout',
+                'csAlpha001',
+                'csAlpha006',
+                'csAlpha012',
+                'csAlpha023',
+                'csAlpha041',
+                'csAlpha101',
+            ],
+        },
     }
+
+
+def _pct_rank(values: dict[str, float]) -> dict[str, float]:
+    items = [(k, v) for k, v in values.items() if v is not None and not math.isnan(float(v))]
+    if len(items) < 3:
+        return {}
+    items.sort(key=lambda x: x[1])
+    n = len(items)
+    out: dict[str, float] = {}
+    for i, (key, _val) in enumerate(items):
+        out[key] = round((i + 1) / n, 4)
+    return out
+
+
+def _src_value(row: dict[str, Any], src: str) -> float:
+    alpha = row.get('alpha101')
+    if isinstance(alpha, dict) and src in alpha:
+        nested = alpha.get(src)
+        if not isinstance(nested, dict):
+            return _finite(nested, float('nan'))
+    value = row.get(src)
+    if src in row and value is not None and not isinstance(value, dict):
+        return _finite(value, float('nan'))
+    return float('nan')
+
+
+def attach_cross_section_alphas(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    对已算好的单标的指标做截面百分位，得到 Alpha101 风格的 rank 因子。
+
+    rows 需含 symbol，以及 return20 / rsi14 / volumeRatio20 / distanceHigh20 / alpha101 子字典。
+    """
+    if len(rows) < 3:
+        return rows
+    fields = {
+        'csMom20': 'return20',
+        'csRsi14': 'rsi14',
+        'csVolRatio20': 'volumeRatio20',
+        'csBreakout': 'distanceHigh20',
+        'csAlpha001': 'alpha001',
+        'csAlpha006': 'alpha006',
+        'csAlpha012': 'alpha012',
+        'csAlpha023': 'alpha023',
+        'csAlpha041': 'alpha041',
+        'csAlpha101': 'alpha101',
+    }
+    ranked: dict[str, dict[str, float]] = {}
+    for cs_key, src in fields.items():
+        ranked[cs_key] = _pct_rank({str(r.get('symbol')): _src_value(r, src) for r in rows})
+    for row in rows:
+        symbol = str(row.get('symbol') or '')
+        cs: dict[str, float] = {}
+        for cs_key in fields:
+            if symbol in ranked[cs_key]:
+                cs[cs_key] = ranked[cs_key][symbol]
+        row['alphaCs'] = cs
+        row['alphaCsCount'] = len(cs)
+    return rows
