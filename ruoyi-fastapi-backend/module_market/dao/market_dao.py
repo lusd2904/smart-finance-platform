@@ -1,16 +1,20 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, desc, or_, select, update
+from sqlalchemy import and_, delete, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.vo import PageModel
 from module_market.entity.do.market_do import (
     FinanceBriefing,
     MarketInstrument,
+    MarketWatchlist,
+    MarketWatchlistAnalysis,
     SymbolAiAnalysis,
     SymbolContentCache,
 )
-from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+from module_market.entity.vo.market_vo import MarketInstrumentQueryModel, MarketWatchlistPageQueryModel
+from utils.page_util import PageUtil
 
 
 class MarketInstrumentDao:
@@ -209,4 +213,133 @@ class SymbolContentCacheDao:
                 SymbolContentCache.expires_at.is_not(None), SymbolContentCache.expires_at < before
             )
         )
+        await db.flush()
+
+
+class MarketWatchlistDao:
+    """行情中心自选清单 DAO"""
+
+    @classmethod
+    async def get_watchlist(
+        cls, db: AsyncSession, query_object: MarketWatchlistPageQueryModel, is_page: bool = False
+    ) -> PageModel | list[dict[str, Any]]:
+        query = (
+            select(MarketWatchlist)
+            .where(
+                MarketWatchlist.symbol.like(f'%{query_object.symbol}%') if query_object.symbol else True,
+                MarketWatchlist.market == query_object.market if query_object.market else True,
+                MarketWatchlist.enabled == query_object.enabled if query_object.enabled else True,
+            )
+            .order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+        )
+        return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
+
+    @classmethod
+    async def get_enabled(cls, db: AsyncSession) -> list[MarketWatchlist]:
+        rows = (
+            (
+                await db.execute(
+                    select(MarketWatchlist)
+                    .where(MarketWatchlist.enabled == '1')
+                    .order_by(MarketWatchlist.sort_order, desc(MarketWatchlist.create_time))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
+    async def get_by_id(cls, db: AsyncSession, watchlist_id: int) -> MarketWatchlist | None:
+        return (
+            (await db.execute(select(MarketWatchlist).where(MarketWatchlist.id == watchlist_id))).scalars().first()
+        )
+
+    @classmethod
+    async def get_by_symbol(cls, db: AsyncSession, symbol: str, market: str) -> MarketWatchlist | None:
+        return (
+            (
+                await db.execute(
+                    select(MarketWatchlist).where(
+                        MarketWatchlist.symbol == symbol, MarketWatchlist.market == market
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def add(cls, db: AsyncSession, item: dict[str, Any]) -> MarketWatchlist:
+        row = MarketWatchlist(**item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def delete_by_ids(cls, db: AsyncSession, ids: list[int]) -> None:
+        if not ids:
+            return
+        await db.execute(delete(MarketWatchlist).where(MarketWatchlist.id.in_(ids)))
+
+
+class MarketWatchlistAnalysisDao:
+    """自选综合分析 DAO"""
+
+    @classmethod
+    async def add(cls, db: AsyncSession, item: dict[str, Any]) -> MarketWatchlistAnalysis:
+        row = MarketWatchlistAnalysis(**item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def get_latest(cls, db: AsyncSession, symbol: str, market: str | None = None) -> MarketWatchlistAnalysis | None:
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
+        if market:
+            query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id)).limit(1)
+        return (await db.execute(query)).scalars().first()
+
+    @classmethod
+    async def list_latest_by_symbols(
+        cls, db: AsyncSession, pairs: list[tuple[str, str]]
+    ) -> dict[tuple[str, str], MarketWatchlistAnalysis]:
+        """每个 (symbol, market) 取最新一条。"""
+        result: dict[tuple[str, str], MarketWatchlistAnalysis] = {}
+        if not pairs:
+            return result
+        symbols = list({p[0] for p in pairs})
+        rows = (
+            (
+                await db.execute(
+                    select(MarketWatchlistAnalysis)
+                    .where(MarketWatchlistAnalysis.symbol.in_(symbols))
+                    .order_by(desc(MarketWatchlistAnalysis.analysis_time), desc(MarketWatchlistAnalysis.analysis_id))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        wanted = {(s.upper(), m.upper()) for s, m in pairs}
+        for row in rows:
+            key = (row.symbol.upper(), (row.market or 'US').upper())
+            if key in wanted and key not in result:
+                result[key] = row
+        return result
+
+    @classmethod
+    async def list_history(
+        cls, db: AsyncSession, symbol: str, market: str | None = None, limit: int = 12
+    ) -> list[MarketWatchlistAnalysis]:
+        limit = max(1, min(int(limit or 12), 50))
+        query = select(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.symbol == symbol)
+        if market:
+            query = query.where(MarketWatchlistAnalysis.market == market.upper())
+        query = query.order_by(desc(MarketWatchlistAnalysis.analysis_time)).limit(limit)
+        return list((await db.execute(query)).scalars().all())
+
+    @classmethod
+    async def prune_older_than(cls, db: AsyncSession, before: datetime) -> None:
+        await db.execute(delete(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.analysis_time < before))
         await db.flush()

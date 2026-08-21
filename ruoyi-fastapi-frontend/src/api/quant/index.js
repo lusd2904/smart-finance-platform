@@ -49,6 +49,23 @@ export function runIndicatorRefresh() {
   })
 }
 
+export function getFactorQc(market = 'US') {
+  return request({
+    url: '/quant/factor/qc',
+    method: 'get',
+    params: { market }
+  })
+}
+
+export function runFactorQc(market = 'US') {
+  return request({
+    url: '/quant/factor/qc/run',
+    method: 'post',
+    params: { market },
+    timeout: 180000
+  })
+}
+
 // 查询自选池列表
 export function listWatchlist(query) {
   return request({

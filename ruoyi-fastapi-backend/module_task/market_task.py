@@ -91,3 +91,22 @@ async def refresh_symbol_content_job(*args, **kwargs) -> None:
                 logger.warning(f'[内容缓存任务] {sym} 失败: {e}')
         logger.info(f'[内容缓存任务] 完成，合计写入约{total}条')
 
+
+async def analyze_watchlist_job(*args, **kwargs) -> None:
+    """
+    每小时对行情自选清单做综合分析（指标 + 长桥资讯 + 舆情）。
+    invoke_target: module_task.market_task.analyze_watchlist_job
+    """
+    from module_market.service.watchlist_service import MarketWatchlistService
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await MarketWatchlistService.run_hourly_job(db)
+            logger.info(
+                f'[自选综合分析任务] 完成: count={result.get("count")} failed={result.get("failedCount")} '
+                f'ai={result.get("aiAvailable")}'
+            )
+        except Exception as e:
+            logger.error(f'[自选综合分析任务] 失败: {e}')
+            raise
+

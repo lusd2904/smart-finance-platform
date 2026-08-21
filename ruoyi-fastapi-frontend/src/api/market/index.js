@@ -14,7 +14,9 @@ export function getBoardQuotes(query) {
   return request({
     url: '/market/board/quotes',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 60000,
+    loadingText: '加载中…'
   })
 }
 
@@ -45,12 +47,15 @@ export function syncMarket(data) {
   })
 }
 
-// AI行情研判
-export function aiAnalyze(data) {
+// AI行情研判（模型调用约 47–90s，需长于默认超时）
+export function aiAnalyze(data, options = {}) {
   return request({
     url: '/market/ai/analyze',
     method: 'post',
-    data: data
+    data: data,
+    timeout: 120000,
+    loadingText: '研判中…',
+    ...options
   })
 }
 
@@ -82,11 +87,14 @@ export function getSymbolContent(symbol, query) {
 }
 
 // 触发标的AI研判
-export function symbolAiAnalyze(symbol, query) {
+export function symbolAiAnalyze(symbol, query, options = {}) {
   return request({
     url: '/market/symbols/' + encodeURIComponent(symbol) + '/ai-analyze',
     method: 'post',
-    params: query
+    params: query,
+    timeout: 120000,
+    loadingText: '研判中…',
+    ...options
   })
 }
 
@@ -103,6 +111,53 @@ export function getLatestAi(symbol, query) {
 export function getFinanceBriefings(query) {
   return request({
     url: '/market/finance/briefings',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketWatchlistOverview() {
+  return request({
+    url: '/market/watchlist/overview',
+    method: 'get'
+  })
+}
+
+export function listMarketWatchlist(query) {
+  return request({
+    url: '/market/watchlist/list',
+    method: 'get',
+    params: query
+  })
+}
+
+export function addMarketWatchlist(data) {
+  return request({
+    url: '/market/watchlist',
+    method: 'post',
+    data
+  })
+}
+
+export function delMarketWatchlist(ids) {
+  return request({
+    url: '/market/watchlist/' + ids,
+    method: 'delete'
+  })
+}
+
+export function analyzeMarketWatchlist(data) {
+  return request({
+    url: '/market/watchlist/analyze',
+    method: 'post',
+    data: data || {},
+    timeout: 180000
+  })
+}
+
+export function getMarketWatchlistAnalysis(query) {
+  return request({
+    url: '/market/watchlist/analysis',
     method: 'get',
     params: query
   })

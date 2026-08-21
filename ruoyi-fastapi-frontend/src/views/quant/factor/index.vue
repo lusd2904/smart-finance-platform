@@ -83,12 +83,50 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="never" class="panel-card qc-card">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">因子质检（Alphalens 风格）</span>
+          <div class="qc-actions">
+            <span class="panel-sub">{{ qcHint || '截面 Spearman IC / IR / 五分位收益' }}</span>
+            <el-button type="primary" plain :loading="qcLoading" @click="handleQc" v-hasPermi="['quant:factor:compute']">运行质检</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="qcRows" size="small" v-loading="qcLoading">
+        <el-table-column prop="factorLabel" label="因子" min-width="140" />
+        <el-table-column prop="horizon" label="周期" width="70" align="center">
+          <template #default="scope">{{ scope.row.horizon }}D</template>
+        </el-table-column>
+        <el-table-column label="IC" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.icMean) }}</template>
+        </el-table-column>
+        <el-table-column label="IR" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.ir) }}</template>
+        </el-table-column>
+        <el-table-column label="IC>0占比" width="100" align="right">
+          <template #default="scope">{{ formatPct(scope.row.icPositiveRatio) }}</template>
+        </el-table-column>
+        <el-table-column label="Q1" width="80" align="right">
+          <template #default="scope">{{ formatValue(scope.row.quantiles && scope.row.quantiles.q1) }}</template>
+        </el-table-column>
+        <el-table-column label="Q5" width="80" align="right">
+          <template #default="scope">{{ formatValue(scope.row.quantiles && scope.row.quantiles.q5) }}</template>
+        </el-table-column>
+        <el-table-column label="多空价差" width="90" align="right">
+          <template #default="scope">{{ formatValue(scope.row.spread) }}</template>
+        </el-table-column>
+        <el-table-column prop="sampleDates" label="样本日" width="80" align="center" />
+      </el-table>
+      <el-empty v-if="!qcRows.length && !qcLoading" description="尚未运行质检，点击右上角生成 IC/IR 报告" :image-size="70" />
+    </el-card>
   </div>
 </template>
 
 <script setup name="QuantFactor">
 import * as echarts from 'echarts';
-import { getFactorSchema, computeFactor, listFactorSnapshots, runDailyFactorScan, getReadmodelOverview } from '@/api/quant';
+import { getFactorSchema, computeFactor, listFactorSnapshots, runDailyFactorScan, getReadmodelOverview, getFactorQc, runFactorQc } from '@/api/quant';
 import { listInstrument } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
@@ -104,6 +142,9 @@ const computeResult = ref(null);
 const computeLoading = ref(false);
 const scanLoading = ref(false);
 const snapshotHint = ref('');
+const qcRows = ref([]);
+const qcHint = ref('');
+const qcLoading = ref(false);
 
 const radarRef = ref(null);
 let radarChart = null;
@@ -172,6 +213,36 @@ function formatValue(v) {
   if (v == null) return '--';
   if (typeof v === 'number') return Number(v.toFixed(4));
   return v;
+}
+
+function formatPct(v) {
+  if (v == null || v === '') return '--';
+  const n = Number(v);
+  if (Number.isNaN(n)) return '--';
+  return (n * 100).toFixed(1) + '%';
+}
+
+function applyQcPayload(payload) {
+  const data = payload || {};
+  qcRows.value = data.items || [];
+  const asOf = data.asOf ? `截至 ${data.asOf}` : '';
+  const count = data.symbolCount ? `${data.symbolCount} 只标的` : '';
+  qcHint.value = [data.message, asOf, count].filter(Boolean).join(' · ');
+}
+
+function loadQc() {
+  getFactorQc('US').then(res => applyQcPayload(res.data)).catch(() => {});
+}
+
+async function handleQc() {
+  qcLoading.value = true;
+  try {
+    const res = await runFactorQc('US');
+    applyQcPayload(res.data);
+    proxy.$modal.msgSuccess(res.msg || '质检完成');
+  } finally {
+    qcLoading.value = false;
+  }
 }
 
 function scoreColor(score) {
@@ -292,6 +363,7 @@ onMounted(() => {
   loadSchema();
   loadInstruments();
   loadSnapshots();
+  loadQc();
   window.addEventListener('resize', handleResize);
 });
 
@@ -332,5 +404,7 @@ onBeforeUnmount(() => {
   .snap-hint { font-size: 12px; color: var(--text-muted, #909399); margin: -8px 0 12px; }
   .alpha-block { margin-top: 12px; }
   .alpha-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; color: var(--text-emphasis, #303133); }
+  .qc-card { margin-top: 16px; }
+  .qc-actions { display: flex; align-items: center; gap: 12px; }
 }
 </style>

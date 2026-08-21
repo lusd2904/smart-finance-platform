@@ -4,6 +4,7 @@ invoke_target: module_task.quant_task.run_strategy_job
 invoke_target: module_task.quant_task.run_daily_factor_scan_job
 invoke_target: module_task.quant_task.run_position_monitor_job
 invoke_target: module_task.quant_task.run_indicator_refresh_job
+invoke_target: module_task.quant_task.run_factor_qc_job
 """
 
 from config.database import AsyncSessionLocal
@@ -70,4 +71,20 @@ async def run_indicator_refresh_job(*args, **kwargs) -> None:
             logger.info(f'[指标快照任务] 完成: count={result.get("count")}')
         except Exception as e:
             logger.error(f'[指标快照任务] 失败: {e}')
+            raise
+
+
+async def run_factor_qc_job(*args, **kwargs) -> None:
+    """Alphalens 风格因子质检（默认美股截面）。"""
+    from module_quant.service.factor_qc_service import FactorQcService
+
+    market = str(kwargs.get('market') or (args[0] if args else 'US') or 'US')
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await FactorQcService.run_and_store(db, market=market)
+            logger.info(
+                f'[因子质检任务] 完成: market={market} items={result.get("itemCount")} saved={result.get("saved")}'
+            )
+        except Exception as e:
+            logger.error(f'[因子质检任务] 失败: {e}')
             raise
