@@ -78,7 +78,24 @@ npm run e2e:web
 
 后端单测在 `sentiment-backend` 容器内运行 `python -m pytest tests/ -q`。
 
-## 7. 上线检查
+## 7. 需求清单对外接口
+
+登录后：
+
+```bash
+curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:19099/ai/req/items/export
+```
+
+生产可用 Token（环境变量 `REQUIREMENTS_EXPORT_TOKEN`）：
+
+```bash
+curl -s -H "X-Req-Token: $REQUIREMENTS_EXPORT_TOKEN" \
+  "https://your-domain/docker-api/open/requirements?status=pending"
+```
+
+返回 JSON，本地按条目改代码后提交 git。测完在「AI 需求清单」手动改状态。
+
+## 8. 上线检查
 
 1. 改默认密码与 JWT。
 2. AI 模型管理填写真实模型。
