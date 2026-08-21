@@ -31,6 +31,7 @@ class AiReqDao:
         row = AiReqMessage(**item)
         db.add(row)
         await db.flush()
+        await db.refresh(row)
         return row
 
     @classmethod
@@ -52,6 +53,7 @@ class AiReqDao:
         row = AiReqItem(**item)
         db.add(row)
         await db.flush()
+        await db.refresh(row)
         return row
 
     @classmethod

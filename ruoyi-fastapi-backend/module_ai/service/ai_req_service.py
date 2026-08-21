@@ -244,9 +244,11 @@ class AiReqService:
                 'create_time': datetime.now(),
             },
         )
+        user_msg = cls.serialize_message(user_row)
+        user_msg_id = int(user_row.msg_id)
         await query_db.commit()
         history_rows = await AiReqDao.list_messages(query_db, after_id=0, limit=24)
-        history = [{'role': r.role, 'content': r.content} for r in history_rows if r.msg_id != user_row.msg_id]
+        history = [{'role': r.role, 'content': r.content} for r in history_rows if r.msg_id != user_msg_id]
         conf = await cls._resolve_grok(query_db)
         written: list[dict[str, Any]] = []
         if conf.get('available'):
@@ -269,15 +271,17 @@ class AiReqService:
                 'create_time': datetime.now(),
             },
         )
+        ai_msg = cls.serialize_message(ai_row)
+        ai_msg_id = int(ai_row.msg_id)
         parsed = extract_requirement_payload(reply)
         if parsed:
             written = await cls._write_items(
-                query_db, parsed, created_by=user_id, created_by_name=nick_name or user_name, source_msg_id=ai_row.msg_id
+                query_db, parsed, created_by=user_id, created_by_name=nick_name or user_name, source_msg_id=ai_msg_id
             )
         await query_db.commit()
         return {
-            'userMessage': cls.serialize_message(user_row),
-            'aiMessage': cls.serialize_message(ai_row),
+            'userMessage': user_msg,
+            'aiMessage': ai_msg,
             'requirements': written,
         }
 
@@ -306,6 +310,7 @@ class AiReqService:
                 'create_time': datetime.now(),
             },
         )
+        note_msg_id = int(note.msg_id)
         await query_db.commit()
         history = [{'role': r.role, 'content': r.content} for r in rows]
         conf = await cls._resolve_grok(query_db)
@@ -327,13 +332,14 @@ class AiReqService:
                 'create_time': datetime.now(),
             },
         )
+        ai_msg = cls.serialize_message(ai_row)
         parsed = extract_requirement_payload(reply)
         written = await cls._write_items(
-            query_db, parsed, created_by=user_id, created_by_name=nick_name or user_name, source_msg_id=note.msg_id
+            query_db, parsed, created_by=user_id, created_by_name=nick_name or user_name, source_msg_id=note_msg_id
         )
         await query_db.commit()
         return {
-            'aiMessage': cls.serialize_message(ai_row),
+            'aiMessage': ai_msg,
             'requirements': written,
             'count': len(written),
             'message': f'已写入 {len(written)} 条需求' if written else '未解析到可写入的确定需求',

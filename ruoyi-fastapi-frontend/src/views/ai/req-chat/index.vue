@@ -82,11 +82,12 @@ async function loadMessages(silent) {
 
 async function handleSend() {
   const content = draft.value.trim()
-  if (!content) return
+  if (!content || sending.value) return
+  draft.value = ''
+  await nextTick()
   sending.value = true
   try {
     const res = await sendReqMessage({ content })
-    draft.value = ''
     const data = res.data || {}
     if (data.userMessage) messages.value.push(data.userMessage)
     if (data.aiMessage) messages.value.push(data.aiMessage)
@@ -94,6 +95,9 @@ async function handleSend() {
     if ((data.requirements || []).length) {
       proxy.$modal.msgSuccess(`已写入 ${(data.requirements || []).length} 条需求`)
     }
+  } catch (e) {
+    if (!draft.value.trim()) draft.value = content
+    throw e
   } finally {
     sending.value = false
   }
