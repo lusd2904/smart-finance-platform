@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>网关配置</title>
+    <link rel="stylesheet" href="./setup.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="shell">
+      <header class="hero">
+        <p class="kicker">SMART FINANCE · DESKTOP</p>
+        <h1>先配置网关，再登录</h1>
+        <p class="lede">本机 Docker 与云上部署的地址不同。桌面端不内置服务器，只连接到你指定的前端网关，然后才打开登录页。</p>
+      </header>
+
+      <section class="presets" id="presets"></section>
+
+      <form id="form" class="panel">
+        <label for="url">网关地址</label>
+        <input
+          id="url"
+          name="url"
+          type="url"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="http://127.0.0.1:12580 或 https://your-domain"
+        />
+        <p class="help">请填前端入口（Nginx / Pages），不要填后端 19099 / 9099。</p>
+
+        <label class="check">
+          <input id="confirmOnLaunch" type="checkbox" checked disabled />
+          <span>每次启动必须先配置并探测网关，通过后才能进入登录</span>
+        </label>
+
+        <p id="status" class="status" role="status"></p>
+
+        <div class="actions">
+          <button type="button" id="probeBtn" class="ghost">测试连接</button>
+          <button type="submit" id="enterBtn" class="primary">保存并进入登录</button>
+        </div>
+      </form>
+    </main>
+    <script src="./setup.js"></script>
+  </body>
+</html>

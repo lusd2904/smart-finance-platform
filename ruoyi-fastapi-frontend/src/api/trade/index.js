@@ -4,12 +4,28 @@ export function getTradeAccount() {
   return request({ url: '/trade/account', method: 'get' })
 }
 
+export function getTradeQuoteDepth(query) {
+  return request({ url: '/trade/quote/depth', method: 'get', params: query })
+}
+
+export function getTradeQuoteTrades(query) {
+  return request({ url: '/trade/quote/trades', method: 'get', params: query })
+}
+
+export function getTradeQuoteKline(query) {
+  return request({ url: '/trade/quote/kline', method: 'get', params: query })
+}
+
 export function getTradePositions() {
   return request({ url: '/trade/positions', method: 'get' })
 }
 
 export function getTradeOrders(scope = 'today') {
   return request({ url: '/trade/orders', method: 'get', params: { scope } })
+}
+
+export function getTradeOrder(orderId) {
+  return request({ url: '/trade/order/' + encodeURIComponent(orderId), method: 'get' })
 }
 
 export function submitTradeOrder(data) {
@@ -74,8 +90,11 @@ export function saveRiskRule(data) {
 export function deleteRiskRule(ruleId) {
   return request({ url: '/trade/risk/rules/' + ruleId, method: 'delete' })
 }
-export function listRiskEvents(limit = 50) {
-  return request({ url: '/trade/risk/events', method: 'get', params: { limit } })
+export function listRiskEvents(limit = 50, status) {
+  return request({ url: '/trade/risk/events', method: 'get', params: { limit, status } })
+}
+export function updateRiskEventStatus(eventId, data) {
+  return request({ url: '/trade/risk/events/' + eventId + '/status', method: 'put', data })
 }
 export function evaluateRisk() {
   return request({ url: '/trade/risk/evaluate', method: 'post', timeout: 60000 })

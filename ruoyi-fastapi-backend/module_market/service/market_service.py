@@ -25,8 +25,10 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.content_cache_service import SymbolContentService
 from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
+from module_market.service.kline_period import default_range_start, is_minute_period, normalize_kline_period, resample_how
 from module_market.service.market_analyzer_service import MarketAiAnalyzer
 from module_market.service.sync_service import MarketSyncService
+from module_market.service.tradingview_service import _resample_klines
 from module_quant.dao.quant_dao import QuantStrategyDao
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.common_util import CamelCaseUtil
@@ -73,7 +75,8 @@ class MarketService:
         获取标的列表service（若表为空则先初始化目标标的）。
         """
         existing = await MarketInstrumentDao.get_all_symbols(query_db)
-        if not existing:
+        missing = [item[0] for item in TARGET_INSTRUMENTS if item[0] not in existing]
+        if not existing or missing:
             await cls.init_instruments_services(query_db)
         rows = await MarketInstrumentDao.get_instrument_list(query_db, query_object)
         return [
@@ -83,20 +86,189 @@ class MarketService:
     # ---------- K线 ----------
 
     @classmethod
+    async def get_board_quotes_services(
+        cls,
+        query_db: AsyncSession,
+        category: str | None = None,
+        market: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        One-shot board quotes: latest 2 daily bars from Influx per symbol.
+        Longbridge realtime overlay only when keys are present; otherwise Influx-only.
+        """
+        from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+
+        instruments = await cls.get_instrument_list_services(
+            query_db, MarketInstrumentQueryModel(category=category, market=market)
+        )
+        by_market: dict[str, list[str]] = {}
+        meta_by_symbol: dict[str, dict[str, Any]] = {}
+        for item in instruments:
+            sym = str(item.get('symbol') or '').strip()
+            if not sym:
+                continue
+            mkt = str(item.get('market') or 'US').strip().upper() or 'US'
+            by_market.setdefault(mkt, []).append(sym)
+            meta_by_symbol[sym] = item
+
+        loop = asyncio.get_event_loop()
+        bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
+        for mkt, symbols in by_market.items():
+            grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
+            bars_by_symbol.update(grouped or {})
+
+        await LongbridgeService.ensure_credentials_from_db(query_db)
+        lb_configured = LongbridgeService.is_configured()
+        lb_quotes: dict[str, dict[str, Any]] = {}
+        if lb_configured:
+            lb_symbols = []
+            for item in instruments:
+                sym = str(item.get('symbol') or '')
+                if not sym or sym.startswith('^'):
+                    continue
+                lb_symbols.append(LongbridgeService.to_longbridge_symbol(sym, item.get('market') or 'US'))
+            if lb_symbols:
+                rt = await loop.run_in_executor(None, LongbridgeService.get_realtime_quote, lb_symbols)
+                for q in rt.get('quotes') or []:
+                    raw = str(q.get('symbol') or '')
+                    lb_quotes[raw.upper()] = q
+                    if '.' in raw:
+                        lb_quotes[raw.split('.', 1)[0].upper()] = q
+
+        quotes: list[dict[str, Any]] = []
+        for item in instruments:
+            sym = item.get('symbol')
+            mkt = (item.get('market') or 'US').upper()
+            bars = bars_by_symbol.get(sym) or []
+            quote = cls._build_quote_from_klines(bars)
+            source = 'influx' if quote else 'none'
+            if lb_configured and not str(sym).startswith('^'):
+                lb_sym = LongbridgeService.to_longbridge_symbol(sym, mkt).upper()
+                overlay = lb_quotes.get(lb_sym) or lb_quotes.get(str(sym).upper())
+                if overlay:
+                    quote = {
+                        **quote,
+                        'last': overlay.get('lastDone') if overlay.get('lastDone') is not None else quote.get('last'),
+                        'open': overlay.get('open') if overlay.get('open') is not None else quote.get('open'),
+                        'high': overlay.get('high') if overlay.get('high') is not None else quote.get('high'),
+                        'low': overlay.get('low') if overlay.get('low') is not None else quote.get('low'),
+                        'volume': overlay.get('volume') if overlay.get('volume') is not None else quote.get('volume'),
+                        'change': overlay.get('change') if overlay.get('change') is not None else quote.get('change'),
+                        'changeRate': overlay.get('changeRate')
+                        if overlay.get('changeRate') is not None
+                        else quote.get('changeRate'),
+                        'prevClose': overlay.get('prevClose')
+                        if overlay.get('prevClose') is not None
+                        else quote.get('prevClose'),
+                    }
+                    source = 'longbridge'
+            last = quote.get('last')
+            change_rate = quote.get('changeRate')
+            quotes.append(
+                {
+                    'symbol': sym,
+                    'name': item.get('name'),
+                    'market': mkt,
+                    'category': item.get('category'),
+                    'price': last,
+                    'open': quote.get('open'),
+                    'high': quote.get('high'),
+                    'low': quote.get('low'),
+                    'volume': quote.get('volume'),
+                    'change': quote.get('change'),
+                    'changeRate': change_rate,
+                    'prevClose': quote.get('prevClose'),
+                    'tradeDate': quote.get('tradeDate'),
+                    'changeText': (
+                        f"{'+' if change_rate >= 0 else ''}{change_rate:.2f}%"
+                        if isinstance(change_rate, (int, float))
+                        else '--'
+                    ),
+                    'up': True if change_rate is None else change_rate >= 0,
+                    'source': source,
+                    'bars': len(bars),
+                }
+            )
+
+        indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
+        index_symbols = {q['symbol'] for q in indices}
+        rows = [q for q in quotes if q['symbol'] not in index_symbols]
+        return {
+            'quotes': quotes,
+            'indices': indices,
+            'rows': rows,
+            'longbridgeConfigured': lb_configured,
+            'source': 'longbridge' if lb_configured else 'influx',
+            'count': len(quotes),
+        }
+
+    @classmethod
     async def get_kline_services(cls, query_object: KlineQueryModel) -> list[dict[str, Any]]:
         """
         查询K线service（Influx为同步IO，放线程池执行）。
+        daily/weekly/monthly 来自 daily_kline（周/月为真实日K聚合）；
+        分钟级只读 minute_kline，没有则空列表，不补造。
         """
         loop = asyncio.get_event_loop()
+        period = normalize_kline_period(query_object.period)
+        start = default_range_start(period, query_object.start)
+        if is_minute_period(period):
+            klines = await loop.run_in_executor(
+                None,
+                InfluxUtil.query_minute_klines,
+                query_object.market,
+                query_object.symbol,
+                start,
+                query_object.stop,
+            )
+            how = {'5min': '5min', '15min': '15min'}.get(period)
+            if how and klines:
+                klines = cls._resample_minute_bars(klines, how)
+            return klines
         klines = await loop.run_in_executor(
             None,
             InfluxUtil.query_klines,
             query_object.market,
             query_object.symbol,
-            query_object.start,
+            start,
             query_object.stop,
         )
-        return klines
+        how = resample_how(period) or 'D'
+        return _resample_klines(klines, how)
+
+    @staticmethod
+    def _resample_minute_bars(klines: list[dict[str, Any]], how: str) -> list[dict[str, Any]]:
+        """把 1 分钟真实 bar 聚合成 5/15 分钟，不补空档。"""
+        if not klines or how not in {'5min', '15min'}:
+            return klines
+        try:
+            import pandas as pd
+        except Exception:
+            return klines
+        df = pd.DataFrame(klines)
+        if df.empty or 'date' not in df.columns:
+            return klines
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date').sort_index()
+        rule = '5min' if how == '5min' else '15min'
+        agg = (
+            df.resample(rule)
+            .agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'})
+            .dropna(subset=['open', 'close'])
+        )
+        out: list[dict[str, Any]] = []
+        for idx, row in agg.iterrows():
+            out.append(
+                {
+                    'date': idx.strftime('%Y-%m-%d %H:%M'),
+                    'open': float(row['open']),
+                    'high': float(row['high']),
+                    'low': float(row['low']),
+                    'close': float(row['close']),
+                    'volume': float(row.get('volume') or 0),
+                }
+            )
+        return out
 
     # ---------- 技术指标 ----------
 

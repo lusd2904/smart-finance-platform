@@ -203,7 +203,8 @@ const navItems = [
   { title: 'K 线指标', desc: '真实行情时序', path: '/market/kline', icon: 'DataLine', bg: 'linear-gradient(135deg,#ef4444,#f87171)' },
   { title: '财经简报', desc: '市场资讯聚合', path: '/market/finance-news', icon: 'Notebook', bg: 'linear-gradient(135deg,#14b8a6,#2dd4bf)' },
   { title: '量化策略', desc: '策略与扫描', path: '/quant/strategy', icon: 'Cpu', bg: 'linear-gradient(135deg,#8b5cf6,#a78bfa)' },
-  { title: '自选池', desc: '关注标的管理', path: '/quant/watchlist', icon: 'Star', bg: 'linear-gradient(135deg,#ec4899,#f472b6)' }
+  { title: '自选池', desc: '关注标的管理', path: '/quant/watchlist', icon: 'Star', bg: 'linear-gradient(135deg,#ec4899,#f472b6)' },
+  { title: '行情自选', desc: '小时级综合建议', path: '/market/watchlist', icon: 'Aim', bg: 'linear-gradient(135deg,#f97316,#fb923c)' }
 ]
 
 const modules = [

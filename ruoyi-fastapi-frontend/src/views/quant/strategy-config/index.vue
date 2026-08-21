@@ -10,8 +10,8 @@
           <el-form label-width="90px" size="small">
             <el-form-item label="买入阈值"><el-input-number v-model="p.config.buyThreshold" :min="0" :max="100"/></el-form-item>
             <el-form-item label="卖出阈值"><el-input-number v-model="p.config.sellThreshold" :min="0" :max="100"/></el-form-item>
-            <el-form-item v-for="(w,k) in (p.config.weights||{})" :key="k" :label="k">
-              <el-slider v-model="p.config.weights[k]" :min="0" :max="1" :step="0.05" show-input/>
+            <el-form-item v-for="fam in families" :key="fam.key" :label="fam.label">
+              <el-slider v-model="p.config.weights[fam.key]" :min="0" :max="1" :step="0.05" show-input/>
             </el-form-item>
           </el-form>
           <div class="muted">更新：{{ p.updateTime || '--' }}</div>
@@ -23,7 +23,27 @@
 <script setup name="QuantStrategyConfig">
 import { listStrategyProfiles, saveStrategyProfile } from '@/api/trade'
 const {proxy}=getCurrentInstance(); const loading=ref(false); const profiles=ref([])
-async function load(){ loading.value=true; try{ const res=await listStrategyProfiles(); profiles.value=(res.data||[]).map(p=>({...p, config:p.config||{buyThreshold:55,sellThreshold:45,weights:{}}})) } finally{ loading.value=false } }
+const families = [
+  { key: 'trend', label: '趋势' },
+  { key: 'priceAction', label: '价型' },
+  { key: 'momentum', label: '动量' },
+  { key: 'breakout', label: '突破' },
+  { key: 'volumeFlow', label: '量能' },
+  { key: 'reversion', label: '回归' },
+  { key: 'volatility', label: '波动' },
+  { key: 'liquidity', label: '流动性' }
+]
+function normalizeConfig(cfg) {
+  const config = { buyThreshold: 64, sellThreshold: 38, weights: {}, ...(cfg || {}) }
+  const weights = { ...(config.weights || {}) }
+  if (weights.volume != null && weights.volumeFlow == null) weights.volumeFlow = weights.volume
+  if (weights.value != null && weights.reversion == null) weights.reversion = weights.value
+  if (weights.quality != null && weights.liquidity == null) weights.liquidity = weights.quality
+  families.forEach(f => { if (weights[f.key] == null) weights[f.key] = 0.1 })
+  config.weights = weights
+  return config
+}
+async function load(){ loading.value=true; try{ const res=await listStrategyProfiles(); profiles.value=(res.data||[]).map(p=>({...p, config: normalizeConfig(p.config)})) } finally{ loading.value=false } }
 async function save(p){ await saveStrategyProfile(p.profileCode,{profileName:p.profileName, config:p.config}); proxy.$modal.msgSuccess('已保存'); load() }
 onMounted(load)
 </script>

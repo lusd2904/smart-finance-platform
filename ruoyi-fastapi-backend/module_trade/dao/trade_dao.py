@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, desc, select, update
+from sqlalchemy import delete, desc, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_trade.entity.do.trade_do import (
@@ -157,10 +157,62 @@ class TradeDao:
 
     # ---------------- 风控事件 ----------------
     @classmethod
-    async def list_risk_events(cls, db: AsyncSession, limit: int = 50) -> list[PlatRiskEvent]:
-        stmt = select(PlatRiskEvent).order_by(desc(PlatRiskEvent.create_time)).limit(limit)
+    async def ensure_risk_event_schema(cls, db: AsyncSession) -> None:
+        """给已有 plat_risk_event 表补齐审批流字段，重复执行安全。"""
+        alters = [
+            "ALTER TABLE plat_risk_event ADD COLUMN review_status VARCHAR(32) NOT NULL DEFAULT 'pending_review'",
+            'ALTER TABLE plat_risk_event ADD COLUMN handle_remark VARCHAR(500) NULL',
+            'ALTER TABLE plat_risk_event ADD COLUMN handled_by VARCHAR(64) NULL',
+            'ALTER TABLE plat_risk_event ADD COLUMN handle_time DATETIME NULL',
+        ]
+        for sql in alters:
+            try:
+                await db.execute(text(sql))
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        try:
+            await db.execute(
+                text(
+                    "UPDATE plat_risk_event SET review_status = 'confirmed' "
+                    "WHERE handled = '1' AND (review_status IS NULL OR review_status = '' "
+                    "OR review_status = 'pending_review')"
+                )
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
+    @classmethod
+    async def expire_overdue_risk_events(cls, db: AsyncSession, hours: int = 24) -> int:
+        cutoff = datetime.now() - timedelta(hours=hours)
+        stmt = (
+            update(PlatRiskEvent)
+            .where(
+                PlatRiskEvent.review_status.in_(['pending_review', 'need_review']),
+                PlatRiskEvent.create_time <= cutoff,
+            )
+            .values(review_status='overdue')
+        )
+        res = await db.execute(stmt)
+        return res.rowcount or 0
+
+    @classmethod
+    async def list_risk_events(
+        cls, db: AsyncSession, limit: int = 50, status: str | None = None
+    ) -> list[PlatRiskEvent]:
+        stmt = select(PlatRiskEvent)
+        if status:
+            stmt = stmt.where(PlatRiskEvent.review_status == status)
+        stmt = stmt.order_by(desc(PlatRiskEvent.create_time)).limit(limit)
         res = await db.execute(stmt)
         return list(res.scalars().all())
+
+    @classmethod
+    async def get_risk_event(cls, db: AsyncSession, event_id: int) -> PlatRiskEvent | None:
+        stmt = select(PlatRiskEvent).where(PlatRiskEvent.event_id == event_id)
+        res = await db.execute(stmt)
+        return res.scalar_one_or_none()
 
     @classmethod
     async def add_risk_event(cls, db: AsyncSession, item: dict[str, Any]) -> PlatRiskEvent:
@@ -171,6 +223,10 @@ class TradeDao:
             content=item.get('content', ''),
             symbol=item.get('symbol'),
             handled=item.get('handled', '0'),
+            review_status=item.get('review_status', 'pending_review'),
+            handle_remark=item.get('handle_remark'),
+            handled_by=item.get('handled_by'),
+            handle_time=item.get('handle_time'),
             create_time=datetime.now(),
         )
         db.add(db_item)
@@ -183,13 +239,25 @@ class TradeDao:
 
     @classmethod
     async def update_risk_event_status(
-        cls, db: AsyncSession, event_id: int, handled: str = '1'
+        cls,
+        db: AsyncSession,
+        event_id: int,
+        handled: str = '1',
+        review_status: str | None = None,
+        handle_remark: str | None = None,
+        handled_by: str | None = None,
+        handle_time: datetime | None = None,
     ) -> bool:
-        stmt = (
-            update(PlatRiskEvent)
-            .where(PlatRiskEvent.event_id == event_id)
-            .values(handled=handled)
-        )
+        values: dict[str, Any] = {'handled': handled}
+        if review_status is not None:
+            values['review_status'] = review_status
+        if handle_remark is not None:
+            values['handle_remark'] = handle_remark
+        if handled_by is not None:
+            values['handled_by'] = handled_by
+        if handle_time is not None:
+            values['handle_time'] = handle_time
+        stmt = update(PlatRiskEvent).where(PlatRiskEvent.event_id == event_id).values(**values)
         res = await db.execute(stmt)
         return (res.rowcount or 0) > 0
 

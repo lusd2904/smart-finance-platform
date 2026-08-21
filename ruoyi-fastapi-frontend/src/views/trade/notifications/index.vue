@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-hero">
-      <div><h2>通知中心</h2><p>交易、回测与系统事件</p></div>
+      <div><h2>通知中心</h2><p>交易、自选建议、风控事件与系统消息</p></div>
       <div>
         <el-button @click="markAll">全部已读</el-button>
         <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
@@ -21,10 +21,12 @@
 import { listNotifications, readNotifications } from '@/api/trade'
 const loading=ref(false); const list=ref([])
 const typeMap={success:'success', danger:'danger', warning:'warning', info:'primary'}
-async function load(){ loading.value=true; try{ const res=await listNotifications(80); list.value=res.data||[] } finally{ loading.value=false } }
+let pollTimer=null
+async function load(silent=false){ if(!silent) loading.value=true; try{ const res=await listNotifications(80); list.value=res.data||[] } finally{ if(!silent) loading.value=false } }
 async function mark(n){ await readNotifications(n.id); load() }
 async function markAll(){ await readNotifications(); load() }
-onMounted(load)
+onMounted(()=>{ load(); pollTimer=setInterval(()=>load(true), 15000) })
+onBeforeUnmount(()=>{ if(pollTimer) clearInterval(pollTimer) })
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

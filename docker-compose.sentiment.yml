@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
     image: sentiment-frontend:latest
     container_name: sentiment-frontend
+    restart: unless-stopped
     ports:
       - "12580:80"
     volumes:
@@ -22,6 +23,7 @@ services:
       dockerfile: Dockerfile.sentiment
     image: sentiment-backend:latest
     container_name: sentiment-backend
+    restart: unless-stopped
     ports:
       - "19099:9099"
     volumes:
@@ -40,6 +42,7 @@ services:
   sentiment-influxdb:
     image: influxdb:2.7
     container_name: sentiment-influxdb
+    restart: unless-stopped
     ports:
       - "18086:8086"
     environment:
@@ -64,6 +67,7 @@ services:
   ruoyi-mysql:
     image: mysql:8.0
     container_name: sentiment-mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: CHANGE_ME_DB_PASSWORD
       MYSQL_DATABASE: sentiment-ai
@@ -79,6 +83,11 @@ services:
       - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
       - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
       - ./ruoyi-fastapi-test/disable_captcha.sql:/docker-entrypoint-initdb.d/08-disable-captcha.sql
+      - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
+      - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
+      - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
+      - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
+      - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1
     networks:
       - sentiment-network
@@ -92,6 +101,7 @@ services:
   ruoyi-redis:
     image: redis:latest
     container_name: sentiment-redis
+    restart: unless-stopped
     ports:
       - "16379:6379"
     networks:

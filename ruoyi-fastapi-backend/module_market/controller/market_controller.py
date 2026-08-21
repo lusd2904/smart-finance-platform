@@ -1,27 +1,41 @@
 from typing import Annotated
 
-from fastapi import Path, Query, Request, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from fastapi import Body, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from common.vo import ResponseBaseModel
+from common.vo import PageResponseModel, ResponseBaseModel
 from module_market.entity.vo.market_vo import (
+    AddMarketWatchlistModel,
     IndicatorQueryModel,
     KlineQueryModel,
     MarketAiAnalyzeModel,
     MarketInstrumentQueryModel,
     MarketSyncModel,
+    MarketWatchlistAnalyzeModel,
+    MarketWatchlistModel,
+    MarketWatchlistPageQueryModel,
 )
 from module_market.service.market_service import MarketService
+from module_market.service.watchlist_service import MarketWatchlistService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
+
+
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
 
 market_controller = APIRouterPro(
     prefix='/market', order_num=31, tags=['行情数据'], dependencies=[PreAuthDependency()]
@@ -64,6 +78,22 @@ async def tradingview_history(
 @market_controller.get('/tradingview/time', summary='TradingView 服务端时间')
 async def tradingview_time(request: Request) -> Response:
     return Response(content=str(int(time.time())), media_type='text/plain')
+
+
+@market_controller.get(
+    '/board/quotes',
+    summary='行情台批量报价',
+    description='一次返回全部标的最近两根日K（Influx）。长桥密钥为空时仅用时序库，不编造价格。',
+    dependencies=[UserInterfaceAuthDependency('market:kline:list')],
+)
+async def get_market_board_quotes(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    category: Annotated[str | None, Query(description='可选分类')] = None,
+    market: Annotated[str | None, Query(description='可选市场')] = None,
+) -> Response:
+    data = await MarketService.get_board_quotes_services(query_db, category=category, market=market)
+    return ResponseUtil.success(data=data)
 
 
 @market_controller.get(
@@ -302,7 +332,143 @@ async def get_finance_briefings(
     limit: Annotated[int, Query(ge=1, le=60)] = 20,
     refresh: Annotated[bool, Query()] = False,
 ) -> Response:
-    data = await MarketService.get_finance_briefings_services(
-        query_db, limit=limit, market=market, refresh=refresh
+    try:
+        data = await MarketService.get_finance_briefings_services(
+            query_db, limit=limit, market=market, refresh=refresh
+        )
+    except Exception as exc:
+        logger.warning(f'[财经资讯] 接口降级空列表: {exc}')
+        data = {
+            'success': True,
+            'data': [],
+            'message': '财经资讯源暂时不可用，已返回空列表，请稍后重试',
+            'meta': {'count': 0, 'market': market},
+        }
+    msg = data.get('message') or '操作成功'
+    return ResponseUtil.success(data=data, msg=msg)
+
+
+@market_controller.get(
+    '/watchlist/overview',
+    summary='行情自选清单总览',
+    description='启用自选 + 最新报价 + 最近一次综合分析',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_overview(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    data = await MarketWatchlistService.overview_services(query_db, _current_user_id(current_user))
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/watchlist/list',
+    summary='行情自选清单分页',
+    response_model=PageResponseModel[MarketWatchlistModel],
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_list(
+    request: Request,
+    watchlist_page_query: Annotated[MarketWatchlistPageQueryModel, Query()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await MarketWatchlistService.get_list_services(
+        query_db, watchlist_page_query, is_page=True, user_id=_current_user_id(current_user)
+    )
+    return ResponseUtil.success(model_content=result)
+
+
+@market_controller.post(
+    '/watchlist',
+    summary='新增行情自选',
+    response_model=ResponseBaseModel,
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:add')],
+)
+@Log(title='行情自选清单', business_type=BusinessType.INSERT)
+async def add_market_watchlist(
+    request: Request,
+    add_model: AddMarketWatchlistModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await MarketWatchlistService.add_services(query_db, add_model, _current_user_id(current_user))
+    logger.info(result.message)
+    return ResponseUtil.success(msg=result.message)
+
+
+@market_controller.delete(
+    '/watchlist/{ids}',
+    summary='删除行情自选',
+    response_model=ResponseBaseModel,
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:remove')],
+)
+@Log(title='行情自选清单', business_type=BusinessType.DELETE)
+async def delete_market_watchlist(
+    request: Request,
+    ids: Annotated[str, Path(description='需要删除的自选ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await MarketWatchlistService.delete_services(query_db, ids, _current_user_id(current_user))
+    logger.info(result.message)
+    return ResponseUtil.success(msg=result.message)
+
+
+@market_controller.get(
+    '/watchlist/analysis',
+    summary='自选综合分析历史',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_analysis(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query()] = 'US',
+    limit: Annotated[int, Query()] = 24,
+) -> Response:
+    data = await MarketWatchlistService.history_services(
+        query_db, symbol, market, limit=limit, user_id=_current_user_id(current_user)
     )
     return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/watchlist/analyze',
+    summary='立即执行自选综合分析',
+    description='综合技术指标、长桥资讯与舆情给出建议；不传 symbol 则分析全部启用自选',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:analyze')],
+)
+@Log(title='行情自选分析', business_type=BusinessType.OTHER)
+async def analyze_market_watchlist(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
+) -> Response:
+    data = await MarketWatchlistService.analyze_services(
+        query_db, body, user_id=_current_user_id(current_user)
+    )
+    logger.info(f'自选综合分析完成: {data.get("message")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')
+
+
+@market_controller.get(
+    '/watchlist/backtest',
+    summary='自选建议前瞻回测',
+    description='对买入/加仓/减仓/卖出建议计算 1/5 个交易日前瞻收益与命中率',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_backtest(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    limit: Annotated[int, Query()] = 200,
+) -> Response:
+    data = await MarketWatchlistService.backtest_services(
+        query_db, _current_user_id(current_user), limit=limit
+    )
+    return ResponseUtil.success(data=data, msg=data.get('message') or '回测完成')

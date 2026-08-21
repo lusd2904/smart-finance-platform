@@ -47,16 +47,44 @@ class QuantService:
         return FactorService.get_factor_schema()
 
     @classmethod
+    async def load_profile_config(cls, query_db: AsyncSession, profile: str) -> dict[str, Any]:
+        """读取落库策略档位（权重/买卖阈值），失败则空 dict。"""
+        try:
+            from module_trade.dao.trade_dao import TradeDao
+            from module_trade.service.platform_ext_service import PlatformExtService
+
+            await PlatformExtService.ensure_seed_data(query_db)
+            rows = await TradeDao.list_strategy_profiles(query_db)
+            for row in rows:
+                if row.profile_code == profile:
+                    return json.loads(row.config_json or '{}') or {}
+        except Exception as exc:
+            logger.warning(f'[量化] 读取策略配置失败 profile={profile}: {exc}')
+        return {}
+
+    @classmethod
     async def compute_factor_services(
-        cls, symbol: str, market: str = 'US', profile: str = 'balanced'
+        cls,
+        symbol: str,
+        market: str = 'US',
+        profile: str = 'balanced',
+        query_db: AsyncSession | None = None,
     ) -> dict[str, Any]:
         """计算某标的因子值+打分"""
         if not symbol:
             raise ServiceException(message='标的代码不能为空')
         safe_profile = profile if profile in VALID_PROFILES else 'balanced'
-        # 因子计算含Influx同步IO+pandas计算，放线程池执行避免阻塞事件循环
+        weights = None
+        if query_db is not None:
+            weights = await cls.load_profile_config(query_db, safe_profile)
         result = await asyncio.get_running_loop().run_in_executor(
-            None, FactorService.compute_symbol, symbol.strip().upper(), (market or 'US').upper(), safe_profile
+            None,
+            FactorService.compute_symbol,
+            symbol.strip().upper(),
+            (market or 'US').upper(),
+            safe_profile,
+            '-1y',
+            weights,
         )
         if not result.get('ok'):
             return {
@@ -65,6 +93,24 @@ class QuantService:
                 'ok': False,
                 'reason': result.get('reason') or '因子计算失败',
             }
+        if query_db is not None:
+            try:
+                from module_quant.dao.quant_dao import QuantSnapshotDao
+
+                snap = await QuantSnapshotDao.get_factor_snapshot(
+                    query_db, symbol.strip().upper(), (market or 'US').upper()
+                )
+                if snap and snap.alpha_json:
+                    payload = json.loads(snap.alpha_json or '{}') or {}
+                    alpha_cs = payload.get('alphaCs') or {}
+                    result['alphaCs'] = alpha_cs
+                    result['alphaCsCount'] = len(alpha_cs)
+                    metrics = result.get('metrics') or {}
+                    metrics['alphaCs'] = alpha_cs
+                    metrics['alphaCsCount'] = len(alpha_cs)
+                    result['metrics'] = metrics
+            except Exception as exc:
+                logger.info(f'[因子] 截面 rank 附加跳过: {exc}')
         return result
 
     # ------------------------------------------------------------ 自选池 ---
@@ -132,6 +178,7 @@ class QuantService:
         跑一次策略并入库。symbols 不传则用自选池。
         """
         profile = run_model.profile if run_model.profile in VALID_PROFILES else 'balanced'
+        profile_cfg = await cls.load_profile_config(query_db, profile)
 
         # 确定标的列表
         if run_model.symbols:
@@ -151,7 +198,7 @@ class QuantService:
         cycle_id = uuid.uuid4().hex
         # 策略周期含逐标的Influx查询与指标计算，放线程池执行避免阻塞事件循环
         cycle_result = await asyncio.get_running_loop().run_in_executor(
-            None, StrategyService.run_strategy_cycle, targets, profile
+            None, StrategyService.run_strategy_cycle, targets, profile, 'US', profile_cfg
         )
 
         # 落库

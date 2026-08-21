@@ -19,6 +19,7 @@ from module_quant.entity.vo.quant_vo import (
     QuantWatchlistPageQueryModel,
     RunStrategyModel,
 )
+from module_quant.service.factor_qc_service import FactorQcService
 from module_quant.service.quant_service import QuantService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
@@ -42,8 +43,23 @@ async def readmodel_overview(
 ) -> Response:
     from module_quant.service.longbridge_service import LongbridgeService
 
-    await LongbridgeService.ensure_credentials_from_db(query_db)
-    snapshot = await ReadModelService.get_platform_overview_snapshot()
+    try:
+        await LongbridgeService.ensure_credentials_from_db(query_db)
+        snapshot = await ReadModelService.get_platform_overview_snapshot()
+    except Exception as exc:
+        logger.warning(f'[量化读模型] overview 降级空状态: {exc}')
+        snapshot = {
+            'configured': False,
+            'message': '量化读模型暂不可用，长桥服务或密钥未配置',
+            'asset': {
+                'configured': False,
+                'totalCash': None,
+                'netAssets': None,
+                'availableCash': None,
+                'currency': None,
+            },
+            'position': {'count': 0, 'positions': []},
+        }
     return ResponseUtil.success(data=snapshot)
 
 
@@ -66,13 +82,130 @@ async def get_factor_schema(request: Request) -> Response:
 )
 async def compute_factor(
     request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
     symbol: Annotated[str, Query(description='标的代码')],
     market: Annotated[str, Query(description='市场（US/HK/CN）')] = 'US',
     profile: Annotated[str, Query(description='策略档位')] = 'balanced',
 ) -> Response:
-    result = await QuantService.compute_factor_services(symbol, market, profile)
+    result = await QuantService.compute_factor_services(symbol, market, profile, query_db=query_db)
     logger.info(f'计算标的{symbol}因子完成')
     return ResponseUtil.success(data=result)
+
+
+@quant_controller.get(
+    '/factor/snapshots',
+    summary='最新因子定时快照',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def list_factor_snapshots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query()] = 80,
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.list_factor_snapshots(query_db, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@quant_controller.get(
+    '/factor/snapshots/export',
+    summary='导出最新因子快照 CSV',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def export_factor_snapshots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from fastapi.responses import StreamingResponse
+
+    from module_quant.service.snapshot_service import SnapshotService
+
+    filename, content = await SnapshotService.export_factor_snapshots_csv(query_db)
+    return StreamingResponse(
+        iter([content]),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@quant_controller.post(
+    '/scan/daily',
+    summary='立即执行全市场因子日扫并写入读模型快照',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+)
+@Log(title='因子日扫', business_type=BusinessType.OTHER)
+async def run_daily_factor_scan(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    profile: Annotated[str, Query()] = 'balanced',
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_daily_factor_scan(query_db, profile=profile)
+    return ResponseUtil.success(data=data, msg=f"因子日扫完成，成功 {data.get('symbolCount', 0)} 个标的")
+
+
+@quant_controller.post(
+    '/scan/indicators',
+    summary='立即刷新行情看板指标快照',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:compute')],
+)
+async def run_indicator_refresh(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_indicator_refresh(query_db)
+    return ResponseUtil.success(data=data, msg='指标快照已刷新')
+
+
+@quant_controller.post(
+    '/scan/positions',
+    summary='立即执行持仓止损监控',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+)
+async def run_position_monitor(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_quant.service.snapshot_service import SnapshotService
+
+    data = await SnapshotService.run_position_monitor(query_db)
+    return ResponseUtil.success(data=data, msg='持仓监控已执行')
+
+
+@quant_controller.get(
+    '/factor/qc',
+    summary='最新 Alphalens 风格因子质检',
+    description='返回截面 IC / IR / 分位收益，默认美股股票池',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:list')],
+)
+async def get_factor_qc(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await FactorQcService.latest_report(query_db, market=market)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '操作成功')
+
+
+@quant_controller.post(
+    '/factor/qc/run',
+    summary='立即运行因子质检',
+    description='用目标股票池日K 计算 Alphalens 风格 IC/IR 与五分位收益并落库',
+    dependencies=[UserInterfaceAuthDependency('quant:factor:compute')],
+)
+@Log(title='因子质检', business_type=BusinessType.OTHER)
+async def run_factor_qc(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await FactorQcService.run_and_store(query_db, market=market)
+    logger.info(f'因子质检完成: market={market} items={data.get("itemCount")} saved={data.get("saved")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '质检完成')
 
 
 # ---------------------------------------------------------------- 自选池 ---

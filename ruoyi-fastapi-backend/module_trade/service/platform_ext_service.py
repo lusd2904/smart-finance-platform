@@ -13,10 +13,18 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from exceptions.exception import ServiceException
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_market.entity.vo.market_vo import MarketAiAnalyzeModel
 from module_market.service.market_service import MarketService
 from module_trade.dao.trade_dao import TradeDao
+from module_trade.service.risk_event_workflow import (
+    STATUS_LABELS,
+    apply_status_change,
+    effective_status,
+    handled_flag,
+    normalize_status,
+)
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
@@ -25,21 +33,30 @@ _SEEDS_DONE = False
 DEFAULT_STRATEGY_PROFILES = {
     'conservative': {
         'name': '保守',
-        'buyThreshold': 65,
-        'sellThreshold': 40,
-        'weights': {'trend': 0.25, 'momentum': 0.15, 'volatility': 0.2, 'volume': 0.1, 'value': 0.15, 'quality': 0.15},
+        'buyThreshold': 72,
+        'sellThreshold': 42,
+        'weights': {
+            'trend': 0.24, 'priceAction': 0.14, 'momentum': 0.10, 'breakout': 0.06,
+            'volumeFlow': 0.10, 'reversion': 0.20, 'volatility': 0.16, 'liquidity': 0.10,
+        },
     },
     'balanced': {
         'name': '均衡',
-        'buyThreshold': 58,
-        'sellThreshold': 42,
-        'weights': {'trend': 0.3, 'momentum': 0.2, 'volatility': 0.15, 'volume': 0.15, 'value': 0.1, 'quality': 0.1},
+        'buyThreshold': 64,
+        'sellThreshold': 38,
+        'weights': {
+            'trend': 0.30, 'priceAction': 0.14, 'momentum': 0.18, 'breakout': 0.16,
+            'volumeFlow': 0.12, 'reversion': 0.08, 'volatility': 0.10, 'liquidity': 0.06,
+        },
     },
     'aggressive': {
         'name': '进取',
-        'buyThreshold': 52,
-        'sellThreshold': 45,
-        'weights': {'trend': 0.35, 'momentum': 0.3, 'volatility': 0.1, 'volume': 0.15, 'value': 0.05, 'quality': 0.05},
+        'buyThreshold': 56,
+        'sellThreshold': 32,
+        'weights': {
+            'trend': 0.34, 'priceAction': 0.12, 'momentum': 0.26, 'breakout': 0.28,
+            'volumeFlow': 0.16, 'reversion': 0.02, 'volatility': 0.06, 'liquidity': 0.05,
+        },
     },
 }
 
@@ -53,6 +70,7 @@ class PlatformExtService:
             return
 
         try:
+            await TradeDao.ensure_risk_event_schema(db)
             # 策略配置种子
             profiles = await TradeDao.list_strategy_profiles(db)
             existing_codes = {p.profile_code for p in profiles}
@@ -210,22 +228,105 @@ class PlatformExtService:
         await db.commit()
 
     @classmethod
-    async def list_risk_events(cls, db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
+    async def list_risk_events(
+        cls, db: AsyncSession, limit: int = 50, status: str | None = None
+    ) -> list[dict[str, Any]]:
         await cls.ensure_seed_data(db)
-        rows = await TradeDao.list_risk_events(db, limit=limit)
-        return [
-            {
-                'eventId': r.event_id,
-                'ruleId': r.rule_id,
-                'eventLevel': r.event_level,
-                'title': r.title,
-                'content': r.content,
-                'symbol': r.symbol,
-                'handled': r.handled,
-                'createTime': r.create_time.strftime('%Y-%m-%d %H:%M:%S') if r.create_time else None,
-            }
-            for r in rows
-        ]
+        expired = await TradeDao.expire_overdue_risk_events(db)
+        if expired:
+            await db.commit()
+        rows = await TradeDao.list_risk_events(db, limit=limit, status=status)
+        items = []
+        for r in rows:
+            stored = normalize_status(getattr(r, 'review_status', None), r.handled)
+            status_code = effective_status(stored, r.create_time, r.handled)
+            items.append(
+                {
+                    'eventId': r.event_id,
+                    'ruleId': r.rule_id,
+                    'eventLevel': r.event_level,
+                    'title': r.title,
+                    'content': r.content,
+                    'symbol': r.symbol,
+                    'handled': handled_flag(status_code),
+                    'reviewStatus': status_code,
+                    'reviewStatusLabel': STATUS_LABELS.get(status_code, status_code),
+                    'handleRemark': getattr(r, 'handle_remark', None),
+                    'handledBy': getattr(r, 'handled_by', None),
+                    'handleTime': r.handle_time.strftime('%Y-%m-%d %H:%M:%S')
+                    if getattr(r, 'handle_time', None)
+                    else None,
+                    'createTime': r.create_time.strftime('%Y-%m-%d %H:%M:%S') if r.create_time else None,
+                }
+            )
+        return items
+
+    @classmethod
+    async def update_risk_event_review(
+        cls,
+        db: AsyncSession,
+        event_id: int,
+        payload: dict[str, Any],
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        await cls.ensure_seed_data(db)
+        event = await TradeDao.get_risk_event(db, event_id)
+        if not event:
+            raise ServiceException(message='风控事件不存在')
+        await TradeDao.expire_overdue_risk_events(db)
+        await db.refresh(event)
+        current = effective_status(
+            getattr(event, 'review_status', None), event.create_time, event.handled
+        )
+        target = payload.get('reviewStatus') or payload.get('status')
+        if not target and str(payload.get('handled') or '') == '1':
+            target = 'confirmed'
+        if not target and str(payload.get('handled') or '') == '0':
+            target = 'need_review'
+        values = apply_status_change(
+            current=current,
+            target=str(target or ''),
+            remark=payload.get('handleRemark') or payload.get('remark'),
+            operator=operator,
+        )
+        ok = await TradeDao.update_risk_event_status(
+            db,
+            event_id,
+            handled=values['handled'],
+            review_status=values['review_status'],
+            handle_remark=values['handle_remark'],
+            handled_by=values['handled_by'],
+            handle_time=values['handle_time'],
+        )
+        if not ok:
+            raise ServiceException(message='更新风控状态失败')
+        try:
+            label = STATUS_LABELS.get(values['review_status'], values['review_status'])
+            await TradeDao.add_notification(
+                db,
+                {
+                    'title': f'风控事件已{label}',
+                    'content': (
+                        f'事件 #{event_id} {getattr(event, "symbol", None) or ""} · '
+                        f'{values.get("handle_remark") or values.get("handled_by") or ""}'
+                    ).strip(),
+                    'level': 'warning'
+                    if values['review_status'] in {'need_review', 'pending_review', 'overdue'}
+                    else 'info',
+                    'category': 'risk',
+                },
+            )
+        except Exception as exc:
+            logger.info(f'[风控] 写通知跳过: {exc}')
+        await db.commit()
+        return {
+            'eventId': event_id,
+            'reviewStatus': values['review_status'],
+            'reviewStatusLabel': STATUS_LABELS[values['review_status']],
+            'handled': values['handled'],
+            'handleRemark': values['handle_remark'],
+            'handledBy': values['handled_by'],
+        }
 
     @classmethod
     async def evaluate_risk(cls, db: AsyncSession) -> dict[str, Any]:
@@ -260,6 +361,8 @@ class PlatformExtService:
                             'title': f"{rule['ruleName']} · {symbol}",
                             'content': f'标的 {symbol} 综合分 {score} 触发规则阈值 {thr}（signal={sig.signal}）',
                             'symbol': symbol,
+                            'review_status': 'pending_review',
+                            'handled': '0',
                         },
                     )
                     created += 1

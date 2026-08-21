@@ -38,7 +38,16 @@ class PlatRiskEvent(Base):
     title = Column(String(200), nullable=False, comment='事件标题')
     content = Column(String(1000), nullable=True, comment='事件详情')
     symbol = Column(String(32), nullable=True, comment='标的代码')
-    handled = Column(CHAR(1), nullable=False, server_default='0', comment='是否已处理（0否 1是）')
+    handled = Column(CHAR(1), nullable=False, server_default='0', comment='是否已处理（0否 1是，兼容旧字段）')
+    review_status = Column(
+        String(32),
+        nullable=False,
+        server_default="'pending_review'",
+        comment='复核状态(pending_review/confirmed/ignored/need_review/overdue)',
+    )
+    handle_remark = Column(String(500), nullable=True, comment='处理备注')
+    handled_by = Column(String(64), nullable=True, comment='处理人')
+    handle_time = Column(DateTime, nullable=True, comment='处理时间')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='触发时间')
 
 

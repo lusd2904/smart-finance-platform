@@ -54,13 +54,19 @@ class FinanceNewsService:
     ) -> dict[str, Any]:
         limit = max(1, min(int(limit or 20), 60))
         market = market.upper() if market else None
-        if refresh:
-            await cls.refresh_all_markets(query_db)
-        rows = await FinanceBriefingDao.get_latest(query_db, limit=limit, market=market)
-        # 若库空且未强制刷新，尝试生成一次
-        if not rows and not refresh:
-            await cls.refresh_all_markets(query_db)
+        upstream_message = None
+        try:
+            if refresh:
+                await cls.refresh_all_markets(query_db)
             rows = await FinanceBriefingDao.get_latest(query_db, limit=limit, market=market)
+            # 若库空且未强制刷新，尝试生成一次
+            if not rows and not refresh:
+                await cls.refresh_all_markets(query_db)
+                rows = await FinanceBriefingDao.get_latest(query_db, limit=limit, market=market)
+        except Exception as exc:
+            logger.warning(f'[财经资讯] 简报聚合失败: {exc}')
+            rows = []
+            upstream_message = '财经资讯源暂时不可用，已返回空列表，请稍后重试'
 
         data = [
             {
@@ -77,15 +83,21 @@ class FinanceNewsService:
             }
             for r in rows
         ]
+        google_status = getattr(cls, '_last_google_status', None)
+        if google_status and not google_status.get('ok'):
+            upstream_message = upstream_message or google_status.get('message')
         return {
             'success': True,
             'data': data,
+            'message': upstream_message,
             'meta': {
                 'market': market,
                 'count': len(data),
                 'limit': limit,
                 'snapshotAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'sources': sorted({d['sourceName'] for d in data if d.get('sourceName')}),
+                'googleNews': google_status,
+                'message': upstream_message,
             },
         }
 
@@ -310,11 +322,33 @@ class FinanceNewsService:
         try:
             async with httpx.AsyncClient(timeout=12.0, trust_env=False) as client:
                 resp = await client.get(url, headers={'User-Agent': 'Mozilla/5.0 RuoYi-Sentiment/1.0'})
+                if resp.status_code in {429, 500, 502, 503, 504}:
+                    cls._last_google_status = {
+                        'ok': False,
+                        'status': resp.status_code,
+                        'message': 'Google News 暂时不可用（上游超时或限流），已跳过外部资讯',
+                    }
+                    logger.warning(f'[财经资讯] Google News RSS HTTP {resp.status_code} market={market}')
+                    return []
                 resp.raise_for_status()
                 text = resp.text
-        except Exception as exc:
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
+            cls._last_google_status = {
+                'ok': False,
+                'status': getattr(getattr(exc, 'response', None), 'status_code', None),
+                'message': 'Google News 暂时不可用（上游超时或限流），已跳过外部资讯',
+            }
             logger.warning(f'[财经资讯] Google News RSS 拉取失败 market={market}: {exc}')
             return []
+        except Exception as exc:
+            cls._last_google_status = {
+                'ok': False,
+                'status': None,
+                'message': 'Google News 暂时不可用，已跳过外部资讯',
+            }
+            logger.warning(f'[财经资讯] Google News RSS 拉取失败 market={market}: {exc}')
+            return []
+        cls._last_google_status = {'ok': True, 'status': 200, 'message': None}
 
         try:
             root = ElementTree.fromstring(text)

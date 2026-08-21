@@ -24,6 +24,56 @@ export function computeFactor(query) {
   })
 }
 
+export function listFactorSnapshots(limit = 80) {
+  return request({
+    url: '/quant/factor/snapshots',
+    method: 'get',
+    params: { limit }
+  })
+}
+
+export function exportFactorSnapshots() {
+  return request({
+    url: '/quant/factor/snapshots/export',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+export function runDailyFactorScan(profile = 'balanced') {
+  return request({
+    url: '/quant/scan/daily',
+    method: 'post',
+    params: { profile },
+    timeout: 180000
+  })
+}
+
+export function runIndicatorRefresh() {
+  return request({
+    url: '/quant/scan/indicators',
+    method: 'post',
+    timeout: 60000
+  })
+}
+
+export function getFactorQc(market = 'US') {
+  return request({
+    url: '/quant/factor/qc',
+    method: 'get',
+    params: { market }
+  })
+}
+
+export function runFactorQc(market = 'US') {
+  return request({
+    url: '/quant/factor/qc/run',
+    method: 'post',
+    params: { market },
+    timeout: 180000
+  })
+}
+
 // 查询自选池列表
 export function listWatchlist(query) {
   return request({
