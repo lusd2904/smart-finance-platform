@@ -30,7 +30,6 @@ from module_market.service.market_analyzer_service import MarketAiAnalyzer
 from module_market.service.sync_service import MarketSyncService
 from module_market.service.tradingview_service import _resample_klines
 from module_quant.dao.quant_dao import QuantStrategyDao
-from module_quant.service.longbridge_service import LongbridgeService
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
@@ -94,7 +93,7 @@ class MarketService:
     ) -> dict[str, Any]:
         """
         One-shot board quotes: latest 2 daily bars from Influx per symbol.
-        Longbridge realtime overlay only when keys are present; otherwise Influx-only.
+        Browse/list path — Influx/DB only; do not call Longbridge quote APIs here.
         """
         from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
 
@@ -117,23 +116,7 @@ class MarketService:
             grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
             bars_by_symbol.update(grouped or {})
 
-        await LongbridgeService.ensure_credentials_from_db(query_db)
-        lb_configured = LongbridgeService.is_configured()
-        lb_quotes: dict[str, dict[str, Any]] = {}
-        if lb_configured:
-            lb_symbols = []
-            for item in instruments:
-                sym = str(item.get('symbol') or '')
-                if not sym or sym.startswith('^'):
-                    continue
-                lb_symbols.append(LongbridgeService.to_longbridge_symbol(sym, item.get('market') or 'US'))
-            if lb_symbols:
-                rt = await loop.run_in_executor(None, LongbridgeService.get_realtime_quote, lb_symbols)
-                for q in rt.get('quotes') or []:
-                    raw = str(q.get('symbol') or '')
-                    lb_quotes[raw.upper()] = q
-                    if '.' in raw:
-                        lb_quotes[raw.split('.', 1)[0].upper()] = q
+        # Browse/list path: do not batch-call Longbridge get_realtime_quote (slow + token failures).
 
         quotes: list[dict[str, Any]] = []
         for item in instruments:
@@ -142,26 +125,6 @@ class MarketService:
             bars = bars_by_symbol.get(sym) or []
             quote = cls._build_quote_from_klines(bars)
             source = 'influx' if quote else 'none'
-            if lb_configured and not str(sym).startswith('^'):
-                lb_sym = LongbridgeService.to_longbridge_symbol(sym, mkt).upper()
-                overlay = lb_quotes.get(lb_sym) or lb_quotes.get(str(sym).upper())
-                if overlay:
-                    quote = {
-                        **quote,
-                        'last': overlay.get('lastDone') if overlay.get('lastDone') is not None else quote.get('last'),
-                        'open': overlay.get('open') if overlay.get('open') is not None else quote.get('open'),
-                        'high': overlay.get('high') if overlay.get('high') is not None else quote.get('high'),
-                        'low': overlay.get('low') if overlay.get('low') is not None else quote.get('low'),
-                        'volume': overlay.get('volume') if overlay.get('volume') is not None else quote.get('volume'),
-                        'change': overlay.get('change') if overlay.get('change') is not None else quote.get('change'),
-                        'changeRate': overlay.get('changeRate')
-                        if overlay.get('changeRate') is not None
-                        else quote.get('changeRate'),
-                        'prevClose': overlay.get('prevClose')
-                        if overlay.get('prevClose') is not None
-                        else quote.get('prevClose'),
-                    }
-                    source = 'longbridge'
             last = quote.get('last')
             change_rate = quote.get('changeRate')
             quotes.append(
@@ -197,8 +160,7 @@ class MarketService:
             'quotes': quotes,
             'indices': indices,
             'rows': rows,
-            'longbridgeConfigured': lb_configured,
-            'source': 'longbridge' if lb_configured else 'influx',
+            'source': 'influx',
             'count': len(quotes),
         }
 
@@ -587,27 +549,8 @@ class MarketService:
         snapshot = await loop.run_in_executor(None, IndicatorService.latest_snapshot, klines) if klines else {}
         quote = cls._build_quote_from_klines(klines)
 
-        # 长桥实时价覆盖（可选）
+        # Browse/history path: quote from Influx klines only — do not overlay Longbridge realtime/static_info.
         price_source = 'history'
-        await LongbridgeService.ensure_credentials_from_db(query_db)
-        if LongbridgeService.is_configured() and not symbol.startswith('^'):
-            lb_sym = LongbridgeService.to_longbridge_symbol(symbol, market)
-            rt = await loop.run_in_executor(None, LongbridgeService.get_realtime_quote, [lb_sym])
-            quotes = rt.get('quotes') or []
-            if quotes:
-                q0 = quotes[0]
-                quote = {
-                    **quote,
-                    'last': q0.get('lastDone') or quote.get('last'),
-                    'open': q0.get('open') or quote.get('open'),
-                    'high': q0.get('high') or quote.get('high'),
-                    'low': q0.get('low') or quote.get('low'),
-                    'volume': q0.get('volume') or quote.get('volume'),
-                    'change': q0.get('change'),
-                    'changeRate': q0.get('changeRate'),
-                    'prevClose': q0.get('prevClose'),
-                }
-                price_source = 'longbridge'
 
         fundamentals = {
             'symbol': symbol,
@@ -615,12 +558,6 @@ class MarketService:
             'market': market,
             'category': category,
         }
-        if LongbridgeService.is_configured() and not symbol.startswith('^'):
-            lb_sym = LongbridgeService.to_longbridge_symbol(symbol, market)
-            static = await loop.run_in_executor(None, LongbridgeService.get_static_info, [lb_sym])
-            items = static.get('items') or []
-            if items:
-                fundamentals.update({k: v for k, v in items[0].items() if v is not None})
 
         tech_card = cls._tech_card_from_snapshot(snapshot)
 

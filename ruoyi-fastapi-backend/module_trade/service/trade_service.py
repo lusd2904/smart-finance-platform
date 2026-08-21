@@ -71,8 +71,7 @@ class TradeService:
         limit: int = 200,
     ) -> dict[str, Any]:
         """
-        交易台 K 线：优先 Influx 真实序列；US/HK 分钟/分时在时序库为空时回退长桥 candlesticks/intraday。
-        有实时价时只覆盖最后一根已有 K，不新增、不补空。
+        交易台 K 线：Influx/DB 序列；长桥仅用于分钟/分时最后一笔实时价（/trade/quote/*），失败则回退历史价。
         """
         code, mkt = parse_symbol_market(symbol, market)
         period_key = normalize_kline_period(period)
@@ -86,16 +85,7 @@ class TradeService:
         klines = list(influx_klines or [])
         message = None
 
-        if not klines and is_minute_period(period_key) and mkt in {'US', 'HK'} and LongbridgeService.is_configured():
-            if period_key == 'intraday':
-                lb = await LongbridgeService.get_intraday_async(code, mkt)
-            else:
-                lb = await LongbridgeService.get_candlesticks_async(code, mkt, period_key, limit)
-            klines = list(lb.get('klines') or [])
-            if klines:
-                source = 'longbridge'
-            else:
-                message = lb.get('message') or '暂无K线'
+        # K-line series: Influx/DB only — do not fall back to Longbridge candlesticks on daily/history/minute paths.
 
         if not klines and not message:
             message = '暂无K线'
@@ -105,26 +95,35 @@ class TradeService:
 
         quote = cls._quote_from_klines(klines)
         price_source = 'history'
-        if LongbridgeService.is_configured() and mkt in {'US', 'HK'} and not str(code).startswith('^'):
-            rt = await LongbridgeService.get_realtime_quote_async([code], mkt)
-            quotes = rt.get('quotes') or []
-            if quotes:
-                q0 = quotes[0]
-                last = q0.get('lastDone')
-                quote = {
-                    **quote,
-                    'last': last if last is not None else quote.get('last'),
-                    'open': q0.get('open') if q0.get('open') is not None else quote.get('open'),
-                    'high': q0.get('high') if q0.get('high') is not None else quote.get('high'),
-                    'low': q0.get('low') if q0.get('low') is not None else quote.get('low'),
-                    'volume': q0.get('volume') if q0.get('volume') is not None else quote.get('volume'),
-                    'change': q0.get('change'),
-                    'changeRate': q0.get('changeRate'),
-                    'prevClose': q0.get('prevClose'),
-                }
-                price_source = 'longbridge'
-                if klines and last is not None:
-                    LongbridgeService.overlay_last_bar(klines[-1], float(last))
+        lb_configured = LongbridgeService.is_configured()
+        if (
+            lb_configured
+            and is_minute_period(period_key)
+            and mkt in {'US', 'HK'}
+            and not str(code).startswith('^')
+        ):
+            try:
+                rt = await LongbridgeService.get_realtime_quote_async([code], mkt)
+                quotes = rt.get('quotes') or []
+                if quotes:
+                    q0 = quotes[0]
+                    last = q0.get('lastDone')
+                    quote = {
+                        **quote,
+                        'last': last if last is not None else quote.get('last'),
+                        'open': q0.get('open') if q0.get('open') is not None else quote.get('open'),
+                        'high': q0.get('high') if q0.get('high') is not None else quote.get('high'),
+                        'low': q0.get('low') if q0.get('low') is not None else quote.get('low'),
+                        'volume': q0.get('volume') if q0.get('volume') is not None else quote.get('volume'),
+                        'change': q0.get('change'),
+                        'changeRate': q0.get('changeRate'),
+                        'prevClose': q0.get('prevClose'),
+                    }
+                    price_source = 'longbridge'
+                    if klines and last is not None:
+                        LongbridgeService.overlay_last_bar(klines[-1], float(last))
+            except Exception as exc:
+                logger.info(f'[交易台K线] 长桥实时价跳过: {exc}')
 
         return {
             'symbol': code,
@@ -132,7 +131,7 @@ class TradeService:
             'period': period_key,
             'source': source,
             'priceSource': price_source,
-            'configured': LongbridgeService.is_configured(),
+            'configured': lb_configured,
             'message': message,
             'klines': klines,
             'quote': {**quote, 'source': price_source} if quote else {},

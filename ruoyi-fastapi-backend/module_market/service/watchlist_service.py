@@ -214,42 +214,8 @@ class MarketWatchlistService:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
                     quotes[symbol] = quote
+        # Browse/list path: last price from Influx latest 2 daily bars only — do not overlay Longbridge realtime.
         quote_source = 'influx'
-        try:
-            from module_quant.service.longbridge_service import LongbridgeService
-
-            await LongbridgeService.ensure_credentials_from_db(query_db)
-            if LongbridgeService.is_configured() and items:
-                lb_symbols = [
-                    LongbridgeService.to_longbridge_symbol(r.symbol, r.market or 'US')
-                    for r in items
-                    if r.symbol and not str(r.symbol).startswith('^')
-                ]
-                rt = await asyncio.to_thread(LongbridgeService.get_realtime_quote, lb_symbols) if lb_symbols else {}
-                lb_map: dict[str, dict[str, Any]] = {}
-                for q in rt.get('quotes') or []:
-                    raw = str(q.get('symbol') or '').upper()
-                    lb_map[raw] = q
-                    if '.' in raw:
-                        lb_map[raw.split('.', 1)[0]] = q
-                for row in items:
-                    overlay = lb_map.get(str(row.symbol).upper()) or lb_map.get(
-                        LongbridgeService.to_longbridge_symbol(row.symbol, row.market or 'US').upper()
-                    )
-                    if not overlay:
-                        continue
-                    current = quotes.get(row.symbol) or {}
-                    quotes[row.symbol] = {
-                        **current,
-                        'last': overlay.get('lastDone') if overlay.get('lastDone') is not None else current.get('last'),
-                        'changeRate': overlay.get('changeRate')
-                        if overlay.get('changeRate') is not None
-                        else current.get('changeRate'),
-                        'change': overlay.get('change') if overlay.get('change') is not None else current.get('change'),
-                    }
-                    quote_source = 'longbridge'
-        except Exception as exc:
-            logger.info(f'[自选总览] 长桥实时价跳过: {exc}')
 
         rows = []
         stance_count = {'偏多': 0, '偏空': 0, '中性': 0}
