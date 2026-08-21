@@ -23,6 +23,7 @@ KNOWN_JOBS = frozenset(
         'sentiment_collect',
         'watchlist_analyze',
         'indicator_refresh',
+        'market_review',
     }
 )
 
@@ -170,6 +171,15 @@ async def _indicator_refresh(_payload: dict[str, Any]) -> dict[str, Any]:
         return await SnapshotService.run_indicator_refresh(db)
 
 
+async def _market_review(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_market.service.market_review_service import MarketReviewService
+
+    markets = payload.get('markets')
+    async with AsyncSessionLocal() as db:
+        return await MarketReviewService.analyze_markets(db, markets)
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'factor_scan': _factor_scan,
@@ -177,4 +187,5 @@ HANDLERS = {
     'sentiment_collect': _sentiment_collect,
     'watchlist_analyze': _watchlist_analyze,
     'indicator_refresh': _indicator_refresh,
+    'market_review': _market_review,
 }

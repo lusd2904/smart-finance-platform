@@ -12,7 +12,10 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+_SDK_CALL_TIMEOUT_SEC = 0.8
 
 from module_quant.service.longbridge_quote import (
     CN_NO_DEPTH_MSG,
@@ -26,6 +29,7 @@ from module_quant.service.longbridge_quote import (
     overlay_last_bar,
     quote_error_message,
     quote_error_reason,
+    is_auth_denied,
 )
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
@@ -35,8 +39,73 @@ _ACCOUNT_CACHE_TTL = 30
 _DEPTH_CACHE_TTL = 3
 _TRADES_CACHE_TTL = 3
 _LB_MIN_INTERVAL = 0.12
+_LB_AUTH_COOLDOWN_SEC = 180.0
 _lb_lock = asyncio.Lock()
 _lb_last_call = 0.0
+_lb_auth_open_until = 0.0
+_AUTH_BREAKER_MSG = '长桥凭证失效(401004)，已熔断跳过远程行情，稍后重试'
+
+
+def reset_quote_auth_breaker() -> None:
+    """Test helper: close the 401004 quote circuit."""
+    global _lb_auth_open_until
+    _lb_auth_open_until = 0.0
+
+
+def quote_auth_breaker_open() -> bool:
+    return time.monotonic() < _lb_auth_open_until
+
+
+def trip_quote_auth_breaker(exc: BaseException | str | None) -> bool:
+    """Open the quote circuit for a few minutes on 401004 / unauthorized."""
+    global _lb_auth_open_until
+    if not is_auth_denied(exc):
+        return False
+    _lb_auth_open_until = time.monotonic() + _LB_AUTH_COOLDOWN_SEC
+    LongbridgeService._clear_cached_contexts()
+    logger.warning(f'[长桥] 401004 熔断 {_LB_AUTH_COOLDOWN_SEC:.0f}s，跳过 depth/trades/realtime: {exc}')
+    return True
+
+
+def _auth_breaker_quote_empty() -> dict[str, Any]:
+    return {
+        'configured': True,
+        'quotes': [],
+        'reason': 'unauthorized',
+        'message': _AUTH_BREAKER_MSG,
+        'circuitOpen': True,
+    }
+
+
+def _auth_breaker_items_empty() -> dict[str, Any]:
+    return {
+        'configured': True,
+        'items': [],
+        'reason': 'unauthorized',
+        'message': _AUTH_BREAKER_MSG,
+        'circuitOpen': True,
+    }
+
+
+def _sdk_call(fn, *args, timeout: float = _SDK_CALL_TIMEOUT_SEC):
+    """Fail-fast wrapper so a hung Longbridge SDK cannot block the worker."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(fn, *args)
+        return fut.result(timeout=timeout)
+
+
+def _auth_breaker_klines_empty(symbol: str, market: str, period: str) -> dict[str, Any]:
+    return {
+        'configured': True,
+        'available': False,
+        'reason': 'unauthorized',
+        'message': _AUTH_BREAKER_MSG,
+        'symbol': symbol,
+        'market': market,
+        'period': period,
+        'klines': [],
+        'circuitOpen': True,
+    }
 
 
 def _resolve_region(region: str | None) -> str:
@@ -70,6 +139,58 @@ class LongbridgeService:
     _cached_quote_ctx: Any = None
     _cached_trade_ctx: Any = None
     _cached_content_ctx: Any = None
+    _auth_fail_until: float = 0.0
+    _AUTH_FAIL_COOLDOWN = 180.0
+    _AUTH_CUTOFF_AFTER = 3
+    _auth_fail_count: int = 0
+    _auth_cut_off: bool = False
+    _auth_cut_off_sig: str | None = None
+
+    @classmethod
+    def _reset_auth_breaker(cls) -> None:
+        cls._auth_fail_until = 0.0
+        cls._auth_fail_count = 0
+        cls._auth_cut_off = False
+        cls._auth_cut_off_sig = None
+
+    @classmethod
+    def _auth_blocked(cls) -> str | None:
+        """401004 后短路；连续失败则切断，直到 token 更换。"""
+        if getattr(cls, '_auth_cut_off', False):
+            return '长桥 token 连续失败，已切断远程调用，更换有效 token 后恢复'
+        until = float(getattr(cls, '_auth_fail_until', 0) or 0)
+        if time.time() < until:
+            remain = max(1, int(until - time.time()))
+            return f'长桥 token 失效，已短路 {remain}s'
+        return None
+
+    @classmethod
+    def _trip_auth(cls, exc: Exception) -> None:
+        msg = str(exc)
+        auth = (
+            is_auth_denied(exc)
+            or '401004' in msg
+            or '401003' in msg
+            or 'token invalid' in msg.lower()
+        )
+        if not auth:
+            return
+        cls._auth_fail_count = int(getattr(cls, '_auth_fail_count', 0) or 0) + 1
+        n = cls._auth_fail_count
+        try:
+            sig = cls._get_creds_signature(cls.resolve_credentials())
+        except Exception:
+            sig = None
+        if n >= int(getattr(cls, '_AUTH_CUTOFF_AFTER', 3) or 3):
+            cls._auth_cut_off = True
+            cls._auth_cut_off_sig = sig
+            cls._auth_fail_until = time.time() + 86400 * 7
+            cls._clear_cached_contexts()
+            logger.warning(f'[长桥] token 连续失败 {n} 次，已切断远程调用，更换 token 后恢复: {exc}')
+            return
+        cooldown = cls._AUTH_FAIL_COOLDOWN if n == 1 else cls._AUTH_FAIL_COOLDOWN * 3
+        cls._auth_fail_until = time.time() + cooldown
+        logger.warning(f'[长桥] token 失效第 {n} 次，短路 {int(cooldown)}s: {exc}')
 
     @classmethod
     def _clear_cached_contexts(cls) -> None:
@@ -93,6 +214,15 @@ class LongbridgeService:
         else:
             cls._override_credentials = None
         cls._clear_cached_contexts()
+        # 只在切断后且 token 真的换了才恢复，避免每次从 DB 灌凭据把熔断清掉
+        if getattr(cls, '_auth_cut_off', False):
+            try:
+                sig = cls._get_creds_signature(cls.resolve_credentials())
+            except Exception:
+                sig = None
+            if sig and sig != getattr(cls, '_auth_cut_off_sig', None):
+                logger.info('[长桥] 检测到新 token，解除切断')
+                cls._reset_auth_breaker()
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
@@ -192,10 +322,11 @@ class LongbridgeService:
         from longport.openapi import QuoteContext
 
         try:
-            cls._cached_quote_ctx = QuoteContext(config)
+            cls._cached_quote_ctx = _sdk_call(QuoteContext, config)
             cls._cached_creds_sig = sig
             return cls._cached_quote_ctx
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 构建QuoteContext失败: {exc}')
             return None
 
@@ -217,6 +348,7 @@ class LongbridgeService:
             cls._cached_creds_sig = sig
             return cls._cached_trade_ctx
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 构建TradeContext失败: {exc}')
             return None
 
@@ -300,9 +432,12 @@ class LongbridgeService:
             return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'quotes': []}
+        blocked = cls._auth_blocked()
+        if blocked:
+            return {'configured': True, 'message': blocked, 'quotes': [], 'reason': 'auth_tripped'}
         try:
             ctx = cls._build_quote_context()
-            raw = ctx.quote(symbols)
+            raw = _sdk_call(ctx.quote, symbols)
             quotes = []
             for q in raw or []:
                 last = cls._to_float(getattr(q, 'last_done', None))
@@ -329,6 +464,7 @@ class LongbridgeService:
                 )
             return {'configured': True, 'quotes': quotes}
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取实时行情失败: {exc}')
             return {'configured': True, 'message': f'获取行情失败: {exc}', 'quotes': []}
 
@@ -337,6 +473,8 @@ class LongbridgeService:
         """获取静态基本面（名称/行业等），凭据缺失返回 configured=False。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'items': []}
+        if cls._auth_blocked():
+            return {'configured': True, 'message': cls._auth_blocked(), 'items': [], 'reason': 'auth_tripped'}
         try:
             ctx = cls._build_quote_context()
             raw = ctx.static_info(symbols)
@@ -359,6 +497,7 @@ class LongbridgeService:
                 )
             return {'configured': True, 'items': items}
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取静态信息失败: {exc}')
             return {'configured': True, 'message': f'获取静态信息失败: {exc}', 'items': []}
 
@@ -376,6 +515,9 @@ class LongbridgeService:
             return empty_depth(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
         if not cls.is_configured():
             return empty_depth(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，盘口暂不可用')
+        blocked = cls._auth_blocked()
+        if blocked:
+            return empty_depth(symbol, market, configured=True, reason='auth_tripped', message=blocked)
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             ctx = cls._build_quote_context()
@@ -384,8 +526,9 @@ class LongbridgeService:
                     symbol, market, configured=True, reason='unavailable',
                     message='长桥 QuoteContext.depth 不可用', lb_symbol=lb_symbol,
                 )
-            return assemble_depth(ctx.depth(lb_symbol), symbol, market, lb_symbol)
+            return assemble_depth(_sdk_call(ctx.depth, lb_symbol), symbol, market, lb_symbol)
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取盘口失败 {lb_symbol}: {exc}')
             return empty_depth(
                 symbol, market, configured=True, reason=quote_error_reason(exc),
@@ -400,6 +543,9 @@ class LongbridgeService:
             return empty_trades(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
         if not cls.is_configured():
             return empty_trades(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，成交明细暂不可用')
+        blocked = cls._auth_blocked()
+        if blocked:
+            return empty_trades(symbol, market, configured=True, reason='auth_tripped', message=blocked)
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             ctx = cls._build_quote_context()
@@ -408,8 +554,9 @@ class LongbridgeService:
                     symbol, market, configured=True, reason='unavailable',
                     message='长桥 QuoteContext.trades 不可用', lb_symbol=lb_symbol,
                 )
-            return assemble_trades(ctx.trades(lb_symbol, count), symbol, market, lb_symbol, count)
+            return assemble_trades(_sdk_call(ctx.trades, lb_symbol, count), symbol, market, lb_symbol, count)
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取成交明细失败 {lb_symbol}: {exc}')
             return empty_trades(
                 symbol, market, configured=True, reason=quote_error_reason(exc),
@@ -437,6 +584,18 @@ class LongbridgeService:
                 'available': False,
                 'reason': 'unconfigured',
                 'message': '长桥凭据未配置',
+                'symbol': symbol,
+                'market': market,
+                'period': period,
+                'klines': [],
+            }
+        blocked = cls._auth_blocked()
+        if blocked:
+            return {
+                'configured': True,
+                'available': False,
+                'reason': 'auth_tripped',
+                'message': blocked,
                 'symbol': symbol,
                 'market': market,
                 'period': period,
@@ -475,6 +634,7 @@ class LongbridgeService:
                 'klines': klines,
             }
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取K线失败 {lb_symbol} {period}: {exc}')
             return {
                 'configured': True,
@@ -540,6 +700,7 @@ class LongbridgeService:
                 'klines': klines,
             }
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取分时失败 {lb_symbol}: {exc}')
             return {
                 'configured': True,
@@ -647,6 +808,7 @@ class LongbridgeService:
                 )
             return {'configured': True, 'balances': balances}
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取账户资金失败: {exc}')
             return {'configured': True, 'message': f'获取账户资金失败: {exc}', 'balances': []}
 
@@ -674,6 +836,7 @@ class LongbridgeService:
                     )
             return {'configured': True, 'positions': positions}
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取持仓失败: {exc}')
             return {'configured': True, 'message': f'获取持仓失败: {exc}', 'positions': []}
 
@@ -688,6 +851,7 @@ class LongbridgeService:
             orders = [cls._map_order(o) for o in (raw or [])]
             return {'configured': True, 'orders': orders}
         except Exception as exc:
+            cls._trip_auth(exc)
             logger.warning(f'[长桥] 获取今日订单失败: {exc}')
             return {'configured': True, 'message': f'获取今日订单失败: {exc}', 'orders': []}
 
@@ -931,6 +1095,9 @@ class LongbridgeService:
 
     @classmethod
     async def get_realtime_quote_async(cls, symbols: list[str] | str, market: str = 'US') -> dict[str, Any]:
+        blocked = cls._auth_blocked()
+        if blocked:
+            return {'configured': True, 'message': blocked, 'quotes': [], 'reason': 'auth_tripped', 'circuitOpen': True}
         normalized = cls.normalize_symbols(symbols, market)
         cache_key = 'lb:quote:' + ','.join(sorted(normalized))
         cached = await cache_get_json(cache_key)
@@ -1009,6 +1176,9 @@ class LongbridgeService:
 
     @classmethod
     async def get_depth_async(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        blocked = cls._auth_blocked()
+        if blocked:
+            return empty_depth(symbol, market, configured=True, reason='auth_tripped', message=blocked)
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         cache_key = f'lb:depth:{lb_symbol}'
         cached = await cache_get_json(cache_key)
@@ -1023,6 +1193,9 @@ class LongbridgeService:
 
     @classmethod
     async def get_trades_async(cls, symbol: str, market: str = 'US', count: int = 30) -> dict[str, Any]:
+        blocked = cls._auth_blocked()
+        if blocked:
+            return empty_trades(symbol, market, configured=True, reason='auth_tripped', message=blocked)
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         cache_key = f'lb:trades:{lb_symbol}:{int(count or 30)}'
         cached = await cache_get_json(cache_key)
