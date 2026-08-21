@@ -34,6 +34,7 @@ import * as echarts from 'echarts'
 import { listInstrument, getKline } from '@/api/market'
 import { applyChartTheme } from '@/utils/echartsTheme'
 const route=useRoute()
+const { proxy } = getCurrentInstance()
 const instruments=ref([]); const symbol=ref(route.query.symbol||'AAPL'); const market=ref(route.query.market||'US')
 const range=ref('-1y'); const loading=ref(false); const chartRef=ref(); const fallbackNotice=ref(''); let chart
 async function loadInst(){ instruments.value=((await listInstrument()).data)||[] }
@@ -46,40 +47,42 @@ async function load(){
   loading.value=true
   fallbackNotice.value=''
   try{
-    let kl=await fetchKlines(symbol.value, market.value)
-    if(!kl.length && (symbol.value||'').toUpperCase() !== 'AAPL'){
-      const aapl=await fetchKlines('AAPL','US')
-      if(aapl.length){
-        kl=aapl
-        symbol.value='AAPL'
-        market.value='US'
-        fallbackNotice.value='当前标的暂无真实K线，已回退到 Influx 中的 AAPL 实盘日K'
+    await proxy.$modal.withLoading('加载中…', async () => {
+      let kl=await fetchKlines(symbol.value, market.value)
+      if(!kl.length && (symbol.value||'').toUpperCase() !== 'AAPL'){
+        const aapl=await fetchKlines('AAPL','US')
+        if(aapl.length){
+          kl=aapl
+          symbol.value='AAPL'
+          market.value='US'
+          fallbackNotice.value='当前标的暂无真实K线，已回退到 Influx 中的 AAPL 实盘日K'
+        }
       }
-    }
-    if(!chart) chart=echarts.init(chartRef.value)
-    const dates=kl.map(k=>k.date); const ohlc=kl.map(k=>[k.open,k.close,k.low,k.high]); const closes=kl.map(k=>Number(k.close))
-    const vols=kl.map(k=>Number(k.volume||0))
-    chart.setOption(applyChartTheme({
-      legend:{data:['K','MA5','MA20','MA60','Vol']}, tooltip:{trigger:'axis'},
-      axisPointer:{link:[{xAxisIndex:'all'}]},
-      grid:[{left:50,right:20,top:40,height:'58%'},{left:50,right:20,top:'74%',height:'16%'}],
-      xAxis:[
-        {type:'category', data:dates, boundaryGap:true, axisLabel:{show:false}, gridIndex:0},
-        {type:'category', data:dates, boundaryGap:true, gridIndex:1}
-      ],
-      yAxis:[
-        {type:'value', scale:true, splitArea:{show:true}, gridIndex:0},
-        {type:'value', scale:true, gridIndex:1, splitNumber:2}
-      ],
-      dataZoom:[{type:'inside', xAxisIndex:[0,1]},{type:'slider', height:18, xAxisIndex:[0,1], bottom:8}],
-      series:[
-        {name:'K', type:'candlestick', data:ohlc, xAxisIndex:0, yAxisIndex:0, itemStyle:{color:'#ef5350', color0:'#26a69a', borderColor:'#ef5350', borderColor0:'#26a69a'}},
-        {name:'MA5', type:'line', data:ma(closes,5), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
-        {name:'MA20', type:'line', data:ma(closes,20), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
-        {name:'MA60', type:'line', data:ma(closes,60), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
-        {name:'Vol', type:'bar', data:vols, xAxisIndex:1, yAxisIndex:1, itemStyle:{color:'#64748b55'}},
-      ]
-    }), true)
+      if(!chart) chart=echarts.init(chartRef.value)
+      const dates=kl.map(k=>k.date); const ohlc=kl.map(k=>[k.open,k.close,k.low,k.high]); const closes=kl.map(k=>Number(k.close))
+      const vols=kl.map(k=>Number(k.volume||0))
+      chart.setOption(applyChartTheme({
+        legend:{data:['K','MA5','MA20','MA60','Vol']}, tooltip:{trigger:'axis'},
+        axisPointer:{link:[{xAxisIndex:'all'}]},
+        grid:[{left:50,right:20,top:40,height:'58%'},{left:50,right:20,top:'74%',height:'16%'}],
+        xAxis:[
+          {type:'category', data:dates, boundaryGap:true, axisLabel:{show:false}, gridIndex:0},
+          {type:'category', data:dates, boundaryGap:true, gridIndex:1}
+        ],
+        yAxis:[
+          {type:'value', scale:true, splitArea:{show:true}, gridIndex:0},
+          {type:'value', scale:true, gridIndex:1, splitNumber:2}
+        ],
+        dataZoom:[{type:'inside', xAxisIndex:[0,1]},{type:'slider', height:18, xAxisIndex:[0,1], bottom:8}],
+        series:[
+          {name:'K', type:'candlestick', data:ohlc, xAxisIndex:0, yAxisIndex:0, itemStyle:{color:'#ef5350', color0:'#26a69a', borderColor:'#ef5350', borderColor0:'#26a69a'}},
+          {name:'MA5', type:'line', data:ma(closes,5), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
+          {name:'MA20', type:'line', data:ma(closes,20), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
+          {name:'MA60', type:'line', data:ma(closes,60), xAxisIndex:0, yAxisIndex:0, showSymbol:false, smooth:true, lineStyle:{width:1}},
+          {name:'Vol', type:'bar', data:vols, xAxisIndex:1, yAxisIndex:1, itemStyle:{color:'#64748b55'}},
+        ]
+      }), true)
+    })
   } finally { loading.value=false }
 }
 onMounted(async()=>{ await loadInst(); await load(); window.addEventListener('resize',()=>chart&&chart.resize()) })

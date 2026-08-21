@@ -101,8 +101,8 @@ export function listNoticesDb(limit = 50) {
 export function readNoticesDb(id) {
   return request({ url: '/trade/notices/read', method: 'post', data: id ? { id } : {} })
 }
-export function runAiBatch(data) {
-  return request({ url: '/trade/ai/batch', method: 'post', data, timeout: 600000 })
+export function runAiBatch(data, options = {}) {
+  return request({ url: '/trade/ai/batch', method: 'post', data, timeout: 600000, loadingText: '研判中…', ...options })
 }
 export function listAiBatches() {
   return request({ url: '/trade/ai/batches', method: 'get' })
