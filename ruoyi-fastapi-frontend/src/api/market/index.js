@@ -173,3 +173,42 @@ export function getMarketWatchlistBacktest(query) {
     params: query
   })
 }
+
+export function getMarketHeatDaily(query) {
+  return request({
+    url: '/market/heat/daily',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatTrend(query) {
+  return request({
+    url: '/market/heat/trend',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatDates(query) {
+  return request({
+    url: '/market/heat/dates',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatConfig() {
+  return request({
+    url: '/market/heat/config',
+    method: 'get'
+  })
+}
+
+export function collectMarketHeat(query) {
+  return request({
+    url: '/market/heat/collect',
+    method: 'post',
+    params: query
+  })
+}

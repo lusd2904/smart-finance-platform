@@ -18,8 +18,9 @@ from module_market.constant.instruments import get_instrument_meta
 from module_market.dao.market_dao import (
     MarketInstrumentDao,
     MarketWatchlistAnalysisDao,
-    MarketWatchlistDao,
 )
+from module_quant.dao.quant_dao import QuantWatchlistDao
+from module_quant.entity.vo.quant_vo import QuantWatchlistPageQueryModel
 from module_market.entity.vo.market_vo import (
     AddMarketWatchlistModel,
     MarketWatchlistAnalyzeModel,
@@ -35,6 +36,39 @@ from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
 MAX_WATCHLIST_BATCH = 30
+
+
+def _resolve_watchlist_name(symbol: str, market: str, stored_name: str | None = None) -> str:
+    if stored_name:
+        return stored_name
+    meta = get_instrument_meta(symbol)
+    if meta:
+        return meta[1]
+    return symbol
+
+
+def _serialize_quant_watchlist_row(row: Any) -> dict[str, Any]:
+    if isinstance(row, dict):
+        symbol = row.get('symbol')
+        market = (row.get('market') or 'US').upper()
+        return {
+            **row,
+            'name': row.get('name') or _resolve_watchlist_name(str(symbol or ''), market),
+        }
+    symbol = row.symbol
+    market = (row.market or 'US').upper()
+    return {
+        'id': row.id,
+        'userId': None,
+        'symbol': symbol,
+        'market': market,
+        'name': _resolve_watchlist_name(symbol, market),
+        'note': row.note,
+        'enabled': row.enabled,
+        'sortOrder': 0,
+        'createTime': _fmt_dt(row.create_time),
+        'updateTime': _fmt_dt(row.create_time),
+    }
 
 
 def _dump(payload: Any, limit: int = 60000) -> str:
@@ -113,8 +147,19 @@ class MarketWatchlistService:
         is_page: bool = True,
         user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        query_object.user_id = user_id
-        return await MarketWatchlistDao.get_watchlist(query_db, query_object, is_page)
+        _ = user_id
+        quant_query = QuantWatchlistPageQueryModel(
+            page_num=query_object.page_num,
+            page_size=query_object.page_size,
+            symbol=query_object.symbol,
+            market=query_object.market,
+            enabled=query_object.enabled,
+        )
+        result = await QuantWatchlistDao.get_watchlist(query_db, quant_query, is_page)
+        if isinstance(result, PageModel):
+            result.rows = [_serialize_quant_watchlist_row(row) for row in (result.rows or [])]
+            return result
+        return [_serialize_quant_watchlist_row(row) for row in (result or [])]
 
     @classmethod
     async def add_services(
@@ -126,9 +171,9 @@ class MarketWatchlistService:
             raise ServiceException(message='标的代码不能为空')
         if not user_id:
             raise ServiceException(message='无法识别当前用户')
-        existing = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
+        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
         if existing:
-            raise ServiceException(message=f'{symbol}({market}) 已在自选清单中')
+            return CrudResponseModel(is_success=True, message=f'{symbol}({market}) 已在自选池中')
         name = None
         inst = await MarketInstrumentDao.get_by_symbol(query_db, symbol)
         if inst:
@@ -139,18 +184,14 @@ class MarketWatchlistService:
             if meta:
                 name = meta[1]
         try:
-            await MarketWatchlistDao.add(
+            await QuantWatchlistDao.add_watchlist(
                 query_db,
                 {
-                    'user_id': user_id,
                     'symbol': symbol,
                     'market': market,
-                    'name': name,
                     'note': add_model.note,
                     'enabled': '1',
-                    'sort_order': 0,
                     'create_time': datetime.now(),
-                    'update_time': datetime.now(),
                 },
             )
             await query_db.commit()
@@ -168,7 +209,7 @@ class MarketWatchlistService:
         except ValueError:
             raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
         try:
-            await MarketWatchlistDao.delete_by_ids(query_db, id_list, user_id=user_id)
+            await QuantWatchlistDao.delete_watchlist(query_db, id_list)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception:
@@ -201,7 +242,7 @@ class MarketWatchlistService:
 
     @classmethod
     async def overview_services(cls, query_db: AsyncSession, user_id: int) -> dict[str, Any]:
-        items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
+        items = await QuantWatchlistDao.get_enabled_symbols(query_db)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
         quotes: dict[str, dict[str, Any]] = {}
@@ -234,7 +275,7 @@ class MarketWatchlistService:
                     'id': row.id,
                     'symbol': row.symbol,
                     'market': row.market,
-                    'name': row.name,
+                    'name': _resolve_watchlist_name(row.symbol, row.market or 'US'),
                     'note': row.note,
                     'enabled': row.enabled,
                     'createTime': _fmt_dt(row.create_time),
@@ -557,19 +598,19 @@ class MarketWatchlistService:
         if body.symbol:
             symbol = body.symbol.strip().upper()
             market = (body.market or 'US').strip().upper()
-            item = await MarketWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
+            item = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
             meta = get_instrument_meta(symbol)
             targets.append(
                 {
                     'id': item.id if item else None,
-                    'userId': (item.user_id if item else None) or user_id,
+                    'userId': user_id,
                     'symbol': symbol,
                     'market': market,
-                    'name': (item.name if item else None) or (meta[1] if meta else symbol),
+                    'name': _resolve_watchlist_name(symbol, market),
                 }
             )
         else:
-            enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
+            enabled = await QuantWatchlistDao.get_enabled_symbols(query_db)
             if not enabled:
                 raise ServiceException(message='自选清单为空，请先添加关注标的')
             for row in enabled[:MAX_WATCHLIST_BATCH]:
@@ -579,7 +620,7 @@ class MarketWatchlistService:
                         'userId': row.user_id,
                         'symbol': row.symbol,
                         'market': row.market,
-                        'name': row.name,
+                        'name': _resolve_watchlist_name(row.symbol, row.market or 'US'),
                     }
                 )
 
@@ -681,7 +722,18 @@ class MarketWatchlistService:
 
     @classmethod
     async def run_hourly_job(cls, query_db: AsyncSession) -> dict[str, Any]:
-        enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=None)
+        from utils.longbridge_breaker import LongbridgeBreaker
+
+        if not LongbridgeBreaker.allow():
+            return {
+                'ok': True,
+                'count': 0,
+                'failedCount': 0,
+                'skipped': True,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+            }
+        enabled = await QuantWatchlistDao.get_enabled_symbols(query_db)
         if not enabled:
             return {'ok': True, 'count': 0, 'failedCount': 0, 'skipped': True, 'message': '自选清单为空，跳过'}
         return await cls.analyze_services(

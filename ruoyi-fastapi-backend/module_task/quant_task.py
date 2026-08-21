@@ -59,8 +59,13 @@ async def run_daily_factor_scan_job(*args, **kwargs) -> None:
 
 async def run_position_monitor_job(*args, **kwargs) -> None:
     """持仓异动与止损监控。"""
+    from utils.longbridge_breaker import LongbridgeBreaker
+
     if await JobQueue.enqueue('position_monitor', {}):
         logger.info('[持仓监控任务] 已入队')
+        return
+    if not LongbridgeBreaker.allow():
+        logger.info(f'[持仓监控任务] 跳过: {LongbridgeBreaker.blocked_message()}')
         return
     async with AsyncSessionLocal() as db:
         try:

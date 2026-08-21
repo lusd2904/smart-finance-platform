@@ -178,3 +178,57 @@ class MarketWatchlistAnalysis(Base):
     sentiment_json = Column(Text, nullable=True, comment='舆情摘要 JSON')
     raw_json = Column(Text, nullable=True, comment='模型原始 JSON')
     analysis_time = Column(DateTime, nullable=True, default=datetime.now, index=True, comment='分析时间')
+
+
+class MarketHeatDaily(Base):
+    """分市场每日热度快照。"""
+
+    __tablename__ = 'market_heat_daily'
+    __table_args__ = (
+        UniqueConstraint('market', 'trade_date', name='uk_market_heat_daily'),
+        {'comment': '分市场每日热度快照'},
+    )
+
+    id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键')
+    market = Column(String(10), nullable=False, index=True, comment='市场 US/HK/CN')
+    trade_date = Column(String(10), nullable=False, index=True, comment='交易日 YYYY-MM-DD')
+    index_symbol = Column(String(32), nullable=True, comment='基准指数代码')
+    index_name = Column(String(100), nullable=True, comment='基准指数名称')
+    index_change_pct = Column(Float, nullable=True, comment='指数涨跌幅%')
+    total_turnover = Column(Float, nullable=True, comment='样本成交额合计')
+    advance_count = Column(Integer, nullable=True, comment='上涨家数')
+    decline_count = Column(Integer, nullable=True, comment='下跌家数')
+    flat_count = Column(Integer, nullable=True, comment='平盘家数')
+    heat_score = Column(Float, nullable=True, comment='热度分 0-100')
+    heat_summary = Column(String(500), nullable=True, comment='热度摘要')
+    currency = Column(String(10), nullable=True, comment='成交额货币')
+    filter_rule = Column(String(200), nullable=True, comment='Top50 市值过滤规则')
+    weights_json = Column(Text, nullable=True, comment='权重 JSON')
+    as_of_time = Column(DateTime, nullable=True, comment='数据采集时间')
+    status = Column(String(20), nullable=True, server_default="'ok'", comment='状态 ok/stale/empty/error')
+    message = Column(String(500), nullable=True, comment='状态说明')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
+class MarketTop50Snapshot(Base):
+    """收盘后成交额 Top50 快照（按市值过滤）。"""
+
+    __tablename__ = 'market_top50_snapshot'
+    __table_args__ = (
+        UniqueConstraint('market', 'trade_date', 'symbol', name='uk_market_top50_symbol'),
+        {'comment': '分市场 Top50 成交额快照'},
+    )
+
+    id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键')
+    market = Column(String(10), nullable=False, index=True, comment='市场 US/HK/CN')
+    trade_date = Column(String(10), nullable=False, index=True, comment='交易日 YYYY-MM-DD')
+    rank_no = Column(Integer, nullable=False, comment='排名 1-50')
+    symbol = Column(String(32), nullable=False, comment='标的代码')
+    name = Column(String(100), nullable=True, comment='名称')
+    market_cap = Column(Float, nullable=True, comment='市值')
+    turnover = Column(Float, nullable=True, comment='成交额')
+    change_pct = Column(Float, nullable=True, comment='涨跌幅%')
+    currency = Column(String(10), nullable=True, comment='货币')
+    as_of_time = Column(DateTime, nullable=True, comment='快照时间')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
