@@ -28,12 +28,12 @@ Smart Finance Platform 在 RuoYi 权限体系之上，扩展了面向二级市�
 | **量化研究** | 因子、策略信号、自选池、扫描台账、策略配置档位 |
 | **交易中心** | 长桥账户/持仓/委托、交易台、回测、风控规则与事件、通知中心 |
 | **AI 研判** | 单标的研判、批量扫描任务、AI 交易台账、模型管理 |
-| **系统底座** | 用户 / 角色 / 菜单 / 字典 / 定时任务 / 监控 / 代码生成 |
+| **系统底座** | 用户 / 角色 / 菜单 / 字典 / 自动分析任务（独立调度微服务） / 监控 / 代码生成 |
 
 技术栈：
 
 - **前端**：Vue3 · Element Plus · Vite · ECharts · Pinia
-- **后端**：FastAPI · SQLAlchemy(async) · OAuth2/JWT · APScheduler
+- **后端**：FastAPI · SQLAlchemy(async) · OAuth2/JWT · APScheduler（独立 `sentiment-jobs` + 三个消费组）
 - **数据**：MySQL（业务）· Redis（缓存/会话）· InfluxDB（行情时序）
 - **券商**：Longbridge OpenAPI（可选，交易实盘/模拟）
 
@@ -77,13 +77,15 @@ smart-finance-platform/
 ├── docs/                          # 迁移与设计说明
 ├── scripts/page_smoke.mjs         # 全菜单页面冒烟（Playwright）
 ├── ruoyi-fastapi-backend/         # FastAPI 后端
+│   ├── scheduler_app.py           # 自动分析调度微服务入口
+│   ├── module_analysis/           # 任务中心控制面 API
 │   ├── module_market/             # 行情
 │   ├── module_sentiment/          # 舆情
 │   ├── module_quant/              # 量化 + 长桥
 │   ├── module_trade/              # 交易 / 风控 / 回测 / 批量 AI
 │   └── sql/                       # 菜单与业务 SQL
 ├── ruoyi-fastapi-frontend/        # Vue3 管理端
-│   └── src/views/{market,quant,trade,sentiment,portal}/
+│   └── src/views/{market,quant,trade,sentiment,analysis,portal}/
 ├── ruoyi-fastapi-app/             # 移动端（RuoYi-App 基线）
 └── desktop/                       # Electron 桌面端（先配网关再登录）
 ```

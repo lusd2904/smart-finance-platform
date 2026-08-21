@@ -29,6 +29,7 @@ from module_quant.service.longbridge_quote import (
 )
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+from utils.longbridge_breaker import LongbridgeBreaker
 
 _QUOTE_CACHE_TTL = 15
 _ACCOUNT_CACHE_TTL = 30
@@ -179,8 +180,18 @@ class LongbridgeService:
         )
 
     @classmethod
+    def _blocked(cls) -> bool:
+        return not LongbridgeBreaker.allow()
+
+    @classmethod
+    def _note_sdk_error(cls, exc: BaseException) -> None:
+        LongbridgeBreaker.record_failure(exc)
+
+    @classmethod
     def _build_quote_context(cls) -> Any:
-        """构建/复用 QuoteContext（延迟导入）。"""
+        """构建/复用 QuoteContext（延迟导入）。熔断开闸时不再建连。"""
+        if cls._blocked():
+            return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
         if cls._cached_quote_ctx is not None and cls._cached_creds_sig == sig:
@@ -196,12 +207,15 @@ class LongbridgeService:
             cls._cached_creds_sig = sig
             return cls._cached_quote_ctx
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 构建QuoteContext失败: {exc}')
             return None
 
     @classmethod
     def _build_trade_context(cls) -> Any:
-        """构建/复用 TradeContext（延迟导入）。"""
+        """构建/复用 TradeContext（延迟导入）。熔断开闸时不再建连。"""
+        if cls._blocked():
+            return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
         if cls._cached_trade_ctx is not None and cls._cached_creds_sig == sig:
@@ -217,6 +231,7 @@ class LongbridgeService:
             cls._cached_creds_sig = sig
             return cls._cached_trade_ctx
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 构建TradeContext失败: {exc}')
             return None
 
@@ -300,8 +315,22 @@ class LongbridgeService:
             return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'quotes': []}
+        if cls._blocked():
+            return {
+                'configured': True,
+                'quotes': [],
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+            }
         try:
             ctx = cls._build_quote_context()
+            if ctx is None:
+                return {
+                    'configured': True,
+                    'quotes': [],
+                    'reason': 'unavailable',
+                    'message': '长桥 QuoteContext 不可用',
+                }
             raw = ctx.quote(symbols)
             quotes = []
             for q in raw or []:
@@ -327,10 +356,17 @@ class LongbridgeService:
                         'timestamp': str(getattr(q, 'timestamp', None) or ''),
                     }
                 )
+            LongbridgeBreaker.record_success()
             return {'configured': True, 'quotes': quotes}
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取实时行情失败: {exc}')
-            return {'configured': True, 'message': f'获取行情失败: {exc}', 'quotes': []}
+            return {
+                'configured': True,
+                'reason': quote_error_reason(exc),
+                'message': f'获取行情失败: {exc}',
+                'quotes': [],
+            }
 
     @classmethod
     def get_static_info(cls, symbols: list[str]) -> dict[str, Any]:
@@ -376,6 +412,11 @@ class LongbridgeService:
             return empty_depth(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
         if not cls.is_configured():
             return empty_depth(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，盘口暂不可用')
+        if cls._blocked():
+            return empty_depth(
+                symbol, market, configured=True, reason='circuit_open',
+                message=LongbridgeBreaker.blocked_message(),
+            )
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             ctx = cls._build_quote_context()
@@ -384,8 +425,11 @@ class LongbridgeService:
                     symbol, market, configured=True, reason='unavailable',
                     message='长桥 QuoteContext.depth 不可用', lb_symbol=lb_symbol,
                 )
-            return assemble_depth(ctx.depth(lb_symbol), symbol, market, lb_symbol)
+            data = assemble_depth(ctx.depth(lb_symbol), symbol, market, lb_symbol)
+            LongbridgeBreaker.record_success()
+            return data
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取盘口失败 {lb_symbol}: {exc}')
             return empty_depth(
                 symbol, market, configured=True, reason=quote_error_reason(exc),
@@ -400,6 +444,11 @@ class LongbridgeService:
             return empty_trades(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
         if not cls.is_configured():
             return empty_trades(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，成交明细暂不可用')
+        if cls._blocked():
+            return empty_trades(
+                symbol, market, configured=True, reason='circuit_open',
+                message=LongbridgeBreaker.blocked_message(),
+            )
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             ctx = cls._build_quote_context()
@@ -408,8 +457,11 @@ class LongbridgeService:
                     symbol, market, configured=True, reason='unavailable',
                     message='长桥 QuoteContext.trades 不可用', lb_symbol=lb_symbol,
                 )
-            return assemble_trades(ctx.trades(lb_symbol, count), symbol, market, lb_symbol, count)
+            data = assemble_trades(ctx.trades(lb_symbol, count), symbol, market, lb_symbol, count)
+            LongbridgeBreaker.record_success()
+            return data
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取成交明细失败 {lb_symbol}: {exc}')
             return empty_trades(
                 symbol, market, configured=True, reason=quote_error_reason(exc),
@@ -442,6 +494,17 @@ class LongbridgeService:
                 'period': period,
                 'klines': [],
             }
+        if cls._blocked():
+            return {
+                'configured': True,
+                'available': False,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'symbol': symbol,
+                'market': market,
+                'period': period,
+                'klines': [],
+            }
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             from longport.openapi import AdjustType
@@ -465,6 +528,7 @@ class LongbridgeService:
             klines = [map_candlestick(x, with_time=with_time) for x in (raw or [])]
             klines = [x for x in klines if x.get('close') is not None]
             klines.sort(key=lambda x: str(x.get('date') or ''))
+            LongbridgeBreaker.record_success()
             return {
                 'configured': True,
                 'available': bool(klines),
@@ -475,6 +539,7 @@ class LongbridgeService:
                 'klines': klines,
             }
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取K线失败 {lb_symbol} {period}: {exc}')
             return {
                 'configured': True,
@@ -512,6 +577,17 @@ class LongbridgeService:
                 'period': 'intraday',
                 'klines': [],
             }
+        if cls._blocked():
+            return {
+                'configured': True,
+                'available': False,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'symbol': symbol,
+                'market': market,
+                'period': 'intraday',
+                'klines': [],
+            }
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             ctx = cls._build_quote_context()
@@ -530,6 +606,7 @@ class LongbridgeService:
             klines = [map_intraday_point(x) for x in (raw or [])]
             klines = [x for x in klines if x.get('close') is not None]
             klines.sort(key=lambda x: str(x.get('date') or ''))
+            LongbridgeBreaker.record_success()
             return {
                 'configured': True,
                 'available': bool(klines),
@@ -540,6 +617,7 @@ class LongbridgeService:
                 'klines': klines,
             }
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取分时失败 {lb_symbol}: {exc}')
             return {
                 'configured': True,
@@ -581,7 +659,7 @@ class LongbridgeService:
         news/topic 走 ContentContext。
         """
         result: dict[str, list[Any]] = {t: [] for t in content_types}
-        if not cls.is_configured():
+        if not cls.is_configured() or cls._blocked():
             return result
         # filings
         if 'announcement' in content_types:
@@ -590,6 +668,7 @@ class LongbridgeService:
                 if ctx is not None and hasattr(ctx, 'filings'):
                     result['announcement'] = list(ctx.filings(lb_symbol) or [])
             except Exception as exc:
+                cls._note_sdk_error(exc)
                 logger.warning(f'[长桥] filings 失败 {lb_symbol}: {exc}')
         # news / topics
         need_content = [t for t in content_types if t in ('news', 'topic')]
@@ -602,12 +681,15 @@ class LongbridgeService:
                     if 'topic' in need_content and hasattr(content_ctx, 'topics'):
                         result['topic'] = list(content_ctx.topics(lb_symbol) or [])
             except Exception as exc:
+                cls._note_sdk_error(exc)
                 logger.warning(f'[长桥] content 失败 {lb_symbol}: {exc}')
         return result
 
     @classmethod
     def _build_content_context(cls) -> Any:
         """构建/复用 ContentContext（延迟导入）。"""
+        if cls._blocked():
+            return None
         creds = cls.resolve_credentials()
         sig = cls._get_creds_signature(creds)
         if cls._cached_content_ctx is not None and cls._cached_creds_sig == sig:
@@ -631,8 +713,12 @@ class LongbridgeService:
         """获取账户资金。凭据为空返回 configured=False。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'balances': []}
+        if cls._blocked():
+            return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'balances': []}
         try:
             ctx = cls._build_trade_context()
+            if ctx is None:
+                return {'configured': True, 'reason': 'unavailable', 'message': '长桥 TradeContext 不可用', 'balances': []}
             raw = ctx.account_balance()
             balances = []
             for b in raw or []:
@@ -645,8 +731,10 @@ class LongbridgeService:
                         'maxFinanceAmount': cls._to_float(getattr(b, 'max_finance_amount', None)),
                     }
                 )
+            LongbridgeBreaker.record_success()
             return {'configured': True, 'balances': balances}
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取账户资金失败: {exc}')
             return {'configured': True, 'message': f'获取账户资金失败: {exc}', 'balances': []}
 
@@ -655,8 +743,12 @@ class LongbridgeService:
         """获取持仓。凭据为空返回 configured=False。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'positions': []}
+        if cls._blocked():
+            return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'positions': []}
         try:
             ctx = cls._build_trade_context()
+            if ctx is None:
+                return {'configured': True, 'reason': 'unavailable', 'message': '长桥 TradeContext 不可用', 'positions': []}
             raw = ctx.stock_positions()
             positions = []
             channels = getattr(raw, 'channels', None) or []
@@ -672,8 +764,10 @@ class LongbridgeService:
                             'currency': getattr(p, 'currency', None),
                         }
                     )
+            LongbridgeBreaker.record_success()
             return {'configured': True, 'positions': positions}
         except Exception as exc:
+            cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取持仓失败: {exc}')
             return {'configured': True, 'message': f'获取持仓失败: {exc}', 'positions': []}
 
@@ -937,6 +1031,14 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        if cls._blocked():
+            return {
+                'configured': True,
+                'quotes': [],
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'cached': False,
+            }
         await cls._throttle()
         data = await asyncio.to_thread(cls.get_realtime_quote, normalized)
         if data.get('quotes'):
@@ -950,6 +1052,8 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        if cls._blocked():
+            return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'balances': []}
         await cls._throttle()
         data = await asyncio.to_thread(cls.get_account_balance)
         if data.get('configured') and data.get('balances'):
@@ -963,6 +1067,8 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        if cls._blocked():
+            return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'positions': []}
         await cls._throttle()
         data = await asyncio.to_thread(cls.get_positions)
         if data.get('configured'):
@@ -1015,6 +1121,15 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        if cls._blocked():
+            cached = await cache_get_json(cache_key)
+            if cached:
+                cached['cached'] = True
+                cached['reason'] = cached.get('reason') or 'circuit_open'
+                return cached
+            return empty_depth(
+                symbol, market, configured=True, reason='circuit_open', message=LongbridgeBreaker.blocked_message()
+            )
         await cls._throttle()
         data = await asyncio.to_thread(cls.get_depth, symbol, market)
         if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('asks') or data.get('bids'):
@@ -1029,6 +1144,15 @@ class LongbridgeService:
         if cached:
             cached['cached'] = True
             return cached
+        if cls._blocked():
+            cached = await cache_get_json(cache_key)
+            if cached:
+                cached['cached'] = True
+                cached['reason'] = cached.get('reason') or 'circuit_open'
+                return cached
+            return empty_trades(
+                symbol, market, configured=True, reason='circuit_open', message=LongbridgeBreaker.blocked_message()
+            )
         await cls._throttle()
         data = await asyncio.to_thread(cls.get_trades, symbol, market, count)
         if data.get('reason') in {'cn_no_depth', 'unconfigured'} or data.get('trades'):

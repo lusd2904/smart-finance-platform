@@ -110,6 +110,12 @@ class JobDao:
         return job_list
 
     @classmethod
+    async def get_jobs_by_ids(cls, db: AsyncSession, job_ids: Sequence[int]) -> Sequence[SysJob]:
+        if not job_ids:
+            return []
+        return (await db.execute(select(SysJob).where(SysJob.job_id.in_(list(job_ids))))).scalars().all()
+
+    @classmethod
     async def add_job_dao(cls, db: AsyncSession, job: JobModel) -> SysJob:
         """
         新增定时任务数据库操作

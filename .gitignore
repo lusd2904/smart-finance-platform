@@ -172,3 +172,6 @@ ruoyi-fastapi-backend/.env*
 ruoyi-fastapi-frontend/.env*
 !ruoyi-fastapi-frontend/.env.*.example
 *.log
+
+# 本地分析备忘，不入库
+自动分析任务优化清单.md

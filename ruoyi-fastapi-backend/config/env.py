@@ -29,6 +29,35 @@ class AppSettings(BaseSettings):
     app_disable_redoc: bool = False
     app_trusted_proxy_ips: str = '127.0.0.1,::1'
     app_trusted_proxy_hops: int = 1
+    # api=仅 HTTP；scheduler=仅 APScheduler；worker=仅队列消费；all=单进程（本地默认）
+    app_role: Literal['api', 'scheduler', 'worker', 'all'] = 'all'
+    # none=不消费；market/quant/llm=单一消费组；all=三组都消费
+    app_job_group: Literal['none', 'market', 'quant', 'llm', 'all'] = 'all'
+    # all=挂全部路由；其余按菜单板块只注册对应模块
+    app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai'] = 'all'
+    # 对外需求清单 GET /open/requirements 的 X-Req-Token，空则关闭
+    requirements_export_token: str = ''
+
+    def runs_scheduler(self) -> bool:
+        return self.app_role in {'scheduler', 'all'}
+
+    def runs_job_queue_worker(self) -> bool:
+        if self.app_job_group == 'none':
+            return False
+        return self.app_role in {'scheduler', 'worker', 'all'}
+
+    def router_modules(self) -> set[str] | None:
+        if self.app_module == 'all':
+            return None
+        mapping = {
+            'platform': {'module_admin', 'module_generator', 'module_analysis'},
+            'market': {'module_market'},
+            'quant': {'module_quant'},
+            'trade': {'module_trade'},
+            'sentiment': {'module_sentiment'},
+            'ai': {'module_ai'},
+        }
+        return mapping.get(self.app_module)
 
 
 class JwtSettings(BaseSettings):

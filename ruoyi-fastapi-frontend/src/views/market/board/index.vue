@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-hero">
-      <div><h2>全市场行情台</h2><p>指数快照 + 目标池涨跌排序 · 约 8 秒刷新最新价</p></div>
+      <div><h2>全市场行情台</h2><p>只读缓存报价 · jobs 定时预热全市场扫描</p></div>
       <div class="acts">
         <el-select v-model="market" clearable placeholder="市场" style="width:110px" @change="() => loadAll(false)">
           <el-option label="全部" value="" />
