@@ -8,11 +8,11 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
-from exceptions.exception import ServiceException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_market.entity.vo.market_vo import (
     AddMarketWatchlistModel,
     IndicatorQueryModel,
@@ -24,8 +24,9 @@ from module_market.entity.vo.market_vo import (
     MarketWatchlistModel,
     MarketWatchlistPageQueryModel,
 )
-from module_market.service.market_service import MarketService
 from module_market.service.heat_service import MarketHeatService
+from module_market.service.index_quotes_service import MarketIndexService
+from module_market.service.market_service import MarketService
 from module_market.service.watchlist_service import MarketWatchlistService
 from utils.job_queue import JobQueue
 from utils.log_util import logger
@@ -46,6 +47,7 @@ market_controller = APIRouterPro(
 
 import json  # noqa: E402
 import time  # noqa: E402
+
 from module_market.service.tradingview_service import TradingViewDatafeedService  # noqa: E402
 
 
@@ -562,3 +564,21 @@ async def collect_market_heat(
         return ResponseUtil.success(data=ticket, msg='已加入后台队列')
     data = await MarketHeatService.collect_market(query_db, market=market, trade_date=trade_date)
     return ResponseUtil.success(data=data, msg='采集完成')
+
+
+@market_controller.get(
+    '/index/quotes',
+    summary='盘中大盘指数实时行情',
+    description=(
+        '舆情大盘顶部指数条数据源。仅返回当前处于交易时段的市场指数'
+        '（美股标普500/纳斯达克、港股恒生指数/恒生科技、A股上证指数），'
+        '非交易日或已收盘时返回空列表。'
+    ),
+    dependencies=[
+        # 任一权限即可：舆情用户与行情用户都能看大盘指数条
+        UserInterfaceAuthDependency(['sentiment:news:list', 'sentiment:analysis:list', 'market:heat:list'])
+    ],
+)
+async def get_market_index_quotes(request: Request) -> Response:
+    data = await MarketIndexService.get_in_session_quotes()
+    return ResponseUtil.success(data=data)

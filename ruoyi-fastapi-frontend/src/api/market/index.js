@@ -212,3 +212,12 @@ export function collectMarketHeat(query) {
     params: query
   })
 }
+
+// 盘中大盘指数实时行情（舆情大盘指数条数据源，非交易时段返回空列表）
+export function getMarketIndexQuotes() {
+  return request({
+    url: '/market/index/quotes',
+    method: 'get',
+    timeout: 8000
+  })
+}
