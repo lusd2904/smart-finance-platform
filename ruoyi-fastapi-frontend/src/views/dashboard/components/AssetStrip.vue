@@ -1,5 +1,5 @@
 <template>
-  <el-row :gutter="16" class="asset-strip">
+  <el-row v-if="visible" :gutter="16" class="asset-strip">
     <el-col :xs="12" :sm="6" v-for="card in cards" :key="card.key">
       <div class="stat-card" @click="go(card.path)">
         <div class="stat-icon">
@@ -22,59 +22,48 @@ const props = defineProps({
 })
 
 const router = useRouter()
-const denied = computed(() => props.section && props.section.reason === 'denied')
 const d = computed(() => (props.section && props.section.data) || {})
 
-function fmtMoney(val) {
-  if (!d.value.configured) return '--'
-  return fmtAmount(val)
-}
-
-const cards = computed(() => {
-  if (denied.value || !props.section) {
-    return [
-      { key: 'net', label: '总净值', value: '未授权', icon: 'Wallet', cls: '', path: '' },
-      { key: 'cash', label: '可用资金', value: '--', icon: 'Coin', cls: '', path: '' },
-      { key: 'pos', label: '持仓数', value: '--', icon: 'Grid', cls: '', path: '' },
-      { key: 'pnl', label: '浮动盈亏', value: '--', icon: 'TrendCharts', cls: 'flat', path: '' }
-    ]
-  }
-  const configured = d.value.configured
-  return [
-    {
-      key: 'net',
-      label: configured ? `总净值(${d.value.currency || '--'})` : '总净值',
-      value: configured ? fmtMoney(d.value.netAssets) : '未配置',
-      icon: 'Wallet',
-      cls: '',
-      path: '/quant/overview'
-    },
-    {
-      key: 'cash',
-      label: '可用资金',
-      value: configured ? fmtMoney(d.value.availableCash) : '--',
-      icon: 'Coin',
-      cls: '',
-      path: '/quant/overview'
-    },
-    {
-      key: 'pos',
-      label: '持仓数',
-      value: String(d.value.positionCount ?? 0),
-      icon: 'Grid',
-      cls: '',
-      path: '/trade/trading'
-    },
-    {
-      key: 'pnl',
-      label: '浮动盈亏',
-      value: configured ? fmtMoney(d.value.totalUnrealizedPnl) : '--',
-      icon: 'TrendCharts',
-      cls: changeClass(d.value.totalUnrealizedPnl),
-      path: '/trade/trading'
-    }
-  ]
+// 动态显隐：无权限、未配置券商凭据或数据未就绪时整条隐藏，不渲染占位卡
+const visible = computed(() => {
+  if (!props.section || props.section.reason === 'denied') return false
+  return Boolean(d.value.configured)
 })
+
+const cards = computed(() => [
+  {
+    key: 'net',
+    label: `总净值(${d.value.currency || '--'})`,
+    value: fmtAmount(d.value.netAssets),
+    icon: 'Wallet',
+    cls: '',
+    path: '/quant/overview'
+  },
+  {
+    key: 'cash',
+    label: '可用资金',
+    value: fmtAmount(d.value.availableCash),
+    icon: 'Coin',
+    cls: '',
+    path: '/quant/overview'
+  },
+  {
+    key: 'pos',
+    label: '持仓数',
+    value: String(d.value.positionCount ?? 0),
+    icon: 'Grid',
+    cls: '',
+    path: '/trade/trading'
+  },
+  {
+    key: 'pnl',
+    label: '浮动盈亏',
+    value: fmtAmount(d.value.totalUnrealizedPnl),
+    icon: 'TrendCharts',
+    cls: changeClass(d.value.totalUnrealizedPnl),
+    path: '/trade/trading'
+  }
+])
 
 function go(path) {
   if (path) router.push(path).catch(() => {})
