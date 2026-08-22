@@ -17,9 +17,16 @@ from utils.log_util import logger
 _client: InfluxDBClient | None = None
 
 
+_MAX_QUERY_LIMIT = 5000
+
+
+class InfluxQueryError(RuntimeError):
+    """InfluxDB 查询失败（连接/语法/超时等）。与「无数据返回空」严格区分，避免上层把库故障当空行情。"""
+
+
 def get_client() -> InfluxDBClient:
     """获取（懒加载）全局InfluxDB客户端。"""
-    global _client
+    global _client  # noqa: PLW0603 - 模块级单例客户端，懒加载初始化
     if _client is None:
         _client = InfluxDBClient(
             url=InfluxConfig.influx_url,
@@ -50,7 +57,7 @@ def _safe_symbol(symbol: str) -> str | None:
 def _safe_time_clause(value: str) -> str | None:
     """把时间参数转成安全的Flux时间子句：相对时间/now()/RFC3339，其余拒绝。"""
     text = str(value or '').strip()
-    if text == 'now()' or text == '0' or _RELATIVE_TIME_PATTERN.match(text):
+    if text in {'now()', '0'} or _RELATIVE_TIME_PATTERN.match(text):
         return text
     if _RFC3339_PATTERN.match(text):
         return f'time(v: "{text}")'
@@ -123,7 +130,7 @@ class InfluxUtil:
                 logger.warning(f'[Influx] 非法查询参数被拒绝 symbol={symbol} start={start} stop={stop}')
                 return []
             tail_clause = ''
-            if isinstance(limit, int) and 1 <= limit <= 5000:
+            if isinstance(limit, int) and 1 <= limit <= _MAX_QUERY_LIMIT:
                 tail_clause = f'\n  |> tail(n: {int(limit)})'
             flux = f'''
 from(bucket: "{bucket}")
@@ -134,23 +141,22 @@ from(bucket: "{bucket}")
   |> sort(columns: ["_time"]){tail_clause}
 '''
             tables = get_client().query_api().query(flux)
-            result: list[dict[str, Any]] = []
-            for table in tables:
-                for record in table.records:
-                    result.append(
-                        {
-                            'date': record.get_time().strftime('%Y-%m-%d'),
-                            'open': record.values.get('open'),
-                            'high': record.values.get('high'),
-                            'low': record.values.get('low'),
-                            'close': record.values.get('close'),
-                            'volume': record.values.get('volume'),
-                        }
-                    )
-            return result
+            return [
+                {
+                    'date': record.get_time().strftime('%Y-%m-%d'),
+                    'open': record.values.get('open'),
+                    'high': record.values.get('high'),
+                    'low': record.values.get('low'),
+                    'close': record.values.get('close'),
+                    'volume': record.values.get('volume'),
+                }
+                for table in tables
+                for record in table.records
+            ]
         except Exception as exc:
-            logger.warning(f'[Influx] 查询K线失败 market={market} symbol={symbol}: {exc}')
-            return []
+            # 库故障必须显式暴露：静默返回空列表会让 AI 研判/回测基于"无数据"给出错误结论
+            logger.error(f'[Influx] 查询K线失败 market={market} symbol={symbol}: {exc}')
+            raise InfluxQueryError(f'InfluxDB 查询K线失败: {market}/{symbol}') from exc
 
     @classmethod
     def query_latest_klines(
@@ -209,8 +215,8 @@ from(bucket: "{bucket}")
                 bars.sort(key=lambda x: x.get('date') or '')
             return grouped
         except Exception as exc:
-            logger.warning(f'[Influx] 批量最新K线失败 market={market}: {exc}')
-            return {}
+            logger.error(f'[Influx] 批量最新K线失败 market={market}: {exc}')
+            raise InfluxQueryError(f'InfluxDB 批量查询失败: {market}') from exc
 
     @classmethod
     def query_minute_klines(
@@ -234,7 +240,7 @@ from(bucket: "{bucket}")
                 logger.warning(f'[Influx] 非法分钟K参数 symbol={symbol} start={start} stop={stop}')
                 return []
             tail_clause = ''
-            if isinstance(limit, int) and 1 <= limit <= 5000:
+            if isinstance(limit, int) and 1 <= limit <= _MAX_QUERY_LIMIT:
                 tail_clause = f'\n  |> tail(n: {int(limit)})'
             flux = f'''
 from(bucket: "{bucket}")
@@ -245,24 +251,21 @@ from(bucket: "{bucket}")
   |> sort(columns: ["_time"]){tail_clause}
 '''
             tables = get_client().query_api().query(flux)
-            result: list[dict[str, Any]] = []
-            for table in tables:
-                for record in table.records:
-                    ts = record.get_time()
-                    result.append(
-                        {
-                            'date': ts.strftime('%Y-%m-%d %H:%M') if ts else '',
-                            'open': record.values.get('open'),
-                            'high': record.values.get('high'),
-                            'low': record.values.get('low'),
-                            'close': record.values.get('close'),
-                            'volume': record.values.get('volume'),
-                        }
-                    )
-            return result
+            return [
+                {
+                    'date': record.get_time().strftime('%Y-%m-%d %H:%M') if record.get_time() else '',
+                    'open': record.values.get('open'),
+                    'high': record.values.get('high'),
+                    'low': record.values.get('low'),
+                    'close': record.values.get('close'),
+                    'volume': record.values.get('volume'),
+                }
+                for table in tables
+                for record in table.records
+            ]
         except Exception as exc:
-            logger.warning(f'[Influx] 查询分钟K失败 market={market} symbol={symbol}: {exc}')
-            return []
+            logger.error(f'[Influx] 查询分钟K失败 market={market} symbol={symbol}: {exc}')
+            raise InfluxQueryError(f'InfluxDB 查询分钟K失败: {market}/{symbol}') from exc
 
     @classmethod
     def latest_date(cls, market: str, symbol: str) -> str | None:
@@ -273,7 +276,7 @@ from(bucket: "{bucket}")
             return None
         flux = f'''
 from(bucket: "{bucket}")
-  |> range(start: 0)
+  |> range(start: -10y)
   |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
   |> filter(fn: (r) => r.symbol == "{symbol}")
   |> filter(fn: (r) => r._field == "close")
@@ -284,8 +287,9 @@ from(bucket: "{bucket}")
             for table in tables:
                 for record in table.records:
                     return record.get_time().strftime('%Y-%m-%d')
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f'latest_date查询失败 {symbol}: {e}')
+        except Exception as e:
+            logger.error(f'latest_date查询失败 {symbol}: {e}')
+            raise InfluxQueryError(f'InfluxDB latest_date 失败: {market}/{symbol}') from e
         return None
 
     @classmethod
@@ -299,9 +303,7 @@ schema.tagValues(bucket: "{bucket}", tag: "symbol")
         symbols: list[str] = []
         try:
             tables = get_client().query_api().query(flux)
-            for table in tables:
-                for record in table.records:
-                    symbols.append(record.get_value())
-        except Exception as e:  # noqa: BLE001
+            symbols.extend(record.get_value() for table in tables for record in table.records)
+        except Exception as e:
             logger.warning(f'list_symbols查询失败: {e}')
         return symbols

@@ -10,7 +10,9 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+import os
+import time
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -19,12 +21,16 @@ import pymysql
 from config.env import DataBaseConfig
 from module_market.constant.instruments import (
     INDEX_SOURCE_MAP,
+    LISTED_CATEGORY,
     TARGET_INSTRUMENTS,
     get_target_symbols,
 )
-from module_market.service.kline_sources import fetch_real_klines
+from module_market.service.kline_sources import PRIMARY_SOURCES, fetch_real_klines, get_circuit_breaker
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+# 连续失败达到该次数后触发指数冷却
+_CONSECUTIVE_FAIL_COOLDOWN_AT = 8
 
 # 可选外部源库（老项目 quant_trade）
 SOURCE_DB = 'quant_trade'
@@ -34,6 +40,31 @@ SINA_DAILY_URL = (
     'https://stock.finance.sina.com.cn/usstock/api/jsonp_v2.php/'
     'var%20t=/US_MinKService.getDailyK'
 )
+DEFAULT_SYMBOL_INTERVAL = float(os.environ.get('KLINE_SYMBOL_INTERVAL', '1.5'))
+SYNC_SKIP_MIN_BARS = int(os.environ.get('KLINE_SKIP_MIN_BARS', '200'))
+SYNC_SKIP_FRESH_DAYS = int(os.environ.get('KLINE_SKIP_FRESH_DAYS', '10'))
+
+def should_skip_synced(
+    bars: int,
+    last_date: str | None,
+    *,
+    min_bars: int = SYNC_SKIP_MIN_BARS,
+    fresh_days: int = SYNC_SKIP_FRESH_DAYS,
+    today: date | None = None,
+) -> bool:
+    """本地已有足够且较新的日K时跳过外网，避免重复打源。"""
+    if int(bars or 0) < int(min_bars):
+        return False
+    if not last_date:
+        return False
+    try:
+        last = date.fromisoformat(str(last_date)[:10])
+    except ValueError:
+        return False
+    as_of = today or date.today()
+    return (as_of - last).days <= int(fresh_days)
+
+
 SINA_HEADERS = {
     'Referer': 'https://finance.sina.com.cn',
     'User-Agent': (
@@ -205,10 +236,7 @@ class MarketSyncService:
         rows = []
         for r in records or []:
             td = r[1]
-            if hasattr(td, 'strftime'):
-                td = td.strftime('%Y-%m-%d')
-            else:
-                td = str(td)[:10]
+            td = td.strftime('%Y-%m-%d') if hasattr(td, 'strftime') else str(td)[:10]
             rows.append(
                 {
                     'symbol': symbol,
@@ -247,22 +275,20 @@ class MarketSyncService:
         except Exception as e:
             logger.info(f'[行情同步] 本库历史表不可用 {symbol}: {e}')
             return []
-        rows = []
-        for r in records or []:
-            rows.append(
-                {
-                    'symbol': r[0],
-                    'market': (r[1] or market or 'US').upper(),
-                    'trade_date': str(r[2])[:10],
-                    'open': float(r[3] or 0),
-                    'high': float(r[4] or 0),
-                    'low': float(r[5] or 0),
-                    'close': float(r[6] or 0),
-                    'volume': float(r[7] or 0),
-                    'source': 'local_mysql',
-                }
-            )
-        return rows
+        return [
+            {
+                'symbol': r[0],
+                'market': (r[1] or market or 'US').upper(),
+                'trade_date': str(r[2])[:10],
+                'open': float(r[3] or 0),
+                'high': float(r[4] or 0),
+                'low': float(r[5] or 0),
+                'close': float(r[6] or 0),
+                'volume': float(r[7] or 0),
+                'source': 'local_mysql',
+            }
+            for r in records or []
+        ]
 
     @classmethod
     def _merge_rows(cls, *sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -315,12 +341,76 @@ class MarketSyncService:
         return InfluxUtil.write_klines(market, payload)
 
     @classmethod
+    def _save_mysql(cls, rows: list[dict[str, Any]]) -> int:
+        """顺带写入本库日K，便于全市场慢同步断点续跑。"""
+        if not rows:
+            return 0
+        cls.ensure_history_table()
+        conn = cls._app_db_conn()
+        if conn is None:
+            return 0
+        sql = """
+        INSERT INTO market_price_history_daily
+          (symbol, market, trade_date, open_price, high_price, low_price, close_price, volume, turnover, source, update_time)
+        VALUES
+          (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+          market=VALUES(market),
+          open_price=VALUES(open_price),
+          high_price=VALUES(high_price),
+          low_price=VALUES(low_price),
+          close_price=VALUES(close_price),
+          volume=VALUES(volume),
+          turnover=VALUES(turnover),
+          source=VALUES(source),
+          update_time=VALUES(update_time)
+        """
+        now = datetime.now()
+        payload = [
+            (
+                r['symbol'],
+                r.get('market') or 'US',
+                r['trade_date'],
+                r.get('open'),
+                r.get('high'),
+                r.get('low'),
+                r.get('close'),
+                r.get('volume'),
+                r.get('turnover') or 0,
+                r.get('source') or 'unknown',
+                now,
+            )
+            for r in rows
+        ]
+        try:
+            with conn.cursor() as cur:
+                for i in range(0, len(payload), 400):
+                    cur.executemany(sql, payload[i : i + 400])
+            return len(payload)
+        except Exception as exc:
+            logger.warning(f'[行情同步] 写本库日K失败: {exc}')
+            return 0
+        finally:
+            conn.close()
+
+    @classmethod
+    def _wait_if_primaries_blocked(cls) -> None:
+        blocked_until = 0.0
+        for name in PRIMARY_SOURCES:
+            br = get_circuit_breaker(name)
+            if not br.allow():
+                blocked_until = max(blocked_until, float(br.opened_until or 0))
+        if blocked_until <= 0:
+            return
+        wait = min(120.0, max(5.0, blocked_until - time.time() + 2.0))
+        logger.warning(f'[行情同步] 主源熔断，暂停 {wait:.0f}s 避免继续打穿')
+        time.sleep(wait)
+
+    @classmethod
     def sync_symbol(cls, symbol: str, market: str = 'US', years: int = 10) -> int:
         """
-        同步单个标的到 Influx（无 MySQL 中间层）：
-        - 主源：新浪外网日K
-        - 补源：quant_trade / 本库历史表（仅填补缺失日期）
-        - 只写 Influx
+        同步单个标的：外网真源 → Influx，并写入本库日K便于续跑。
+        不再额外打一遍未限流的新浪接口。
         """
         symbol = (symbol or '').strip()
         market = (market or 'US').strip().upper()
@@ -328,10 +418,9 @@ class MarketSyncService:
             return 0
 
         real_rows, used_sources = fetch_real_klines(symbol, market, years)
-        sina_rows = cls._rows_from_sina(symbol, market, years) if not real_rows else []
         quant_rows = cls._rows_from_quant_mysql(symbol, market, years)
         local_rows = cls._rows_from_local_mysql(symbol, market, years)
-        rows = cls._merge_rows(local_rows, quant_rows, sina_rows, real_rows)
+        rows = cls._merge_rows(local_rows, quant_rows, real_rows)
         if used_sources:
             logger.info(f'[行情同步] {symbol} 外网真源={used_sources}')
 
@@ -339,7 +428,6 @@ class MarketSyncService:
             logger.warning(f'[行情同步] {symbol} 无可用真实行情数据')
             return 0
 
-        # 统计主源
         src_counts: dict[str, int] = {}
         for r in rows:
             s = r.get('source') or 'unknown'
@@ -347,6 +435,7 @@ class MarketSyncService:
         primary = max(src_counts, key=src_counts.get) if src_counts else 'unknown'
 
         n_influx = cls._save_influx(market, rows)
+        cls._save_mysql(rows)
         logger.info(
             f'[行情同步] {symbol} 完成 primary={primary} sources={src_counts} '
             f'influx={n_influx} range={rows[0]["trade_date"]}~{rows[-1]["trade_date"]} '
@@ -355,26 +444,115 @@ class MarketSyncService:
         return n_influx
 
     @classmethod
+    def _iter_universe(
+        cls,
+        markets: list[str] | None = None,
+        include_listed: bool = True,
+    ) -> list[tuple[str, str, str, str, int, str | None]]:
+        conn = cls._app_db_conn()
+        if conn is None:
+            return [(s, n, m, c, 0, None) for s, n, m, c in TARGET_INSTRUMENTS]
+        wanted = [m.upper() for m in (markets or ['US', 'CN', 'HK'])]
+        placeholders = ','.join(['%s'] * len(wanted))
+        sql = f"""
+        SELECT i.symbol, i.name, i.market, i.category,
+               COALESCE(p.bars, 0) AS bars, p.last_date
+        FROM market_instrument i
+        LEFT JOIN (
+          SELECT symbol, COUNT(*) AS bars, MAX(trade_date) AS last_date
+          FROM market_price_history_daily
+          GROUP BY symbol
+        ) p ON p.symbol = i.symbol
+        WHERE i.enabled='1' AND i.market IN ({placeholders})
+        """
+        params: list[Any] = list(wanted)
+        if not include_listed:
+            sql += ' AND i.category <> %s'
+            params.append(LISTED_CATEGORY)
+        sql += " ORDER BY (i.category = 'listed'), FIELD(i.market, 'US','HK','CN'), i.symbol"
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall() or []
+        finally:
+            conn.close()
+        out: list[tuple[str, str, str, str, int, str | None]] = []
+        for row in rows:
+            last = row[5]
+            if last is not None:
+                last = str(last)[:10]
+            out.append((row[0], row[1] or row[0], row[2], row[3], int(row[4] or 0), last))
+        return out
+
+    @classmethod
     def sync_all(cls, years: int = 10) -> dict[str, Any]:
+        return cls.sync_universe(years=years, include_listed=False, symbol_interval=DEFAULT_SYMBOL_INTERVAL)
+
+    @classmethod
+    def sync_universe(
+        cls,
+        years: int = 10,
+        markets: list[str] | None = None,
+        include_listed: bool = True,
+        limit: int | None = None,
+        symbol_interval: float | None = None,
+        skip_synced: bool = True,
+        stop_path: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        慢速全市场日K同步：精选优先，源级限流，已有足够新K线则跳过。
+        创建 stop_path 文件可安全停。
+        """
+        interval = DEFAULT_SYMBOL_INTERVAL if symbol_interval is None else max(0.0, float(symbol_interval))
+        targets = cls._iter_universe(markets=markets, include_listed=include_listed)
+        if limit:
+            targets = targets[: max(0, int(limit))]
         details: dict[str, int] = {}
         failed: list[str] = []
+        skipped: list[str] = []
         total = 0
-        for symbol, _name, market, _category in TARGET_INSTRUMENTS:
+        consecutive_fail = 0
+        for idx, (symbol, _name, market, _category, bars, last_date) in enumerate(targets, start=1):
+            if stop_path and os.path.exists(stop_path):
+                logger.info(f'[行情同步] 收到停止文件 {stop_path}，已处理 {idx - 1}/{len(targets)}')
+                break
+            if skip_synced and should_skip_synced(bars, last_date):
+                skipped.append(symbol)
+                details[symbol] = 0
+                continue
+            cls._wait_if_primaries_blocked()
             try:
                 pts = cls.sync_symbol(symbol, market, years)
                 details[symbol] = pts
                 total += pts
                 if pts == 0:
                     failed.append(symbol)
+                    consecutive_fail += 1
+                else:
+                    consecutive_fail = 0
             except Exception as e:
                 logger.error(f'[行情同步] {symbol} 失败: {e}')
                 failed.append(symbol)
                 details[symbol] = 0
+                consecutive_fail += 1
+            if consecutive_fail >= _CONSECUTIVE_FAIL_COOLDOWN_AT:
+                cooldown = min(120.0, 15.0 * (consecutive_fail - (_CONSECUTIVE_FAIL_COOLDOWN_AT - 1)))
+                logger.warning(f'[行情同步] 连续失败 {consecutive_fail}，额外休眠 {cooldown:.0f}s')
+                time.sleep(cooldown)
+            if interval > 0:
+                time.sleep(interval)
+            if idx % 20 == 0:
+                logger.info(
+                    f'[行情同步] 进度 {idx}/{len(targets)} ok={len([s for s, n in details.items() if n > 0])} '
+                    f'skip={len(skipped)} fail={len(failed)} points={total}'
+                )
         return {
             'synced_symbols': [s for s, n in details.items() if n > 0],
+            'skipped': skipped,
             'total_points': total,
             'details': details,
             'failed': failed,
+            'scanned': len(targets),
         }
 
     @classmethod

@@ -5,9 +5,14 @@ WORKDIR /app
 COPY . .
 
 # 安装依赖
-RUN pip install --no-cache-dir -r requirements-pg.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -r requirements-pg.txt -r requirements-llm.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 暴露端口
+# 非 root 运行：创建专用用户并授予日志/临时目录写权限
+RUN groupadd -r appuser && useradd -r -g appuser -m appuser \
+    && mkdir -p /app/logs && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 9099
 
 # 启动命令

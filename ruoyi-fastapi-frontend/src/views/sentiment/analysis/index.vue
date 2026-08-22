@@ -253,9 +253,10 @@ function handleDetail(row) {
 /** 手动分析 */
 function handleAnalyze() {
   analyzeLoading.value = true;
-  runAnalysis().then(() => {
-    proxy.$modal.msgSuccess('AI分析任务已触发');
-    getList();
+  runAnalysis().then((res) => {
+    const d = (res && res.data) || {};
+    proxy.$modal.msgSuccess((res && res.msg) || (d.accepted ? '已加入后台队列' : 'AI分析任务已触发'));
+    if (!d.accepted) getList();
   }).finally(() => {
     analyzeLoading.value = false;
   });

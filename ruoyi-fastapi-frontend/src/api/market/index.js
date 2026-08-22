@@ -18,7 +18,7 @@ export function getBoardQuotes(query) {
     url: '/market/board/quotes',
     method: 'get',
     params: query,
-    timeout: 60000,
+    timeout: 8000,
     loadingText: '加载中…'
   })
 }
@@ -171,5 +171,53 @@ export function getMarketWatchlistBacktest(query) {
     url: '/market/watchlist/backtest',
     method: 'get',
     params: query
+  })
+}
+
+export function getMarketHeatDaily(query) {
+  return request({
+    url: '/market/heat/daily',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatTrend(query) {
+  return request({
+    url: '/market/heat/trend',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatDates(query) {
+  return request({
+    url: '/market/heat/dates',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatConfig() {
+  return request({
+    url: '/market/heat/config',
+    method: 'get'
+  })
+}
+
+export function collectMarketHeat(query) {
+  return request({
+    url: '/market/heat/collect',
+    method: 'post',
+    params: query
+  })
+}
+
+// 盘中大盘指数实时行情（舆情大盘指数条数据源，非交易时段返回空列表）
+export function getMarketIndexQuotes() {
+  return request({
+    url: '/market/index/quotes',
+    method: 'get',
+    timeout: 8000
   })
 }

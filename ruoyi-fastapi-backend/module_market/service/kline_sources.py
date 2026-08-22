@@ -13,15 +13,33 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
+import os
+import threading
 import time
 from datetime import date
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import httpx
 
 from module_market.constant.instruments import INDEX_SOURCE_MAP
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+# 解析器字段布局常量
+_ISO_DATE_LEN, _MONTH_POS, _DAY_POS = 10, 4, 7
+_TX_SERIES_MIN_FIELDS = 5
+_EM_MIN_PARTS = 6
+_NE_MIN_COLS = 5
+_NE_CLOSE_COL = 3
+_NE_HIGH_COL = 4
+_NE_OPEN_COL = 6
+_NE_VOL_COL = 11
+_NE_TURNOVER_COL = 12
 
 DEFAULT_HEADERS = {
     'User-Agent': (
@@ -58,6 +76,9 @@ NETEASE_CHD_URL = 'https://quotes.money.163.com/service/chddata.html'
 PRIMARY_SOURCES = ('sina', 'tencent')
 FALLBACK_SOURCES = ('eastmoney', 'yahoo', 'stooq', 'netease')
 ALL_SOURCES = PRIMARY_SOURCES + FALLBACK_SOURCES
+# 首源已有足够日K时不再打第二源/回退源，降低封禁概率
+MIN_BARS_STOP = 40
+DEFAULT_SOURCE_INTERVAL = float(os.environ.get('KLINE_SOURCE_INTERVAL', '0.8'))
 
 
 class CircuitBreaker:
@@ -96,9 +117,55 @@ class CircuitBreaker:
 _BREAKERS: dict[str, CircuitBreaker] = {name: CircuitBreaker() for name in ALL_SOURCES}
 
 
+class SourceThrottle:
+    """每个行情源的最小请求间隔 + 429/403 退避。"""
+
+    def __init__(self, min_interval: float = DEFAULT_SOURCE_INTERVAL) -> None:
+        self.min_interval = max(0.0, float(min_interval))
+        self._last: dict[str, float] = {}
+        self._backoff: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, source: str, sleeper: Callable[[float], None] | None = None) -> float:
+        pause = 0.0
+        with self._lock:
+            now = time.time()
+            last = self._last.get(source, 0.0)
+            extra = self._backoff.get(source, 0.0)
+            pause = self.min_interval + extra - (now - last)
+            if pause < 0:
+                pause = 0.0
+            self._last[source] = now + pause
+        if pause > 0:
+            (sleeper or time.sleep)(pause)
+        return pause
+
+    def punish(self, source: str, seconds: float = 20.0) -> None:
+        with self._lock:
+            prev = self._backoff.get(source, 0.0)
+            self._backoff[source] = min(120.0, max(float(seconds), prev * 2 if prev else float(seconds)))
+
+    def reward(self, source: str) -> None:
+        with self._lock:
+            self._backoff[source] = 0.0
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last.clear()
+            self._backoff.clear()
+
+
+_THROTTLE = SourceThrottle()
+
+
+def get_source_throttle() -> SourceThrottle:
+    return _THROTTLE
+
+
 def reset_circuit_breakers() -> None:
     for name in ALL_SOURCES:
         _BREAKERS[name] = CircuitBreaker()
+    _THROTTLE.reset()
 
 
 def get_circuit_breaker(source: str) -> CircuitBreaker:
@@ -121,7 +188,7 @@ def _finite_price(value: Any) -> float | None:
         num = float(value)
     except (TypeError, ValueError):
         return None
-    if num != num or num in (float('inf'), float('-inf')):  # NaN / Inf
+    if not math.isfinite(num):  # NaN / Inf
         return None
     return num
 
@@ -132,7 +199,7 @@ def validate_ohlcv_row(row: dict[str, Any]) -> dict[str, Any] | None:
     or high < low. Never fills missing OHLC with invented values.
     """
     trade_date = str(row.get('trade_date') or '')[:10]
-    if len(trade_date) != 10 or trade_date[4] != '-' or trade_date[7] != '-':
+    if len(trade_date) != _ISO_DATE_LEN or trade_date[_MONTH_POS] != '-' or trade_date[_DAY_POS] != '-':
         return None
     close = _finite_price(row.get('close'))
     if close is None or close <= 0:
@@ -215,7 +282,7 @@ def sina_cn_symbol(symbol: str) -> str:
     code = symbol.strip()
     if code.lower().startswith(('sh', 'sz')):
         return code.lower()
-    if code.startswith('6') or code.startswith('9'):
+    if code.startswith(('6', '9')):
         return f'sh{code}'
     return f'sz{code}'
 
@@ -249,7 +316,7 @@ def eastmoney_secid(symbol: str, market: str) -> str | None:
         return f'116.{code.zfill(5) if code.isdigit() else code}'
     if mkt == 'CN':
         code = symbol.lower().replace('sh', '').replace('sz', '')
-        prefix = '1' if code.startswith('6') or code.startswith('9') else '0'
+        prefix = '1' if code.startswith(('6', '9')) else '0'
         return f'{prefix}.{code}'
     return None
 
@@ -265,7 +332,7 @@ def yahoo_symbol(symbol: str, market: str) -> str:
         return f'{code.zfill(4) if code.isdigit() else code}.HK'
     if mkt == 'CN':
         code = symbol.lower().replace('sh', '').replace('sz', '')
-        suffix = 'SS' if code.startswith('6') or code.startswith('9') else 'SZ'
+        suffix = 'SS' if code.startswith(('6', '9')) else 'SZ'
         return f'{code}.{suffix}'
     return symbol.replace('^', '') if not symbol.startswith('^') else symbol
 
@@ -288,7 +355,7 @@ def netease_code(symbol: str, market: str) -> str | None:
     code = symbol.lower().replace('sh', '').replace('sz', '')
     if not code.isdigit():
         return None
-    prefix = '0' if code.startswith('6') or code.startswith('9') else '1'
+    prefix = '0' if code.startswith(('6', '9')) else '1'
     return f'{prefix}{code}'
 
 
@@ -330,14 +397,14 @@ def parse_tencent_kline_payload(
         return []
     start_str = start_date(years).strftime('%Y-%m-%d')
     rows: list[dict[str, Any]] = []
-    for _key, block in data.items():
+    for block in data.values():
         if not isinstance(block, dict):
             continue
         series = block.get('qfqday') or block.get('day') or block.get('hfqday') or []
         if not isinstance(series, list):
             continue
         for item in series:
-            if not isinstance(item, (list, tuple)) or len(item) < 5:
+            if not isinstance(item, (list, tuple)) or len(item) < _TX_SERIES_MIN_FIELDS:
                 continue
             d = str(item[0])[:10]
             if not d or d < start_str:
@@ -351,7 +418,7 @@ def parse_tencent_kline_payload(
                     'close': item[2],
                     'high': item[3],
                     'low': item[4],
-                    'volume': item[5] if len(item) > 5 else 0,
+                    'volume': item[5] if len(item) > _TX_SERIES_MIN_FIELDS else 0,
                     'source': 'tencent',
                 }
             )
@@ -371,7 +438,7 @@ def parse_eastmoney_klines(
     rows: list[dict[str, Any]] = []
     for raw in klines:
         parts = str(raw).split(',')
-        if len(parts) < 6:
+        if len(parts) < _EM_MIN_PARTS:
             continue
         d = parts[0][:10]
         if not d or d < start_str:
@@ -386,7 +453,7 @@ def parse_eastmoney_klines(
                 'high': parts[3],
                 'low': parts[4],
                 'volume': parts[5],
-                'turnover': parts[6] if len(parts) > 6 else 0,
+                'turnover': parts[6] if len(parts) > _EM_MIN_PARTS else 0,
                 'source': 'eastmoney',
             }
         )
@@ -478,7 +545,7 @@ def parse_netease_csv(text: str, symbol: str, market: str, years: int) -> list[d
     if not header:
         return []
     for cols in reader:
-        if len(cols) < 5:
+        if len(cols) < _NE_MIN_COLS:
             continue
         d = str(cols[0]).strip().replace('/', '-')[:10]
         if not d or d < start_str:
@@ -489,12 +556,12 @@ def parse_netease_csv(text: str, symbol: str, market: str, years: int) -> list[d
                 'symbol': symbol,
                 'market': market,
                 'trade_date': d,
-                'close': cols[3] if len(cols) > 3 else None,
-                'high': cols[4] if len(cols) > 4 else None,
-                'low': cols[5] if len(cols) > 5 else None,
-                'open': cols[6] if len(cols) > 6 else None,
-                'volume': cols[11] if len(cols) > 11 else 0,
-                'turnover': cols[12] if len(cols) > 12 else 0,
+                'close': cols[3] if len(cols) > _NE_CLOSE_COL else None,
+                'high': cols[4] if len(cols) > _NE_HIGH_COL else None,
+                'low': cols[5] if len(cols) > _NE_MIN_COLS else None,
+                'open': cols[6] if len(cols) > _NE_OPEN_COL else None,
+                'volume': cols[11] if len(cols) > _NE_VOL_COL else 0,
+                'turnover': cols[12] if len(cols) > _NE_TURNOVER_COL else 0,
                 'source': 'netease',
             }
         )
@@ -514,22 +581,36 @@ def _http_get(url: str, *, params: dict[str, Any] | None = None, headers: dict[s
     )
 
 
+def _is_rate_limited(exc: Exception) -> bool:
+    status = getattr(getattr(exc, 'response', None), 'status_code', None)
+    if status in {429, 403, 418, 503}:
+        return True
+    text = str(exc).lower()
+    return any(token in text for token in ('429', '403', 'too many', 'rate limit', 'banned'))
+
+
 def _call_source(name: str, fn: Callable[[], list[dict[str, Any]]]) -> list[dict[str, Any]]:
     breaker = get_circuit_breaker(name)
     if not breaker.allow():
         logger.info(f'[K线源] {name} 熔断中，跳过')
         return []
+    _THROTTLE.wait(name)
     try:
         rows = fn() or []
         valid = [r for r in (validate_ohlcv_row(x) for x in rows) if r]
         if valid:
             breaker.record_success()
+            _THROTTLE.reward(name)
             return valid
         breaker.record_failure()
         return []
     except Exception as exc:
         breaker.record_failure()
-        logger.warning(f'[K线源] {name} 拉取失败: {exc}')
+        if _is_rate_limited(exc):
+            _THROTTLE.punish(name, 30.0)
+            logger.warning(f'[K线源] {name} 疑似限流，拉长间隔: {exc}')
+        else:
+            logger.warning(f'[K线源] {name} 拉取失败: {exc}')
         return []
 
 
@@ -675,8 +756,8 @@ _FETCHERS: dict[str, Callable[[str, str, int], list[dict[str, Any]]]] = {
 
 def fetch_real_klines(symbol: str, market: str = 'US', years: int = 10) -> tuple[list[dict[str, Any]], list[str]]:
     """
-    Fetch real daily bars. Primary Sina+Tencent, then fallbacks.
-    Returns (rows, used_sources). Empty when every source fails — never fake.
+    Fetch real daily bars. Primary Sina then Tencent, then fallbacks.
+    首源已有足够 K 线时不再打后续源。Empty when every source fails — never fake.
     """
     symbol = (symbol or '').strip()
     market = (market or 'US').strip().upper()
@@ -691,8 +772,14 @@ def fetch_real_klines(symbol: str, market: str = 'US', years: int = 10) -> tuple
         if rows:
             used.append(name)
             merged = merge_real_rows(merged, rows)
+            if len(merged) >= MIN_BARS_STOP:
+                return merged, used
 
     if not merged:
+        primaries_blocked = all(not get_circuit_breaker(name).allow() for name in PRIMARY_SOURCES)
+        if primaries_blocked:
+            logger.warning(f'[K线源] {symbol} 主源均熔断，跳过回退以免继续打穿')
+            return [], []
         for name in FALLBACK_SOURCES:
             rows = _FETCHERS[name](symbol, market, years)
             if rows:

@@ -307,8 +307,17 @@ class RouterRegister:
 
         :return: py文件路径列表
         """
-        pattern = os.path.join(self.project_root, '*', 'controller', '[!_]*.py')
-        return sorted(glob.glob(pattern))
+        from config.env import AppConfig
+
+        allowed = AppConfig.router_modules()
+        if not allowed:
+            pattern = os.path.join(self.project_root, '*', 'controller', '[!_]*.py')
+            return sorted(glob.glob(pattern))
+        files: list[str] = []
+        for module_name in sorted(allowed):
+            pattern = os.path.join(self.project_root, module_name, 'controller', '[!_]*.py')
+            files.extend(glob.glob(pattern))
+        return sorted(files)
 
     def _import_module_and_get_routers(self, controller_files: list[str]) -> list[tuple[str, APIRouter]]:
         """

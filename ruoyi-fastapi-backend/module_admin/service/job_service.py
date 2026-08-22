@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.constant import CommonConstant, JobConstant
 from common.vo import CrudResponseModel, PageModel
+from config.env import AppConfig
 from config.get_scheduler import SchedulerUtil
 from exceptions.exception import ServiceException
 from module_admin.dao.job_dao import JobDao
@@ -13,6 +14,7 @@ from module_admin.service.dict_service import DictDataService
 from utils.common_util import CamelCaseUtil
 from utils.cron_util import CronUtil
 from utils.excel_util import ExcelUtil
+from utils.scheduler_runtime import SchedulerRuntime
 from utils.string_util import StringUtil
 
 
@@ -162,12 +164,21 @@ class JobService:
         :param page_object: 定时任务对象
         :return: 执行一次定时任务结果
         """
-        SchedulerUtil.remove_scheduler_job(job_id=page_object.job_id)
         job_info = await cls.job_detail_services(query_db, page_object.job_id)
-        if job_info:
+        if not job_info or not job_info.job_id:
+            raise ServiceException(message='定时任务不存在')
+        if SchedulerUtil.is_leader():
+            SchedulerUtil.remove_scheduler_job(job_id=page_object.job_id)
             SchedulerUtil.execute_scheduler_job_once(job_info=job_info)
             return CrudResponseModel(is_success=True, message='执行成功')
-        raise ServiceException(message='定时任务不存在')
+
+        heartbeat = await SchedulerRuntime.read_heartbeat()
+        if AppConfig.app_role == 'api' and not SchedulerRuntime.is_alive(heartbeat):
+            raise ServiceException(message='jobs 调度进程未在线。任务已从平台 API 进程拆出，请先启动 sentiment-jobs。')
+        ok = await SchedulerRuntime.publish_run(job_info.job_id)
+        if not ok:
+            raise ServiceException(message='无法通知分析调度服务，请检查 Redis 连接')
+        return CrudResponseModel(is_success=True, message='已提交到分析调度微服务')
 
     @classmethod
     async def delete_job_services(cls, query_db: AsyncSession, page_object: DeleteJobModel) -> CrudResponseModel:

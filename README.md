@@ -1,229 +1,199 @@
 # Smart Finance Platform · 智慧金融分析平台
 
-基于 **RuoYi-Vue3 + FastAPI** 的一体化智能金融平台，覆盖 **行情 · 舆情 · 量化 · 交易 · AI 研判**。
+## 项目概述
 
-> 本仓库为独立公开项目，仅发布 `smart-finance-platform` 代码。  
-> **贡献请走功能分支 + Pull Request，禁止直接推送到 `main`。** 详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+Smart Finance Platform 是一套面向二级市场研究与交易辅助的一体化平台，底座是 **RuoYi-Vue3 + FastAPI**，业务覆盖 **行情、舆情、量化、交易、AI 研判**。列表浏览走 Influx / MySQL，长桥只用于交易台实时报价和下单；调度与长任务从 API 进程拆出，避免 Grok / 采集把 HTTP 打满。
 
-<p align="center">
-  <img alt="python" src="https://img.shields.io/badge/Python-≥3.10-blue">
-  <img alt="node" src="https://img.shields.io/badge/Node-≥18-blue">
-  <img alt="vue" src="https://img.shields.io/badge/Vue-3-brightgreen">
-  <img alt="fastapi" src="https://img.shields.io/badge/FastAPI-async-009688">
-  <img alt="influx" src="https://img.shields.io/badge/InfluxDB-2.x-purple">
-  <img alt="mysql" src="https://img.shields.io/badge/MySQL-8-orange">
-  <img alt="license" src="https://img.shields.io/badge/License-MIT-lightgrey">
-</p>
+本仓库 2026-07-23 首次公开，默认分支 `main`。贡献走功能分支 + Pull Request，禁止直接推 `main`。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
----
+## 核心功能一览
 
-## 平台简介
+- **行情中心**：三市场热度与 Top50、行情台、自选三栏（分组 / K 线 / 详情）、财经资讯、AI 研判；K 线、标的详情、高级图从列表点入，不占侧栏。
+- **自选按账号隔离**：行情自选只走 `market_watchlist` + `user_id`；量化扫描池继续用 `quant_watchlist`，两套不混。分组先写在 `note`（逗号可多组）。
+- **舆情分析**：中文资讯采集、大盘影响研判、分析历史；列表页不叠长桥实时价。
+- **量化研究**：因子、Alphalens 风格 IC/IR/分层收益、策略信号、扫描台账、策略档位与 8 族权重。
+- **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、纸面自动交易（默认不实盘下单）、风控规则与事件、通知中心。
+- **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
+- **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。
+- **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
+- **桌面端**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
+- **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
-Smart Finance Platform 在 RuoYi 权限体系之上，扩展了面向二级市场研究与交易辅助的业务子系统：
+## 0822 迭代（自选按用户隔离、行情侧栏压平、长桥按账户）
 
-| 子系统 | 能力概要 |
-|--------|----------|
-| **行情中心** | InfluxDB 主路径 K 线 / 指标 / 标的池 / 分市场看板 / 历史覆盖率 / 高级图表 |
-| **舆情分析** | 财经资讯、情感分析、研报摘要、配置调度 |
-| **量化研究** | 因子、策略信号、自选池、扫描台账、策略配置档位 |
-| **交易中心** | 长桥账户/持仓/委托、交易台、回测、风控规则与事件、通知中心 |
-| **AI 研判** | 单标的研判、批量扫描任务、AI 交易台账、模型管理 |
-| **系统底座** | 用户 / 角色 / 菜单 / 字典 / 定时任务 / 监控 / 代码生成 |
+提交 `b31b08a`（2026-08-22）。
 
-技术栈：
+### 1. 行情自选只走 `market_watchlist`
+- 列表 / 新增 / 删除 / 概览 / 分析 / 回测 / 小时任务全部带当前 `user_id`，不再误走全局 `quant_watchlist`。
+- 量化扫描池仍用 `quant_watchlist`，两套分开。
+- 热度 Top50「已在自选」按当前用户判断；加入自选写入当前账号。
 
-- **前端**：Vue3 · Element Plus · Vite · ECharts · Pinia
-- **后端**：FastAPI · SQLAlchemy(async) · OAuth2/JWT · APScheduler
-- **数据**：MySQL（业务）· Redis（缓存/会话）· InfluxDB（行情时序）
-- **券商**：Longbridge OpenAPI（可选，交易实盘/模拟）
+### 2. 自选页三栏（分组先用 note）
+- 左：从 `note` 解析分组（逗号分隔，一只可多组）+ 标的列表。
+- 中：日 / 周 / 月 K 线。
+- 右：报价、分组、备注、综合分析。窄屏收起右侧，左 + 中保留。
+- 本机 lustone（`user_id=101`）已有 130 只可直接用，不等另做导入。
 
----
+### 3. 长桥凭据按登录账户（对齐 PR #16）
+- `GET/PUT /quant/longbridge/config` 与连通性测试只读写当前用户行。
+- 请求级 `ContextVar` 注入凭据，交易 / 实时报价不串号。
+- jobs 无用户上下文时回退 `user_id=1`，再 env。
+- 保存时掩码 `****` 不覆盖原密钥。增量 SQL：`sql/quant-longbridge-user.sql`。
 
-## 功能亮点
+### 4. 行情中心侧栏
+- 只留五个入口：市场热度、行情台、自选清单、财经资讯、AI研判。
+- K 线 / 详情 / 高级图 / 覆盖检测从页面点入。增量 SQL：`sql/market-menu-unify.sql`。
 
-### 行情与研究
-- 目标标的 **Influx 历史覆盖率检测**（HistoryCoverage）
-- **高级图表**工作区：K 线 + MA5/20/60 + 成交量联动缩放
-- 多市场（US / HK / CN）标的与看板
-- 财经资讯站内阅读，减少外跳
+## 0821 迭代（热度看板、API 与长任务拆开、长桥熔断）
 
-### 量化与策略
-- 策略信号扫描与历史台账
-- **策略配置档位**（保守 / 均衡 / 进取）：买卖阈值与因子权重可持久化
+### 1. 市场热度与 Top50
+- 美 / 港 / A 股收盘采集指数涨跌、成交额、涨跌家数，写入 `market_heat_daily` 与 `market_top50_snapshot`。
+- 市值过滤、权重走 `sys_config`，任务进 `sentiment-jobs` 队列。
 
-### 交易与风控
-- 交易台：报价 · 下单 · 持仓快照 · 今日/历史委托
-- **风控管理**：规则 CRUD、一键扫描、事件落库
-- 通知中心：内存通知 + 持久化通知合并展示
+### 2. API 与长任务隔离
+- APScheduler 只在 `sentiment-jobs`；market / quant / llm 三个消费组分开。
+- 交易实时单独进程，禁止和 LLM / 采集共进程。
+- 行情台报价读 Redis / SWR；全市场 Influx 扫描进 jobs。
+- 需求沟通「发送 / 总结」入 `llm` 队列立即返回 `jobId`，Grok 不再堵 API worker。
 
-### AI
-- 单标的深度研判（支撑/压力/建议/风险）
-- **批量 AI 扫描** + 批次历史明细
-- 模型与对话能力继承自 RuoYi-AI 模块
+### 3. 浏览行情只走库，长桥留给交易台
+- 自选概览、行情台、标的详情的列表报价不再 overlay 长桥实时价 / static_info。
+- 无效 Token 不再把列表页打挂。交易台分钟 / 分时仍走长桥，失败软降级。
 
-### 体验
-- 全局深色主题与门户入口（Cyber / Glass 风格）
-- Docker 一键编排（前端 / 后端 / MySQL / Redis / InfluxDB）
+### 4. 熔断与队列
+- 长桥 401004 / 超时拉共享熔断器，后续任务路径不再打券商。
+- 长任务入 Redis，消费失败可 inline 回退。异步长桥调用限流。
 
----
+### 5. 量化、自选与桌面
+- Alphalens 风格截面 Spearman IC / IR / 五分位收益，因子页面板 + 日任务。
+- 自选小时综合（技术 + 长桥资讯 + 舆情），建议 1/5 日前瞻回测，报价 8s 轮询。
+- 策略 8 族权重入打分与扫描；因子快照 CSV 导出。
+- Electron 每次启动先开网关配置窗；订单刷新成交数量。
+- GitHub Actions：后端单测 + 网关 URL 检查。
 
-## 目录结构
+### 6. 风控与 Alpha
+- 风险事件审批流。
+- Alpha101 / 158 快照与 ReadModel 定时任务。
 
-```text
-smart-finance-platform/
-├── docker-compose.sentiment.yml   # 推荐：完整业务栈编排
-├── docker-compose.my.yml          # 官方 MySQL 示例
-├── docker-compose.pg.yml          # 官方 PostgreSQL 示例
-├── docs/                          # 迁移与设计说明
-├── scripts/page_smoke.mjs         # 全菜单页面冒烟（Playwright）
-├── ruoyi-fastapi-backend/         # FastAPI 后端
-│   ├── module_market/             # 行情
-│   ├── module_sentiment/          # 舆情
-│   ├── module_quant/              # 量化 + 长桥
-│   ├── module_trade/              # 交易 / 风控 / 回测 / 批量 AI
-│   └── sql/                       # 菜单与业务 SQL
-├── ruoyi-fastapi-frontend/        # Vue3 管理端
-│   └── src/views/{market,quant,trade,sentiment,portal}/
-├── ruoyi-fastapi-app/             # 移动端（RuoYi-App 基线）
-└── desktop/                       # Electron 桌面端（先配网关再登录）
-```
+## 0820 迭代（交易台报价板、门户、登录皮肤、纸面自动交易）
 
----
+### 1. 交易台
+- 当前标的深度、逐笔、周期 K 线；K 线（或分时）叠在盘口与成交明细上方。
+- 空 K 线不再留 360px 白块；持仓跳 `/trade/trading?symbol=` 跟路由。
+
+### 2. 门户与登录
+- 门户 16 个入口收成六组卡片，去掉「若依官网」菜单种子。
+- 登录浅色 / 深色与门户、系统 chrome 同一套 VueUse 键，刷新不丢。
+
+### 3. 行情与空状态
+- 真源 K 线 seeder（新浪 / 腾讯 + 降级，带熔断），禁止合成 OHLCV。
+- 看板批量报价；TradingView 港股代码候选。
+- 资讯 / 舆情 429 / Druid / 未配券商账户的空状态。
+
+### 4. 自动交易（默认纸面）
+- 扫描默认不提交订单：纸面保护 + 长桥交易开关只在服务端。
+- 长桥调用线程卸载 + 短 Redis 缓存；K 线默认不再拉十年窗口。
+- Prometheus 指标、`docker-compose.monitor.yml`、AI 工作台 One-Shot / 投研顾问。
+
+## 0723 首次公开发布
+
+提交 `743b13f`（2026-07-23）。
+
+独立公开的 RuoYi 行情 / 舆情 / 量化 / 交易 / AI 工作台，配置只留 `.env.*.example`，贡献要求 PR 进 `main`。
 
 ## 快速开始
 
-### 1. 准备环境变量（不要提交真实密钥）
+### 1. 环境变量（不要提交真实密钥）
 
 ```bash
-# 后端
 cp ruoyi-fastapi-backend/.env.dockersentiment.example \
    ruoyi-fastapi-backend/.env.dockersentiment
-
-# 前端
 cp ruoyi-fastapi-frontend/.env.docker.example \
    ruoyi-fastapi-frontend/.env.docker
 ```
 
-按需修改 MySQL / Redis / InfluxDB / JWT / 长桥凭证等。
+至少改 JWT、MySQL 密码（与 compose 一致）、默认 `admin / admin123`。长桥与 AI Key 可选。
 
-### 2. Docker 启动（推荐）
+### 2. Docker（推荐）
 
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --build
 ```
 
-默认端口：
-
-| 服务 | 端口 |
+| 服务 | 地址 |
 |------|------|
-| 前端 | http://127.0.0.1:12580 |
-| 后端 | http://127.0.0.1:19099 |
+| 前端 / 网关 | http://127.0.0.1:12580 |
+| 平台 API | http://127.0.0.1:19099 （OpenAPI `/docs`） |
+| jobs 调度 | http://127.0.0.1:19098/health |
 | MySQL | 13306 |
 | Redis | 16379 |
 | InfluxDB | 18086 |
 
-默认账号（首次初始化后）：`admin` / `admin123`（请及时修改）。
-
-### 3. 菜单 SQL（若库为空）
-
-后端 `sql/` 下提供：
-
-- `sentiment-menu.sql` / `market-menu.sql` / `quant-menu.sql`
-- `full-feature-menu.sql` / `deep-feature-menu.sql`
-
-可按需导入以挂载业务菜单。
-
-### 4. 页面冒烟（可选）
+**禁止 `compose down` 整栈。** 更新单个服务：
 
 ```bash
-npm install
-npm run smoke:pages
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-backend sentiment-frontend
 ```
 
-### 5. 上线前检查
+已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)（含 `market-menu-unify.sql`、`quant-longbridge-user.sql`）。
+
+补全市场代码与日K（本机 Docker 默认口，限流慢拉）：
 
 ```bash
-# 增量 SQL（已有库务必执行）
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/web-polish.sql
-
-# 关键路径
-npm install
-npx playwright install chromium
-npm run e2e:web
+ruoyi-fastapi-backend/.venv/bin/python scripts/sync_market_listings.py
+ruoyi-fastapi-backend/.venv/bin/python -u scripts/sync_klines_slow.py
+touch logs/kline_sync.stop   # 下一只标的前退出
 ```
 
-生产注意：
-
-1. 修改默认密码 `admin / admin123`，换掉 JWT 与数据库密码。
-2. 在 **AI 模型管理** 配置 Base URL / API Key / 模型（自选小时分析、行情研判共用）。
-3. 在 **长桥配置** 填写凭证后，自选清单才能叠实时价、交易台才能下单。
-4. 任务管理启用「自选清单小时分析」；因子质检 / 日扫按需打开。
-5. 策略配置页保存的 8 大因子族权重会进入打分与扫描。
-
-### 6. 桌面端（本机 / 云上网关）
+### 3. 桌面端
 
 ```bash
-cd desktop
-npm install
-npm start
+cd desktop && npm install && npm start
 ```
 
-启动后先填写前端网关再登录：本机 Docker 为 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。详见 [desktop/README.md](./desktop/README.md)。
+先填前端网关再登录：本机 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。
 
----
-
-## 主要业务 API（节选）
-
-| 前缀 | 说明 |
-|------|------|
-| `/market/*` | K 线、指标、标的、AI 研判、资讯 |
-| `/trade/account` `positions` `orders` | 长桥账户与委托 |
-| `/trade/coverage` | 行情历史覆盖 |
-| `/trade/strategy-profiles` | 策略配置档位 |
-| `/trade/risk/*` | 风控规则 / 事件 / 扫描 |
-| `/trade/ai/batch*` | 批量 AI 任务 |
-| `/trade/notifications` | 通知（持久化 + 运行时） |
-
-完整文档：启动后访问 `http://127.0.0.1:19099/docs`。部署、监控与可选 Postgres 见 [docs/DEPLOY.md](./docs/DEPLOY.md)。
-
-监控（可选）：
+### 4. 检查（可选）
 
 ```bash
-docker compose -f docker-compose.monitor.yml up -d
+cd ruoyi-fastapi-backend && uv run pytest tests/ -q
+npm install && npx playwright install chromium && npm run e2e:web
 ```
 
-Prometheus `19090` · Grafana `13000` · 后端 `/metrics`。
+监控：`docker compose -f docker-compose.monitor.yml up -d`（Prometheus 19090 · Grafana 13000）。
 
----
+## 目录与技术栈
 
-## 贡献与分支策略
+```text
+smart-finance-platform/
+├── docker-compose.sentiment.yml   # 默认业务栈
+├── docker-compose.monitor.yml     # Prometheus / Grafana
+├── docs/DEPLOY.md
+├── ruoyi-fastapi-backend/         # FastAPI
+│   ├── module_market/  module_sentiment/  module_quant/
+│   ├── module_trade/   module_ai/         module_analysis/
+│   └── sql/
+├── ruoyi-fastapi-frontend/        # Vue3 管理端
+├── ruoyi-fastapi-app/             # 移动端基线
+└── desktop/                       # Electron
+```
 
-- 默认分支：`main`（受保护）
-- **禁止直接 push `main`**（含 force-push）
-- 请从 `main` 拉取功能分支：`feature/*` · `fix/*` · `docs/*`
-- 通过 **Pull Request** 合并
+- **前端**：Vue 3 · Element Plus · Vite · ECharts · Pinia
+- **后端**：Python ≥3.10 · FastAPI · SQLAlchemy async · JWT
+- **数据**：MySQL 8（业务）· Redis（会话 / 队列 / 缓存）· InfluxDB 2.x（K 线）
+- **券商**：Longbridge OpenAPI（可选）
 
-详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+## 安全
 
----
+- 仓库只有 `.env.*.example`，不含生产密钥。
+- 不要提交 `DB_PASSWORD` / `JWT_SECRET` / `INFLUX_TOKEN` / 长桥 Token / RSA 私钥。
+- 长桥交易开关与纸面保护在服务端，前端关不掉实盘拦截。
 
-## 安全说明
-
-- 仓库内仅提供 `.env.*.example` 模板，**不包含真实生产密钥**
-- 请勿将 `DB_PASSWORD` / `JWT_SECRET` / `INFLUX_TOKEN` / 长桥 Token / RSA 私钥提交到 Git
-- 公开演示环境请使用独立弱权限账号与可轮换密钥
-
----
-
-## 致谢与基线
+## 致谢
 
 - 管理端底座：[RuoYi-Vue3-FastAPI](https://github.com/insistence/RuoYi-Vue3-FastAPI)
 - 前端参考：[RuoYi-Vue3](https://github.com/yangzongzhuan/RuoYi-Vue3)
-- 行情/交易能力参考 Longbridge 开放平台生态
-
----
 
 ## License
 
-MIT（以本仓库 `LICENSE` 为准；上游组件请遵循其各自许可证）
+MIT（以本仓库 `LICENSE` 为准；上游组件遵循其各自许可证）

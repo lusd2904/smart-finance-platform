@@ -7,9 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import TARGET_INSTRUMENTS, get_instrument_meta
@@ -25,7 +23,13 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.content_cache_service import SymbolContentService
 from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
-from module_market.service.kline_period import default_range_start, is_minute_period, normalize_kline_period, resample_how
+from module_market.service.kline_period import (
+    default_range_start,
+    is_minute_period,
+    normalize_kline_period,
+    resample_how,
+)
+from module_market.service.listing_service import ListingService
 from module_market.service.market_analyzer_service import MarketAiAnalyzer
 from module_market.service.sync_service import MarketSyncService
 from module_market.service.tradingview_service import _resample_klines
@@ -33,7 +37,22 @@ from module_quant.dao.quant_dao import QuantStrategyDao
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+from utils.quote_util import build_quote_from_klines
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+# RSI 超买/超卖阈值
+_RSI_OVERBOUGHT = 70
+_RSI_OVERSOLD = 30
+
+BOARD_QUOTES_CACHE_KEY = 'sfp:cache:board:quotes'
+# 看板缓存兜底过期时间；正常由 jobs 周期刷新，jobs 中断时最多滞后 15 分钟再降级到 scheduled 数据
+BOARD_QUOTES_TTL_SECONDS = 15 * 60
 
 # Common Service pattern - will use BaseService in future
 
@@ -67,6 +86,12 @@ class MarketService:
             raise e
 
     @classmethod
+    async def sync_listings_services(cls, markets: list[str] | None = None) -> dict[str, Any]:
+        """抓取美股/A股/港股全市场代码写入 market_instrument（listed），不覆盖精选分类。"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, ListingService.sync, markets)
+
+    @classmethod
     async def get_instrument_list_services(
         cls, query_db: AsyncSession, query_object: MarketInstrumentQueryModel
     ) -> list[dict[str, Any]]:
@@ -85,6 +110,30 @@ class MarketService:
     # ---------- K线 ----------
 
     @classmethod
+    def _filter_board_payload(
+        cls,
+        payload: dict[str, Any],
+        category: str | None = None,
+        market: str | None = None,
+    ) -> dict[str, Any]:
+        quotes = list(payload.get('quotes') or [])
+        if market:
+            mkt = market.strip().upper()
+            quotes = [q for q in quotes if str(q.get('market') or '').upper() == mkt]
+        if category:
+            cat = category.strip()
+            quotes = [q for q in quotes if str(q.get('category') or '') == cat]
+        indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
+        index_symbols = {q['symbol'] for q in indices}
+        rows = [q for q in quotes if q.get('symbol') not in index_symbols]
+        filtered = dict(payload)
+        filtered['quotes'] = quotes
+        filtered['indices'] = indices
+        filtered['rows'] = rows
+        filtered['count'] = len(quotes)
+        return filtered
+
+    @classmethod
     async def get_board_quotes_services(
         cls,
         query_db: AsyncSession,
@@ -92,31 +141,94 @@ class MarketService:
         market: str | None = None,
     ) -> dict[str, Any]:
         """
-        One-shot board quotes: latest 2 daily bars from Influx per symbol.
-        Browse/list path — Influx/DB only; do not call Longbridge quote APIs here.
+        只读 Redis/SWR 缓存。全市场 Influx 扫描只允许在 jobs 里执行。
         """
-        from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+        cached = await cache_get_json(BOARD_QUOTES_CACHE_KEY)
+        if isinstance(cached, dict) and (cached.get('quotes') or cached.get('rows')):
+            payload = cls._filter_board_payload(cached, category=category, market=market)
+            payload['source'] = payload.get('source') or 'cache'
+            payload['stale'] = False
+            return payload
 
-        instruments = await cls.get_instrument_list_services(
-            query_db, MarketInstrumentQueryModel(category=category, market=market)
+        from module_quant.service.readmodel_service import ReadModelService  # noqa: PLC0415 - 避免循环导入
+
+        scheduled = await ReadModelService.get_scheduled('board')
+        if isinstance(scheduled, dict) and scheduled.get('items'):
+            adapted = cls._adapt_scheduled_board(scheduled)
+            payload = cls._filter_board_payload(adapted, category=category, market=market)
+            payload['source'] = 'scheduled'
+            payload['stale'] = True
+            return payload
+
+        return {
+            'quotes': [],
+            'indices': [],
+            'rows': [],
+            'source': 'empty',
+            'stale': True,
+            'count': 0,
+            'message': '看板缓存尚未生成，请等待 jobs 预热',
+        }
+
+    @classmethod
+    def _adapt_scheduled_board(cls, scheduled: dict[str, Any]) -> dict[str, Any]:
+        quotes: list[dict[str, Any]] = []
+        for item in scheduled.get('items') or []:
+            change_rate = item.get('changeRate')
+            quotes.append(
+                {
+                    'symbol': item.get('symbol'),
+                    'name': item.get('name'),
+                    'market': item.get('market'),
+                    'category': item.get('category'),
+                    'price': item.get('close') if item.get('close') is not None else item.get('price'),
+                    'change': item.get('change'),
+                    'changeRate': change_rate,
+                    'volume': item.get('volume'),
+                    'tradeDate': item.get('asOf') or item.get('tradeDate'),
+                    'changeText': (
+                        f"{'+' if change_rate >= 0 else ''}{change_rate:.2f}%"
+                        if isinstance(change_rate, (int, float))
+                        else '--'
+                    ),
+                    'up': True if change_rate is None else change_rate >= 0,
+                    'source': 'scheduled',
+                }
+            )
+        return {
+            'quotes': quotes,
+            'asOf': scheduled.get('asOf'),
+            'source': 'scheduled',
+        }
+
+    @classmethod
+    async def refresh_board_quotes_cache(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        jobs 专用：扫描 Influx 最新两根日K，写入 Redis。请求线程禁止调用。
+        """
+        from module_market.entity.vo.market_vo import (  # noqa: PLC0415 - jobs 专用路径按需加载
+            MarketInstrumentQueryModel,
         )
+
+        instruments = await cls.get_instrument_list_services(query_db, MarketInstrumentQueryModel())
         by_market: dict[str, list[str]] = {}
-        meta_by_symbol: dict[str, dict[str, Any]] = {}
         for item in instruments:
             sym = str(item.get('symbol') or '').strip()
             if not sym:
                 continue
             mkt = str(item.get('market') or 'US').strip().upper() or 'US'
             by_market.setdefault(mkt, []).append(sym)
-            meta_by_symbol[sym] = item
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
         for mkt, symbols in by_market.items():
-            grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
+            try:
+                grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
+            except Exception as exc:
+                # 看板是页面主路径：库故障降级为无行情并记录，不让整页 500
+                logger.error(f'[看板] 行情批量查询失败 market={mkt}: {exc}')
+                grouped = {}
             bars_by_symbol.update(grouped or {})
-
-        # Browse/list path: do not batch-call Longbridge get_realtime_quote (slow + token failures).
 
         quotes: list[dict[str, Any]] = []
         for item in instruments:
@@ -156,13 +268,17 @@ class MarketService:
         indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
         index_symbols = {q['symbol'] for q in indices}
         rows = [q for q in quotes if q['symbol'] not in index_symbols]
-        return {
+        payload = {
             'quotes': quotes,
             'indices': indices,
             'rows': rows,
-            'source': 'influx',
+            'source': 'cache',
             'count': len(quotes),
+            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'stale': False,
         }
+        await cache_set_json(BOARD_QUOTES_CACHE_KEY, payload, BOARD_QUOTES_TTL_SECONDS)
+        return {'count': len(quotes), 'asOf': payload['asOf']}
 
     @classmethod
     async def get_kline_services(cls, query_object: KlineQueryModel) -> list[dict[str, Any]]:
@@ -171,7 +287,7 @@ class MarketService:
         daily/weekly/monthly 来自 daily_kline（周/月为真实日K聚合）；
         分钟级只读 minute_kline，没有则空列表，不补造。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         period = normalize_kline_period(query_object.period)
         start = default_range_start(period, query_object.start)
         if is_minute_period(period):
@@ -204,7 +320,7 @@ class MarketService:
         if not klines or how not in {'5min', '15min'}:
             return klines
         try:
-            import pandas as pd
+            import pandas as pd  # noqa: PLC0415 - pandas 为可选重依赖，缺失时跳过重采样
         except Exception:
             return klines
         df = pd.DataFrame(klines)
@@ -239,7 +355,7 @@ class MarketService:
         """
         计算全部技术指标service。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         klines = await loop.run_in_executor(
             None,
             InfluxUtil.query_klines,
@@ -263,7 +379,7 @@ class MarketService:
         手动触发同步service（同步IO放线程池执行，避免阻塞事件循环）。
         正式链路：外网/存量补源 → 直接写 Influx，无 MySQL 中间层。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None, MarketSyncService.sync, sync_object.symbol, sync_object.years
         )
@@ -276,7 +392,7 @@ class MarketService:
         """
         将本库 MySQL 历史日K一次性迁入 Influx（可选，仅存量迁移）。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, MarketSyncService.mysql_to_influx, symbol, market
         )
@@ -343,7 +459,7 @@ class MarketService:
                 'result': None,
             }
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         klines = await loop.run_in_executor(
             None,
             InfluxUtil.query_klines,
@@ -440,7 +556,7 @@ class MarketService:
     @classmethod
     async def ai_analyze_stream_services(
         cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
-    ):
+    ) -> AsyncIterator[str] | Any:
         """
         行情AI分析流式传输生成器
         """
@@ -542,7 +658,7 @@ class MarketService:
         name = (instrument.name if instrument else None) or (meta[1] if meta else symbol)
         category = (instrument.category if instrument else None) or (meta[3] if meta else None)
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         klines = await loop.run_in_executor(
             None, InfluxUtil.query_klines, market, symbol, '-1y', 'now()', history_limit
         )
@@ -603,7 +719,7 @@ class MarketService:
                     query_db, symbol, market, content_type=ctype, limit=8, refresh=False
                 )
                 content_cache[ctype] = pack.get('items') or []
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - 单内容类型失败不中断其余
                 logger.warning(f'[overview] 内容缓存 {ctype} 失败: {e}')
 
         core.update(
@@ -630,28 +746,8 @@ class MarketService:
 
     @classmethod
     def _build_quote_from_klines(cls, klines: list[dict[str, Any]]) -> dict[str, Any]:
-        if not klines:
-            return {}
-        last = klines[-1]
-        prev = klines[-2] if len(klines) > 1 else None
-        change = change_rate = None
-        try:
-            if prev and prev.get('close') and last.get('close'):
-                change = round(float(last['close']) - float(prev['close']), 4)
-                change_rate = round(change / float(prev['close']) * 100, 4)
-        except (TypeError, ValueError, ZeroDivisionError):
-            pass
-        return {
-            'last': last.get('close'),
-            'open': last.get('open'),
-            'high': last.get('high'),
-            'low': last.get('low'),
-            'volume': last.get('volume'),
-            'tradeDate': last.get('date'),
-            'change': change,
-            'changeRate': change_rate,
-            'prevClose': prev.get('close') if prev else None,
-        }
+        # 统一走公共实现，与 trade 侧保持一致
+        return build_quote_from_klines(klines)
 
     @classmethod
     def _tech_card_from_snapshot(cls, snap: dict[str, Any]) -> dict[str, Any]:
@@ -667,9 +763,9 @@ class MarketService:
                 trend_label = '偏多'
             elif close and ma20 and float(close) < float(ma20) and macd_hist is not None and float(macd_hist) < 0:
                 trend_label = '偏空'
-            elif rsi is not None and float(rsi) > 70:
+            elif rsi is not None and float(rsi) > _RSI_OVERBOUGHT:
                 trend_label = '超买'
-            elif rsi is not None and float(rsi) < 30:
+            elif rsi is not None and float(rsi) < _RSI_OVERSOLD:
                 trend_label = '超卖'
         except (TypeError, ValueError):
             pass

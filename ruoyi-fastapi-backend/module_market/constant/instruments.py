@@ -7,11 +7,16 @@ category 取值：
 - star          明星股
 - semiconductor 半导体重要股
 - software      软件重要股
+- listed        全市场代码（非精选池，默认列表接口不返回）
 
 指数在 MySQL 中缺标准数据，需通过新浪美股指数日K免费接口补齐；
 tag symbol 统一存 ^DJI / ^GSPC / ^IXIC，market='US'。
 新浪 symbol：道指 .DJI / 标普500 .INX / 纳指 .IXIC。
 """
+
+# 全市场代码入库分类；精选池（mag7/star/...）upsert 时不得被覆盖
+LISTED_CATEGORY = 'listed'
+LISTED_SEARCH_LIMIT = 200
 
 # (symbol, name, market, category)
 TARGET_INSTRUMENTS: list[tuple[str, str, str, str]] = [

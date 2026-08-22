@@ -252,9 +252,10 @@ function openContent(row) {
 /** 手动采集 */
 function handleCollect() {
   collectLoading.value = true;
-  collectNews().then(() => {
-    proxy.$modal.msgSuccess('采集任务已触发');
-    getList();
+  collectNews().then((res) => {
+    const d = (res && res.data) || {};
+    proxy.$modal.msgSuccess((res && res.msg) || (d.accepted ? '已加入后台队列' : '采集任务已触发'));
+    if (!d.accepted) getList();
   }).finally(() => {
     collectLoading.value = false;
   });

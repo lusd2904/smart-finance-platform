@@ -2,7 +2,7 @@
   <div class="app-container">
     <div class="page-hero">
       <div>
-        <h2>AI 研判工作台</h2>
+        <h2>AI研判</h2>
         <p>单标的研判 + 批量扫描任务历史</p>
       </div>
     </div>

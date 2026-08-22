@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.watchlist_analyzer import WatchlistAiAnalyzer, rule_based_analysis
-from module_market.service.watchlist_service import REC_SIGN, forward_returns_from_klines
+from module_market.service.watchlist_service import REC_SIGN, forward_returns_from_klines, parse_note_groups
 
 
 def test_rule_based_bullish_ma() -> None:
@@ -51,6 +51,13 @@ def test_forward_returns_from_analysis_date() -> None:
     assert pending['fwd5'] is None
     assert REC_SIGN['买入'] == 1
     assert REC_SIGN['卖出'] == -1
+
+
+def test_parse_note_groups_splits_comma() -> None:
+    assert parse_note_groups('七巨头,光') == ['七巨头', '光']
+    assert parse_note_groups('七巨头，持仓,七巨头') == ['七巨头', '持仓']
+    assert parse_note_groups('') == []
+    assert parse_note_groups(None) == []
 
 
 def test_parse_json_from_markdown() -> None:

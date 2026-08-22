@@ -9,9 +9,9 @@ DELETE FROM sys_menu WHERE menu_id IN (2120, 2121, 2122, 2421) OR menu_id BETWEE
 
 -- 行情扩展
 INSERT INTO sys_menu VALUES
-('2120', '分市场标的', '2100', '7', 'stocks', 'market/stocks/index', '', 'MarketStocksIndex', 1, 0, 'C', '0', '0', 'market:instrument:list', 'international', 'admin', sysdate(), '', null, '分市场标的'),
-('2121', '全市场行情台', '2100', '8', 'board', 'market/board/index', '', 'MarketBoardIndex', 1, 0, 'C', '0', '0', 'market:kline:list', 'chart', 'admin', sysdate(), '', null, '全市场行情台'),
-('2122', 'AI研判工作台', '2100', '9', 'ai-workbench', 'market/ai-workbench/index', '', 'MarketAiWorkbenchIndex', 1, 0, 'C', '0', '0', 'market:ai:analyze', 'skill', 'admin', sysdate(), '', null, 'AI研判工作台');
+('2120', '分市场标的', '2100', '26', 'stocks', 'market/stocks/index', '', 'MarketStocksIndex', 1, 0, 'C', '1', '0', 'market:instrument:list', 'international', 'admin', sysdate(), '', null, '与行情台重叠，不单独占侧栏'),
+('2121', '行情台', '2100', '2', 'board', 'market/board/index', '', 'MarketBoardIndex', 1, 0, 'C', '0', '0', 'market:kline:list', 'chart', 'admin', sysdate(), '', null, '全市场报价入口，可点入 K 线/详情'),
+('2122', 'AI研判', '2100', '5', 'ai-workbench', 'market/ai-workbench/index', '', 'MarketAiWorkbenchIndex', 1, 0, 'C', '0', '0', 'market:ai:analyze', 'skill', 'admin', sysdate(), '', null, '单标的与批量研判');
 
 -- 交易中心目录（2400 段，绝不使用 2300-2399）
 INSERT INTO sys_menu VALUES

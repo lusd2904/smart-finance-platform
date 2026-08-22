@@ -11,7 +11,7 @@
       </template>
 
       <el-alert
-        title="填写长桥开放平台凭据以启用实时行情与交易能力。凭据将加密保存，请妥善保管。"
+        title="填写当前登录账号的长桥开放平台凭据以启用实时行情与交易能力。凭据按账号加密保存，互不可见。"
         type="info"
         :closable="false"
         show-icon

@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 
 from middlewares.audit_middleware import _should_skip
-from utils.job_queue import HANDLERS, KNOWN_JOBS, JobQueue
+from utils.job_queue import HANDLERS, JOB_GROUPS, KNOWN_JOBS, JobQueue, group_for
 
 
 def test_encode_decode_roundtrip() -> None:
@@ -27,11 +27,29 @@ def test_unknown_job_rejected() -> None:
 
 def test_handlers_cover_known_jobs() -> None:
     assert set(HANDLERS) == set(KNOWN_JOBS)
+    assert set(JOB_GROUPS) == set(KNOWN_JOBS)
+    assert group_for('market_sync') == 'market'
+    assert group_for('board_warmup') == 'market'
+    assert group_for('strategy_run') == 'quant'
+    assert group_for('position_monitor') == 'quant'
+    assert group_for('watchlist_analyze') == 'llm'
+    assert group_for('sentiment_analyze') == 'llm'
+    assert group_for('req_send') == 'llm'
+    assert group_for('req_summarize') == 'llm'
+    assert JobQueue.consume_keys('none') == []
+    assert 'sfp:job:queue:market' in JobQueue.consume_keys('market')
+    assert 'sfp:job:queue:quant' in JobQueue.consume_keys('all')
 
 
 @pytest.mark.asyncio
 async def test_enqueue_without_redis_returns_false() -> None:
     assert await JobQueue.enqueue('market_sync', {'years': 1}) is False
+
+
+@pytest.mark.asyncio
+async def test_queue_depth_and_running_without_redis() -> None:
+    assert await JobQueue.depth() == 0
+    assert await JobQueue.running_jobs() == []
 
 
 def test_audit_skips_metrics_and_docs() -> None:

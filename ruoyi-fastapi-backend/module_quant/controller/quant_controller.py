@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_quant.entity.vo.quant_vo import (
     AddQuantWatchlistModel,
     QuantLongbridgeConfigModel,
@@ -21,12 +23,21 @@ from module_quant.entity.vo.quant_vo import (
 )
 from module_quant.service.factor_qc_service import FactorQcService
 from module_quant.service.quant_service import QuantService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
 quant_controller = APIRouterPro(
     prefix='/quant', order_num=32, tags=['量化交易'], dependencies=[PreAuthDependency()]
 )
+
+
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
 
 
 from module_quant.service.readmodel_service import ReadModelService  # noqa: E402
@@ -279,9 +290,14 @@ async def run_strategy(
     run_model: Annotated[RunStrategyModel, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    result = await QuantService.run_strategy_services(query_db, run_model)
-    logger.info(f'策略运行完成: {result.get("message")}')
-    return ResponseUtil.success(data=result, msg=result.get('message'))
+    ticket = await JobQueue.submit(
+        'strategy_run',
+        {'profile': getattr(run_model, 'profile', None) or 'balanced', 'symbols': getattr(run_model, 'symbols', None)},
+    )
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'策略运行已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后在策略历史中查看结果')
 
 
 @quant_controller.get(
@@ -358,29 +374,31 @@ async def get_symbol_latest_scan(
 async def test_longbridge(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.test_longbridge_services(query_db)
+    result = await QuantService.test_longbridge_services(query_db, _current_user_id(current_user))
     return ResponseUtil.success(data=result)
 
 
 @quant_controller.get(
     '/longbridge/config',
     summary='获取长桥凭据配置接口',
-    description='获取长桥凭据配置（敏感字段脱敏）',
+    description='获取当前登录用户的长桥凭据配置（敏感字段脱敏）',
     dependencies=[UserInterfaceAuthDependency('quant:longbridge:config')],
 )
 async def get_longbridge_config(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    config = await QuantService.get_longbridge_config_services(query_db)
+    config = await QuantService.get_longbridge_config_services(query_db, _current_user_id(current_user))
     return ResponseUtil.success(data=config)
 
 
 @quant_controller.put(
     '/longbridge/config',
     summary='保存长桥凭据配置接口',
-    description='保存长桥凭据配置，保存后DB凭据优先于env生效',
+    description='保存当前登录用户的长桥凭据配置，保存后DB凭据优先于env生效',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:longbridge:config')],
 )
@@ -389,7 +407,10 @@ async def save_longbridge_config(
     request: Request,
     config: QuantLongbridgeConfigModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.save_longbridge_config_services(query_db, config)
+    result = await QuantService.save_longbridge_config_services(
+        query_db, config, _current_user_id(current_user)
+    )
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)

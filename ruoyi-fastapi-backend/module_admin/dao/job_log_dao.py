@@ -1,7 +1,8 @@
+from collections.abc import Sequence
 from datetime import datetime, time
 from typing import Any
 
-from sqlalchemy import delete, desc, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -49,6 +50,48 @@ class JobLogDao:
         )
 
         return job_log_list
+
+    @classmethod
+    async def get_latest_logs_by_names(cls, db: AsyncSession, job_names: Sequence[str]) -> dict[str, SysJobLog]:
+        if not job_names:
+            return {}
+        rows = (
+            (
+                await db.execute(
+                    select(SysJobLog)
+                    .where(SysJobLog.job_name.in_(list(job_names)))
+                    .order_by(desc(SysJobLog.create_time))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        latest: dict[str, SysJobLog] = {}
+        for row in rows:
+            if row.job_name and row.job_name not in latest:
+                latest[row.job_name] = row
+        return latest
+
+    @classmethod
+    async def count_today_by_names(cls, db: AsyncSession, job_names: Sequence[str]) -> tuple[int, int]:
+        if not job_names:
+            return 0, 0
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        rows = (
+            await db.execute(
+                select(SysJobLog.status, func.count())
+                .where(SysJobLog.create_time >= today, SysJobLog.job_name.in_(list(job_names)))
+                .group_by(SysJobLog.status)
+            )
+        ).all()
+        success = 0
+        failed = 0
+        for status, cnt in rows:
+            if status == '0':
+                success = int(cnt)
+            elif status == '1':
+                failed = int(cnt)
+        return success, failed
 
     @classmethod
     def add_job_log_dao(cls, db: Session, job_log: JobLogModel) -> SysJobLog:

@@ -8,11 +8,11 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
-from exceptions.exception import ServiceException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_market.entity.vo.market_vo import (
     AddMarketWatchlistModel,
     IndicatorQueryModel,
@@ -24,8 +24,11 @@ from module_market.entity.vo.market_vo import (
     MarketWatchlistModel,
     MarketWatchlistPageQueryModel,
 )
+from module_market.service.heat_service import MarketHeatService
+from module_market.service.index_quotes_service import MarketIndexService
 from module_market.service.market_service import MarketService
 from module_market.service.watchlist_service import MarketWatchlistService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -44,6 +47,7 @@ market_controller = APIRouterPro(
 
 import json  # noqa: E402
 import time  # noqa: E402
+
 from module_market.service.tradingview_service import TradingViewDatafeedService  # noqa: E402
 
 
@@ -159,13 +163,14 @@ async def sync_market(
     request: Request,
     sync_body: MarketSyncModel,
 ) -> Response:
-    result = await MarketService.sync_services(sync_body)
-    logger.info(f'手动行情同步完成: {result}')
-
-    return ResponseUtil.success(
-        data=result,
-        msg=f'同步完成，标的{len(result["synced_symbols"])}个，写入Influx {result["total_points"]}点',
+    ticket = await JobQueue.submit(
+        'market_sync',
+        {'years': getattr(sync_body, 'years', None) or 10, 'symbol': getattr(sync_body, 'symbol', None)},
     )
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'手动行情同步已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新查看结果')
 
 
 @market_controller.post(
@@ -449,6 +454,15 @@ async def analyze_market_watchlist(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
 ) -> Response:
+    if not getattr(body, 'symbol', None):
+        ticket = await JobQueue.submit(
+            'watchlist_analyze',
+            {'userId': _current_user_id(current_user), 'refreshContent': getattr(body, 'refresh_content', None)},
+        )
+        if not ticket:
+            raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+        logger.info(f'自选全部分析已入队: {ticket}')
+        return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新清单查看结果')
     data = await MarketWatchlistService.analyze_services(
         query_db, body, user_id=_current_user_id(current_user)
     )
@@ -472,3 +486,99 @@ async def get_market_watchlist_backtest(
         query_db, _current_user_id(current_user), limit=limit
     )
     return ResponseUtil.success(data=data, msg=data.get('message') or '回测完成')
+
+
+@market_controller.get(
+    '/heat/daily',
+    summary='分市场每日热度与 Top50',
+    description='按 market + tradeDate 返回热度摘要与 Top50 快照；tradeDate 省略则取最近一日。',
+    dependencies=[UserInterfaceAuthDependency('market:heat:list')],
+)
+async def get_market_heat_daily(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    trade_date: Annotated[str | None, Query(alias='tradeDate', description='交易日 YYYY-MM-DD')] = None,
+) -> Response:
+    data = await MarketHeatService.get_daily_services(
+        query_db, market=market, trade_date=trade_date, user_id=_current_user_id(current_user)
+    )
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/heat/trend',
+    summary='近几日热度趋势',
+    dependencies=[UserInterfaceAuthDependency('market:heat:list')],
+)
+async def get_market_heat_trend(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    days: Annotated[int, Query(description='近 N 个交易日')] = 5,
+) -> Response:
+    data = await MarketHeatService.get_trend_services(query_db, market=market, days=days)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/heat/dates',
+    summary='可选历史交易日',
+    dependencies=[UserInterfaceAuthDependency('market:heat:list')],
+)
+async def get_market_heat_dates(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    limit: Annotated[int, Query()] = 30,
+) -> Response:
+    dates = await MarketHeatService.list_available_dates(query_db, market=market, limit=limit)
+    return ResponseUtil.success(data={'market': market.upper(), 'dates': dates})
+
+
+@market_controller.get(
+    '/heat/config',
+    summary='热度指标权重配置',
+    dependencies=[UserInterfaceAuthDependency('market:heat:list')],
+)
+async def get_market_heat_config(request: Request) -> Response:
+    data = await MarketHeatService.get_config_services()
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/heat/collect',
+    summary='手动触发热度采集',
+    dependencies=[UserInterfaceAuthDependency('market:heat:collect')],
+)
+@Log(title='市场热度采集', business_type=BusinessType.OTHER)
+async def collect_market_heat(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+    trade_date: Annotated[str | None, Query(alias='tradeDate')] = None,
+) -> Response:
+    ticket = await JobQueue.submit('market_heat_collect', {'market': market.upper(), 'tradeDate': trade_date})
+    if ticket:
+        return ResponseUtil.success(data=ticket, msg='已加入后台队列')
+    data = await MarketHeatService.collect_market(query_db, market=market, trade_date=trade_date)
+    return ResponseUtil.success(data=data, msg='采集完成')
+
+
+@market_controller.get(
+    '/index/quotes',
+    summary='盘中大盘指数实时行情',
+    description=(
+        '舆情大盘顶部指数条数据源。仅返回当前处于交易时段的市场指数'
+        '（美股标普500/纳斯达克、港股恒生指数/恒生科技、A股上证指数），'
+        '非交易日或已收盘时返回空列表。'
+    ),
+    dependencies=[
+        # 任一权限即可：舆情用户与行情用户都能看大盘指数条
+        UserInterfaceAuthDependency(['sentiment:news:list', 'sentiment:analysis:list', 'market:heat:list'])
+    ],
+)
+async def get_market_index_quotes(request: Request) -> Response:
+    data = await MarketIndexService.get_in_session_quotes()
+    return ResponseUtil.success(data=data)

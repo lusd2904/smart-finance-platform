@@ -143,6 +143,11 @@ function handleRun() {
   if (selectedSymbols.value.length > 0) body.symbols = selectedSymbols.value;
   runStrategy(body).then(response => {
     const d = response.data || {};
+    if (d.accepted || d.jobId) {
+      proxy.$modal.msgSuccess(response.msg || '已加入后台队列，稍后在策略历史中查看');
+      getHistory();
+      return;
+    }
     signals.value = d.signals || (Array.isArray(d) ? d : response.rows) || [];
     proxy.$modal.msgSuccess(`策略运行完成，生成 ${signals.value.length} 条信号`);
     getHistory();

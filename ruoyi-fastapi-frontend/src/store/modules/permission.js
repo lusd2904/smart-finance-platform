@@ -4,6 +4,19 @@ import { getRouters } from '@/api/menu'
 import Layout from '@/layout/index'
 import ParentView from '@/components/ParentView'
 import InnerLink from '@/layout/components/InnerLink'
+import { getNormalPath } from '@/utils/ruoyi'
+
+// 行情中心隐藏页仍可从列表点入，侧栏高亮对应入口
+const HIDDEN_PAGE_ACTIVE_MENU = {
+  '/market/kline': '/market/board',
+  '/market/symbol': '/market/board',
+  '/market/tradingview': '/market/board',
+  '/market/stocks': '/market/board',
+  '/market/stock-pool': '/market/board',
+  '/market/dashboard': '/market/heat',
+  '/market/coverage': '/market/board',
+  '/market/recommendations': '/market/finance-news'
+}
 
 // 匹配views里面所有的.vue文件
 const modules = import.meta.glob('./../../views/**/*.vue')
@@ -42,6 +55,9 @@ const usePermissionStore = defineStore(
             const sidebarRoutes = filterAsyncRouter(sdata)
             const rewriteRoutes = filterAsyncRouter(rdata, false, true)
             const defaultRoutes = filterAsyncRouter(defaultData)
+            applyHiddenPageActiveMenu(rewriteRoutes)
+            applyHiddenPageActiveMenu(sidebarRoutes)
+            applyHiddenPageActiveMenu(defaultRoutes)
             const asyncRoutes = filterDynamicRoutes(dynamicRoutes)
             asyncRoutes.forEach(route => { router.addRoute(route) })
             this.setRoutes(rewriteRoutes)
@@ -80,6 +96,18 @@ function filterAsyncRouter(asyncRouterMap, lastRouter = false, type = false) {
       delete route['redirect']
     }
     return true
+  })
+}
+
+function applyHiddenPageActiveMenu(routes, parentPath = '') {
+  (routes || []).forEach(route => {
+    const full = getNormalPath((parentPath || '') + '/' + (route.path || ''))
+    if (HIDDEN_PAGE_ACTIVE_MENU[full] && route.meta) {
+      route.meta.activeMenu = HIDDEN_PAGE_ACTIVE_MENU[full]
+    }
+    if (route.children && route.children.length) {
+      applyHiddenPageActiveMenu(route.children, full)
+    }
   })
 }
 

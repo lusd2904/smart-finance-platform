@@ -332,7 +332,7 @@
 <script setup name="TransportCryptoMonitor">
 import { getTransportCryptoMonitor } from '@/api/monitor/transportCrypto'
 import { parseTime } from '@/utils/ruoyi'
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 
 const { proxy } = getCurrentInstance()
 

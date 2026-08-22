@@ -45,6 +45,8 @@
                   <el-radio-button label="monthly">月K</el-radio-button>
                 </el-radio-group>
                 <el-button size="small" type="primary" plain icon="Refresh" :loading="syncLoading" @click="handleSync" v-hasPermi="['market:sync']">手动同步</el-button>
+                <el-button size="small" :disabled="!current" @click="goDetail">详情</el-button>
+                <el-button size="small" :disabled="!current" @click="goTradingview">高级图</el-button>
                 <el-button size="small" type="success" icon="MagicStick" :loading="aiLoading" :disabled="!current" @click="handleAiAnalyze" v-hasPermi="['market:ai:analyze']">AI分析</el-button>
               </div>
             </div>
@@ -106,11 +108,21 @@
 </template>
 
 <script setup name="MarketKline">
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
+const router = useRouter();
+
+function goDetail() {
+  if (!current.value) return;
+  router.push({ path: '/market/symbol', query: { symbol: current.value.symbol, market: current.value.market || 'US' } });
+}
+function goTradingview() {
+  if (!current.value) return;
+  router.push({ path: '/market/tradingview', query: { symbol: current.value.symbol, market: current.value.market || 'US' } });
+}
 
 const CATEGORY_MAP = {
   index: '三大指数',
@@ -375,9 +387,11 @@ function handleSync() {
   syncLoading.value = true;
   syncMarket(current.value ? { symbol: current.value.symbol } : {}).then(res => {
     const d = res.data || {};
-    proxy.$modal.msgSuccess(`同步完成，标的 ${d.syncedSymbols ?? '-'} 个，数据点 ${d.totalPoints ?? '-'}`);
-    loadKline();
-    loadIndicators();
+    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : `同步完成，标的 ${d.syncedSymbols ?? '-'} 个`));
+    if (!d.accepted) {
+      loadKline();
+      loadIndicators();
+    }
   }).finally(() => {
     syncLoading.value = false;
   });

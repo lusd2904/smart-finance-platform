@@ -30,7 +30,7 @@
   </div>
 </template>
 <script setup name="TradeBacktest">
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { runBacktest, listBacktests, getBacktest } from '@/api/trade'
 import { applyChartTheme } from '@/utils/echartsTheme'
 const {proxy}=getCurrentInstance()
