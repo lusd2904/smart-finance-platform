@@ -7,6 +7,38 @@ on:
     branches: [main]
 
 jobs:
+  backend-lint:
+    name: Backend lint (ruff, ratchet)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ruoyi-fastapi-backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.15.0
+      # 棘轮式检查：只对相对基线(默认上一个 push / PR base)有变更的文件执行，
+      # 避免历史 500+ 存量问题阻塞；新改动必须零新增告警。
+      - name: Determine changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch origin ${{ github.base_ref }} --quiet
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          git diff --name-only --diff-filter=ACM "$BASE"...HEAD -- '*.py' > /tmp/changed_py.txt || true
+          echo "count=$(wc -l < /tmp/changed_py.txt)" >> "$GITHUB_OUTPUT"
+      - name: Ruff check (changed files)
+        if: steps.changed.outputs.count != '0'
+        run: ruff check $(cat /tmp/changed_py.txt | tr '\n' ' ')
+
   backend-unit:
     name: Backend unit tests
     runs-on: ubuntu-latest
@@ -19,15 +51,51 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: ruoyi-fastapi-backend/requirements.txt
+          cache-dependency-path: |
+            ruoyi-fastapi-backend/requirements.txt
+            ruoyi-fastapi-backend/requirements-llm.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest pytest-asyncio
+          pip install -r requirements.txt -r requirements-llm.txt pytest pytest-asyncio
       - name: Run unit tests
         env:
           PYTHONPATH: .
+          JWT_SECRET_KEY: ci_test_secret_key_0123456789abcdef
         run: pytest -q tests/test_*.py
+
+  frontend-build:
+    name: Frontend build & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ruoyi-fastapi-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # 仓库按约定不提交 package-lock.json，故用 npm install 而非 npm ci
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --ignore-scripts
+      # 棘轮式 lint：存量 137 个历史错误（no-unused-vars 等待逐步清理）记录在
+      # LINT_ERROR_BUDGET，本次改动不允许新增；低于预算同样失败提示清理。
+      - name: Lint (error budget ratchet)
+        run: |
+          COUNT=$(npx eslint src --ext .js,.vue --format json | node -e "
+            let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+              const rows=JSON.parse(d);let e=0;
+              for(const r of rows)for(const m of r.messages)if(m.severity===2)e++;
+              console.log(e);
+            });")
+          BUDGET=137
+          echo "eslint errors=$COUNT budget=$BUDGET"
+          if [ "$COUNT" -gt "$BUDGET" ]; then
+            echo "::error::ESLint 错误数 $COUNT 超出预算 $BUDGET，请修复新增错误"
+            exit 1
+          fi
+      - name: Build production bundle
+        run: npm run build:prod
 
   desktop-gateway:
     name: Desktop gateway probe

@@ -47,7 +47,9 @@ function copyTextToClipboard(input, { target = document.body } = {}) {
   let isSuccess = false;
   try {
     isSuccess = document.execCommand('copy');
-  } catch { }
+  } catch {
+    // execCommand 在非安全上下文会抛错，失败由后续 fallback 处理
+  }
 
   element.remove();
 
