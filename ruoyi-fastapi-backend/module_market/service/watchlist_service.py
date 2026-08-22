@@ -7,9 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
@@ -33,6 +31,9 @@ from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao, SentimentNe
 from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_WATCHLIST_BATCH = 30
 
@@ -270,7 +271,12 @@ class MarketWatchlistService:
         for row in items:
             by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
         for market, symbols in by_market.items():
-            grouped = await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d')
+            try:
+                grouped = await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d')
+            except Exception as exc:
+                # 自选页主路径：库故障降级为无行情，页面仍可看分析记录
+                logger.error(f'[自选] 行情批量查询失败 market={market}: {exc}')
+                grouped = {}
             for symbol in symbols:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
@@ -417,17 +423,17 @@ class MarketWatchlistService:
                     limit=6,
                     refresh=refresh_content and content_type == 'news',
                 )
-                for item in bundle.get('items') or []:
-                    news_items.append(
-                        {
-                            'contentType': content_type,
-                            'title': item.get('title'),
-                            'summary': (item.get('summary') or item.get('content') or '')[:400],
-                            'publishedAt': item.get('publishedAt'),
-                            'sourceName': item.get('sourceName'),
-                        }
-                    )
-            except Exception as exc:
+                news_items.extend(
+                    {
+                        'contentType': content_type,
+                        'title': item.get('title'),
+                        'summary': (item.get('summary') or item.get('content') or '')[:400],
+                        'publishedAt': item.get('publishedAt'),
+                        'sourceName': item.get('sourceName'),
+                    }
+                    for item in bundle.get('items') or []
+                )
+            except Exception as exc:  # noqa: PERF203 - 单内容源失败不中断其余来源
                 logger.warning(f'[自选分析] 读取 {symbol} {content_type} 失败: {exc}')
 
         keywords = [symbol]
@@ -585,7 +591,7 @@ class MarketWatchlistService:
         rec = payload.get('recommendation')
         if rec in REC_SIGN:
             try:
-                from module_trade.dao.trade_dao import TradeDao
+                from module_trade.dao.trade_dao import TradeDao  # noqa: PLC0415 - 避免跨模块循环导入
 
                 await TradeDao.add_notification(
                     query_db,
@@ -650,40 +656,51 @@ class MarketWatchlistService:
             enabled = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
             if not enabled:
                 raise ServiceException(message='自选清单为空，请先添加关注标的')
-            for row in enabled[:MAX_WATCHLIST_BATCH]:
-                targets.append(
-                    {
-                        'id': row.id,
-                        'userId': row.user_id,
-                        'symbol': row.symbol,
-                        'market': row.market,
-                        'name': _resolve_watchlist_name(row.symbol, row.market or 'US', getattr(row, 'name', None)),
-                    }
-                )
+            targets.extend(
+                {
+                    'id': row.id,
+                    'userId': row.user_id,
+                    'symbol': row.symbol,
+                    'market': row.market,
+                    'name': _resolve_watchlist_name(row.symbol, row.market or 'US', getattr(row, 'name', None)),
+                }
+                for row in enabled[:MAX_WATCHLIST_BATCH]
+            )
 
-        results = []
-        failed = []
-        for target in targets:
-            try:
-                results.append(
-                    await cls.analyze_one(
-                        query_db,
-                        symbol=target['symbol'],
-                        market=target['market'] or 'US',
-                        name=target.get('name'),
-                        watchlist_id=target.get('id'),
-                        user_id=target.get('userId') or user_id,
-                        refresh_content=bool(body.refresh_content),
-                        ai_conf=ai_conf,
-                    )
-                )
-            except Exception as exc:
-                logger.warning(f'[自选分析] {target.get("symbol")} 失败: {exc}')
-                failed.append({'symbol': target.get('symbol'), 'reason': str(exc)})
+        results: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+
+        async def _analyze_target(target: dict[str, Any]) -> dict[str, Any]:
+            return await cls.analyze_one(
+                query_db,
+                symbol=target['symbol'],
+                market=target['market'] or 'US',
+                name=target.get('name'),
+                watchlist_id=target.get('id'),
+                user_id=target.get('userId') or user_id,
+                refresh_content=bool(body.refresh_content),
+                ai_conf=ai_conf,
+            )
+
+        # 并发执行但限流，避免同时打满 Influx/LLM；AsyncSession 非并发安全，
+        # 因此共享会话的操作仍由 analyze_one 内部顺序使用，这里只并行 IO 密集部分
+        semaphore = asyncio.Semaphore(3)
+
+        async def _bounded(t: dict[str, Any]) -> dict[str, Any]:
+            async with semaphore:
+                return await _analyze_target(t)
+
+        outcomes = await asyncio.gather(*( _bounded(t) for t in targets ), return_exceptions=True)
+        for target, outcome in zip(targets, outcomes, strict=False):
+            if isinstance(outcome, BaseException):
+                logger.warning(f'[自选分析] {target.get("symbol")} 失败: {outcome}')
+                failed.append({'symbol': target.get('symbol'), 'reason': str(outcome)})
                 try:
                     await query_db.rollback()
                 except Exception:
                     pass
+            else:
+                results.append(outcome)
         try:
             await MarketWatchlistAnalysisDao.prune_older_than(query_db, datetime.now() - timedelta(days=7))
             await query_db.commit()
@@ -759,7 +776,7 @@ class MarketWatchlistService:
 
     @classmethod
     async def run_hourly_job(cls, query_db: AsyncSession) -> dict[str, Any]:
-        from utils.longbridge_breaker import LongbridgeBreaker
+        from utils.longbridge_breaker import LongbridgeBreaker  # noqa: PLC0415 - 按需加载熔断器
 
         if not LongbridgeBreaker.allow():
             return {

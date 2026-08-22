@@ -35,6 +35,8 @@ from utils.log_util import logger
 from utils.longbridge_breaker import LongbridgeBreaker
 
 _QUOTE_CACHE_TTL = 15
+# 券商返回空结果时的负缓存时长，防止穿透触发限频
+_QUOTE_NEGATIVE_CACHE_TTL = 30
 _ACCOUNT_CACHE_TTL = 30
 _DEPTH_CACHE_TTL = 3
 _TRADES_CACHE_TTL = 3
@@ -70,7 +72,7 @@ def _endpoints(region: str) -> dict[str, str]:
 def peek_request_user_id() -> int | None:
     """读取请求上下文中的登录用户；后台任务无上下文时返回 None。"""
     try:
-        from common.context import current_user
+        from common.context import current_user  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
         ctx = current_user.get()
         user_id = getattr(getattr(ctx, 'user', None), 'user_id', None)
@@ -96,7 +98,7 @@ def _decrypt_or_raw(value: str | None) -> str:
     if not value:
         return ''
     try:
-        from utils.crypto_util import CryptoUtil
+        from utils.crypto_util import CryptoUtil  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
         return CryptoUtil.decrypt(value)
     except Exception:
@@ -150,7 +152,7 @@ class LongbridgeService:
                 'user_id': str(creds.get('user_id') or ''),
             }
         try:
-            from config.env import LongbridgeConfig
+            from config.env import LongbridgeConfig  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
             return {
                 'app_key': str(LongbridgeConfig.longport_app_key or ''),
@@ -184,7 +186,7 @@ class LongbridgeService:
         硬开关由 LongbridgeConfig.longport_trading_enabled 控制，默认 False（模拟/只读）。
         """
         try:
-            from config.env import LongbridgeConfig
+            from config.env import LongbridgeConfig  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
             return bool(getattr(LongbridgeConfig, 'longport_trading_enabled', False))
         except Exception:
@@ -226,7 +228,7 @@ class LongbridgeService:
         os.environ['LONGPORT_REGION'] = region
         # 默认中文内容（公告/资讯标题与正文）
         os.environ['LONGPORT_LANGUAGE'] = 'zh-CN'
-        from longport.openapi import Config, Language  # 延迟导入
+        from longport.openapi import Config, Language  # 延迟导入  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
         return Config.from_apikey(
             app_key=creds['app_key'],
@@ -260,7 +262,7 @@ class LongbridgeService:
         config = cls._build_config()
         if config is None:
             return None
-        from longport.openapi import QuoteContext
+        from longport.openapi import QuoteContext  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
         try:
             ctx = QuoteContext(config)
@@ -285,7 +287,7 @@ class LongbridgeService:
         config = cls._build_config()
         if config is None:
             return None
-        from longport.openapi import TradeContext
+        from longport.openapi import TradeContext  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
         try:
             ctx = TradeContext(config)
@@ -347,7 +349,9 @@ class LongbridgeService:
         有登录用户时只读该用户行；无用户上下文时回退管理员 user_id=1，再交给 env。
         """
         try:
-            from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
+            from module_quant.dao.quant_dao import (  # noqa: PLC0415 - 延迟导入避免循环依赖
+                QuantLongbridgeConfigDao,
+            )
 
             target_id = resolve_longbridge_user_id(user_id)
             config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
@@ -451,23 +455,22 @@ class LongbridgeService:
             if ctx is None:
                 return {'configured': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'items': []}
             raw = ctx.static_info(symbols)
-            items = []
-            for info in raw or []:
-                items.append(
-                    {
-                        'symbol': getattr(info, 'symbol', None),
-                        'name': getattr(info, 'name_cn', None) or getattr(info, 'name_en', None) or getattr(info, 'name', None),
-                        'exchange': getattr(info, 'exchange', None),
-                        'currency': getattr(info, 'currency', None),
-                        'lotSize': getattr(info, 'lot_size', None),
-                        'totalShares': cls._to_float(getattr(info, 'total_shares', None)),
-                        'circulatingShares': cls._to_float(getattr(info, 'circulating_shares', None)),
-                        'eps': cls._to_float(getattr(info, 'eps', None)),
-                        'epsTtm': cls._to_float(getattr(info, 'eps_ttm', None)),
-                        'bps': cls._to_float(getattr(info, 'bps', None)),
-                        'dividendYield': cls._to_float(getattr(info, 'dividend_yield', None)),
-                    }
-                )
+            items = [
+                {
+                    'symbol': getattr(info, 'symbol', None),
+                    'name': getattr(info, 'name_cn', None) or getattr(info, 'name_en', None) or getattr(info, 'name', None),
+                    'exchange': getattr(info, 'exchange', None),
+                    'currency': getattr(info, 'currency', None),
+                    'lotSize': getattr(info, 'lot_size', None),
+                    'totalShares': cls._to_float(getattr(info, 'total_shares', None)),
+                    'circulatingShares': cls._to_float(getattr(info, 'circulating_shares', None)),
+                    'eps': cls._to_float(getattr(info, 'eps', None)),
+                    'epsTtm': cls._to_float(getattr(info, 'eps_ttm', None)),
+                    'bps': cls._to_float(getattr(info, 'bps', None)),
+                    'dividendYield': cls._to_float(getattr(info, 'dividend_yield', None)),
+                }
+                for info in raw or []
+            ]
             LongbridgeBreaker.record_success()
             return {'configured': True, 'items': items}
         except Exception as exc:
@@ -584,7 +587,7 @@ class LongbridgeService:
             }
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
-            from longport.openapi import AdjustType
+            from longport.openapi import AdjustType  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
             ctx = cls._build_quote_context()
             period_enum = cls._resolve_lb_period(period)
@@ -709,7 +712,9 @@ class LongbridgeService:
 
     @classmethod
     def _resolve_lb_period(cls, period: str) -> Any:
-        from module_market.service.kline_period import normalize_kline_period
+        from module_market.service.kline_period import (  # noqa: PLC0415 - 延迟导入避免循环依赖
+            normalize_kline_period,
+        )
 
         key = normalize_kline_period(period)
         names = {
@@ -721,7 +726,7 @@ class LongbridgeService:
             'monthly': ('Month', 'Month_1'),
         }.get(key) or ()
         try:
-            from longport.openapi import Period
+            from longport.openapi import Period  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
         except Exception:
             return None
         for name in names:
@@ -777,7 +782,7 @@ class LongbridgeService:
         if config is None:
             return None
         try:
-            from longport.openapi import ContentContext
+            from longport.openapi import ContentContext  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
 
             ctx = ContentContext(config)
             cls._cached_content_ctxs[sig] = ctx
@@ -798,17 +803,16 @@ class LongbridgeService:
             if ctx is None:
                 return {'configured': True, 'reason': 'unavailable', 'message': '长桥 TradeContext 不可用', 'balances': []}
             raw = ctx.account_balance()
-            balances = []
-            for b in raw or []:
-                balances.append(
-                    {
-                        'currency': getattr(b, 'currency', None),
-                        'totalCash': cls._to_float(getattr(b, 'total_cash', None)),
-                        'availableCash': cls._to_float(getattr(b, 'available_cash', None)),
-                        'netAssets': cls._to_float(getattr(b, 'net_assets', None)),
-                        'maxFinanceAmount': cls._to_float(getattr(b, 'max_finance_amount', None)),
-                    }
-                )
+            balances = [
+                {
+                    'currency': getattr(b, 'currency', None),
+                    'totalCash': cls._to_float(getattr(b, 'total_cash', None)),
+                    'availableCash': cls._to_float(getattr(b, 'available_cash', None)),
+                    'netAssets': cls._to_float(getattr(b, 'net_assets', None)),
+                    'maxFinanceAmount': cls._to_float(getattr(b, 'max_finance_amount', None)),
+                }
+                for b in raw or []
+            ]
             LongbridgeBreaker.record_success()
             return {'configured': True, 'balances': balances}
         except Exception as exc:
@@ -828,20 +832,19 @@ class LongbridgeService:
             if ctx is None:
                 return {'configured': True, 'reason': 'unavailable', 'message': '长桥 TradeContext 不可用', 'positions': []}
             raw = ctx.stock_positions()
-            positions = []
             channels = getattr(raw, 'channels', None) or []
-            for channel in channels:
-                for p in getattr(channel, 'positions', None) or []:
-                    positions.append(
-                        {
-                            'symbol': getattr(p, 'symbol', None),
-                            'symbolName': getattr(p, 'symbol_name', None),
-                            'quantity': cls._to_float(getattr(p, 'quantity', None)),
-                            'availableQuantity': cls._to_float(getattr(p, 'available_quantity', None)),
-                            'costPrice': cls._to_float(getattr(p, 'cost_price', None)),
-                            'currency': getattr(p, 'currency', None),
-                        }
-                    )
+            positions = [
+                {
+                    'symbol': getattr(p, 'symbol', None),
+                    'symbolName': getattr(p, 'symbol_name', None),
+                    'quantity': cls._to_float(getattr(p, 'quantity', None)),
+                    'availableQuantity': cls._to_float(getattr(p, 'available_quantity', None)),
+                    'costPrice': cls._to_float(getattr(p, 'cost_price', None)),
+                    'currency': getattr(p, 'currency', None),
+                }
+                for channel in channels
+                for p in getattr(channel, 'positions', None) or []
+            ]
             LongbridgeBreaker.record_success()
             return {'configured': True, 'positions': positions}
         except Exception as exc:
@@ -901,7 +904,11 @@ class LongbridgeService:
             }
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
-            from longport.openapi import OrderSide, OrderType, TimeInForceType
+            from longport.openapi import (  # noqa: PLC0415 - 延迟导入避免循环依赖/可选依赖
+                OrderSide,
+                OrderType,
+                TimeInForceType,
+            )
 
             side_enum = OrderSide.Buy if str(side).lower() in {'buy', 'b', '买', '买入'} else OrderSide.Sell
             ot = str(order_type or 'LO').upper()
@@ -912,7 +919,7 @@ class LongbridgeService:
                 'AO': getattr(OrderType, 'AO', OrderType.LO),
             }
             type_enum = type_map.get(ot, OrderType.LO)
-            tif = TimeInForceType.Day if str(time_in_force).lower().startswith('d') else TimeInForceType.Day
+            tif = TimeInForceType.Day
             ctx = cls._build_trade_context()
             kwargs: dict[str, Any] = {
                 'side': side_enum,
@@ -1093,7 +1100,7 @@ class LongbridgeService:
 
     @classmethod
     async def _throttle(cls) -> None:
-        global _lb_last_call
+        global _lb_last_call  # noqa: PLW0603 - 模块级限频时间戳，锁内更新
         async with _lb_lock:
             now = time.monotonic()
             wait = _LB_MIN_INTERVAL - (now - _lb_last_call)
@@ -1102,13 +1109,37 @@ class LongbridgeService:
             _lb_last_call = time.monotonic()
 
     @classmethod
-    async def get_realtime_quote_async(cls, symbols: list[str] | str, market: str = 'US') -> dict[str, Any]:
+    async def get_realtime_quote_async(  # noqa: PLR0912 - 缓存/负缓存/回退分支内聚，拆分会重复加锁
+        cls, symbols: list[str] | str, market: str = 'US'
+    ) -> dict[str, Any]:
+        """
+        实时报价：按 symbol 粒度缓存（不同组合可复用），空结果写短 TTL 负缓存防止穿透打爆券商限频。
+        """
         normalized = cls.normalize_symbols(symbols, market)
-        cache_key = f'lb:quote:{cls._creds_cache_tag()}:' + ','.join(sorted(normalized))
-        cached = await cache_get_json(cache_key)
-        if cached:
-            cached['cached'] = True
-            return cached
+        tag = cls._creds_cache_tag()
+        merged: dict[str, Any] = {'configured': True, 'quotes': [], 'cached': False}
+        missing: list[str] = []
+        for sym in normalized:
+            per = await cache_get_json(f'lb:quote:{tag}:{sym}')
+            if per is not None:
+                if per.get('quotes'):
+                    merged['quotes'].extend(per['quotes'])
+                    if per.get('cached'):
+                        merged['cached'] = True
+                # 空负缓存条目：视为未命中，继续走批量路径补一次
+                elif not per.get('negative'):
+                    pass
+            else:
+                missing.append(sym)
+        if not missing:
+            return merged
+
+        cache_key = f'lb:quote:{tag}:batch:' + ','.join(sorted(missing))
+        cached_batch = await cache_get_json(cache_key)
+        if cached_batch is not None and cached_batch.get('quotes') is not None:
+            merged['quotes'].extend(cached_batch['quotes'])
+            merged['cached'] = True
+            return merged
         if cls._blocked():
             return {
                 'configured': True,
@@ -1118,9 +1149,23 @@ class LongbridgeService:
                 'cached': False,
             }
         await cls._throttle()
-        data = await asyncio.to_thread(cls.get_realtime_quote, normalized)
-        if data.get('quotes'):
-            await cache_set_json(cache_key, data, _QUOTE_CACHE_TTL)
+        data = await asyncio.to_thread(cls.get_realtime_quote, missing)
+        quotes = data.get('quotes') or []
+        if quotes:
+            await cache_set_json(cache_key, {'quotes': quotes}, _QUOTE_CACHE_TTL)
+            # 同步写入按 symbol 粒度缓存，供其他组合复用
+            by_sym: dict[str, dict[str, Any]] = {}
+            for q in quotes:
+                sym = str(q.get('symbol') or '').upper()
+                if sym:
+                    by_sym.setdefault(sym, {'quotes': []})['quotes'].append(q)
+            for sym, payload in by_sym.items():
+                await cache_set_json(f'lb:quote:{tag}:{sym}', payload, _QUOTE_CACHE_TTL)
+            merged['quotes'].extend(quotes)
+            return merged
+        # 空结果：写短 TTL 负缓存，避免每次请求都穿透到 Longbridge
+        negative = {'quotes': [], 'negative': True}
+        await cache_set_json(cache_key, negative, _QUOTE_NEGATIVE_CACHE_TTL)
         return data
 
     @classmethod
