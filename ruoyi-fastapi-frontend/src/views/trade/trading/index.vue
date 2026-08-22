@@ -227,7 +227,7 @@
   </div>
 </template>
 <script setup name="TradeTrading">
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme'
 import {
   getTradeAccount,

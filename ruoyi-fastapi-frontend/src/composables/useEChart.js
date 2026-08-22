@@ -1,4 +1,4 @@
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 
 export function useEChart(elRef) {

@@ -75,7 +75,7 @@
 </template>
 
 <script setup name="MarketDashboard">
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts'
 import { listInstrument, getKline, syncMarket } from '@/api/market';
 
 const { proxy } = getCurrentInstance();

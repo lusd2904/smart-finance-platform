@@ -108,7 +108,7 @@
 </template>
 
 <script setup name="MarketKline">
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze } from '@/api/market';
 
