@@ -29,12 +29,25 @@ export default defineConfig(({ mode, command }) => {
       sourcemap: command === 'build' ? false : 'inline',
       outDir: 'dist',
       assetsDir: 'assets',
-      chunkSizeWarningLimit: 2000,
+      // 恢复默认告警阈值：大包必须在构建时暴露，而不是被调高的阈值掩盖
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           chunkFileNames: 'static/js/[name]-[hash].js',
           entryFileNames: 'static/js/[name]-[hash].js',
-          assetFileNames: 'static/[ext]/[name]-[hash].[ext]'
+          assetFileNames: 'static/[ext]/[name]-[hash].[ext]',
+          // 大体积依赖手动分包：利用浏览器长缓存，业务迭代不会打爆这些 chunk
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
+            if (id.includes('element-plus') || id.includes('@element-plus')) return 'element-plus'
+            if (id.includes('mermaid')) return 'mermaid'
+            if (id.includes('katex')) return 'katex'
+            if (id.includes('shiki')) return 'shiki'
+            if (id.includes('monaco-editor')) return 'monaco'
+            if (id.includes('vue') && !id.includes('vue-demi')) return 'vendor-vue'
+            return 'vendor'
+          }
         }
       }
     },

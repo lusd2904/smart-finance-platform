@@ -57,21 +57,21 @@ service.interceptors.request.use(async config => {
       console.warn(`[${config.url}]: ` + '请求数据大小超出允许的5M限制，无法进行防重复提交验证。')
       return config;
     }
-    const sessionObj = cache.session.getJSON('sessionObj')
-    if (sessionObj === undefined || sessionObj === null || sessionObj === '') {
-      cache.session.setJSON('sessionObj', requestObj)
-    } else {
-      const s_url = sessionObj.url;                // 请求地址
-      const s_data = sessionObj.data;              // 请求数据
-      const s_time = sessionObj.time;              // 请求时间
-      if (s_data === requestObj.data && requestObj.time - s_time < interval && s_url === requestObj.url) {
-        const message = '数据正在处理，请勿重复提交';
-        console.warn(`[${s_url}]: ` + message)
-        return Promise.reject(new Error(message))
-      } else {
-        cache.session.setJSON('sessionObj', requestObj)
-      }
+    // 按 "url::data" 维度记录在途请求，避免不同接口互相覆盖导致防抖失效
+    const pendingMap = cache.session.getJSON('pendingRequests') || {}
+    const reqKey = `${requestObj.url}::${requestObj.data}`
+    const last = pendingMap[reqKey]
+    if (last && requestObj.time - last < interval) {
+      const message = '数据正在处理，请勿重复提交';
+      console.warn(`[${config.url}]: ` + message)
+      return Promise.reject(new Error(message))
     }
+    pendingMap[reqKey] = requestObj.time
+    // 清理过期的记录，防止 map 无限膨胀
+    for (const key of Object.keys(pendingMap)) {
+      if (requestObj.time - pendingMap[key] >= interval) delete pendingMap[key]
+    }
+    cache.session.setJSON('pendingRequests', pendingMap)
   }
   // 在参数拼接前完成传输层加密，避免明文查询串提前写入 URL。
   config = await encryptTransportRequest(config)
@@ -201,6 +201,18 @@ export function download(url, params, filename, config) {
     ElMessage.error('下载文件出现错误，请联系管理员！')
     downloadLoadingInstance.close();
   })
+}
+
+/**
+ * 创建可取消请求：轮询类页面在路由离开时调用 cancel()，避免旧请求返回后触发已卸载组件的状态更新。
+ *
+ * @returns {{ request: Function, cancel: Function }} request(config) 与 service(config) 签名一致；cancel() 中止所有在途请求
+ */
+export function createCancellableRequest() {
+  const controller = new AbortController();
+  const request = (config) => service({ ...config, signal: controller.signal });
+  const cancel = (reason = 'component unmounted') => controller.abort(reason);
+  return { request, cancel };
 }
 
 export default service

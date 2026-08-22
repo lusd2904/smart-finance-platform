@@ -157,7 +157,7 @@
 </template>
 
 <script setup name="MarketSymbolIndex">
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { listInstrument, getSymbolOverview, symbolAiAnalyze, getSymbolContent } from '@/api/market'
 
 const { proxy } = getCurrentInstance()

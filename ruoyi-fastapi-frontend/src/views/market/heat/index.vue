@@ -111,7 +111,7 @@
 </template>
 
 <script setup name="MarketHeat">
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { getMarketHeatDaily, getMarketHeatDates, getMarketHeatTrend, addMarketWatchlist } from '@/api/market'
 
 const router = useRouter()

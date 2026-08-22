@@ -30,7 +30,7 @@
   </div>
 </template>
 <script setup name="MarketTradingView">
-import * as echarts from 'echarts'
+import echarts from '@/utils/echarts'
 import { listInstrument, getKline } from '@/api/market'
 import { applyChartTheme } from '@/utils/echartsTheme'
 const route=useRoute()
