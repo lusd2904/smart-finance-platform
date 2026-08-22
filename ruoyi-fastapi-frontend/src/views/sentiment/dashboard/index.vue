@@ -23,6 +23,9 @@
       :title="rateLimitMessage"
     />
 
+    <!-- 大盘指数条：仅在盘中显示在盘市场，不开盘整体隐藏 -->
+    <IndexStrip ref="indexStripRef" />
+
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb16">
       <el-col :xs="24" :sm="8">
@@ -118,8 +121,11 @@
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
+import IndexStrip from './components/IndexStrip.vue';
 
 const { proxy } = getCurrentInstance();
+
+const indexStripRef = ref(null);
 
 const stats = ref({});
 const latest = ref({});
@@ -155,7 +161,7 @@ const riskEventList = computed(() => {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed.map(item => (typeof item === 'string' ? item : JSON.stringify(item)));
-  } catch (e) {
+  } catch {
     /* 非JSON字符串，按分隔符切分 */
   }
   return String(raw).split(/[\n;；]/).map(s => s.trim()).filter(s => s);
@@ -311,6 +317,7 @@ function refreshAll() {
   getStatsData();
   getLatestAnalysis();
   getTrendData();
+  indexStripRef.value && indexStripRef.value.loadQuotes();
 }
 
 onMounted(() => {
