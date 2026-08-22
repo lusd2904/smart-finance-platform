@@ -1,0 +1,387 @@
+"""
+工作台聚合服务。
+
+一次请求组装均衡总览所需的全部数据块；每个数据块独立降级，
+任何一块失败都不影响其余块返回。整体结果写 Redis 短 TTL 缓存。
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from utils.json_cache import cache_get_json, cache_set_json
+from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+# 聚合结果缓存：工作台是高频首屏，30s 足够新且能扛住多人同时刷新
+SUMMARY_CACHE_KEY = 'dashboard:summary'
+SUMMARY_CACHE_TTL = 30
+
+# 交易时段近似边界（各市场本地时间，含午休简化处理）
+_SESSION_START_HOUR = 9
+_SESSION_END_HOUR = 16
+_WEEKDAY_MAX = 4  # Monday=0 .. Friday=4
+
+# 各数据块权限标识 → 响应字段；无权限的块直接返回 denied 空态
+SECTION_PERMS: dict[str, str] = {
+    'asset': 'quant:factor:list',
+    'quotes': 'market:kline:list',
+    'heat': 'market:heat:list',
+    'watchSignals': 'market:watchlist:list',
+    'sentiment': 'sentiment:news:list',
+    'briefings': 'market:finance:list',
+    'health': 'monitor:job:list',
+}
+
+
+def _empty(section: str, reason: str = 'unavailable') -> dict[str, Any]:
+    """数据块统一空态：前端据此渲染占位而非报错。"""
+    return {'ok': False, 'reason': reason, 'data': None}
+
+
+def _market_sessions() -> list[dict[str, Any]]:
+    """三市场开闭市状态：按各时区本地时间判断工作日与收盘时段。"""
+    from zoneinfo import ZoneInfo  # noqa: PLC0415 - 标准库按需加载
+
+    from module_market.config.heat_config import MARKET_META  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+
+    sessions = []
+    for market in ('US', 'HK', 'CN'):
+        meta = MARKET_META[market]
+        now_local = datetime.now(ZoneInfo(meta['timezone']))
+        is_weekday = now_local.weekday() <= _WEEKDAY_MAX
+        hour = now_local.hour
+        # 近似交易时段：US/HK/CN 统一 9:00-16:00 本地时间（午休简化处理）
+        in_session = is_weekday and _SESSION_START_HOUR <= hour < _SESSION_END_HOUR
+        sessions.append(
+            {
+                'market': market,
+                'label': meta['label'],
+                'timezone': meta['timezone'],
+                'localDate': now_local.strftime('%Y-%m-%d'),
+                'localTime': now_local.strftime('%H:%M'),
+                'status': 'open' if in_session else ('closed' if is_weekday else 'weekend'),
+            }
+        )
+    return sessions
+
+
+class DashboardService:
+    """工作台聚合：按权限裁剪数据块，逐块降级。"""
+
+    @classmethod
+    async def get_summary_services(
+        cls, query_db: AsyncSession, user_id: int | None, permissions: list[str], use_cache: bool = True
+    ) -> dict[str, Any]:
+        """
+        组装工作台总览。
+
+        :param query_db: 会话
+        :param user_id: 当前用户（自选信号按用户隔离；None 时跳过用户块）
+        :param permissions: 当前用户权限列表，'*:*:*' 视为全部放行
+        :param use_cache: 是否读取 30s 聚合缓存（refresh=true 时跳过并回写）
+        :return: 聚合响应
+        """
+        if use_cache:
+            cached = await cache_get_json(SUMMARY_CACHE_KEY)
+            if isinstance(cached, dict) and cached.get('generatedAt'):
+                return {**cached, 'cached': True}
+
+        has = cls._make_perm_checker(permissions)
+        sections = await cls._collect(query_db, user_id, has)
+
+        summary = {
+            'generatedAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'sessions': _market_sessions(),
+            **sections,
+        }
+        await cache_set_json(SUMMARY_CACHE_KEY, summary, SUMMARY_CACHE_TTL)
+        return {**summary, 'cached': False}
+
+    @classmethod
+    def _make_perm_checker(cls, permissions: list[str]) -> Any:
+        allowed = set(permissions or [])
+        if '*:*:*' in allowed:
+
+            def has(perm: str) -> bool:
+                return True
+
+        else:
+
+            def has(perm: str) -> bool:
+                return perm in allowed
+
+        return has
+
+    @classmethod
+    async def _collect(cls, query_db: AsyncSession, user_id: int | None, has: Any) -> dict[str, Any]:
+        results = await asyncio.gather(
+            cls._asset_block(query_db) if has(SECTION_PERMS['asset']) else cls._denied('asset'),
+            cls._quotes_block(query_db) if has(SECTION_PERMS['quotes']) else cls._denied('quotes'),
+            cls._heat_block(query_db) if has(SECTION_PERMS['heat']) else cls._denied('heat'),
+            (
+                cls._watch_signals_block(query_db, user_id)
+                if user_id and has(SECTION_PERMS['watchSignals'])
+                else cls._denied('watchSignals')
+            ),
+            cls._sentiment_block(query_db) if has(SECTION_PERMS['sentiment']) else cls._denied('sentiment'),
+            cls._briefings_block(query_db) if has(SECTION_PERMS['briefings']) else cls._denied('briefings'),
+            cls._health_block(query_db) if has(SECTION_PERMS['health']) else cls._denied('health'),
+            return_exceptions=True,
+        )
+        keys = [*SECTION_PERMS.keys()]
+        out: dict[str, Any] = {}
+        for key, value in zip(keys, results, strict=True):
+            if isinstance(value, BaseException):
+                logger.warning(f'[工作台] 数据块 {key} 异常降级: {value}')
+                out[key] = _empty(key)
+            else:
+                out[key] = value
+        return out
+
+    @staticmethod
+    async def _denied(section: str) -> dict[str, Any]:
+        return _empty(section, 'denied')
+
+    # ---------- 各数据块 ----------
+
+    @staticmethod
+    async def _asset_block(query_db: AsyncSession) -> dict[str, Any]:
+        """账户资产：走读模型定时快照（Redis），不直连长桥。"""
+        from module_quant.service.readmodel_service import ReadModelService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+
+        scheduled = await ReadModelService.get_scheduled('overview')
+        asset = (scheduled or {}).get('asset') if isinstance(scheduled, dict) else None
+        if not asset:
+            asset = await ReadModelService.get_account_asset_snapshot(use_scheduled=False)
+        positions = (scheduled or {}).get('position') if isinstance(scheduled, dict) else None
+        return {
+            'ok': True,
+            'reason': None,
+            'data': {
+                'configured': bool(asset.get('configured')) if asset else False,
+                'netAssets': asset.get('netAssets') if asset else None,
+                'availableCash': asset.get('availableCash') if asset else None,
+                'totalCash': asset.get('totalCash') if asset else None,
+                'currency': asset.get('currency') if asset else None,
+                'positionCount': positions.get('count') if positions else 0,
+                'totalUnrealizedPnl': positions.get('totalUnrealizedPnl') if positions else None,
+                'message': asset.get('message') if asset else '读模型快照尚未生成',
+            },
+        }
+
+    @staticmethod
+    async def _quotes_block(query_db: AsyncSession) -> dict[str, Any]:
+        """指数/看板行情：只读 Redis 看板缓存，绝不打 Influx。"""
+        from module_market.service.market_service import MarketService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+
+        board = await MarketService.get_board_quotes_services(query_db)
+        indices = board.get('indices') or []
+        quotes = board.get('quotes') or []
+        return {
+            'ok': bool(indices or quotes),
+            'reason': None if (indices or quotes) else (board.get('message') or '看板缓存尚未生成'),
+            'data': {
+                'indices': indices[:8],
+                'quotes': quotes[:8],
+                'source': board.get('source'),
+                'stale': bool(board.get('stale')),
+            },
+        }
+
+    @staticmethod
+    async def _heat_block(query_db: AsyncSession) -> dict[str, Any]:
+        """三市场最新热度摘要：指数涨跌 + 涨跌家数 + 成交额 + 热度分。"""
+        from module_market.dao.heat_dao import MarketHeatDao  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_market.service.heat_service import MarketHeatService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+
+        markets = {}
+        for market in ('US', 'HK', 'CN'):
+            row = await MarketHeatDao.get_latest_heat(query_db, market)
+            if row is None:
+                markets[market] = None
+                continue
+            heat = MarketHeatService._serialize_heat(row)
+            markets[market] = {
+                'tradeDate': heat.get('tradeDate'),
+                'indexName': heat.get('indexName'),
+                'indexChangePct': heat.get('indexChangePct'),
+                'totalTurnover': heat.get('totalTurnover'),
+                'advanceCount': heat.get('advanceCount'),
+                'declineCount': heat.get('declineCount'),
+                'flatCount': heat.get('flatCount'),
+                'heatScore': heat.get('heatScore'),
+                'asOfTime': heat.get('asOfTime'),
+            }
+        return {
+            'ok': any(markets.values()),
+            'reason': None if any(markets.values()) else '暂无热度快照，收盘任务完成后写入',
+            'data': markets,
+        }
+
+    @staticmethod
+    async def _watch_signals_block(query_db: AsyncSession, user_id: int | None) -> dict[str, Any]:
+        """自选信号 Top5：按综合建议排序（偏多/偏空优先，中性靠后）。"""
+        from module_market.service.watchlist_service import (  # noqa: PLC0415 - 聚合层延迟加载
+            MarketWatchlistService,
+        )
+
+        overview = await MarketWatchlistService.overview_services(query_db, user_id)
+        items = overview.get('items') or []
+        stance_rank = {'偏多': 0, '偏空': 1, '中性': 2}
+
+        def _sort_key(item: dict[str, Any]) -> tuple[int, Any]:
+            stance = item.get('stance') or ''
+            rank = stance_rank.get(stance, 3)
+            confidence = item.get('confidence')
+            conf_val = confidence if isinstance(confidence, (int, float)) else -1
+            return (rank, -conf_val)
+
+        top = sorted(items, key=_sort_key)[:5]
+        signals = [
+            {
+                'symbol': it.get('symbol'),
+                'market': it.get('market'),
+                'name': it.get('name'),
+                'stance': it.get('stance'),
+                'confidence': it.get('confidence'),
+                'recommendation': it.get('recommendation'),
+                'summary': (it.get('summary') or '')[:120],
+                'last': it.get('last'),
+                'changeRate': it.get('changeRate'),
+                'analysisTime': it.get('analysisTime'),
+            }
+            for it in top
+        ]
+        return {
+            'ok': bool(signals),
+            'reason': None if signals else '暂无启用中的自选标的',
+            'data': {
+                'count': overview.get('count') or 0,
+                'bullish': overview.get('bullish') or 0,
+                'bearish': overview.get('bearish') or 0,
+                'neutral': overview.get('neutral') or 0,
+                'aiAvailable': overview.get('aiAvailable'),
+                'signals': signals,
+            },
+        }
+
+    @staticmethod
+    async def _sentiment_block(query_db: AsyncSession) -> dict[str, Any]:
+        """舆情统计 + 最新 AI 研判。"""
+        from module_sentiment.dao.sentiment_dao import (  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+            SentimentAnalysisDao,
+            SentimentNewsDao,
+        )
+        from module_sentiment.entity.vo.sentiment_vo import SentimentAnalysisModel  # noqa: PLC0415 - 聚合层延迟加载
+        from utils.common_util import CamelCaseUtil  # noqa: PLC0415 - 聚合层延迟加载
+
+        stats = await SentimentNewsDao.count_news(query_db)
+        latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
+        latest_data = (
+            SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
+            if latest
+            else None
+        )
+        return {
+            'ok': True,
+            'reason': None,
+            'data': {
+                'total': stats.get('total') or 0,
+                'today': stats.get('today') or 0,
+                'unanalyzed': stats.get('unanalyzed') or 0,
+                'latestAnalysis': latest_data,
+            },
+        }
+
+    @staticmethod
+    async def _briefings_block(query_db: AsyncSession) -> dict[str, Any]:
+        """财经简报流：只读库内已生成简报，不触发外部刷新。"""
+        from module_market.dao.market_dao import FinanceBriefingDao  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+
+        rows = await FinanceBriefingDao.get_latest(query_db, limit=8)
+        data = [
+            {
+                'market': r.market,
+                'briefingType': r.briefing_type,
+                'headline': r.headline,
+                'summary': (r.summary or '')[:160],
+                'sourceName': r.source_name,
+                'sourceLink': r.source_link,
+                'generatedAt': r.generated_at.strftime('%Y-%m-%d %H:%M:%S') if r.generated_at else None,
+            }
+            for r in rows
+        ]
+        return {
+            'ok': bool(data),
+            'reason': None if data else '简报尚未生成，采集任务完成后展示',
+            'data': data,
+        }
+
+    @staticmethod
+    async def _health_block(query_db: AsyncSession) -> dict[str, Any]:
+        """运行状态：K线覆盖率 + 最近任务执行（成功/失败计数）。"""
+        from datetime import timedelta  # noqa: PLC0415 - 标准库按需加载
+
+        from sqlalchemy import desc, func, select  # noqa: PLC0415 - 按需加载
+
+        from module_admin.entity.do.job_do import SysJobLog  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_trade.service.platform_ext_service import (  # noqa: PLC0415 - 聚合层延迟加载
+            PlatformExtService,
+        )
+
+        since = datetime.now() - timedelta(hours=24)
+        total = (
+            await query_db.execute(
+                select(func.count(SysJobLog.job_log_id)).where(SysJobLog.create_time >= since)
+            )
+        ).scalar() or 0
+        failed = (
+            await query_db.execute(
+                select(func.count(SysJobLog.job_log_id)).where(
+                    SysJobLog.create_time >= since, SysJobLog.status == '1'
+                )
+            )
+        ).scalar() or 0
+        last_run = (
+            await query_db.execute(select(SysJobLog).order_by(desc(SysJobLog.create_time)).limit(1))
+        ).scalars().first()
+
+        coverage = None
+        try:
+            coverage = await PlatformExtService.history_coverage(query_db)
+        except Exception as exc:  # 覆盖率失败不阻塞健康块
+            logger.debug(f'[工作台] K线覆盖率查询失败: {exc}')
+
+        return {
+            'ok': True,
+            'reason': None,
+            'data': {
+                'jobs24h': {'total': total, 'failed': failed},
+                'lastJob': (
+                    {
+                        'jobName': last_run.job_name,
+                        'status': last_run.status,
+                        'createTime': last_run.create_time.strftime('%Y-%m-%d %H:%M:%S')
+                        if last_run.create_time
+                        else None,
+                    }
+                    if last_run
+                    else None
+                ),
+                'coverage': (
+                    {
+                        'coveragePct': coverage.get('coveragePct'),
+                        'covered': coverage.get('covered'),
+                        'total': coverage.get('total'),
+                        'missing': coverage.get('missing'),
+                    }
+                    if coverage
+                    else None
+                ),
+            },
+        }
