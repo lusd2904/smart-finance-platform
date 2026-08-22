@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from module_market.entity.vo.market_vo import KlineQueryModel
 from module_market.service.kline_period import is_minute_period, normalize_kline_period
@@ -16,6 +14,16 @@ from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.auto_trade_service import parse_symbol_market
 from utils.log_util import logger
+from utils.quote_util import build_quote_from_klines
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+# 回测最少K线数量与默认回看天数
+_BACKTEST_MIN_BARS = 30
+_BACKTEST_MIN_DAYS = 30
+# 计算胜率所需的最少成交记录数（一买一卖记 2）
+_MIN_TRADES_FOR_WINRATE = 2
 
 
 class TradeService:
@@ -139,28 +147,8 @@ class TradeService:
 
     @staticmethod
     def _quote_from_klines(klines: list[dict[str, Any]]) -> dict[str, Any]:
-        if not klines:
-            return {}
-        last = klines[-1]
-        prev = klines[-2] if len(klines) > 1 else None
-        change = change_rate = None
-        try:
-            if prev and prev.get('close') and last.get('close'):
-                change = round(float(last['close']) - float(prev['close']), 4)
-                change_rate = round(change / float(prev['close']) * 100, 4)
-        except (TypeError, ValueError, ZeroDivisionError):
-            pass
-        return {
-            'last': last.get('close'),
-            'open': last.get('open'),
-            'high': last.get('high'),
-            'low': last.get('low'),
-            'volume': last.get('volume'),
-            'tradeDate': last.get('date'),
-            'change': change,
-            'changeRate': change_rate,
-            'prevClose': prev.get('close') if prev else None,
-        }
+        # 统一走公共实现，与 market 侧保持一致
+        return build_quote_from_klines(klines)
 
     @classmethod
     async def submit_order_services(
@@ -277,12 +265,12 @@ class TradeService:
         fee_rate: float = 0.0005,
         slippage: float = 0.0002,
     ) -> dict[str, Any]:
-        from utils.influx_util import InfluxUtil
+        from utils.influx_util import InfluxUtil  # noqa: PLC0415 - 按需加载时序库客户端
 
         klines = await asyncio.to_thread(
-            InfluxUtil.query_klines, market, symbol, f'-{max(days, 30)}d', 'now()'
+            InfluxUtil.query_klines, market, symbol, f'-{max(days, _BACKTEST_MIN_DAYS)}d', 'now()'
         )
-        if not klines or len(klines) < 30:
+        if not klines or len(klines) < _BACKTEST_MIN_BARS:
             return {
                 'ok': False,
                 'message': f'{symbol} K线不足，请先同步行情',
@@ -336,7 +324,7 @@ class TradeService:
 
         final_equity = cash + pos * closes[-1]
         ret_pct = round((final_equity / initial_capital - 1) * 100, 2)
-        win_rate = round((winning_trades / (trades // 2) * 100), 2) if (trades >= 2) else 0.0
+        win_rate = round((winning_trades / (trades // 2) * 100), 2) if (trades >= _MIN_TRADES_FOR_WINRATE) else 0.0
         max_dd_pct = round(max_drawdown * 100, 2)
 
         # 持久化到 DB
@@ -455,9 +443,8 @@ class TradeService:
                 }
                 for i, sym in enumerate(['AAPL', 'NVDA', 'MSFT'])
             ]
-        result = []
-        for b in batch_runs:
-            result.append({
+        result = [
+            {
                 'id': b.batch_id,
                 'cycleId': b.cycle_id,
                 'symbolsCount': b.symbols_count,
@@ -465,5 +452,7 @@ class TradeService:
                 'status': 'completed' if b.status == '1' else ('running' if b.status == '0' else 'failed'),
                 'summary': b.summary,
                 'createTime': b.create_time.strftime('%Y-%m-%d %H:%M:%S') if b.create_time else '',
-            })
+            }
+            for b in batch_runs
+        ]
         return result

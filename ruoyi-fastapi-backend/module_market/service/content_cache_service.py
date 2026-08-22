@@ -8,19 +8,25 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_market.dao.market_dao import SymbolContentCacheDao
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.log_util import logger
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 USER_AGENT = (
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 )
+
+
+_HTTP_BAD_RESPONSE_MIN = 400
+_TS_MS_THRESHOLD = 1e12
 
 
 class SymbolContentService:
@@ -31,6 +37,11 @@ class SymbolContentService:
         'news': 60,
         'topic': 30,
     }
+
+    # 摘要过短时才回源抓取正文
+    MIN_SUMMARY_LEN_FOR_FETCH = 80
+    # 正文过短视为导航页/加载失败
+    MIN_BODY_LEN = 80
 
     TYPE_ALIASES = {
         'announcement': 'announcement',
@@ -119,9 +130,10 @@ class SymbolContentService:
         )
         now = datetime.now()
         saved = 0
+        pending_rows: list[dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, trust_env=False) as client:
-            for ctype, items in raw_bundle.items():
-                ctype = cls.normalize_type(ctype)
+            for raw_ctype, items in raw_bundle.items():
+                ctype = cls.normalize_type(raw_ctype)
                 ttl = cls.TTL_MINUTES.get(ctype, 60)
                 expires = now + timedelta(minutes=ttl)
                 for raw in items or []:
@@ -131,12 +143,14 @@ class SymbolContentService:
                     # 正文过短时尝试抓取链接
                     body = normalized.get('summary') or ''
                     link = normalized.get('source_link')
-                    if link and len(body) < 80:
+                    if link and len(body) < cls.MIN_SUMMARY_LEN_FOR_FETCH:
                         fetched = await cls._fetch_page_text(client, link)
                         if fetched and len(fetched) > len(body):
                             normalized['summary'] = fetched[: cls.BODY_MAX_LEN]
-                    await SymbolContentCacheDao.upsert_item(query_db, normalized)
+                    pending_rows.append(normalized)
                     saved += 1
+        # 批量 upsert：一次查询替代逐条往返
+        await SymbolContentCacheDao.upsert_items(query_db, pending_rows)
         # 清理过期超过3天的缓存，防止无限堆积
         await SymbolContentCacheDao.prune_expired(query_db, now - timedelta(days=3))
         await query_db.commit()
@@ -258,7 +272,7 @@ class SymbolContentService:
         """抓取链接页可见文本（尽力而为，失败返回空）。"""
         try:
             resp = await client.get(url, headers={'User-Agent': USER_AGENT})
-            if resp.status_code >= 400:
+            if resp.status_code >= _HTTP_BAD_RESPONSE_MIN:
                 return ''
             ctype = (resp.headers.get('content-type') or '').lower()
             if 'html' not in ctype and 'text' not in ctype and 'json' not in ctype:
@@ -270,7 +284,7 @@ class SymbolContentService:
             text = cls._strip_html(text)
             text = re.sub(r'\s+', ' ', text).strip()
             # 过短或像导航页则丢弃
-            if len(text) < 80:
+            if len(text) < cls.MIN_BODY_LEN:
                 return ''
             return text[: cls.BODY_MAX_LEN]
         except Exception as exc:
@@ -307,15 +321,15 @@ class SymbolContentService:
         text = str(value).strip()
         if not text:
             return None
-        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+        for _fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
             try:
                 cleaned = text[:19].replace('T', ' ') if 'T' in text else text[:19]
                 return datetime.strptime(cleaned, '%Y-%m-%d %H:%M:%S' if ' ' in cleaned else '%Y-%m-%d')
-            except ValueError:
+            except ValueError:  # noqa: PERF203 - 多格式日期解析逐个尝试
                 continue
         try:
             ts = float(text)
-            if ts > 1e12:
+            if ts > _TS_MS_THRESHOLD:
                 ts /= 1000.0
             return datetime.fromtimestamp(ts)
         except (TypeError, ValueError, OSError):

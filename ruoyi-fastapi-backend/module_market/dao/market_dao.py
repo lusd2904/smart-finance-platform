@@ -5,6 +5,7 @@ from sqlalchemy import and_, delete, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
+from module_market.constant.instruments import LISTED_CATEGORY, LISTED_SEARCH_LIMIT
 from module_market.entity.do.market_do import (
     FinanceBriefing,
     MarketInstrument,
@@ -27,19 +28,22 @@ class MarketInstrumentDao:
         """
         根据查询参数获取标的列表
         """
-        query = (
-            select(MarketInstrument)
-            .where(
-                MarketInstrument.category == query_object.category if query_object.category else True,
-                MarketInstrument.market == query_object.market if query_object.market else True,
-                MarketInstrument.enabled == query_object.enabled if query_object.enabled else True,
-            )
-            .order_by(MarketInstrument.category, MarketInstrument.symbol)
-        )
         keyword = (getattr(query_object, 'keyword', None) or '').strip().replace('%', '').replace('_', '')[:32]
+        category = (query_object.category or '').strip() or None
+        query = select(MarketInstrument).where(
+            MarketInstrument.market == query_object.market if query_object.market else True,
+            MarketInstrument.enabled == query_object.enabled if query_object.enabled else True,
+        )
+        if category:
+            query = query.where(MarketInstrument.category == category)
+        elif not keyword:
+            # 无关键字时不把全市场 listed 代码打到行情台/下拉框
+            query = query.where(MarketInstrument.category != LISTED_CATEGORY)
+        query = query.order_by(MarketInstrument.category, MarketInstrument.symbol)
         if keyword:
             like = f'%{keyword}%'
             query = query.where(or_(MarketInstrument.symbol.like(like), MarketInstrument.name.like(like)))
+            query = query.limit(LISTED_SEARCH_LIMIT)
         rows = (await db.execute(query)).scalars().all()
         return list(rows)
 
@@ -65,21 +69,28 @@ class MarketInstrumentDao:
         """
         批量upsert目标标的（按symbol判断存在则更新name/market/category，不存在则新增）
 
+        更新语句按 symbol 分组合并为单条批量 UPDATE（CASE WHEN），避免逐条往返。
+
         :return: 本次新增条数
         """
         existing = await cls.get_all_symbols(db)
         added = 0
+        # 按 (name, market, category) 分组收集待更新的 symbol，同组合并为一条 UPDATE
+        update_groups: dict[tuple[Any, Any, Any], list[str]] = {}
         for item in instruments:
             symbol = item['symbol']
             if symbol in existing:
-                await db.execute(
-                    update(MarketInstrument)
-                    .where(MarketInstrument.symbol == symbol)
-                    .values(name=item.get('name'), market=item.get('market'), category=item.get('category'))
-                )
+                key = (item.get('name'), item.get('market'), item.get('category'))
+                update_groups.setdefault(key, []).append(symbol)
             else:
                 db.add(MarketInstrument(**item))
                 added += 1
+        for (name, market, category), symbols in update_groups.items():
+            await db.execute(
+                update(MarketInstrument)
+                .where(MarketInstrument.symbol.in_(symbols))
+                .values(name=name, market=market, category=category)
+            )
         await db.flush()
         return added
 
@@ -143,8 +154,33 @@ class FinanceBriefingDao:
         return bool(row)
 
     @classmethod
+    async def filter_duplicates(
+        cls, db: AsyncSession, market: str, headlines: list[str], since: datetime
+    ) -> set[str]:
+        """
+        批量查重：一次查询返回 since 之后已存在的 headline 集合。
+
+        :param db: 会话
+        :param market: 市场
+        :param headlines: 待检查的标题列表
+        :param since: 时间下限
+        :return: 已存在的 headline 集合
+        """
+        if not headlines:
+            return set()
+        rows = (
+            await db.execute(
+                select(FinanceBriefing.headline).where(
+                    FinanceBriefing.market == market,
+                    FinanceBriefing.headline.in_(headlines),
+                    FinanceBriefing.generated_at >= since,
+                )
+            )
+        ).all()
+        return {row[0] for row in rows}
+
+    @classmethod
     async def prune_older_than(cls, db: AsyncSession, before: datetime) -> None:
-        from sqlalchemy import delete
 
         await db.execute(delete(FinanceBriefing).where(FinanceBriefing.generated_at < before))
         await db.flush()
@@ -174,6 +210,65 @@ class SymbolContentCacheDao:
             .limit(limit)
         )
         return list((await db.execute(query)).scalars().all())
+
+    _UPDATABLE_KEYS = (
+        'title',
+        'summary',
+        'source_link',
+        'published_at',
+        'fetched_at',
+        'expires_at',
+        'payload_json',
+        'market',
+    )
+
+    @classmethod
+    async def upsert_items(cls, db: AsyncSession, rows: list[dict[str, Any]]) -> None:
+        """
+        按唯一键批量 upsert 缓存：一次查询取回全部已存在键，减少逐条往返。
+
+        :param db: 会话
+        :param rows: 待写入的缓存行
+        :return: None
+        """
+        if not rows:
+            return
+        symbols = {row['symbol'] for row in rows}
+        content_types = {row['content_type'] for row in rows}
+        existing_rows = (
+            await db.execute(
+                select(SymbolContentCache).where(
+                    and_(
+                        SymbolContentCache.symbol.in_(symbols),
+                        SymbolContentCache.content_type.in_(content_types),
+                    )
+                )
+            )
+        ).scalars().all()
+        existing_map = {
+            (
+                item.symbol,
+                item.content_type,
+                item.source_name,
+                item.source_item_id,
+            ): item
+            for item in existing_rows
+        }
+        for row in rows:
+            key = (
+                row['symbol'],
+                row['content_type'],
+                row['source_name'],
+                row.get('source_item_id'),
+            )
+            existing = existing_map.get(key)
+            if existing:
+                for k in cls._UPDATABLE_KEYS:
+                    if k in row:
+                        setattr(existing, k, row[k])
+            else:
+                db.add(SymbolContentCache(**row))
+        await db.flush()
 
     @classmethod
     async def upsert_item(cls, db: AsyncSession, row: dict[str, Any]) -> None:
@@ -210,7 +305,6 @@ class SymbolContentCacheDao:
     @classmethod
     async def prune_expired(cls, db: AsyncSession, before: datetime) -> None:
         """物理清理过期缓存，防止news/topic条目无限堆积"""
-        from sqlalchemy import delete
 
         await db.execute(
             delete(SymbolContentCache).where(
