@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -28,9 +29,7 @@ def resolve_symbol_candidates(symbol: str) -> list[tuple[str, str]]:
         market = 'HK'
     elif clean.endswith('.US'):
         market = 'US'
-    elif clean.endswith('.SH') or clean.endswith('.SZ'):
-        market = 'CN'
-    elif clean.startswith(('00', '30', '60', '68')) and clean[:6].isdigit():
+    elif clean.endswith(('.SH', '.SZ')) or (clean.startswith(('00', '30', '60', '68')) and clean[:6].isdigit()):
         market = 'CN'
 
     _add(clean, market)
@@ -38,6 +37,9 @@ def resolve_symbol_candidates(symbol: str) -> list[tuple[str, str]]:
         stripped = clean.rsplit('.', 1)[0]
         _add(stripped, market)
     return out
+
+
+_ISO_DATE_LEN = 10
 
 
 def _flux_from_ts(ts: int | None, fallback: str) -> str:
@@ -61,7 +63,7 @@ def _resample_klines(klines: list[dict[str, Any]], how: str) -> list[dict[str, A
     if not klines or how == 'D':
         return klines
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415 - pandas 为可选重依赖，缺失时跳过重采样
     except Exception:
         return klines
     df = pd.DataFrame(klines)
@@ -162,7 +164,10 @@ class TradingViewDatafeedService:
 
         start = _flux_from_ts(from_ts, '-2y')
         stop = _flux_from_ts(to_ts, 'now()')
-        klines = cls._query_first_available(symbol, start, stop, allow_aapl_fallback=True)
+        # InfluxDB 客户端为同步实现，放线程池执行避免阻塞事件循环
+        klines = await asyncio.to_thread(
+            cls._query_first_available, symbol, start, stop, True
+        )
         klines = _resample_klines(klines, how)
         if not klines:
             return {'s': 'no_data', 'nextTime': None}
@@ -171,7 +176,7 @@ class TradingViewDatafeedService:
         for k in klines:
             date_str = k.get('date')
             try:
-                if len(str(date_str)) == 10:
+                if len(str(date_str)) == _ISO_DATE_LEN:
                     dt = datetime.strptime(str(date_str), '%Y-%m-%d').replace(tzinfo=timezone.utc)
                 else:
                     dt = datetime.fromisoformat(str(date_str))
