@@ -32,11 +32,54 @@ async def sync_market_job(*args, **kwargs) -> None:
         logger.info('[行情定时任务] 已入队 Redis 后台队列')
         return
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, MarketSyncService.sync, None, 10)
         logger.info(f'[行情定时任务] 执行完成: 标的{len(result["synced_symbols"])}个，写入{result["total_points"]}点')
     except Exception as e:
         logger.error(f'[行情定时任务] 执行失败: {e}')
+        raise
+
+
+async def sync_klines_slow_job(*args, **kwargs) -> None:
+    """
+    慢速同步全市场日K（源级限流、精选优先、已有新K线则跳过）。
+    invoke_target: module_task.market_task.sync_klines_slow_job
+    """
+    from module_market.service.sync_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        MarketSyncService,
+    )
+
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: MarketSyncService.sync_universe(years=10, include_listed=True),
+        )
+        logger.info(
+            f'[慢速K线] 完成 scanned={result.get("scanned")} '
+            f'synced={len(result.get("synced_symbols") or [])} '
+            f'skip={len(result.get("skipped") or [])} fail={len(result.get("failed") or [])}'
+        )
+    except Exception as e:
+        logger.error(f'[慢速K线] 失败: {e}')
+        raise
+
+
+async def sync_listings_job(*args, **kwargs) -> None:
+    """
+    同步美股/A股/港股全市场代码到 market_instrument。
+    invoke_target: module_task.market_task.sync_listings_job
+    """
+    from module_market.service.listing_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        ListingService,
+    )
+
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, ListingService.sync)
+        logger.info(f'[全市场代码] 同步完成: {result}')
+    except Exception as e:
+        logger.error(f'[全市场代码] 同步失败: {e}')
         raise
 
 
@@ -57,7 +100,9 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
     定时刷新财经资讯简报流。
     invoke_target: module_task.market_task.refresh_finance_briefings_job
     """
-    from module_market.service.finance_news_service import FinanceNewsService
+    from module_market.service.finance_news_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        FinanceNewsService,
+    )
 
     if await JobQueue.enqueue('finance_briefings', {}):
         logger.info('[财经资讯定时任务] 已入队')
@@ -72,8 +117,10 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
 
 
 async def refresh_symbol_content_now() -> dict[str, Any]:
-    from module_market.service.content_cache_service import SymbolContentService
-    from utils.longbridge_breaker import LongbridgeBreaker
+    from module_market.service.content_cache_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        SymbolContentService,
+    )
+    from utils.longbridge_breaker import LongbridgeBreaker  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
 
     if not LongbridgeBreaker.allow():
         return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'total': 0}
@@ -94,7 +141,7 @@ async def refresh_symbol_content_now() -> dict[str, Any]:
                 clean = sym.replace('.HK', '').replace('.US', '').replace('.SH', '').replace('.SZ', '')
                 mkt = markets.get(sym, 'US')
                 total += await SymbolContentService.refresh_symbol(db, clean if mkt == 'US' else sym.split('.')[0], mkt)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - 单标的失败不中断整批
                 logger.warning(f'[内容缓存任务] {sym} 失败: {e}')
         logger.info(f'[内容缓存任务] 完成，合计写入约{total}条')
         return {'total': total}
@@ -116,7 +163,9 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
     每小时对行情自选清单做综合分析（指标 + 长桥资讯 + 舆情）。
     invoke_target: module_task.market_task.analyze_watchlist_job
     """
-    from module_market.service.watchlist_service import MarketWatchlistService
+    from module_market.service.watchlist_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        MarketWatchlistService,
+    )
 
     if await JobQueue.enqueue('watchlist_analyze', {}):
         logger.info('[自选综合分析任务] 已入队 Redis 后台队列')
@@ -134,7 +183,9 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
 
 
 async def _collect_market_heat(market: str, trade_date: str | None = None) -> None:
-    from module_market.service.heat_service import MarketHeatService
+    from module_market.service.heat_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+        MarketHeatService,
+    )
 
     payload = {'market': market.upper(), 'tradeDate': trade_date}
     if await JobQueue.enqueue('market_heat_collect', payload):
