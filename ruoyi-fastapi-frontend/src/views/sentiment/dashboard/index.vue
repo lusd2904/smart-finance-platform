@@ -24,7 +24,7 @@
     />
 
     <!-- 大盘指数条：仅在盘中显示在盘市场，不开盘整体隐藏 -->
-    <IndexStrip ref="indexStripRef" />
+    <market-index-strip ref="indexStripRef" />
 
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb16">
@@ -121,7 +121,6 @@
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
-import IndexStrip from './components/IndexStrip.vue';
 
 const { proxy } = getCurrentInstance();
 
