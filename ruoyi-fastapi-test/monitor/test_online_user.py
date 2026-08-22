@@ -19,12 +19,12 @@ class OnlineUserTest(BasePageTest):
         try:
             await niangao_page.goto(Config.frontend_url + '/login')
             await niangao_page.locator('div.el-form-item', has_text='账号').locator('input').fill('niangao')
-            await niangao_page.locator('div.el-form-item', has_text='密码').locator('input').fill('admin123')
+            await niangao_page.locator('div.el-form-item', has_text='密码').locator('input').fill(__import__('os').environ.get('TEST_ADMIN_PASSWORD', ''))
             await niangao_page.get_by_role('button', name='登 录').click()
             # 等待登录成功
             await niangao_page.wait_for_url('**/index')
         except Exception as e:
-            print(f'Niangao login failed: {e}. Trying admin123')
+            print(f'Niangao login failed: {e}. Trying fallback password')
             try:
                 await niangao_page.locator('div.el-form-item', has_text='密码').locator('input').fill('123456')
                 await niangao_page.get_by_role('button', name='登 录').click()

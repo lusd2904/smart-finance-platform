@@ -51,7 +51,7 @@ def test_login_without_captcha() -> None:
     helper = LoginHelper()
 
     # 尝试登录（测试环境中验证码已禁用）
-    token = helper.login(username='admin', password='admin123')
+    token = helper.login(username='admin')
 
     # 验证登录结果
     assert token is not None, '登录应该成功'
@@ -73,7 +73,7 @@ async def test_login_flow_with_playwright() -> None:
 
         # 输入用户名和密码
         await page.fill('input[placeholder="账号"]', 'admin')
-        await page.fill('input[placeholder="密码"]', 'admin123')
+        await page.fill('input[placeholder="密码"]', __import__('os').environ.get('TEST_ADMIN_PASSWORD', ''))
 
         # 在测试环境中验证码已禁用，所以不需要处理验证码
         # 直接点击登录按钮
@@ -151,7 +151,7 @@ async def test_authenticated_access() -> None:
     """测试认证后的访问"""
     # 首先通过API登录获取token
     helper = LoginHelper()
-    token = helper.login(username='admin', password='admin123')
+    token = helper.login(username='admin')
 
     assert token is not None, '登录应该成功'
 

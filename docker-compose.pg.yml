@@ -37,11 +37,11 @@ services:
     image: postgres:14
     container_name: ruoyi-pg
     environment:
-      POSTGRES_PASSWORD: root
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
       POSTGRES_DB: ruoyi-fastapi
       POSTGRES_INITDB_ARGS: --encoding=UTF8 --lc-collate=C --lc-ctype=C
     ports:
-      - "15432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql:/docker-entrypoint-initdb.d/ruoyi-fastapi-pg.sql
     networks:
@@ -56,12 +56,13 @@ services:
   ruoyi-redis:
     image: redis:latest
     container_name: ruoyi-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}"]
     ports:
-      - "16379:6379"
+      - "127.0.0.1:16379:6379"
     networks:
       - ruoyi-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
       interval: 5s
       timeout: 10s
       retries: 30

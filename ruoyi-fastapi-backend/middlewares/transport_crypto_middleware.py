@@ -127,7 +127,8 @@ class TransportCryptoMiddleware:
                 scope,
                 receive,
                 send,
-                str(exc) or '加密请求解析失败',
+                # 不把内部异常细节（密钥/算法/堆栈信息）回显给客户端，仅返回通用错误文案
+                '加密请求解析失败，请刷新页面后重试',
                 error_crypto_context,
                 headers=self._build_monitor_headers(
                     request_mode='encrypted',

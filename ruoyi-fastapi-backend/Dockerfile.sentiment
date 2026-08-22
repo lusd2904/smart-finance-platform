@@ -7,9 +7,14 @@ COPY . .
 # 安装编译依赖与Python依赖（3.12 以兼容 requirements 中的 pandas-ta 等包；指标服务已改为纯 pandas 亦可运行）
 RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ default-libmysqlclient-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    && pip install --no-cache-dir -r requirements.txt -r requirements-llm.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 暴露端口
+# 非 root 运行：创建专用用户并授予日志/临时目录写权限
+RUN groupadd -r appuser && useradd -r -g appuser -m appuser \
+    && mkdir -p /app/logs && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 9099
 
 # 启动命令
