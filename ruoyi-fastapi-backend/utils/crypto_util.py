@@ -3,7 +3,7 @@ import hashlib
 
 from cryptography.fernet import Fernet
 
-from config.env import JwtConfig
+from config.env import AppConfig, JwtConfig
 from exceptions.exception import ServiceException
 
 
@@ -17,9 +17,17 @@ class CryptoUtil:
     @classmethod
     def _get_cipher_suite(cls) -> Fernet:
         if cls._cipher_suite is None:
-            # 使用 JWT secret key 派生 Fernet key
+            # 优先使用独立的凭据加密密钥，与 JWT secret 解耦以便独立轮换；
+            # 未配置时回退到 JWT secret 派生（兼容存量部署），但生产环境强制要求独立密钥。
+            credential_key = getattr(JwtConfig, 'credential_encryption_key', '') or ''
+            source = credential_key.strip() or JwtConfig.jwt_secret_key
+            if AppConfig.app_env == 'prod' and not credential_key.strip():
+                raise ServiceException(
+                    '安全检查失败：生产环境必须配置 CREDENTIAL_ENCRYPTION_KEY（与 JWT_SECRET_KEY 独立），'
+                    '用于加密库内券商凭据等敏感数据。'
+                )
             # SHA256 hash (32 bytes) -> Base64 encoded (44 bytes) -> Fernet key
-            key = base64.urlsafe_b64encode(hashlib.sha256(JwtConfig.jwt_secret_key.encode()).digest())
+            key = base64.urlsafe_b64encode(hashlib.sha256(source.encode()).digest())
             cls._cipher_suite = Fernet(key)
         return cls._cipher_suite
 

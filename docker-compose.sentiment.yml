@@ -217,15 +217,14 @@ services:
     image: influxdb:2.7
     container_name: sentiment-influxdb
     restart: unless-stopped
-    ports:
-      - "18086:8086"
+    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:18086:8086"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: CHANGE_ME_DB_PASSWORD
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:?请在 .env 中设置 INFLUXDB_PASSWORD}
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: CHANGE_ME_INFLUX_TOKEN
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
     volumes:
       - sentiment-influxdb-data:/var/lib/influxdb2
       - sentiment-influxdb-config:/etc/influxdb2
@@ -243,10 +242,9 @@ services:
     container_name: sentiment-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: CHANGE_ME_DB_PASSWORD
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: sentiment-ai
-    ports:
-      - "13306:3306"
+    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:13306:3306"
     volumes:
       - sentiment-mysql-data:/var/lib/mysql
       - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
@@ -256,18 +254,17 @@ services:
       - ./ruoyi-fastapi-backend/sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
       - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
       - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
-      - ./ruoyi-fastapi-test/disable_captcha.sql:/docker-entrypoint-initdb.d/08-disable-captcha.sql
       - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
       - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
       - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
       - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
       - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
       - ./ruoyi-fastapi-backend/sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
     networks:
       - sentiment-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pCHANGE_ME_DB_PASSWORD"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 10s
       retries: 30
@@ -277,12 +274,12 @@ services:
     image: redis:latest
     container_name: sentiment-redis
     restart: unless-stopped
-    ports:
-      - "16379:6379"
+    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:16379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}"]
     networks:
       - sentiment-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
       interval: 5s
       timeout: 10s
       retries: 30

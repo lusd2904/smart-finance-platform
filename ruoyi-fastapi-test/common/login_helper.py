@@ -12,7 +12,11 @@ class LoginHelper:
         self.base_url = base_url
         self.session = requests.Session()
 
-    def login(self, username: str = 'admin', password: str = 'admin123', max_retries: int = 3) -> str | None:
+    def login(self, username: str = 'admin', password: str | None = None, max_retries: int = 3) -> str | None:
+        import os
+        password = password or os.environ.get('TEST_ADMIN_PASSWORD', '')
+        if not password:
+            raise RuntimeError('请通过环境变量 TEST_ADMIN_PASSWORD 提供测试账号密码，禁止在代码中硬编码')
         """
         执行登录操作（在测试环境中，验证码已禁用）
         """
