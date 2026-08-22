@@ -34,7 +34,7 @@
 <script setup name="TradeBroker">
 import { getLongbridgeConfig, testLongbridge } from '@/api/quant'
 const {proxy}=getCurrentInstance(); const configured=ref(false)
-async function load(){ try{ const res=await getLongbridgeConfig(); const d=res.data||{}; configured.value=!!(d.appKey||d.configured) }catch(e){} }
+async function load(){ try{ const res=await getLongbridgeConfig(); const d=res.data||{}; configured.value=!!(d.appKey||d.configured) } catch { /* 配置缺失时保持默认未配置状态 */ } }
 async function test(){ const res=await testLongbridge(); const d=res.data||{}; proxy.$modal.msgSuccess(d.message||JSON.stringify(d)) }
 onMounted(load)
 </script>

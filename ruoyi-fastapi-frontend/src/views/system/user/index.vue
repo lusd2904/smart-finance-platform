@@ -600,7 +600,7 @@ const data = reactive({
       },
       {
         pattern: /^[^<>"'|\\]+$/,
-        message: "不能包含非法字符：< > \" ' \\\ |",
+        message: "不能包含非法字符：< > \" ' \\ |",
         trigger: "blur",
       },
     ],
@@ -750,7 +750,7 @@ function handleResetPwd(row) {
       inputErrorMessage: "用户密码长度必须介于 5 和 20 之间",
       inputValidator: (value) => {
         if (/<|>|"|'|\||\\/.test(value)) {
-          return "不能包含非法字符：< > \" ' \\\ |";
+          return "不能包含非法字符：< > \" ' \\ |";
         }
       },
     })

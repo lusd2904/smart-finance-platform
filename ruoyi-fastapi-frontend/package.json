@@ -10,7 +10,9 @@
     "build:prod": "vite build",
     "build:docker": "vite build --mode docker",
     "build:stage": "vite build --mode staging",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src --ext .js,.vue --max-warnings 200",
+    "lint:fix": "eslint src --ext .js,.vue --fix"
   },
   "repository": {
     "type": "git",
@@ -28,16 +30,15 @@
     "fuse.js": "7.1.0",
     "js-beautify": "1.15.4",
     "js-cookie": "3.0.5",
-    "jsencrypt": "3.3.2",
-    "katex": ">=0.16.27",
+    "katex": "0.16.27",
     "markstream-vue": "2.0.0",
-    "mermaid": ">=11.12.2",
+    "mermaid": "11.12.2",
     "nprogress": "0.2.0",
     "pinia": "3.0.4",
-    "shiki": "^3.21.0",
+    "shiki": "3.21.0",
     "splitpanes": "4.0.4",
-    "stream-markdown": ">=0.0.14",
-    "stream-monaco": ">=0.0.17",
+    "stream-markdown": "0.0.14",
+    "stream-monaco": "0.0.17",
     "uuid": "13.0.0",
     "vue": "3.5.26",
     "vue-cropper": "1.1.1",
@@ -54,7 +55,11 @@
     "vite": "6.4.1",
     "vite-plugin-compression": "0.5.1",
     "vite-plugin-monaco-editor-esm": "2.0.2",
-    "vite-plugin-svg-icons": "2.0.1"
+    "vite-plugin-svg-icons": "2.0.1",
+    "eslint": "^9.39.2",
+    "@eslint/js": "^9.39.2",
+    "eslint-plugin-vue": "^9.33.0",
+    "prettier": "3.6.2"
   },
   "overrides": {
     "quill": "2.0.2"

@@ -1,0 +1,22 @@
+# LLM 提供商 SDK（可选 extras）
+#
+# 核心镜像只安装 agno。用户在「模型管理」页面选择某个 provider 后，
+# agno 会在实例化时按需 import 对应 SDK —— 缺哪个装哪个：
+#
+#   pip install -r requirements-llm.txt            # 安装全部提供商支持
+#   pip install anthropic==0.78.0                  # 只用 Claude
+#   pip install google-genai==1.62.0               # 只用 Gemini
+#
+# 与 sys_dict_data 中 ai_provider_type 字典的对应关系见 utils/ai_util.py _PROVIDER_REGISTRY。
+
+anthropic==0.78.0
+cerebras-cloud-sdk==1.67.0
+cohere==5.20.4
+google-genai==1.62.0
+groq==1.0.0
+litellm==1.81.8
+llama-api-client==0.6.0
+mistralai==1.12.0
+ollama==0.6.1
+openai==2.17.0
+portkey-ai==2.1.0
