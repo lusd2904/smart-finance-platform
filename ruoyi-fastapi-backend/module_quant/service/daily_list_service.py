@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from exceptions.exception import ServiceException
 from module_market.dao.market_dao import MarketWatchlistDao
@@ -15,6 +13,9 @@ from module_quant.service.quant_service import QuantService
 from module_quant.service.strategy_service import StrategyService
 from utils.log_util import logger
 from utils.trading_calendar import is_cn_trading_day, is_market_session_open, next_cn_trading_day, today_cn
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_SCAN_SYMBOLS = 80
 MAX_POSITION_RATIO = 0.15
@@ -182,13 +183,15 @@ class DailyListService:
         if not is_cn_trading_day():
             return {'skipped': True, 'reason': 'non_trading_day', 'message': '非交易日跳过'}
         users = await QuantDailyListDao.distinct_watchlist_users(db)
-        results = []
-        for user_id in users:
+
+        async def _scan_one(uid: int) -> dict[str, Any]:
             try:
-                results.append(await cls.scan_user(db, user_id, profile))
+                return await cls.scan_user(db, uid, profile)
             except Exception as exc:
-                logger.warning(f'[次日清单] user={user_id} 扫描失败: {exc}')
-                results.append({'userId': user_id, 'error': str(exc)})
+                logger.warning(f'[次日清单] user={uid} 扫描失败: {exc}')
+                return {'userId': uid, 'error': str(exc)}
+
+        results = [await _scan_one(uid) for uid in users]
         return {'skipped': False, 'userCount': len(users), 'results': results}
 
     @classmethod
@@ -226,7 +229,7 @@ class DailyListService:
             raise ServiceException(message='暂无清单')
         latest.auto_enabled = '1' if enabled else '0'
         items = await QuantDailyListDao.list_items(db, latest.list_id)
-        target_ids = set(int(i) for i in (item_ids or []))
+        target_ids = {int(i) for i in (item_ids or [])}
         for row in items:
             if target_ids and row.item_id not in target_ids:
                 continue

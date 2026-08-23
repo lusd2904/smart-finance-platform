@@ -6,11 +6,10 @@ import asyncio
 import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from exceptions.exception import ServiceException
 from module_ai.dao.ai_model_dao import AiModelDao
@@ -18,6 +17,9 @@ from module_ai.dao.ai_req_dao import EXCLUDED_USERNAMES, AiReqDao
 from module_ai.entity.do.ai_model_do import AiModels
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_AI_USER = {'userId': 0, 'userName': 'grok', 'nickName': 'Grok', 'role': 'ai', 'isDecider': True}
 STATUS_LABELS = {
@@ -32,6 +34,9 @@ VALID_PRIORITY = {'P0', 'P1', 'P2', 'P3'}
 CONFIRM_RE = re.compile(r'(确定需求|确认需求|写入清单|总结并写入|请总结|确认落地)')
 CONFIRM_EXACT = {'确定', '确认', '同意', '就这样'}
 MAX_ROUNDS = 3
+# 触发总结至少需要的历史消息数；每轮给确定者的他人观点摘要最多保留条数
+MIN_MESSAGES_FOR_SUMMARY = 2
+PEER_NOTE_LIMIT = 8
 
 
 def system_prompt(*, name: str, is_decider: bool, round_no: int, peer_notes: str, write_allowed: bool) -> str:
@@ -134,16 +139,16 @@ class AiReqService:
             for u in users
         ]
         bots = await cls.list_runtime_bots(query_db)
-        for bot in bots:
-            members.append(
-                {
-                    'userId': 0,
-                    'userName': bot['userName'],
-                    'nickName': bot['nickName'],
-                    'role': 'ai',
-                    'isDecider': bot['isDecider'],
-                }
-            )
+        members.extend(
+            {
+                'userId': 0,
+                'userName': bot['userName'],
+                'nickName': bot['nickName'],
+                'role': 'ai',
+                'isDecider': bot['isDecider'],
+            }
+            for bot in bots
+        )
         return {
             'roomId': 1,
             'title': '需求沟通',
@@ -204,8 +209,8 @@ class AiReqService:
             if model_id in seen:
                 raise ServiceException(message='同一 AI 模型不能重复加入需求沟通')
             seen.add(model_id)
-            enabled = '1' if item.get('enabled') in {True, '1', 1, 'true'} else '0'
-            is_decider = '1' if item.get('isDecider') in {True, '1', 1, 'true'} else '0'
+            enabled = '1' if item.get('enabled') in {True, '1', 'true'} else '0'
+            is_decider = '1' if item.get('isDecider') in {True, '1', 'true'} else '0'
             name = str(item.get('displayName') or item.get('display_name') or '').strip()[:64]
             if not name:
                 name = f'AI-{model_id}'
@@ -236,19 +241,18 @@ class AiReqService:
         rows = await AiReqDao.list_enabled_bots(query_db)
         if not rows:
             return [dict(DEFAULT_AI_USER)]
-        out = []
-        for row in rows:
-            out.append(
-                {
-                    'botId': row.bot_id,
-                    'modelId': row.model_id,
-                    'userName': f'bot-{row.bot_id}',
-                    'nickName': row.display_name,
-                    'role': 'ai',
-                    'isDecider': row.is_decider == '1',
-                    'sortOrder': row.sort_order or 0,
-                }
-            )
+        out = [
+            {
+                'botId': row.bot_id,
+                'modelId': row.model_id,
+                'userName': f'bot-{row.bot_id}',
+                'nickName': row.display_name,
+                'role': 'ai',
+                'isDecider': row.is_decider == '1',
+                'sortOrder': row.sort_order or 0,
+            }
+            for row in rows
+        ]
         if not any(b['isDecider'] for b in out):
             out[0]['isDecider'] = True
         return out
@@ -398,7 +402,7 @@ class AiReqService:
 
     @classmethod
     async def _enqueue(cls, job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from utils.job_queue import JobQueue
+        from utils.job_queue import JobQueue  # noqa: PLC0415 - 延迟导入避免循环依赖（job_queue 依赖较重）
 
         ticket = await JobQueue.submit(job_type, payload)
         if not ticket:
@@ -527,7 +531,7 @@ class AiReqService:
         if not cls.is_member(user_name):
             raise ServiceException(message='admin / niangao 不在需求沟通群中')
         rows = await AiReqDao.list_messages(query_db, after_id=0, limit=40)
-        if len(rows) < 2:
+        if len(rows) < MIN_MESSAGES_FOR_SUMMARY:
             raise ServiceException(message='对话太少，请先讨论需求再总结')
         user_msg = await cls._add_user_message(
             query_db, user_id, user_name, nick_name, '请总结已确定的需求并写入需求清单。'
@@ -565,7 +569,7 @@ class AiReqService:
                 continue
             name = item.get('nickName') or 'AI'
             notes.append(f'- {name}: {(item.get("content") or "")[:280]}')
-            if len(notes) >= 8:
+            if len(notes) >= PEER_NOTE_LIMIT:
                 break
         notes.reverse()
         return '\n'.join(notes)

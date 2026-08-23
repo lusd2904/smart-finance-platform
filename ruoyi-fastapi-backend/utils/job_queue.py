@@ -430,8 +430,10 @@ async def _req_summarize(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal
-    from module_quant.service.daily_list_service import DailyListService
+    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+        DailyListService,
+    )
 
     profile = str((payload or {}).get('profile') or 'balanced')
     user_id = int((payload or {}).get('userId') or 0)
@@ -442,16 +444,20 @@ async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal
-    from module_quant.service.daily_list_service import DailyListService
+    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+        DailyListService,
+    )
 
     async with AsyncSessionLocal() as db:
         return await DailyListService.execute_queued(db)
 
 
 async def _feishu_push(_payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal
-    from module_trade.service.feishu_push_service import FeishuPushService
+    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+        FeishuPushService,
+    )
 
     async with AsyncSessionLocal() as db:
         return await FeishuPushService.run_due(db)

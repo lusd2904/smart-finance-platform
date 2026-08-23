@@ -36,7 +36,7 @@ def test_only_decider_may_write_when_confirmed() -> None:
 
 def test_save_bots_rejects_duplicate_model() -> None:
     import asyncio
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import MagicMock
 
     from exceptions.exception import ServiceException
 

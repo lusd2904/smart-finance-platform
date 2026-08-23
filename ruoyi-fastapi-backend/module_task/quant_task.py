@@ -59,7 +59,7 @@ async def run_daily_factor_scan_job(*args, **kwargs) -> None:
 
 async def run_position_monitor_job(*args, **kwargs) -> None:
     """持仓异动与止损监控。"""
-    from utils.longbridge_breaker import LongbridgeBreaker
+    from utils.longbridge_breaker import LongbridgeBreaker  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
 
     if await JobQueue.enqueue('position_monitor', {}):
         logger.info('[持仓监控任务] 已入队')
@@ -84,7 +84,9 @@ async def run_daily_list_scan_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('daily_list_scan', {'profile': profile}):
         logger.info('[次日清单] 扫描已入队')
         return
-    from module_quant.service.daily_list_service import DailyListService
+    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
+        DailyListService,
+    )
 
     async with AsyncSessionLocal() as db:
         result = await DailyListService.scan_all_users(db, profile)
@@ -96,7 +98,9 @@ async def run_daily_list_open_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('daily_list_open', {}):
         logger.info('[次日清单] 开盘送单已入队')
         return
-    from module_quant.service.daily_list_service import DailyListService
+    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
+        DailyListService,
+    )
 
     async with AsyncSessionLocal() as db:
         result = await DailyListService.execute_queued(db)
@@ -119,7 +123,9 @@ async def run_indicator_refresh_job(*args, **kwargs) -> None:
 
 async def run_factor_qc_job(*args, **kwargs) -> None:
     """Alphalens 风格因子质检（默认美股截面）。"""
-    from module_quant.service.factor_qc_service import FactorQcService
+    from module_quant.service.factor_qc_service import (  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
+        FactorQcService,
+    )
 
     market = str(kwargs.get('market') or (args[0] if args else 'US') or 'US')
     if await JobQueue.enqueue('factor_qc', {'market': market}):

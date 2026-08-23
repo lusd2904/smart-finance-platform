@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from exceptions.exception import ServiceException
 from module_quant.dao.quant_dao import QuantDailyListDao
@@ -16,12 +15,18 @@ from module_trade.dao.trade_dao import TradeDao
 from utils.log_util import logger
 from utils.trading_calendar import is_cn_trading_day, today_cn
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 DISCLAIMER = '本内容为量化策略摘要，不构成投资建议或荐股，过往表现不代表未来。交易有风险，决策请独立判断。'
 CARD_HEADER = '次日策略摘要'
+# 飞书自定义机器人对非法参数/被限流返回 HTTP >= 400 或业务码非 0
+FEISHU_HTTP_FAIL_MIN = 400
 
 
 def _flag(value: Any) -> str:
-    return '1' if value in {True, '1', 1, 'true'} else '0'
+    # True == 1，集合内无需重复写两个
+    return '1' if value in {True, '1', 'true'} else '0'
 
 
 def serialize_sub(row: Any) -> dict[str, Any]:
@@ -105,7 +110,8 @@ class FeishuPushService:
     @classmethod
     async def save_config(cls, db: AsyncSession, user_id: int, body: dict[str, Any]) -> dict[str, Any]:
         push_time = str(body.get('pushTime') or '18:30').strip()
-        if len(push_time) < 4 or ':' not in push_time:
+        # 最短允许 'H:MM'（4 字符），必须含小时分钟分隔符
+        if len(push_time) < len('H:MM') or ':' not in push_time:
             raise ServiceException(message='推送时间格式应为 HH:MM')
         row = await TradeDao.upsert_feishu_sub(
             db,
@@ -191,7 +197,7 @@ class FeishuPushService:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(webhook, json=payload)
                 data = resp.json() if resp.content else {}
-            if resp.status_code >= 400 or int(data.get('code') or 0) != 0:
+            if resp.status_code >= FEISHU_HTTP_FAIL_MIN or int(data.get('code') or 0) != 0:
                 text = str(data.get('msg') or data.get('message') or resp.text)[:300]
                 logger.warning(f'[飞书推送] 失败: {text}')
                 return False, text or f'HTTP {resp.status_code}'

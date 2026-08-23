@@ -9,6 +9,9 @@ CN_TZ = ZoneInfo('Asia/Shanghai')
 HK_TZ = ZoneInfo('Asia/Hong_Kong')
 US_TZ = ZoneInfo('America/New_York')
 
+# date.weekday()：周一=0 … 周六=5，周日=6
+WEEKDAY_SATURDAY = 5
+
 # 国务院放假安排（2025–2027 主要休市日，调休上班日不在此表）
 CN_HOLIDAYS = {
     date(2025, 1, 1),
@@ -104,7 +107,7 @@ def is_cn_trading_day(day: date | None = None) -> bool:
         return False
     if day in CN_MAKEUP_WORKDAYS:
         return True
-    return day.weekday() < 5
+    return is_weekday(day)
 
 
 def next_cn_trading_day(day: date | None = None) -> date:
@@ -117,7 +120,8 @@ def next_cn_trading_day(day: date | None = None) -> date:
 
 
 def is_weekday(day: date) -> bool:
-    return day.weekday() < 5
+    """周一至周五；date.weekday() 周一为 0，5 即周六。"""
+    return day.weekday() < WEEKDAY_SATURDAY
 
 
 def is_market_session_open(market: str, now: datetime | None = None) -> bool:
