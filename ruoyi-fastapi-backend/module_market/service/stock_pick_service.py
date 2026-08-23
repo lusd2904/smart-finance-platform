@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -15,11 +16,11 @@ from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_market.service.stock_pick_analyzer import StockPickAnalyzer
 from module_market.service.stock_pick_scoring import (
-    AI_PER_MARKET,
+    AI_CONCURRENCY,
     CANDIDATE_CAP,
     PICKS_PER_MARKET,
     SENTIMENT_FIELD,
-    ai_shortlist,
+    apply_ai_result,
     combine_pick_score,
     merge_candidates,
     reco_from_signal,
@@ -184,21 +185,69 @@ class StockPickService:
 
     @classmethod
     async def _resolve_ai(cls, db: AsyncSession) -> dict[str, Any]:
+        model = None
         try:
-            model = await AiModelDao.resolve_ai_model_for_business(db, 'market')
+            model = await AiModelDao.resolve_ai_model_for_business(db, 'sentiment')
+            if model is None:
+                model = await AiModelDao.resolve_ai_model_for_business(db, 'market')
         except Exception as exc:
             logger.warning(f'[选股] 解析模型失败: {exc}')
-            model = None
+            return {'available': False, 'reason': f'解析模型失败: {exc}'}
         if not model:
-            return {'available': False}
-        api_key = CryptoUtil.decrypt(model.api_key) if model.api_key else None
+            return {'available': False, 'reason': '未配置可用 AI 模型（AI 模型管理里填写 Base URL / Key / 模型）'}
+        api_key = model.api_key
+        if api_key:
+            try:
+                api_key = CryptoUtil.decrypt(api_key)
+            except Exception as exc:
+                logger.warning(f'[选股] API Key 解密失败: {exc}')
+                return {'available': False, 'reason': 'API Key 解密失败'}
+        if not (model.base_url and api_key and model.model_code):
+            return {'available': False, 'reason': '模型缺少 Base URL / API Key / 模型名'}
         return {
-            'available': bool(model.base_url and api_key and model.model_code),
+            'available': True,
             'baseUrl': model.base_url,
             'apiKey': api_key,
             'modelName': model.model_code,
             'temperature': model.temperature if model.temperature is not None else 0.2,
         }
+
+    @classmethod
+    async def _enrich_picked_with_ai(
+        cls,
+        picked: list[dict[str, Any]],
+        ai_cfg: dict[str, Any],
+        context: dict[str, Any],
+    ) -> tuple[int, str | None]:
+        if not picked:
+            return 0, None
+        sem = asyncio.Semaphore(AI_CONCURRENCY)
+
+        async def _one(row: dict[str, Any]) -> dict[str, Any]:
+            async with sem:
+                return await StockPickAnalyzer.analyze(
+                    ai_cfg['baseUrl'],
+                    ai_cfg['apiKey'],
+                    ai_cfg['modelName'],
+                    row,
+                    context,
+                    temperature=float(ai_cfg.get('temperature') or 0.2),
+                )
+
+        results = await asyncio.gather(*[_one(row) for row in picked], return_exceptions=True)
+        ai_count = 0
+        last_err: str | None = None
+        for row, result in zip(picked, results, strict=False):
+            if isinstance(result, Exception):
+                last_err = str(result)
+                logger.warning(f"[选股AI] {row.get('symbol')} 异常: {result}")
+                continue
+            if result.get('ok') and result.get('result'):
+                apply_ai_result(row, result['result'])
+                ai_count += 1
+            else:
+                last_err = str(result.get('error') or last_err or '模型未返回有效 JSON')
+        return ai_count, last_err
 
     @classmethod
     async def run(cls, db: AsyncSession, *, trigger: str = 'manual', use_ai: bool = True) -> dict[str, Any]:
@@ -305,11 +354,11 @@ class StockPickService:
                 )
 
         picked = select_top_picks(scored, per_market=PICKS_PER_MARKET)
-        ai_cfg = await cls._resolve_ai(db) if use_ai else {'available': False}
+        ai_cfg = await cls._resolve_ai(db) if use_ai else {'available': False, 'reason': '未启用 AI'}
         ai_count = 0
         model_name = ai_cfg.get('modelName')
+        ai_error = ai_cfg.get('reason')
         if ai_cfg.get('available'):
-            shortlist = {(r['symbol'], r['market']) for r in ai_shortlist(picked, per_market=AI_PER_MARKET)}
             context = {
                 'markets': {
                     m: {
@@ -322,34 +371,9 @@ class StockPickService:
                 },
                 'sentiment': sentiment,
             }
-            for row in picked:
-                if (row['symbol'], row['market']) not in shortlist:
-                    continue
-                result = await StockPickAnalyzer.analyze(
-                    ai_cfg['baseUrl'],
-                    ai_cfg['apiKey'],
-                    ai_cfg['modelName'],
-                    row,
-                    context,
-                    temperature=float(ai_cfg.get('temperature') or 0.2),
-                )
-                parsed = result.get('result') if result.get('ok') else None
-                if not parsed:
-                    continue
-                ai_count += 1
-                row['source'] = 'ai'
-                row['stance'] = parsed.get('stance') or row['stance']
-                row['recommendation'] = parsed.get('recommendation') or row['recommendation']
-                if parsed.get('confidence') is not None:
-                    try:
-                        row['confidence'] = int(parsed.get('confidence'))
-                    except (TypeError, ValueError):
-                        pass
-                row['summary'] = parsed.get('summary') or row['summary']
-                row['indicatorReview'] = parsed.get('indicator_review') or row['indicatorReview']
-                row['sentimentReview'] = parsed.get('sentiment_review') or row['sentimentReview']
-                row['operationAdvice'] = parsed.get('operation_advice') or row['operationAdvice']
-                row['riskWarning'] = parsed.get('risk_warning') or row['riskWarning']
+            ai_count, ai_error = await cls._enrich_picked_with_ai(picked, ai_cfg, context)
+        elif use_ai:
+            logger.warning(f'[选股] 跳过 AI：{ai_error}')
 
         db_rows = []
         for row in picked:
@@ -378,9 +402,14 @@ class StockPickService:
                 }
             )
         await StockPickDao.replace_items(db, run.pick_id, db_rows)
-        status = 'empty' if not picked else ('partial' if use_ai and not ai_count else 'ok')
+        status = 'empty' if not picked else ('partial' if use_ai and ai_count < len(picked) else 'ok')
         hint = mood.get('hint') or ''
-        message = f'{hint} 扫描{scanned}只，入选{len(picked)}只，AI {ai_count}只。'
+        ai_part = f'AI {ai_count}/{len(picked)}'
+        if model_name:
+            ai_part += f'（{model_name}）'
+        if use_ai and ai_count == 0 and ai_error:
+            ai_part += f'，未写入研判：{ai_error}'
+        message = f'{hint} 扫描{scanned}只，入选{len(picked)}只，{ai_part}。'
         await StockPickDao.upsert_run(
             db,
             {

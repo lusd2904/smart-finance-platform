@@ -8,7 +8,8 @@ INDEX_PREFIXES = ('^',)
 SENTIMENT_FIELD = {'US': 'usScore', 'HK': 'hkScore', 'CN': 'aScore'}
 CANDIDATE_CAP = 80
 PICKS_PER_MARKET = 10
-AI_PER_MARKET = 6
+AI_PER_MARKET = 10
+AI_CONCURRENCY = 3
 
 
 def clamp_score(value: float | None, default: float = 50.0) -> float:
@@ -130,3 +131,30 @@ def select_top_picks(rows: list[dict[str, Any]], per_market: int = PICKS_PER_MAR
 
 def ai_shortlist(rows: list[dict[str, Any]], per_market: int = AI_PER_MARKET) -> list[dict[str, Any]]:
     return select_top_picks(rows, per_market=per_market)
+
+
+def apply_ai_result(row: dict[str, Any], parsed: dict[str, Any]) -> dict[str, Any]:
+    """把模型 JSON 写回选股行；缺字段保留规则结果。"""
+    if not parsed:
+        return row
+    row['source'] = 'ai'
+    if parsed.get('stance'):
+        row['stance'] = str(parsed.get('stance'))
+    if parsed.get('recommendation'):
+        row['recommendation'] = str(parsed.get('recommendation'))
+    if parsed.get('confidence') is not None:
+        try:
+            row['confidence'] = max(0, min(100, int(parsed.get('confidence'))))
+        except (TypeError, ValueError):
+            pass
+    if parsed.get('summary'):
+        row['summary'] = str(parsed.get('summary'))
+    if parsed.get('indicator_review'):
+        row['indicatorReview'] = str(parsed.get('indicator_review'))
+    if parsed.get('sentiment_review'):
+        row['sentimentReview'] = str(parsed.get('sentiment_review'))
+    if parsed.get('operation_advice'):
+        row['operationAdvice'] = str(parsed.get('operation_advice'))
+    if parsed.get('risk_warning'):
+        row['riskWarning'] = str(parsed.get('risk_warning'))
+    return row

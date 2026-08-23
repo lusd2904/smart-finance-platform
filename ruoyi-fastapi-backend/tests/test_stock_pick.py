@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.stock_pick_scoring import (
+    apply_ai_result,
     combine_pick_score,
     is_index_symbol,
     merge_candidates,
@@ -50,6 +51,34 @@ def test_merge_and_select() -> None:
     picked = select_top_picks(rows, per_market=1)
     us = [r for r in picked if r['market'] == 'US']
     assert us[0]['symbol'] == 'B'
+
+
+def test_apply_ai_result_overwrites_rule_advice() -> None:
+    row = {
+        'source': 'rule',
+        'recommendation': '观望',
+        'stance': '中性',
+        'summary': '规则摘要',
+        'confidence': 50,
+    }
+    apply_ai_result(
+        row,
+        {
+            'stance': '偏多',
+            'recommendation': '买入',
+            'confidence': 78,
+            'summary': 'AI 认为趋势延续',
+            'indicator_review': '站上均线',
+            'sentiment_review': '舆情偏多',
+            'operation_advice': '回踩加仓',
+            'risk_warning': '注意放量',
+        },
+    )
+    assert row['source'] == 'ai'
+    assert row['recommendation'] == '买入'
+    assert row['summary'] == 'AI 认为趋势延续'
+    assert row['operationAdvice'] == '回踩加仓'
+    assert row['confidence'] == 78
 
 
 def test_eod_skip_and_session_date() -> None:

@@ -4,7 +4,7 @@
       <div class="hero-left">
         <div class="hero-title">智能选股</div>
         <div class="hero-sub">
-          指标 + 舆情 + 开盘指数 · 休市市场自动去掉实时指数
+          入选标的都会走 AI 研判（指标 + 舆情 + 开盘指数）
           <el-tag v-if="latest.updatedAt" size="small" effect="plain" class="asof-tag">{{ latest.updatedAt }}</el-tag>
         </div>
       </div>
@@ -49,7 +49,7 @@
       <template #header>
         <div class="panel-header">
           <span class="panel-title">{{ tableTitle }}</span>
-          <span class="panel-sub">{{ latest.message || '入选名单结合因子打分、舆情与开盘指数' }}</span>
+          <span class="panel-sub">{{ latest.message || '入选后由模型写建议；失败则保留规则分' }}</span>
         </div>
       </template>
       <el-table v-loading="loading" :data="items" stripe empty-text="暂无选股单，点击「生成选股单」或等待收盘任务">
@@ -73,7 +73,18 @@
             <el-tag size="small" :type="recoType(row.recommendation)">{{ row.recommendation || '--' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
+        <el-table-column label="研判" width="88" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.source === 'ai' ? 'warning' : 'info'" effect="plain">
+              {{ row.source === 'ai' ? 'AI' : '规则' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDetail(row)">{{ row.summary || '查看' }}</el-button>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="goKline(row)">K线</el-button>
@@ -84,6 +95,18 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-drawer v-model="detailOpen" :title="detailTitle" size="420px">
+      <div class="drawer-block" v-if="detail">
+        <p><b>建议</b> {{ detail.recommendation }} · {{ detail.stance }} · 置信度 {{ detail.confidence ?? '--' }}</p>
+        <p><b>综合</b> {{ detail.summary || '--' }}</p>
+        <p><b>指标</b> {{ detail.indicatorReview || '--' }}</p>
+        <p><b>舆情</b> {{ detail.sentimentReview || '--' }}</p>
+        <p><b>操作</b> {{ detail.operationAdvice || '--' }}</p>
+        <p><b>风险</b> {{ detail.riskWarning || '--' }}</p>
+        <p class="drawer-src">来源 {{ detail.source === 'ai' ? 'AI 研判' : '规则打分' }}{{ latest.modelName ? ' · ' + latest.modelName : '' }}</p>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -105,6 +128,9 @@ const runLoading = ref(false)
 const mood = ref({ sessions: {}, sentiment: {}, indices: [], headlines: [], openMarkets: [], hint: '' })
 const latest = ref({ items: [], message: '', empty: true })
 const adding = ref('')
+const detailOpen = ref(false)
+const detail = ref(null)
+const detailTitle = computed(() => (detail.value ? `${detail.value.name || ''} ${detail.value.symbol || ''}` : '研判'))
 
 const items = computed(() => latest.value.items || [])
 const headlines = computed(() => (mood.value.headlines || []).slice(0, 6))
@@ -164,6 +190,10 @@ function goKline(row) {
 }
 function goDetail(row) {
   router.push({ path: '/market/symbol', query: { symbol: row.symbol, market: row.market || 'US' } })
+}
+function openDetail(row) {
+  detail.value = row
+  detailOpen.value = true
 }
 
 async function addWatch(row) {
@@ -256,4 +286,6 @@ onMounted(loadAll)
 .h-src { color: #94a3b8; min-width: 72px; }
 .up { color: var(--mc-up); font-weight: 600; }
 .down { color: var(--mc-down); font-weight: 600; }
+.drawer-block p { line-height: 1.7; margin: 0 0 12px; color: var(--text-emphasis, #303133); }
+.drawer-src { font-size: 12px; color: var(--text-muted, #909399); }
 </style>
