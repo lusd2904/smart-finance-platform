@@ -17,7 +17,7 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
 from config.env import GenConfig
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_generator.entity.vo.gen_vo import (
     DeleteGenTableModel,
     EditGenTableModel,

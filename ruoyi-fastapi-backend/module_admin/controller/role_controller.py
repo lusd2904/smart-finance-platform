@@ -15,20 +15,21 @@ from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.constant import ApiGroup, ApiNamespace
-from common.enums import BusinessType
-from common.router import APIRouterPro
-from common.vo import DataResponseModel, DynamicResponseModel, PageResponseModel, ResponseBaseModel
-from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.user_do import SysUser
-from module_admin.entity.vo.dept_vo import DeptModel
-from module_admin.entity.vo.role_vo import (
+from common.entity.vo.dept_vo import DeptModel
+from common.entity.vo.role_vo import (
     AddRoleModel,
     DeleteRoleModel,
     RoleDeptQueryModel,
     RoleModel,
     RolePageQueryModel,
 )
-from module_admin.entity.vo.user_vo import CrudUserRoleModel, CurrentUserModel, UserInfoModel, UserRolePageQueryModel
+from common.entity.vo.user_vo import CurrentUserModel, UserInfoModel
+from common.enums import BusinessType
+from common.router import APIRouterPro
+from common.vo import DataResponseModel, DynamicResponseModel, PageResponseModel, ResponseBaseModel
+from module_admin.entity.do.dept_do import SysDept
+from module_admin.entity.do.user_do import SysUser
+from module_admin.entity.vo.user_vo import CrudUserRoleModel, UserRolePageQueryModel
 from module_admin.service.dept_service import DeptService
 from module_admin.service.role_service import RoleService
 from module_admin.service.user_service import UserService

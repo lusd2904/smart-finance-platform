@@ -7,11 +7,11 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from config.env import AppConfig
 from exceptions.exception import ServiceException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_ai.service.ai_req_service import AiReqService
 from utils.job_queue import JobQueue
 from utils.log_util import logger

@@ -153,6 +153,19 @@ class InfluxSettings(BaseSettings):
     influx_bucket_cn: str = 'market_data'
 
 
+class KlineSettings(BaseSettings):
+    """
+    行情K线同步配置（module_market 同步任务）
+    """
+
+    # 全市场慢速同步单个标的间隔（秒）
+    kline_symbol_interval: float = 1.5
+    # 本地日K条数达到该值才允许跳过外网补源
+    kline_skip_min_bars: int = 200
+    # 本地最新日K距今不超过该天数才跳过外网补源
+    kline_skip_fresh_days: int = 10
+
+
 class LongbridgeSettings(BaseSettings):
     """
     长桥证券SDK配置（量化交易接入）
@@ -358,6 +371,12 @@ class GetConfig:
         获取长桥证券SDK配置
         """
         return LongbridgeSettings()
+
+    def get_kline_config(self) -> KlineSettings:
+        """
+        获取行情K线同步配置
+        """
+        return KlineSettings()
 
     def get_transport_crypto_config(self) -> TransportCryptoSettings:
         """

@@ -5,19 +5,21 @@ APScheduler==3.11.2
 async-lru==2.1.0
 asyncmy==0.2.11
 bcrypt==5.0.0
-fastapi[all]==0.128.2
+fastapi[all]==0.141.1
 loguru==0.7.3
 openpyxl==3.1.5
 pandas==2.3.3
-Pillow==12.1.1
+Pillow==12.3.0
 prometheus-client==0.23.1
 psutil==7.2.2
 pydantic>=2.11.4
 pydantic-validation-decorator==0.1.5
-PyJWT[crypto]==2.11.0
+PyJWT[crypto]==2.13.0
 PyMySQL==1.1.2
 redis==7.1.0
 ruff==0.15.0
+# 显式钉住以传导安全修复（PYSEC-2026-161/-248/-249/-228x），随 fastapi 升级一并引入
+starlette==1.3.1
 SQLAlchemy[asyncio]==2.0.46
 sqlglot[rs]==28.10.0
 textual==8.2.5

@@ -44,6 +44,8 @@ function defaultConfig() {
     url: '',
     confirmOnLaunch: true,
     lastVerifiedAt: null,
+    lastGoodUrl: null,
+    lastGoodAt: null,
   }
 }
 
@@ -60,14 +62,14 @@ function saveGateway(userDataDir, payload) {
 }
 
 function normalizeGateway(raw) {
-  let text = String(raw || '').trim()
+  const text = String(raw || '').trim()
   if (!text) return ''
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(text)) {
-    text = `http://${text}`
-  }
+  // 安全默认：未显式写协议时按 https 处理，不再静默补 http://（避免明文自动降级）。
+  // 需要明文 http（如本机 Docker）必须由用户显式填写 http:// 前缀。
+  const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`
   let parsed
   try {
-    parsed = new URL(text)
+    parsed = new URL(withScheme)
   } catch {
     throw new Error('网关地址格式无效')
   }
@@ -100,10 +102,30 @@ async function probeGateway(rawUrl) {
           const body = (await res.text()).slice(0, 32000)
           return { pathname, status: res.status, contentType, body }
         } catch (err) {
-          return { pathname, error: err.message || String(err) }
+          return { pathname, error: err.message || String(err), errorName: err && err.name }
         }
       })
     )
+    // 网络层完全不可达（DNS/超时/TLS 失败等）时给出明确错误态：
+    // HTTPS 地址绝不自动降级为 HTTP，仅在结果里附上 fallbackUrl 供用户在配置窗手动选择降级。
+    if (pages.every((page) => page.error)) {
+      const aborted = pages.some((page) => page.errorName === 'AbortError')
+      const result = {
+        ok: false,
+        origin,
+        code: 'unreachable',
+        message: aborted
+          ? '连接超时，请检查地址、端口和防火墙'
+          : `无法连接：${pages[0].error}`,
+      }
+      if (origin.startsWith('https://')) {
+        result.code = 'https_unreachable'
+        result.fallbackUrl = `http://${origin.slice('https://'.length)}`
+        result.message +=
+          '。不会自动降级为明文 HTTP；如你确认该环境没有 TLS，请在上方手动把地址改为以 http:// 开头后再试。'
+      }
+      return result
+    }
     const isFrontend = (page) => {
       const body = page.body || ''
       const type = page.contentType || ''

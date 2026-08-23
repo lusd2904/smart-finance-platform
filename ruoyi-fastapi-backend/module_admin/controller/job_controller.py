@@ -25,7 +25,7 @@ from module_admin.entity.vo.job_vo import (
     JobModel,
     JobPageQueryModel,
 )
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.job_log_service import JobLogService
 from module_admin.service.job_service import JobService
 from utils.common_util import bytes2file_response

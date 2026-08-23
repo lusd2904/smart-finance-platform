@@ -16,9 +16,9 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from module_market.constant.instruments import LISTED_CATEGORY
+from utils.http_fetch import fetch
 from utils.log_util import logger
 
 if TYPE_CHECKING:
@@ -84,25 +84,7 @@ MIN_SINA_LISTING_ROWS = 500
 
 
 def _http_get(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> str:
-    last_err: Exception | None = None
-    merged = dict(UA)
-    if headers:
-        merged.update(headers)
-    for _attempt in range(3):
-        try:
-            req = Request(url, headers=merged)
-            with urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-            for enc in ('utf-8', 'gbk', 'gb2312'):
-                try:
-                    return raw.decode(enc)
-                except UnicodeDecodeError:  # noqa: PERF203 - 多编码逐个尝试
-                    continue
-            return raw.decode('utf-8', 'replace')
-        except Exception as exc:
-            last_err = exc
-            time.sleep(0.4)
-    raise RuntimeError(f'GET failed {url}: {last_err}') from last_err
+    return fetch(url, timeout_s=timeout, headers={**UA, **(headers or {})})
 
 
 def _clip_name(name: str | None) -> str:

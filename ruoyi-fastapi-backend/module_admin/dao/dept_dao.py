@@ -6,7 +6,7 @@ from sqlalchemy.util import immutabledict
 
 from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.user_do import SysUser
-from module_admin.entity.vo.dept_vo import DeptModel
+from common.entity.vo.dept_vo import DeptModel
 
 
 class DeptDao:

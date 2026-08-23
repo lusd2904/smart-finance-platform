@@ -10,10 +10,10 @@ from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPr
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.constant import ApiGroup, ApiNamespace
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, ResponseBaseModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_ai.entity.vo.ai_chat_vo import (
     AiChatConfigModel,
     AiChatRequestModel,

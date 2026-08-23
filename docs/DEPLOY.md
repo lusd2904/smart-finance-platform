@@ -13,9 +13,12 @@ cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 
 至少修改：
 
-- `JWT_SECRET_KEY`
-- MySQL 密码（与 compose 中一致）
-- 默认 `admin / admin123`
+- `JWT_SECRET_KEY`（随机强密钥，泄露即会话可伪造）
+- `MYSQL_ROOT_PASSWORD` / `REDIS_PASSWORD` / `INFLUXDB_PASSWORD` / `INFLUXDB_TOKEN` / `GRAFANA_ADMIN_PASSWORD`
+- `INITIAL_ADMIN_PASSWORD`：**仅对新库首次初始化生效**；示例值是占位符，切勿直接上生产
+
+> ⚠️ 历史版本曾在示例文件中提交过真实初始密码（已从代码与 git 历史清除）。
+> 在此之前部署的环境请立即登录后台修改 admin 密码。
 
 可选：长桥凭证、AI Base URL / API Key。
 
@@ -25,14 +28,12 @@ cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 docker compose -f docker-compose.sentiment.yml up -d --build
 ```
 
-| 服务 | 端口 |
-|------|------|
-| 前端 / 网关 | http://127.0.0.1:12580（对外仍走 sfp.luapi.top） |
-| 平台 API | http://127.0.0.1:19099 |
-| jobs 调度 | http://127.0.0.1:19098/health |
-| MySQL | 13306 |
-| Redis | 16379 |
-| InfluxDB | 18086 |
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| 前端 / 网关 | http://127.0.0.1:12580（对外仍走 sfp.luapi.top） | 容器内非特权 nginx，监听 8080 |
+| 平台 API | http://127.0.0.1:19099（仅本机回环） | OpenAPI `/docs`；云上经网关反代访问 |
+| jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | |
+| MySQL / Redis / InfluxDB | 不暴露宿主端口 | 业务容器走内网访问；本机调试临时改映射 |
 
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
@@ -47,26 +48,21 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm sentiment-trade sentiment-market sentiment-quant sentiment-news sentiment-ai sentiment-backend sentiment-frontend
 ```
 
-已有库需要执行增量 SQL：
+### 增量 SQL（schema_version 登记制）
+
+增量 SQL 由 `scripts/sql_migrate.py` 统一管理（版本登记在 `sentiment-ai.schema_version` 表），
+`deploy_and_verify.sh` 第 [3/5] 段会自动执行。手动用法：
 
 ```bash
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/web-polish.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/analysis-scheduler.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/ai-requirement-board.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/market-menu-unify.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/quant-longbridge-user.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/market-universe-menu.sql
-docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
-  < ruoyi-fastapi-backend/sql/market-stock-pick.sql
+python3 scripts/sql_migrate.py apply --dry-run          # 查看待执行计划（不连库）
+MYSQL_ROOT_PASSWORD=<密码> python3 scripts/sql_migrate.py apply --keep-going
+python3 scripts/sql_migrate.py status                   # 查看已登记/待执行
 ```
 
-空库还需按 README 导入 `sql/` 下的菜单脚本。
+- 新环境：compose 首次挂载初始化全量基线后，迁移器自动预登记同一批基线文件，只补真正的增量。
+- 新增增量脚本：放进 `ruoyi-fastapi-backend/sql/*.sql`（kebab-case 命名、幂等可重放），下次 apply 自动消费；
+  细节见 `ruoyi-fastapi-backend/sql/README.md`。
+- 服务层不再运行时建表：代码依赖的表（如 `market_price_history_daily`）缺失时按日志提示执行迁移即可。
 
 ## 3. 监控（可选）
 
@@ -74,8 +70,8 @@ docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai
 docker compose -f docker-compose.monitor.yml up -d
 ```
 
-- Prometheus：http://127.0.0.1:19090
-- Grafana：http://127.0.0.1:13000（默认 admin / admin，请改密码）
+- Prometheus：http://127.0.0.1:19090（仅本机回环）
+- Grafana：http://127.0.0.1:13000（仅本机回环；默认 admin / admin，请改密码）
 - 后端指标：`GET /metrics`
 
 ## 4. PostgreSQL（可选，不是默认栈）

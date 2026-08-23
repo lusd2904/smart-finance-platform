@@ -24,7 +24,7 @@ from module_admin.entity.vo.dict_vo import (
     DictTypeModel,
     DictTypePageQueryModel,
 )
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.dict_service import DictDataService, DictTypeService
 from utils.common_util import bytes2file_response
 from utils.log_util import logger

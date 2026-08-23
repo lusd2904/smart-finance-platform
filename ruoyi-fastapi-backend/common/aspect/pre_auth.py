@@ -6,11 +6,11 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.context import RequestContext
+from common.entity.vo.user_vo import CurrentUserModel
 from config.env import AppConfig
 from config.get_db import get_db
+from config.providers import get_token_auth_provider
 from exceptions.exception import AuthException
-from module_admin.entity.vo.user_vo import CurrentUserModel
-from module_admin.service.login_service import LoginService
 
 
 # 定义排除路由的字典结构
@@ -121,7 +121,7 @@ class PreAuth:
         token = request.headers.get('Authorization')
         if not token:
             raise AuthException(data='', message='用户未登录，请先完成登录')
-        current_user = await LoginService.get_current_user(request, token, db)
+        current_user = await get_token_auth_provider().get_current_user(request, token, db)
         return current_user
 
 
@@ -137,10 +137,24 @@ def PreAuthDependency(exclude_routes: list[ExcludeRoute] | None = None) -> param
     return Depends(PreAuth(exclude_routes))
 
 
+async def current_user_dependency(
+    request: Request, token: str = Depends(oauth2_scheme), query_db: AsyncSession = Depends(get_db)
+) -> CurrentUserModel:
+    """
+    当前登录用户信息依赖实现（经认证提供者解析，保持原依赖注入签名）
+
+    :param request: 当前请求对象
+    :param token: OAuth2 令牌
+    :param query_db: 数据库会话
+    :return: 当前登录用户信息
+    """
+    return await get_token_auth_provider().get_current_user(request, token, query_db)
+
+
 def CurrentUserDependency() -> params.Depends:  # noqa: N802
     """
     当前登录用户信息依赖
 
     :return: 当前登录用户信息依赖
     """
-    return Depends(LoginService.get_current_user)
+    return Depends(current_user_dependency)

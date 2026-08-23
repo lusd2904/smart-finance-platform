@@ -21,7 +21,7 @@ for i in $(seq 1 30); do
 done
 [ -n "$ok" ] || { echo "后端未就绪，查看日志: docker logs --tail 50 sentiment-backend"; exit 1; }
 
-echo "==> [3/5] 增量 SQL（幂等，可重复执行）"
+echo "==> [3/5] 增量 SQL（schema_version 登记制，幂等）"
 # 密码来源优先级：环境变量 > 根目录 .env > 运行中容器的环境值
 MYSQL_PWD_VAL="${MYSQL_ROOT_PASSWORD:-}"
 if [ -z "$MYSQL_PWD_VAL" ] && [ -f .env ]; then
@@ -31,40 +31,33 @@ if [ -z "$MYSQL_PWD_VAL" ]; then
   MYSQL_PWD_VAL="$(docker exec sentiment-mysql printenv MYSQL_ROOT_PASSWORD 2>/dev/null || true)"
 fi
 if [ -n "$MYSQL_PWD_VAL" ]; then
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/market-heat.sql 2>/dev/null \
-    && echo "market-heat.sql OK" || echo "market-heat.sql 跳过（已执行或失败，可手动重跑）"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/market-menu-unify.sql 2>/dev/null \
-    && echo "market-menu-unify.sql OK" || echo "menu-unify 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/quant-longbridge-user.sql 2>/dev/null \
-    && echo "quant-longbridge-user.sql OK" || echo "longbridge-user 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/ai-req-bots.sql 2>/dev/null \
-    && echo "ai-req-bots.sql OK" || echo "ai-req-bots 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/quant-daily-list.sql 2>/dev/null \
-    && echo "quant-daily-list.sql OK" || echo "daily-list 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/plat-feishu-push.sql 2>/dev/null \
-    && echo "plat-feishu-push.sql OK" || echo "feishu-push 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/quant-watchlist-user.sql 2>/dev/null \
-    && echo "quant-watchlist-user.sql OK" || echo "watchlist-user 跳过"
-  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
-    < ruoyi-fastapi-backend/sql/auto-trade-user.sql 2>/dev/null \
-    && echo "auto-trade-user.sql OK" || echo "auto-trade-user 跳过"
+  # 迁移器按文件名序扫描 sql/ 全部增量，stderr 透传可见；--keep-going 保持旧的容忍度
+  if python3 scripts/sql_migrate.py apply --keep-going --password "$MYSQL_PWD_VAL"; then
+    echo "增量 SQL 同步完成"
+  else
+    echo "!! 增量 SQL 存在失败项（错误见上方输出，不再被吞掉）。修复后重跑本脚本可续传"
+  fi
 else
-  echo "!! 未找到 MYSQL_ROOT_PASSWORD，跳过增量 SQL。如菜单缺失请手动执行:"
-  echo "   docker exec -i sentiment-mysql mysql -uroot -p<密码> sentiment-ai < ruoyi-fastapi-backend/sql/market-menu-unify.sql"
+  echo "!! 未找到 MYSQL_ROOT_PASSWORD，跳过增量 SQL。可手动执行:"
+  echo "   python3 scripts/sql_migrate.py apply（或先设置 MYSQL_ROOT_PASSWORD 环境变量）"
 fi
 
 echo "==> [4/5] 冒烟验证新接口"
+# admin 密码来源优先级：环境变量 > 根目录 .env；未提供则跳过登录冒烟
+ADMIN_PWD_VAL="${ADMIN_PASSWORD:-}"
+if [ -z "$ADMIN_PWD_VAL" ] && [ -f .env ]; then
+  ADMIN_PWD_VAL="$(grep '^ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2- || true)"
+fi
+if [ -z "$ADMIN_PWD_VAL" ]; then
+  echo "!! 未提供 ADMIN_PASSWORD（环境变量或根目录 .env），跳过登录冒烟验证"
+fi
+TOKEN=""
+if [ -n "$ADMIN_PWD_VAL" ]; then
 TOKEN=$(curl -s -X POST http://127.0.0.1:12580/prod-api/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"'"${ADMIN_PASSWORD:-***REMOVED***}"'","code":"","uuid":""}' \
-  | python3 -c "import sys,json;d=json.load(sys.stdin);print((d.get('data') or {}).get('access_token') or d.get('token') or '')" 2>/dev/null || true)
+  -d '{"username":"admin","password":"'"$ADMIN_PWD_VAL"'","code":"","uuid":""}' \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print((d.get('data') or {}).get('access_token') or (d.get('data') or {}).get('token') or '')" 2>/dev/null || true)
+fi
 if [ -z "$TOKEN" ]; then
   echo "登录失败（可能改过 admin 密码）。跳过接口验证，前端仍已更新。"
 else

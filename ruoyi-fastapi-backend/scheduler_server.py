@@ -17,10 +17,14 @@ from config.env import AppConfig
 from config.get_db import close_async_engine, init_create_table
 from config.get_redis import RedisUtil
 from config.get_scheduler import SchedulerUtil, scheduler
+from config.providers import install_module_admin_provider
 from middlewares.metrics_middleware import render_metrics
 from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.scheduler_runtime import SchedulerRuntime
+
+# 公共层不直接依赖业务模块：进程入口装配字典/参数缓存的真实实现
+install_module_admin_provider()
 
 
 async def _stop_scheduler_runtime(app: FastAPI) -> None:

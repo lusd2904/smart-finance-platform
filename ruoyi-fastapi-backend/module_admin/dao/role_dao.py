@@ -10,7 +10,7 @@ from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.menu_do import SysMenu
 from module_admin.entity.do.role_do import SysRole, SysRoleDept, SysRoleMenu
 from module_admin.entity.do.user_do import SysUser, SysUserRole
-from module_admin.entity.vo.role_vo import RoleDeptModel, RoleMenuModel, RoleModel, RolePageQueryModel
+from common.entity.vo.role_vo import RoleDeptModel, RoleMenuModel, RoleModel, RolePageQueryModel
 from utils.page_util import PageUtil
 
 

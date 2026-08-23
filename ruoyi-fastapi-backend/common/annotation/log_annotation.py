@@ -19,9 +19,8 @@ from user_agents import parse
 from common.context import RequestContext
 from common.enums import BusinessType
 from config.env import AppConfig
+from config.providers import get_operation_log_sink
 from exceptions.exception import LoginException, ServiceException, ServiceWarning
-from module_admin.entity.vo.log_vo import LogininforModel, OperLogModel
-from module_admin.service.log_service import LogQueueService
 from utils.client_ip_util import ClientIPUtil
 from utils.dependency_util import DependencyUtil
 from utils.log_util import LogSanitizer, logger
@@ -234,30 +233,30 @@ class Log:
                         }
                     )
 
-                    await LogQueueService.enqueue_login_log(request, LogininforModel(**login_log), func_path)
+                    await get_operation_log_sink().enqueue_login_log(request, login_log, func_path)
             else:
                 current_user = RequestContext.get_current_user()
                 oper_name = current_user.user.user_name
                 dept_name = current_user.user.dept.dept_name if current_user.user.dept else None
-                operation_log = OperLogModel(
-                    title=self.title,
-                    businessType=self.business_type,
-                    method=func_path,
-                    requestMethod=request_method,
-                    operatorType=operator_type,
-                    operName=oper_name,
-                    deptName=dept_name,
-                    operUrl=oper_url,
-                    operIp=oper_ip,
-                    operLocation=oper_location,
-                    operParam=oper_param,
-                    jsonResult=json_result,
-                    status=status,
-                    errorMsg=error_msg,
-                    operTime=oper_time,
-                    costTime=int(cost_time),
-                )
-                await LogQueueService.enqueue_operation_log(request, operation_log, func_path)
+                operation_log_fields = {
+                    'title': self.title,
+                    'businessType': self.business_type,
+                    'method': func_path,
+                    'requestMethod': request_method,
+                    'operatorType': operator_type,
+                    'operName': oper_name,
+                    'deptName': dept_name,
+                    'operUrl': oper_url,
+                    'operIp': oper_ip,
+                    'operLocation': oper_location,
+                    'operParam': oper_param,
+                    'jsonResult': json_result,
+                    'status': status,
+                    'errorMsg': error_msg,
+                    'operTime': oper_time,
+                    'costTime': int(cost_time),
+                }
+                await get_operation_log_sink().enqueue_operation_log(request, operation_log_fields, func_path)
 
             return result
 
@@ -1021,8 +1020,11 @@ async def get_ip_location(oper_ip: str) -> str:
     try:
         if oper_ip not in ['127.0.0.1', 'localhost']:
             oper_location = '未知'
-            async with httpx.AsyncClient() as client:
-                ip_result = await client.get(f'https://qifu-api.baidubce.com/ip/geo/v1/district?ip={oper_ip}')
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
+                ip_result = await client.get(
+                    f'https://qifu-api.baidubce.com/ip/geo/v1/district?ip={oper_ip}',
+                    timeout=httpx.Timeout(5.0, connect=2.0),
+                )
                 if ip_result.status_code == HTTP_200_OK:
                     prov = ip_result.json().get('data', {}).get('prov')
                     city = ip_result.json().get('data', {}).get('city')
@@ -1030,7 +1032,7 @@ async def get_ip_location(oper_ip: str) -> str:
                         oper_location = f'{prov}-{city}'
     except Exception as e:
         oper_location = '未知'
-        print(e)
+        logger.debug('IP归属地查询失败，已降级为未知，oper_ip={}, error_type={}, error={}', oper_ip, type(e).__name__, e)
     return oper_location
 
 

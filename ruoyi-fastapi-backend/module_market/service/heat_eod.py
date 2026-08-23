@@ -13,7 +13,6 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from module_market.config.heat_config import MARKET_META
 from module_market.dao.heat_dao import MarketHeatDao
@@ -24,6 +23,7 @@ from module_market.service.heat_service import (
     _normalize_market,
     _resolve_trade_date,
 )
+from utils.http_fetch import extract_jsonp, fetch
 from utils.log_util import logger
 
 if TYPE_CHECKING:
@@ -36,22 +36,7 @@ UA = {
 
 
 def _http_get(url: str, timeout: int = 20, encoding: str = 'utf-8') -> str:
-    last_err: Exception | None = None
-    for attempt in range(3):
-        try:
-            req = Request(url, headers=UA)
-            with urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-            for enc in (encoding, 'utf-8', 'gbk'):
-                try:
-                    return raw.decode(enc)
-                except Exception:  # noqa: PERF203 - 多编码逐个尝试
-                    continue
-            return raw.decode('utf-8', 'replace')
-        except Exception as exc:
-            last_err = exc
-            logger.warning(f'[heat_eod] GET fail attempt={attempt+1} url={url[:120]} err={exc}')
-    raise last_err or RuntimeError(f'GET failed {url}')
+    return fetch(url, timeout_s=timeout, headers=UA, encoding=encoding)
 
 
 def _safe_call(name: str, fn: Any, *args: Any, default: Any = None, **kwargs: Any) -> Any:
@@ -233,13 +218,6 @@ def _fetch_sina_hk_rank(pages: int = 3) -> list[dict[str, Any]]:
     return out
 
 
-def _extract_jsonp(text: str) -> Any:
-    start = text.find('(')
-    end = text.rfind(')')
-    if start < 0 or end <= start:
-        raise ValueError('jsonp payload missing')
-    return json.loads(text[start + 1 : end])
-
 
 def _fetch_sina_us_rank(pages: int = 6, sort: str = 'volume') -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -258,7 +236,7 @@ def _fetch_sina_us_rank(pages: int = 6, sort: str = 'volume') -> list[dict[str, 
             'https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20xx=/'
             f'US_CategoryService.getList?{qs}'
         )
-        payload = _extract_jsonp(text)
+        payload = extract_jsonp(text)
         rows = payload.get('data') if isinstance(payload, dict) else payload
         if not rows:
             break

@@ -8,9 +8,9 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.platform_ext_service import PlatformExtService
 from module_trade.service.trade_service import TradeService
@@ -256,7 +256,7 @@ async def trade_backtest_detail(
     return ResponseUtil.success(data=data)
 
 
-from module_trade.service.auto_trade_service import AutoTradeService
+from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E402
 
 
 @trade_controller.get(

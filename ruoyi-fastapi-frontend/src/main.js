@@ -2,10 +2,17 @@ import { createApp } from 'vue'
 
 import Cookies from 'js-cookie'
 
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
+import { ElLoading, provideGlobalConfig } from 'element-plus'
 import locale from 'element-plus/es/locale/lang/zh-cn'
+
+// 深色模式变量
+import 'element-plus/theme-chalk/dark/css-vars.css'
+// 程序式 API（$modal、请求错误提示等在 js 中显式 import 调用）的组件样式：
+// 显式 import 场景 resolver 不会注入样式，这里统一全局引入，保证 ElMessage/ElMessageBox/ElNotification/ElLoading.service 样式可用
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/notification/style/css'
+import 'element-plus/es/components/loading/style/css'
 
 import '@/assets/styles/index.scss' // global css
 
@@ -76,11 +83,15 @@ app.component('svg-icon', SvgIcon)
 
 directive(app)
 
-// 使用element-plus 并且设置全局的大小
-app.use(ElementPlus, {
+// Element Plus 按需引入（vite.config.js 中由 unplugin resolver 处理模板组件）：
+// 这里仅保留必要的全局件——zh-cn 语言包与 size 全局配置、v-loading 指令
+provideGlobalConfig({
   locale: locale,
   // 支持 large、default、small
   size: Cookies.get('size') || 'default'
-})
+}, app, true)
+
+// v-loading 指令全局使用，需显式注册
+app.use(ElLoading)
 
 app.mount('#app')

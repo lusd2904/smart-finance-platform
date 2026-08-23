@@ -1,6 +1,9 @@
 import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
+import AutoImport from 'unplugin-auto-import/vite'
 import createVitePlugins from './vite/plugins'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
@@ -11,7 +14,12 @@ export default defineConfig(({ mode, command }) => {
     // 默认情况下，vite 会假设你的应用是被部署在一个域名的根路径上
     // 例如 https://www.ruoyi.vip/。如果应用被部署在一个子路径上，你就需要用这个选项指定这个子路径。例如，如果你的应用被部署在 https://www.ruoyi.vip/admin/，则设置 baseUrl 为 /admin/。
     base: VITE_APP_ENV === 'production' ? '/' : '/',
-    plugins: createVitePlugins(env, command === 'build'),
+    plugins: [
+      ...createVitePlugins(env, command === 'build'),
+      // Element Plus 按需引入：模板组件（Components）与程序式 API 的自动导入及样式注入（AutoImport）
+      AutoImport({ resolvers: [ElementPlusResolver()], dts: false }),
+      Components({ resolvers: [ElementPlusResolver()], dts: false })
+    ],
     resolve: {
       // https://cn.vitejs.dev/config/#resolve-alias
       alias: {

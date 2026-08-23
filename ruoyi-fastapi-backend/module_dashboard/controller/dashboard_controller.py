@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.router import APIRouterPro
 from common.vo import ResponseBaseModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_dashboard.service.dashboard_service import DashboardService
 from utils.response_util import ResponseUtil
 

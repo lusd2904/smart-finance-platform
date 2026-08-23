@@ -18,6 +18,8 @@ _client: InfluxDBClient | None = None
 
 
 _MAX_QUERY_LIMIT = 5000
+_TS_LEN_FULL = 19  # 'YYYY-MM-DD HH:MM:SS' 长度
+_TS_LEN_MIN = 16  # 'YYYY-MM-DD HH:MM' 长度
 
 
 class InfluxQueryError(RuntimeError):
@@ -118,9 +120,12 @@ class InfluxUtil:
                 ts = td
             elif isinstance(td, str):
                 text = td.replace('T', ' ').strip()
-                text = text[:19] if len(text) >= 19 else text[:16]
+                # 19 位='YYYY-MM-DD HH:MM:SS'，16 位='YYYY-MM-DD HH:MM'
+                text = text[:_TS_LEN_FULL] if len(text) >= _TS_LEN_FULL else text[:_TS_LEN_MIN]
                 try:
-                    ts = datetime.strptime(text, '%Y-%m-%d %H:%M:%S' if len(text) >= 19 else '%Y-%m-%d %H:%M')
+                    ts = datetime.strptime(
+                        text, '%Y-%m-%d %H:%M:%S' if len(text) >= _TS_LEN_FULL else '%Y-%m-%d %H:%M'
+                    )
                 except ValueError:
                     continue
             else:
@@ -155,6 +160,8 @@ class InfluxUtil:
         查询单标的日K线，按时间升序。
         start/stop 为Flux时间（如 '-1y' 或 RFC3339）。
         limit 取时间序列末尾 N 根（因子/AI 场景不必拉满历史）。
+        默认 start='-2y' 是刻意保留的大窗口：因子计算（长周期均线/波动率等）
+        需要足够历史样本，且该参数由调用方按需收窄，不做渐进放宽。
         返回 [{date, open, high, low, close, volume}]
         Influx 不可用时返回空列表，避免接口 500。
         """
@@ -311,19 +318,28 @@ from(bucket: "{bucket}")
         symbol = _safe_symbol(symbol)
         if symbol is None:
             return None
-        flux = f'''
+        # 渐进窗口：绝大多数标的近7天内有交易，避免每次都全历史(-10y)扫描；
+        # 依次放宽到 7d/90d/2y/10y，首个非空结果即返回，全空返回 None。
+        windows = ('-7d', '-90d', '-2y', '-10y')
+        fluxes = [
+            f'''
 from(bucket: "{bucket}")
-  |> range(start: -10y)
+  |> range(start: {window})
   |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
   |> filter(fn: (r) => r.symbol == "{symbol}")
   |> filter(fn: (r) => r._field == "close")
   |> last()
 '''
+            for window in windows
+        ]
         try:
-            tables = get_client().query_api().query(flux)
-            for table in tables:
-                for record in table.records:
-                    return record.get_time().strftime('%Y-%m-%d')
+            query_api = get_client().query_api()
+            for flux in fluxes:
+                tables = query_api.query(flux)
+                for table in tables:
+                    for record in table.records:
+                        return record.get_time().strftime('%Y-%m-%d')
+                # 当前窗口无数据，放宽到下一级窗口继续查
         except Exception as e:
             logger.error(f'latest_date查询失败 {symbol}: {e}')
             raise InfluxQueryError(f'InfluxDB latest_date 失败: {market}/{symbol}') from e

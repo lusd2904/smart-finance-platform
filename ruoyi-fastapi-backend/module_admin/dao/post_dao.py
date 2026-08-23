@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.vo import PageModel
 from module_admin.entity.do.post_do import SysPost
 from module_admin.entity.do.user_do import SysUserPost
-from module_admin.entity.vo.post_vo import PostModel, PostPageQueryModel
+from common.entity.vo.post_vo import PostModel, PostPageQueryModel
 from utils.page_util import PageUtil
 
 

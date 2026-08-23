@@ -13,10 +13,10 @@ from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.constant import ApiGroup, ApiNamespace
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_ai.entity.do.ai_model_do import AiModels
 from module_ai.entity.vo.ai_model_vo import AiModelModel, AiModelPageQueryModel, DeleteAiModelModel
 from module_ai.service.ai_model_service import AiModelService

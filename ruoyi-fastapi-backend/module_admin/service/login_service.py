@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.constant import CommonConstant, MenuConstant
 from common.context import RequestContext
+from common.entity.vo.user_vo import CurrentUserModel, TokenData, UserInfoModel
 from common.enums import RedisInitKeyConfig
 from common.vo import CrudResponseModel
 from config.env import AppConfig, JwtConfig
@@ -23,7 +24,7 @@ from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.menu_do import SysMenu
 from module_admin.entity.do.user_do import SysUser
 from module_admin.entity.vo.login_vo import MenuTreeModel, MetaModel, RouterModel, SmsCode, UserLogin, UserRegister
-from module_admin.entity.vo.user_vo import AddUserModel, CurrentUserModel, ResetUserModel, TokenData, UserInfoModel
+from module_admin.entity.vo.user_vo import AddUserModel, ResetUserModel
 from module_admin.service.user_service import UserService
 from utils.client_ip_util import ClientIPUtil
 from utils.common_util import CamelCaseUtil

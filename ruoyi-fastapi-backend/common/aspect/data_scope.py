@@ -3,8 +3,7 @@ from sqlalchemy import ColumnElement, func, or_, select
 
 from common.context import RequestContext
 from config.database import Base
-from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.do.role_do import SysRoleDept
+from config.providers import get_data_scope_tables_provider
 from utils.dependency_util import DependencyUtil
 
 
@@ -39,6 +38,8 @@ class GetDataScope:
     def __call__(self, request: Request) -> ColumnElement:
         DependencyUtil.check_exclude_routes(request, err_msg='当前路由不在认证规则内，不可使用GetDataScope依赖项')
         current_user = RequestContext.get_current_user()
+        dept_table = get_data_scope_tables_provider().dept_table()
+        role_dept_table = get_data_scope_tables_provider().role_dept_table()
         user_id = current_user.user.user_id
         dept_id = current_user.user.dept_id
         custom_data_scope_role_id_list = [
@@ -53,7 +54,9 @@ class GetDataScope:
                 if len(custom_data_scope_role_id_list) > 1:
                     param_sql_list.append(
                         getattr(self.query_alias, self.dept_alias).in_(
-                            select(SysRoleDept.dept_id).where(SysRoleDept.role_id.in_(custom_data_scope_role_id_list))
+                            select(role_dept_table.dept_id).where(
+                                role_dept_table.role_id.in_(custom_data_scope_role_id_list)
+                            )
                         )
                         if hasattr(self.query_alias, self.dept_alias)
                         else False
@@ -61,7 +64,7 @@ class GetDataScope:
                 else:
                     param_sql_list.append(
                         getattr(self.query_alias, self.dept_alias).in_(
-                            select(SysRoleDept.dept_id).where(SysRoleDept.role_id == role.role_id)
+                            select(role_dept_table.dept_id).where(role_dept_table.role_id == role.role_id)
                         )
                         if hasattr(self.query_alias, self.dept_alias)
                         else False
@@ -75,8 +78,8 @@ class GetDataScope:
             elif role.data_scope == self.DATA_SCOPE_DEPT_AND_CHILD:
                 param_sql_list.append(
                     getattr(self.query_alias, self.dept_alias).in_(
-                        select(SysDept.dept_id).where(
-                            or_(SysDept.dept_id == dept_id, func.find_in_set(dept_id, SysDept.ancestors))
+                        select(dept_table.dept_id).where(
+                            or_(dept_table.dept_id == dept_id, func.find_in_set(dept_id, dept_table.ancestors))
                         )
                     )
                     if hasattr(self.query_alias, self.dept_alias)

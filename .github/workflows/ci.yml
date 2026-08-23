@@ -172,8 +172,78 @@ jobs:
         run: |
           node -e "
             const { normalizeGateway } = require('./desktop/src/gateway.js');
-            if (normalizeGateway('127.0.0.1:12580') !== 'http://127.0.0.1:12580') process.exit(1);
+            if (normalizeGateway('127.0.0.1:12580') !== 'https://127.0.0.1:12580') process.exit(1);
             if (normalizeGateway('https://fin.example.com/login') !== 'https://fin.example.com') process.exit(1);
             try { normalizeGateway('file:///tmp'); process.exit(1); } catch (e) {}
             console.log('gateway normalize ok');
           "
+
+  security-audit:
+    name: Dependency security audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip-audit (isolated venv)
+        run: |
+          python3 -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install --upgrade pip
+          /tmp/audit-venv/bin/pip install pip-audit
+      # 阻塞式失败：任一 requirements 文件存在已知漏洞即令 job 失败；
+      # pip-audit 发现漏洞时会直接向日志输出漏洞清单（CVE/别名、修复版本），即为报告。
+      - name: Audit requirements.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements.txt --strict --progress-spinner off
+      - name: Audit requirements-pg.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements-pg.txt --strict --progress-spinner off
+      - name: Audit requirements-llm.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements-llm.txt --strict --progress-spinner off
+
+  image-build:
+    name: Docker image build & smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 前端镜像构建依赖锁文件（Dockerfile 切换为 npm ci 的前提）：必须随仓库提交
+      - name: Verify frontend lockfile is committed
+        run: |
+          if [ ! -f ruoyi-fastapi-frontend/package-lock.json ]; then
+            echo "::error::ruoyi-fastapi-frontend/package-lock.json 未入库，无法保证 npm ci 可复现构建"
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (sentiment)
+        uses: docker/build-push-action@v6
+        with:
+          context: ruoyi-fastapi-backend
+          file: ruoyi-fastapi-backend/Dockerfile.sentiment
+          load: true
+          tags: smart-finance-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ruoyi-fastapi-frontend
+          file: ruoyi-fastapi-frontend/Dockerfile
+          load: true
+          tags: smart-finance-frontend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # 冒烟验证：后端镜像内核心运行时依赖可导入（无外部 DB 时应用无法完整启动，
+      # 以依赖完整性作为最小冒烟）；前端镜像启动 nginx 并确认首页可访问。
+      - name: Smoke test backend image
+        run: |
+          docker run --rm --entrypoint python smart-finance-backend:ci \
+            -c "import fastapi, sqlalchemy, uvicorn; print('backend deps ok')"
+      - name: Smoke test frontend image
+        run: |
+          docker run -d --name smoke-frontend -p 8080:80 smart-finance-frontend:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/ | grep -qi '<!DOCTYPE html\|<html' \
+            || { echo "::error::前端镜像未返回有效 HTML 首页"; docker logs smoke-frontend; exit 1; }
+          docker rm -f smoke-frontend >/dev/null

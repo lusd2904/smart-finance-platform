@@ -9,7 +9,7 @@ from common.vo import CrudResponseModel
 from exceptions.exception import ServiceException, ServiceWarning
 from module_admin.dao.dept_dao import DeptDao
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.vo.dept_vo import DeleteDeptModel, DeptModel, DeptTreeModel
+from common.entity.vo.dept_vo import DeleteDeptModel, DeptModel, DeptTreeModel
 from utils.common_util import CamelCaseUtil
 
 

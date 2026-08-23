@@ -1,3 +1,5 @@
+import json
+import time
 from typing import Annotated
 
 from fastapi import Body, Path, Query, Request, Response
@@ -8,11 +10,11 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
 from exceptions.exception import ServiceException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_market.entity.vo.market_vo import (
     AddMarketWatchlistModel,
     IndicatorQueryModel,
@@ -29,6 +31,8 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService
 from module_market.service.market_service import MarketService
+from module_market.service.stock_pick_service import StockPickService
+from module_market.service.tradingview_service import TradingViewDatafeedService
 from module_market.service.watchlist_service import MarketWatchlistService
 from utils.job_queue import JobQueue
 from utils.log_util import logger
@@ -45,12 +49,6 @@ def _current_user_id(current_user: CurrentUserModel) -> int:
 market_controller = APIRouterPro(
     prefix='/market', order_num=31, tags=['行情数据'], dependencies=[PreAuthDependency()]
 )
-
-
-import json  # noqa: E402
-import time  # noqa: E402
-
-from module_market.service.tradingview_service import TradingViewDatafeedService  # noqa: E402
 
 
 @market_controller.get('/tradingview/config', summary='TradingView 配置')
@@ -146,8 +144,6 @@ async def get_stock_pick_mood(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
-
     data = await StockPickService.get_mood_services(query_db)
     return ResponseUtil.success(data=data)
 
@@ -174,8 +170,6 @@ async def get_stock_pick_dates(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     limit: Annotated[int, Query(description='最近 N 个交易日')] = 60,
 ) -> Response:
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
-
     data = await StockPickService.list_dates_services(query_db, limit=limit)
     return ResponseUtil.success(data=data)
 
@@ -193,8 +187,6 @@ async def get_stock_pick_latest(
     market: Annotated[str | None, Query()] = None,
     trade_date: Annotated[str | None, Query(alias='tradeDate', description='交易日 YYYY-MM-DD')] = None,
 ) -> Response:
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
-
     user_id = None
     try:
         user_id = _current_user_id(current_user)
@@ -215,8 +207,6 @@ async def run_stock_pick(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
-
     ticket = await JobQueue.submit('stock_pick_run', {'trigger': 'manual', 'useAi': True})
     if ticket:
         return ResponseUtil.success(data=ticket, msg='已加入选股队列，稍后刷新')

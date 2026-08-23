@@ -11,6 +11,7 @@ from config.env import AppConfig
 from config.get_db import close_async_engine, init_create_table
 from config.get_redis import RedisUtil
 from config.get_scheduler import SchedulerUtil
+from config.providers import install_module_admin_provider
 from exceptions.handle import handle_exception
 from middlewares.handle import handle_middleware
 from module_admin.service.log_service import LogAggregatorService
@@ -19,6 +20,9 @@ from utils.common_util import worship
 from utils.log_util import logger
 from utils.server_util import APIDocsUtil, IPUtil, StartupUtil
 from utils.transport_crypto_util import TransportKeyProvider
+
+# 公共层不直接依赖业务模块：进程入口装配字典/参数缓存的真实实现
+install_module_admin_provider()
 
 
 async def _start_background_tasks(app: FastAPI) -> None:

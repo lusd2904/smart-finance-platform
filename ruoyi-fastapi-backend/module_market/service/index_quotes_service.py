@@ -13,9 +13,9 @@ import re
 from datetime import datetime
 from datetime import time as dt_time
 from typing import Any
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from utils.http_fetch import fetch
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
 
@@ -98,9 +98,7 @@ def _to_float(value: Any) -> float | None:
 
 def _fetch_tencent_batch(codes: list[str]) -> dict[str, dict[str, Any]]:
     url = f'https://qt.gtimg.cn/q={",".join(codes)}'
-    req = Request(url, headers=_UA)
-    with urlopen(req, timeout=10) as resp:
-        text = resp.read().decode('gbk', 'replace')
+    text = fetch(url, timeout_s=10, headers=_UA, encoding='gbk', retries=1)
     quotes: dict[str, dict[str, Any]] = {}
     for m in re.finditer(r'v_(\w+)="([^"]*)"', text):
         parts = m.group(2).split('~')

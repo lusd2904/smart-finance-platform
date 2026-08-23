@@ -51,6 +51,7 @@
     "playwright": "^1.49.0",
     "sass-embedded": "1.97.2",
     "unplugin-auto-import": "0.18.6",
+    "unplugin-vue-components": "0.28.0",
     "unplugin-vue-setup-extend-plus": "1.0.1",
     "vite": "6.4.1",
     "vite-plugin-compression": "0.5.1",

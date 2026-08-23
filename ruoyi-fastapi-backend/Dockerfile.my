@@ -1,13 +1,25 @@
-FROM python:3.10
+# 旧变体（MySQL）：单阶段。基础镜像钉到 slim，依赖清单前置以利用层缓存。
+FROM python:3.10-slim
 WORKDIR /app
 
-# 复制源代码
+# 依赖清单先行复制（先于源码），依赖层可独立缓存
+COPY requirements.txt requirements-llm.txt ./
+
+# asyncmy 在部分架构（arm64）无预编译 wheel，需编译工具与 MariaDB 客户端；
+# 编译完成后清理编译器与 apt 缓存，保留 libmariadb3 运行库供 asyncmy 动态链接
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc g++ libc6-dev default-libmysqlclient-dev pkg-config \
+    # pandas-ta==0.4.71b0 要求 Python>=3.12，与 3.10 基线冲突；factor_service 对其导入有
+    # try/except 退化保护（纯 pandas 实现），3.10 变体安全剔除该行
+    && grep -v '^pandas-ta==' requirements.txt > /tmp/requirements.my.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.my.txt -r requirements-llm.txt -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && rm -f /tmp/requirements.my.txt \
+    && apt-get purge -y gcc g++ pkg-config && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /root/.cache/pip /tmp/*
+
+# 复制其余源代码
 COPY . .
 
-# 安装依赖
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-llm.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 暴露端口
 # 非 root 运行：创建专用用户并授予日志/临时目录写权限
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser \
     && mkdir -p /app/logs && chown -R appuser:appuser /app

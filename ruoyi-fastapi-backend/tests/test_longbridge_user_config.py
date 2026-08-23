@@ -139,7 +139,7 @@ def test_ensure_credentials_falls_back_to_admin_without_user_context() -> None:
         with (
             patch.object(QuantLongbridgeConfigDao, 'get_config', fake_get),
             patch(
-                'module_quant.service.longbridge_service.peek_request_user_id',
+                'module_quant.service.longbridge.auth.peek_request_user_id',
                 return_value=None,
             ),
         ):

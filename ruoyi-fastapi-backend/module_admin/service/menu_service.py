@@ -10,8 +10,8 @@ from module_admin.dao.menu_dao import MenuDao
 from module_admin.dao.role_dao import RoleDao
 from module_admin.entity.do.menu_do import SysMenu
 from module_admin.entity.vo.menu_vo import DeleteMenuModel, MenuModel, MenuQueryModel, MenuTreeModel
-from module_admin.entity.vo.role_vo import RoleMenuQueryModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.role_vo import RoleMenuQueryModel
+from common.entity.vo.user_vo import CurrentUserModel
 from utils.common_util import CamelCaseUtil
 from utils.string_util import StringUtil
 

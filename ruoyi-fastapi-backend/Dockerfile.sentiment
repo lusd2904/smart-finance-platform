@@ -1,15 +1,33 @@
+# syntax=docker/dockerfile:1
+
+########## 阶段一：builder —— 安装全部 Python 依赖到独立 prefix ##########
+FROM python:3.12-slim AS builder
+WORKDIR /build
+
+# 仅复制依赖清单（先于源码），依赖层可独立缓存
+COPY requirements.txt requirements-llm.txt ./
+
+# 编译工具只存在于本阶段、不进入最终镜像：
+# asyncmy 在 arm64 无官方 wheel 需源码编译（amd64 直接命中 manylinux wheel）；
+# pandas/numpy/Pillow/bcrypt/sqlglotrs 等均有官方 wheel，无需额外系统库。
+# （3.12 以兼容 requirements 中的 pandas-ta 等包；指标服务已改为纯 pandas 亦可运行）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc g++ default-libmysqlclient-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --prefix=/install \
+        -r requirements.txt -r requirements-llm.txt \
+        -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+########## 阶段二：runtime —— 无编译链，仅依赖目录 + 应用代码 ##########
 FROM python:3.12-slim
 WORKDIR /app
 
-# 复制源代码
+# 与 builder 同基础镜像，prefix 对齐后直接并入 /usr/local
+COPY --from=builder /install /usr/local
+
+# 复制应用代码
 COPY . .
 
-# 安装编译依赖与Python依赖（3.12 以兼容 requirements 中的 pandas-ta 等包；指标服务已改为纯 pandas 亦可运行）
-RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ default-libmysqlclient-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir -r requirements.txt -r requirements-llm.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 暴露端口
 # 非 root 运行：创建专用用户并授予日志/临时目录写权限
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser \
     && mkdir -p /app/logs && chown -R appuser:appuser /app
@@ -17,6 +35,5 @@ USER appuser
 
 EXPOSE 9099
 
-# 启动命令
 ENV APP_ENV=dockersentiment
 CMD ["python", "app.py", "--env=dockersentiment"]

@@ -19,6 +19,16 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的一体
 - **桌面端**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
 - **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
+## 0824 迭代（安全加固、可靠性、架构瘦身）
+
+- **安全**：清除误提交的真实 admin 初始密码（代码 + git 历史已重写）；监控栈与 jobs/backend 管理端口改绑 `127.0.0.1`；compose 显式透传 `DB_PASSWORD`/`REDIS_PASSWORD`，消除与 MySQL/Redis 初始化密码的双源漂移。**在此前部署的环境请立即修改 admin 密码。**
+- **依赖**：升级 fastapi 0.141 / starlette 1.3.1 / Pillow 12.3 / PyJWT 2.13，清零 pip-audit 已知漏洞；CI 新增 pip-audit 阻塞门禁 + 双镜像构建冒烟。
+- **可靠性**：Redis 任务队列改为认领-确认语义（可见性超时回收、失败重试、死信队列）；Influx `latest_date` 渐进窗口替代十年全扫；IP 归属地 httpx 补超时；Excel 导入移入线程池；调度器裸吞异常补日志。
+- **SQL 治理**：28 个手工增量脚本纳入 `schema_version` 登记制（`scripts/sql_migrate.py`），compose 基线与增量路径统一，错误不再被吞。
+- **镜像**：后端多阶段构建（-23% 体积、运行时无编译链）；前端 node:20 + nginx-unprivileged 非特权运行（容器内 8080）。
+- **前端**：Element Plus 按需引入（静态资产 -23%）；transportCrypto 监控页 1034→197 行拆分；Electron 网关取消静默降级 http、启用沙箱桥接白名单。
+- **架构**：`get_scheduler`(1044行)、`longbridge_service`(1297行)、`transport_crypto_util`(1284行) 拆为子包 + facade（公开符号 AST 级对齐）；sync_service 下线裸 pymysql 与服务层 DDL；公共层反向依赖业务模块的 import 全部倒置或下沉（providers 协议模式）。
+
 ## 0823 迭代（智能选股与收盘K线）
 
 - **智能选股**：侧栏入口。候选来自各市场 Top50 + 精选池，用日K因子打分，叠三市场舆情；**仅开盘市场带实时指数**，休市自动去掉指数仍可手动出单。
