@@ -254,12 +254,20 @@ class DailyListService:
 
     @classmethod
     async def rebalance_auto(cls, db: AsyncSession, user_id: int) -> dict[str, Any]:
+        """
+        自动调仓（护栏版）：
+        - 只卖出「该用户历史上通过次日清单自动买入」且已不在本期自动清单的持仓；
+        - 手动买入、清单外、其他账户来源的持仓一律不碰；
+        - 本期自动清单里未持有的标的照常买入。
+        """
         latest = await QuantDailyListDao.latest_for_user(db, user_id)
         if not latest or latest.auto_enabled != '1':
             return {'skipped': True, 'reason': 'auto_disabled'}
         await LongbridgeService.ensure_credentials_from_db(db, user_id)
         items = [it for it in await QuantDailyListDao.list_items(db, latest.list_id) if it.auto_trade == '1']
         wanted = {(it.symbol.upper(), (it.market or 'US').upper()) for it in items}
+        # 卖出白名单：只有本系统自动买入过的标的才允许被自动卖出
+        sellable = await QuantDailyListDao.auto_bought_symbols(db, user_id)
         positions = (await LongbridgeService.get_positions_async()).get('positions') or []
         held = {}
         for pos in positions:
@@ -270,21 +278,25 @@ class DailyListService:
             symbol, market = _split_lb_symbol(raw)
             held[(symbol, market)] = pos
         outcomes = []
+        skipped_guard = []
         for key, pos in held.items():
-            if key not in wanted:
-                symbol, market = key
-                qty = float(pos.get('quantity') or 0)
-                res = await LongbridgeService.submit_order_async(
-                    symbol, 'sell', qty, order_type='MO', market=market, allow_sim=True
-                )
-                outcomes.append({'symbol': symbol, 'side': 'SELL', **res})
+            if key in wanted or key not in sellable:
+                if key not in sellable and key not in wanted:
+                    skipped_guard.append({'symbol': key[0], 'market': key[1], 'reason': '非自动买入持仓，卖出护栏跳过'})
+                continue
+            symbol, market = key
+            qty = float(pos.get('quantity') or 0)
+            res = await LongbridgeService.submit_order_async(
+                symbol, 'sell', qty, order_type='MO', market=market, allow_sim=True
+            )
+            outcomes.append({'symbol': symbol, 'side': 'SELL', **res})
         for item in items:
             key = (item.symbol.upper(), (item.market or 'US').upper())
             if key in held:
                 continue
             outcomes.append(await cls._place_or_queue(db, item, user_id))
         await db.commit()
-        return {'outcomes': outcomes}
+        return {'outcomes': outcomes, 'guardSkipped': skipped_guard}
 
     @classmethod
     async def _join_quant(cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None) -> None:

@@ -22,6 +22,16 @@ trade_controller = APIRouterPro(
 )
 
 
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    from exceptions.exception import ServiceException  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
+
+
 @trade_controller.get(
     '/account',
     summary='账户资金',
@@ -257,9 +267,10 @@ from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E4
 async def auto_trade_status(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     try:
-        data = await AutoTradeService.get_status(query_db)
+        data = await AutoTradeService.get_status(query_db, user_id=_current_user_id(current_user))
     except Exception as exc:
         logger.warning(f'[自动交易] status 降级空状态: {exc}')
         data = {
@@ -282,6 +293,7 @@ async def auto_trade_status(
 async def auto_trade_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
@@ -293,6 +305,7 @@ async def auto_trade_run(
             execute=bool(body.get('execute')),
             strategy_profile=body.get('strategyProfile', 'balanced'),
             custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
+            user_id=_current_user_id(current_user),
         )
     except Exception as exc:
         logger.warning(f'[自动交易] run 降级空状态: {exc}')
@@ -315,13 +328,15 @@ async def auto_trade_run(
 async def trade_ai_runs(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query()] = 30,
 ) -> Response:
-    logs = await TradeDao.list_ai_trade_run_logs(query_db, limit=limit)
+    logs = await TradeDao.list_ai_trade_run_logs(query_db, limit=limit, user_id=_current_user_id(current_user))
     res = [
         {
             'runId': log.run_id,
             'cycleId': log.cycle_id,
+            'userId': getattr(log, 'user_id', None),
             'source': log.source,
             'strategyProfile': log.strategy_profile,
             'targetCount': log.target_count,

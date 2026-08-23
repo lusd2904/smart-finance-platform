@@ -177,6 +177,7 @@ class PlatAutoTradeDecision(Base):
         comment='决策ID',
     )
     cycle_id = Column(String(64), nullable=False, index=True, comment='扫描周期ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='所属用户ID')
     account_id = Column(String(64), nullable=True, comment='账户ID')
     symbol = Column(String(32), nullable=False, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
@@ -207,6 +208,7 @@ class PlatAiTradeRunLog(Base):
         comment='运行记录ID',
     )
     cycle_id = Column(String(64), nullable=False, unique=True, index=True, comment='周期唯一标识')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='触发用户ID')
     source = Column(String(32), nullable=False, server_default="'scheduler'", comment='触发来源(scheduler/manual/api)')
     strategy_profile = Column(String(32), nullable=False, server_default="'balanced'", comment='策略档位')
     target_count = Column(Integer, nullable=False, server_default='0', comment='扫描标的数')

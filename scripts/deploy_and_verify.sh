@@ -52,6 +52,9 @@ if [ -n "$MYSQL_PWD_VAL" ]; then
   docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
     < ruoyi-fastapi-backend/sql/quant-watchlist-user.sql 2>/dev/null \
     && echo "quant-watchlist-user.sql OK" || echo "watchlist-user 跳过"
+  docker exec -i sentiment-mysql mysql -uroot -p"$MYSQL_PWD_VAL" sentiment-ai \
+    < ruoyi-fastapi-backend/sql/auto-trade-user.sql 2>/dev/null \
+    && echo "auto-trade-user.sql OK" || echo "auto-trade-user 跳过"
 else
   echo "!! 未找到 MYSQL_ROOT_PASSWORD，跳过增量 SQL。如菜单缺失请手动执行:"
   echo "   docker exec -i sentiment-mysql mysql -uroot -p<密码> sentiment-ai < ruoyi-fastapi-backend/sql/market-menu-unify.sql"

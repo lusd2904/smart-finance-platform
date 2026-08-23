@@ -515,6 +515,30 @@ class QuantDailyListDao:
         return list(rows)
 
     @classmethod
+    async def auto_bought_symbols(
+        cls, db: AsyncSession, user_id: int, statuses: tuple[str, ...] = ('submitted', 'filled', 'queued')
+    ) -> set[tuple[str, str]]:
+        """
+        该用户历史上通过次日清单自动买入过的 (symbol, market) 集合。
+        rebalance 卖出只允许清这些标的——清单外/手动买的持仓一律不碰。
+        """
+        rows = (
+            (
+                await db.execute(
+                    select(QuantDailyListItem.symbol, QuantDailyListItem.market).where(
+                        QuantDailyListItem.user_id == int(user_id),
+                        QuantDailyListItem.side == 'BUY',
+                        QuantDailyListItem.status.in_(statuses),
+                        QuantDailyListItem.order_id.isnot(None),
+                        QuantDailyListItem.order_id != '',
+                    )
+                )
+            )
+            .all()
+        )
+        return {(str(s).upper(), str(m or 'US').upper()) for s, m in rows}
+
+    @classmethod
     async def distinct_watchlist_users(cls, db: AsyncSession) -> list[int]:
         from module_market.entity.do.market_do import MarketWatchlist
 

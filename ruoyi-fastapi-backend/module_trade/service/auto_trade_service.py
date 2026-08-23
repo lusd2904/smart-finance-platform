@@ -114,7 +114,8 @@ class AutoTradeService:
         return f"cycle_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     @classmethod
-    async def _today_stats(cls, db: AsyncSession) -> tuple[int, float]:
+    async def _today_stats(cls, db: AsyncSession, user_id: int | None = None) -> tuple[int, float]:
+        """日内已提交委托统计；user_id 非空时只统计该用户自己的决策（护栏按账户隔离）。"""
         today_start = datetime.combine(date.today(), datetime.min.time())
         stmt = select(
             func.count(PlatAutoTradeDecision.decision_id),
@@ -123,6 +124,8 @@ class AutoTradeService:
             PlatAutoTradeDecision.create_time >= today_start,
             PlatAutoTradeDecision.status.in_(['submitted', 'filled']),
         )
+        if user_id is not None:
+            stmt = stmt.where(PlatAutoTradeDecision.user_id == int(user_id))
         res = await db.execute(stmt)
         row = res.first()
         return int(row[0] or 0) if row else 0, float(row[1] or 0.0) if row else 0.0
@@ -132,6 +135,7 @@ class AutoTradeService:
         return {
             'runId': log.run_id,
             'cycleId': log.cycle_id,
+            'userId': getattr(log, 'user_id', None),
             'source': log.source,
             'strategyProfile': log.strategy_profile,
             'targetCount': log.target_count,
@@ -149,6 +153,7 @@ class AutoTradeService:
         return {
             'decisionId': d.decision_id,
             'cycleId': d.cycle_id,
+            'userId': getattr(d, 'user_id', None),
             'symbol': d.symbol,
             'market': d.market,
             'side': d.side,
@@ -164,7 +169,7 @@ class AutoTradeService:
 
     @classmethod
     async def _resolve_targets(
-        cls, db: AsyncSession, symbols: list[str] | list[dict[str, str]] | None
+        cls, db: AsyncSession, symbols: list[str] | list[dict[str, str]] | None, user_id: int | None = None
     ) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         if symbols:
@@ -184,8 +189,7 @@ class AutoTradeService:
 
         from module_quant.dao.quant_dao import QuantWatchlistDao
 
-        rows = await QuantWatchlistDao.get_enabled_symbols(db)
-        seen: set[tuple[str, str]] = set()
+        rows = await QuantWatchlistDao.get_enabled_symbols(db, user_id=user_id)
         for row in rows:
             sym = str(getattr(row, 'symbol', '') or '').strip()
             mkt = str(getattr(row, 'market', '') or 'US').strip().upper()
@@ -193,19 +197,16 @@ class AutoTradeService:
                 if '.' in sym:
                     sym, inferred = parse_symbol_market(sym, mkt)
                     mkt = inferred or mkt
-                if (sym, mkt) in seen:
-                    continue  # 多账号重复加入同一标的时只扫一次
-                seen.add((sym, mkt))
                 items.append({'symbol': sym, 'market': mkt})
         return items
 
     @classmethod
-    async def get_status(cls, db: AsyncSession) -> dict[str, Any]:
-        await LongbridgeService.ensure_credentials_from_db(db)
+    async def get_status(cls, db: AsyncSession, user_id: int | None = None) -> dict[str, Any]:
+        await LongbridgeService.ensure_credentials_from_db(db, user_id)
         configured = LongbridgeService.is_configured()
         trading_enabled = LongbridgeService.is_trading_enabled()
-        today_orders_count, today_notional_amount = await cls._today_stats(db)
-        recent_logs = await TradeDao.list_ai_trade_run_logs(db, limit=5)
+        today_orders_count, today_notional_amount = await cls._today_stats(db, user_id)
+        recent_logs = await TradeDao.list_ai_trade_run_logs(db, limit=5, user_id=user_id)
         recent_decisions = await TradeDao.list_auto_trade_decisions(db, limit=10)
         require_paper = bool(cls.DEFAULT_CONFIG['require_paper'])
         submit_allowed, submit_block_reason = resolve_submit_permission(
@@ -244,27 +245,40 @@ class AutoTradeService:
         execute: bool | None = None,
         strategy_profile: str = 'balanced',
         custom_config: dict[str, Any] | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
+        """
+        跑一次自选池 AI 自动交易扫描。
+
+        多账户语义：user_id 决定三件事——扫谁的自选、用谁的券商凭据、护栏额度算谁的。
+        不传 user_id 时回退请求上下文用户，再回退管理员(1)。
+        """
+        from module_quant.service.longbridge_service import (  # noqa: PLC0415 - 服务层延迟加载，缩短模块导入链
+            resolve_longbridge_user_id,
+        )
+
+        target_user_id = resolve_longbridge_user_id(user_id)
         cycle_id = cls._generate_cycle_id()
         started_at = datetime.now()
         config = merge_runtime_config(custom_config)
         if strategy_profile:
             config['strategy_profile'] = strategy_profile
 
-        await LongbridgeService.ensure_credentials_from_db(db)
-        target_items = await cls._resolve_targets(db, symbols)
+        await LongbridgeService.ensure_credentials_from_db(db, target_user_id)
+        target_items = await cls._resolve_targets(db, symbols, user_id=target_user_id)
 
         logger.info(
             f'[AI自动交易] 启动扫描 cycle_id={cycle_id}, 标的数={len(target_items)}, source={source}, execute={execute}'
         )
 
         if not target_items:
-            summary_msg = '自选池为空，已跳过扫描。请先在量化自选池中添加标的。'
+            summary_msg = f'用户 {target_user_id} 的自选池为空，已跳过扫描。请先在量化自选池中添加标的。'
             finished_at = datetime.now()
             await TradeDao.add_ai_trade_run_log(
                 db,
                 {
                     'cycle_id': cycle_id,
+                    'user_id': target_user_id,
                     'source': source,
                     'strategy_profile': config.get('strategy_profile', 'balanced'),
                     'target_count': 0,
@@ -336,7 +350,7 @@ class AutoTradeService:
             require_paper=bool(config.get('require_paper', True)),
         )
 
-        today_orders_count, today_notional_amount = await cls._today_stats(db)
+        today_orders_count, today_notional_amount = await cls._today_stats(db, target_user_id)
         guardrail_snapshot = {
             'todayOrdersCount': today_orders_count,
             'maxDailyOrders': config['max_daily_orders'],
@@ -434,6 +448,7 @@ class AutoTradeService:
 
                 decision_dict = {
                     'cycle_id': cycle_id,
+                    'user_id': target_user_id,
                     'symbol': symbol,
                     'market': market,
                     'side': side,
@@ -468,6 +483,7 @@ class AutoTradeService:
             db,
             {
                 'cycle_id': cycle_id,
+                'user_id': target_user_id,
                 'source': source,
                 'strategy_profile': config.get('strategy_profile', 'balanced'),
                 'target_count': len(target_items),

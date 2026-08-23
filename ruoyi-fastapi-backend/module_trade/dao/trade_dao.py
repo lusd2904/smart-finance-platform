@@ -380,6 +380,7 @@ class TradeDao:
     async def add_auto_trade_decision(cls, db: AsyncSession, item: dict[str, Any]) -> PlatAutoTradeDecision:
         db_item = PlatAutoTradeDecision(
             cycle_id=item.get('cycle_id', ''),
+            user_id=int(item.get('user_id') or 1),
             account_id=item.get('account_id'),
             symbol=item.get('symbol', ''),
             market=item.get('market', 'US'),
@@ -413,6 +414,7 @@ class TradeDao:
     async def add_ai_trade_run_log(cls, db: AsyncSession, item: dict[str, Any]) -> PlatAiTradeRunLog:
         db_item = PlatAiTradeRunLog(
             cycle_id=item.get('cycle_id', ''),
+            user_id=int(item.get('user_id') or 1),
             source=item.get('source', 'scheduler'),
             strategy_profile=item.get('strategy_profile', 'balanced'),
             target_count=int(item.get('target_count', 0)),
@@ -434,8 +436,13 @@ class TradeDao:
         return db_item
 
     @classmethod
-    async def list_ai_trade_run_logs(cls, db: AsyncSession, limit: int = 30) -> list[PlatAiTradeRunLog]:
-        stmt = select(PlatAiTradeRunLog).order_by(desc(PlatAiTradeRunLog.run_id)).limit(limit)
+    async def list_ai_trade_run_logs(
+        cls, db: AsyncSession, limit: int = 30, user_id: int | None = None
+    ) -> list[PlatAiTradeRunLog]:
+        stmt = select(PlatAiTradeRunLog)
+        if user_id is not None:
+            stmt = stmt.where(PlatAiTradeRunLog.user_id == int(user_id))
+        stmt = stmt.order_by(desc(PlatAiTradeRunLog.run_id)).limit(limit)
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
