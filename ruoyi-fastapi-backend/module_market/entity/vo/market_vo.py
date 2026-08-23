@@ -33,6 +33,18 @@ class MarketInstrumentQueryModel(BaseModel):
     keyword: str | None = Field(default=None, description='代码或名称关键字')
 
 
+class MarketInstrumentUniverseQueryModel(BaseModel):
+    """全市场标的分页查询（含 listed，强制分页）"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    market: str | None = Field(default=None, description='市场 US/HK/CN，空=全部')
+    keyword: str | None = Field(default=None, description='代码或名称关键字')
+    enabled: str | None = Field(default='1', description='是否启用')
+    page_num: int = Field(default=1, description='当前页码')
+    page_size: int = Field(default=50, description='每页记录数，最大200')
+
+
 class KlineQueryModel(BaseModel):
     """
     K线查询模型

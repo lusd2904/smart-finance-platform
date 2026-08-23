@@ -12,6 +12,15 @@ export function listInstrument(categoryOrQuery) {
   })
 }
 
+// 全市场标的分页（含 listed，强制分页）
+export function listInstrumentUniverse(query) {
+  return request({
+    url: '/market/instrument/universe',
+    method: 'get',
+    params: query
+  })
+}
+
 // 行情台批量报价（最近两根日K，单次请求）
 export function getBoardQuotes(query) {
   return request({

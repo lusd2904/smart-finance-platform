@@ -18,7 +18,9 @@ from module_market.entity.vo.market_vo import (
     IndicatorQueryModel,
     KlineQueryModel,
     MarketAiAnalyzeModel,
+    MarketInstrumentModel,
     MarketInstrumentQueryModel,
+    MarketInstrumentUniverseQueryModel,
     MarketSyncModel,
     MarketWatchlistAnalyzeModel,
     MarketWatchlistModel,
@@ -115,6 +117,23 @@ async def get_market_instrument_list(
     logger.info('获取行情标的列表成功')
 
     return ResponseUtil.success(data=instrument_list)
+
+
+@market_controller.get(
+    '/instrument/universe',
+    summary='全市场标的分页列表',
+    description='含 listed 全市场代码，强制分页，不一次返回全部。精选接口 /instrument/list 行为不变。',
+    response_model=PageResponseModel[MarketInstrumentModel],
+    dependencies=[UserInterfaceAuthDependency('market:instrument:list')],
+)
+async def get_market_instrument_universe(
+    request: Request,
+    universe_query: Annotated[MarketInstrumentUniverseQueryModel, Query()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    page, counts = await MarketService.get_instrument_universe_services(query_db, universe_query)
+    logger.info(f'全市场标的列表成功 page={page.page_num} size={page.page_size} total={page.total}')
+    return ResponseUtil.success(model_content=page, dict_content={'counts': counts})
 
 
 @market_controller.get(

@@ -17,6 +17,67 @@ tag symbol 统一存 ^DJI / ^GSPC / ^IXIC，market='US'。
 # 全市场代码入库分类；精选池（mag7/star/...）upsert 时不得被覆盖
 LISTED_CATEGORY = 'listed'
 LISTED_SEARCH_LIMIT = 200
+UNIVERSE_PAGE_SIZE_DEFAULT = 50
+UNIVERSE_PAGE_SIZE_MAX = 200
+
+
+def sanitize_instrument_keyword(keyword: str | None) -> str:
+    """去掉通配符后截断，避免 LIKE 注入式膨胀。"""
+    return (keyword or '').strip().replace('%', '').replace('_', '')[:32]
+
+
+def featured_list_excludes_listed(category: str | None, keyword: str | None) -> bool:
+    """精选列表无分类、无关键字时排除 listed，避免一次打出全市场。"""
+    return not (category or '').strip() and not sanitize_instrument_keyword(keyword)
+
+
+def build_quotes_from_ranked_bars(rows: list[object]) -> dict[str, dict[str, object]]:
+    """把每个 symbol 最近两根日K（rn=1 最新）收成最新价与涨跌幅。"""
+    latest: dict[str, dict[str, object]] = {}
+    prev_close: dict[str, float] = {}
+    for row in rows:
+        symbol = getattr(row, 'symbol', None)
+        if not symbol:
+            continue
+        rn = int(getattr(row, 'rn', 0) or 0)
+        close = getattr(row, 'close_price', None)
+        if rn == 1:
+            latest[symbol] = {
+                'price': close,
+                'tradeDate': getattr(row, 'trade_date', None),
+                'volume': getattr(row, 'volume', None),
+            }
+        elif rn == 2 and close is not None:
+            prev_close[symbol] = float(close)
+    for symbol, item in latest.items():
+        price = item.get('price')
+        prev = prev_close.get(symbol)
+        item['prevClose'] = prev
+        change_rate = None
+        if price is not None and prev not in (None, 0):
+            change_rate = (float(price) - float(prev)) / float(prev) * 100
+        item['changeRate'] = change_rate
+        item['up'] = None if change_rate is None else change_rate >= 0
+    return latest
+
+
+def clamp_universe_page(page_num: int | None, page_size: int | None) -> tuple[int, int]:
+    """全市场列表强制分页：页码从 1 起，每页最多 200。"""
+    try:
+        pn = int(page_num or 1)
+    except (TypeError, ValueError):
+        pn = 1
+    try:
+        ps = int(page_size or UNIVERSE_PAGE_SIZE_DEFAULT)
+    except (TypeError, ValueError):
+        ps = UNIVERSE_PAGE_SIZE_DEFAULT
+    if pn < 1:
+        pn = 1
+    if ps < 1:
+        ps = UNIVERSE_PAGE_SIZE_DEFAULT
+    if ps > UNIVERSE_PAGE_SIZE_MAX:
+        ps = UNIVERSE_PAGE_SIZE_MAX
+    return pn, ps
 
 # (symbol, name, market, category)
 TARGET_INSTRUMENTS: list[tuple[str, str, str, str]] = [

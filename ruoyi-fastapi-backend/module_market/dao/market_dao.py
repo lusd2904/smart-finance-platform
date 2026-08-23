@@ -1,20 +1,32 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, delete, desc, or_, select, update
+from sqlalchemy import and_, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
-from module_market.constant.instruments import LISTED_CATEGORY, LISTED_SEARCH_LIMIT
+from module_market.constant.instruments import (
+    LISTED_CATEGORY,
+    LISTED_SEARCH_LIMIT,
+    build_quotes_from_ranked_bars,
+    clamp_universe_page,
+    featured_list_excludes_listed,
+    sanitize_instrument_keyword,
+)
 from module_market.entity.do.market_do import (
     FinanceBriefing,
     MarketInstrument,
+    MarketPriceHistoryDaily,
     MarketWatchlist,
     MarketWatchlistAnalysis,
     SymbolAiAnalysis,
     SymbolContentCache,
 )
-from module_market.entity.vo.market_vo import MarketInstrumentQueryModel, MarketWatchlistPageQueryModel
+from module_market.entity.vo.market_vo import (
+    MarketInstrumentQueryModel,
+    MarketInstrumentUniverseQueryModel,
+    MarketWatchlistPageQueryModel,
+)
 from utils.page_util import PageUtil
 
 
@@ -28,7 +40,7 @@ class MarketInstrumentDao:
         """
         根据查询参数获取标的列表
         """
-        keyword = (getattr(query_object, 'keyword', None) or '').strip().replace('%', '').replace('_', '')[:32]
+        keyword = sanitize_instrument_keyword(getattr(query_object, 'keyword', None))
         category = (query_object.category or '').strip() or None
         query = select(MarketInstrument).where(
             MarketInstrument.market == query_object.market if query_object.market else True,
@@ -36,7 +48,7 @@ class MarketInstrumentDao:
         )
         if category:
             query = query.where(MarketInstrument.category == category)
-        elif not keyword:
+        elif featured_list_excludes_listed(category, keyword):
             # 无关键字时不把全市场 listed 代码打到行情台/下拉框
             query = query.where(MarketInstrument.category != LISTED_CATEGORY)
         query = query.order_by(MarketInstrument.category, MarketInstrument.symbol)
@@ -46,6 +58,73 @@ class MarketInstrumentDao:
             query = query.limit(LISTED_SEARCH_LIMIT)
         rows = (await db.execute(query)).scalars().all()
         return list(rows)
+
+    @classmethod
+    async def get_instrument_universe(
+        cls, db: AsyncSession, query_object: MarketInstrumentUniverseQueryModel
+    ) -> PageModel:
+        """全市场标的分页（含 listed），精选分类排在 listed 前面。"""
+        page_num, page_size = clamp_universe_page(query_object.page_num, query_object.page_size)
+        keyword = sanitize_instrument_keyword(query_object.keyword)
+        market = (query_object.market or '').strip().upper() or None
+        if market and market not in {'US', 'HK', 'CN'}:
+            market = None
+        query = select(MarketInstrument)
+        if market:
+            query = query.where(MarketInstrument.market == market)
+        if query_object.enabled:
+            query = query.where(MarketInstrument.enabled == query_object.enabled)
+        if keyword:
+            like = f'%{keyword}%'
+            query = query.where(or_(MarketInstrument.symbol.like(like), MarketInstrument.name.like(like)))
+        query = query.order_by(
+            MarketInstrument.category == LISTED_CATEGORY,
+            MarketInstrument.market,
+            MarketInstrument.symbol,
+        )
+        return await PageUtil.paginate(db, query, page_num, page_size, is_page=True)
+
+    @classmethod
+    async def get_instrument_market_counts(cls, db: AsyncSession, enabled: str | None = '1') -> dict[str, int]:
+        """各市场启用标的数量（含 listed）。"""
+        query = select(MarketInstrument.market, func.count())
+        if enabled:
+            query = query.where(MarketInstrument.enabled == enabled)
+        query = query.group_by(MarketInstrument.market)
+        rows = (await db.execute(query)).all()
+        counts = {'US': 0, 'HK': 0, 'CN': 0, 'total': 0}
+        for market, n in rows:
+            key = str(market or '').upper()
+            num = int(n or 0)
+            if key in counts:
+                counts[key] = num
+            counts['total'] += num
+        return counts
+
+    @classmethod
+    async def get_latest_daily_quotes(cls, db: AsyncSession, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """当前页标的最近两根日K，用于列表最新价/涨跌幅。"""
+        uniq = [s for s in dict.fromkeys(symbols) if s]
+        if not uniq:
+            return {}
+        ranked = (
+            select(
+                MarketPriceHistoryDaily.symbol,
+                MarketPriceHistoryDaily.trade_date,
+                MarketPriceHistoryDaily.close_price,
+                MarketPriceHistoryDaily.volume,
+                func.row_number()
+                .over(
+                    partition_by=MarketPriceHistoryDaily.symbol,
+                    order_by=MarketPriceHistoryDaily.trade_date.desc(),
+                )
+                .label('rn'),
+            )
+            .where(MarketPriceHistoryDaily.symbol.in_(uniq))
+            .subquery()
+        )
+        rows = (await db.execute(select(ranked).where(ranked.c.rn <= 2))).all()
+        return build_quotes_from_ranked_bars(rows)
 
     @classmethod
     async def get_by_symbol(cls, db: AsyncSession, symbol: str) -> MarketInstrument | None:

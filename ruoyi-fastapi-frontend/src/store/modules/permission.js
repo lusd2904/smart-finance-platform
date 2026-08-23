@@ -11,7 +11,6 @@ const HIDDEN_PAGE_ACTIVE_MENU = {
   '/market/kline': '/market/board',
   '/market/symbol': '/market/board',
   '/market/tradingview': '/market/board',
-  '/market/stocks': '/market/board',
   '/market/stock-pool': '/market/board',
   '/market/dashboard': '/market/heat',
   '/market/coverage': '/market/board',

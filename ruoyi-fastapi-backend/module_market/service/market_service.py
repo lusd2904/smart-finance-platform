@@ -18,6 +18,7 @@ from module_market.entity.vo.market_vo import (
     MarketAiAnalyzeModel,
     MarketInstrumentModel,
     MarketInstrumentQueryModel,
+    MarketInstrumentUniverseQueryModel,
     MarketSyncModel,
 )
 from module_market.service.content_cache_service import SymbolContentService
@@ -106,6 +107,27 @@ class MarketService:
         return [
             MarketInstrumentModel(**CamelCaseUtil.transform_result(r)).model_dump(by_alias=True) for r in rows
         ]
+
+    @classmethod
+    async def get_instrument_universe_services(
+        cls, query_db: AsyncSession, query_object: MarketInstrumentUniverseQueryModel
+    ) -> tuple[Any, dict[str, int]]:
+        """全市场分页列表 + 三市场计数。当前页附带日K最新价，不扫全表。"""
+        page = await MarketInstrumentDao.get_instrument_universe(query_db, query_object)
+        rows = list(page.rows or [])
+        symbols = [str(r.get('symbol')) for r in rows if r.get('symbol')]
+        quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, symbols)
+        for row in rows:
+            q = quotes.get(str(row.get('symbol') or '')) or {}
+            row['price'] = q.get('price')
+            row['prevClose'] = q.get('prevClose')
+            row['changeRate'] = q.get('changeRate')
+            row['tradeDate'] = q.get('tradeDate')
+            row['volume'] = q.get('volume')
+            row['up'] = q.get('up')
+        page.rows = rows
+        counts = await MarketInstrumentDao.get_instrument_market_counts(query_db)
+        return page, counts
 
     # ---------- K线 ----------
 

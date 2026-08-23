@@ -8,7 +8,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的一体
 
 ## 核心功能一览
 
-- **行情中心**：三市场热度与 Top50、行情台、自选三栏（分组 / K 线 / 详情）、财经资讯、AI 研判；K 线、标的详情、高级图从列表点入，不占侧栏。
+- **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、行情台（精选报价）、自选三栏（分组 / K 线 / 详情）、财经资讯、AI 研判；K 线、标的详情、高级图从列表点入，不占侧栏。
 - **自选按账号隔离**：行情自选只走 `market_watchlist` + `user_id`；量化扫描池继续用 `quant_watchlist`，两套不混。分组先写在 `note`（逗号可多组）。
 - **舆情分析**：中文资讯采集、大盘影响研判、分析历史；列表页不叠长桥实时价。
 - **量化研究**：因子、Alphalens 风格 IC/IR/分层收益、策略信号、扫描台账、策略档位与 8 族权重。
@@ -18,6 +18,14 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的一体
 - **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
 - **桌面端**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
 - **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
+
+## 0823 迭代（行情中心全部股票）
+
+提交 `7f52337`（2026-08-23）。
+
+- 侧栏增加「全部股票」：美 / 港 / A 股全市场代码分页浏览，搜索、加自选、点入 K 线与详情。
+- `GET /market/instrument/universe` 强制分页（默认 50、最大 200），当前页附带本地日K最新价；精选接口 `/market/instrument/list` 仍不一次打出 listed。
+- 增量 SQL：`sql/market-universe-menu.sql`（也可重跑 `sql/market-menu-unify.sql`）。
 
 ## 0822 迭代（自选按用户隔离、行情侧栏压平、长桥按账户）
 
@@ -135,7 +143,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-backend sentiment-frontend
 ```
 
-已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)（含 `market-menu-unify.sql`、`quant-longbridge-user.sql`）。
+已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)（含 `market-menu-unify.sql`、`quant-longbridge-user.sql`、`market-universe-menu.sql`）。
 
 补全市场代码与日K（本机 Docker 默认口，限流慢拉）：
 
