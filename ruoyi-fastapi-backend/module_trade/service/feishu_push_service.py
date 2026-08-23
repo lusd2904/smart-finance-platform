@@ -119,8 +119,9 @@ class FeishuPushService:
                 'timezone': str(body.get('timezone') or 'Asia/Shanghai')[:64],
             },
         )
+        data = serialize_sub(row)
         await db.commit()
-        return serialize_sub(row)
+        return data
 
     @classmethod
     async def test_push(cls, db: AsyncSession, user_id: int, channel: str = 'personal') -> dict[str, Any]:

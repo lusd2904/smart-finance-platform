@@ -3,6 +3,8 @@ import sys
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_ai.service.ai_req_service import AiReqService, extract_requirement_payload, system_prompt
@@ -30,6 +32,28 @@ def test_only_decider_may_write_when_confirmed() -> None:
     assert 'upsert_requirements' in allowed
     assert '尚未确认' in denied
     assert '不是确定者' in other
+
+
+def test_save_bots_rejects_duplicate_model() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from exceptions.exception import ServiceException
+
+    async def _run() -> None:
+        with pytest.raises(ServiceException) as err:
+            await AiReqService.save_bots_services(
+                MagicMock(),
+                {
+                    'bots': [
+                        {'modelId': 1, 'displayName': 'A', 'enabled': True, 'isDecider': True},
+                        {'modelId': 1, 'displayName': 'B', 'enabled': True, 'isDecider': False},
+                    ]
+                },
+            )
+        assert '重复' in (err.value.message or '')
+
+    asyncio.run(_run())
 
 
 def test_confirm_text() -> None:

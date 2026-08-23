@@ -199,8 +199,10 @@ class AiReqService:
             if not isinstance(item, dict):
                 continue
             model_id = int(item.get('modelId') or item.get('model_id') or 0)
-            if not model_id or model_id in seen:
+            if not model_id:
                 continue
+            if model_id in seen:
+                raise ServiceException(message='同一 AI 模型不能重复加入需求沟通')
             seen.add(model_id)
             enabled = '1' if item.get('enabled') in {True, '1', 1, 'true'} else '0'
             is_decider = '1' if item.get('isDecider') in {True, '1', 1, 'true'} else '0'

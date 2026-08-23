@@ -1,5 +1,17 @@
 -- 需求沟通：可配置多 AI 机器人 + 唯一确定者
 -- menu_id 2145-2148。可重复执行。
+-- 依赖 ai_models.scope；本机若未跑过 ai-scope-migration.sql 则在此补列。
+
+SET @col_exists := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_models' AND COLUMN_NAME = 'scope'
+);
+SET @ddl := IF(
+    @col_exists = 0,
+    'ALTER TABLE `ai_models` ADD COLUMN `scope` VARCHAR(32) NOT NULL DEFAULT ''chat'' COMMENT ''适用范围'' AFTER `model_sort`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS ai_req_bot (
   bot_id BIGINT NOT NULL AUTO_INCREMENT COMMENT '机器人ID',
