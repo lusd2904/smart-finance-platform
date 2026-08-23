@@ -510,6 +510,28 @@ async function addWatch(row) {
   }
 }
 
+function stopQuoteTimer() {
+  if (quoteTimer) {
+    clearInterval(quoteTimer)
+    quoteTimer = null
+  }
+}
+function startQuoteTimer() {
+  stopQuoteTimer()
+  quoteTimer = setInterval(() => loadBoard(true), 8000)
+}
+// 后台标签页暂停轮询，回到前台立即刷新并恢复
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!quoteTimer) {
+      loadBoard(true)
+      startQuoteTimer()
+    }
+  } else {
+    stopQuoteTimer()
+  }
+}
+
 onMounted(async () => {
   // 工作台三市场卡片深链：?market=US/HK/CN
   const qm = String(route.query.market || '').toUpperCase()
@@ -517,10 +539,12 @@ onMounted(async () => {
   await loadDates()
   await loadDaily()
   loadBoard(false)
-  quoteTimer = setInterval(() => loadBoard(true), 8000)
+  startQuoteTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
-  if (quoteTimer) clearInterval(quoteTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopQuoteTimer()
   disposeTrend()
 })
 </script>
