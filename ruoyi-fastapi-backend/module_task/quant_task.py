@@ -8,6 +8,7 @@ invoke_target: module_task.quant_task.run_factor_qc_job
 """
 
 from config.database import AsyncSessionLocal
+from module_quant.dao.quant_dao import QuantWatchlistDao
 from module_quant.entity.vo.quant_vo import RunStrategyModel
 from module_quant.service.quant_service import QuantService
 from module_quant.service.snapshot_service import SnapshotService
@@ -20,6 +21,7 @@ async def run_strategy_job(*args, **kwargs) -> None:
     定时对自选池跑一次策略（异步任务）。
 
     可选参数：第一个位置参数或 kwargs['profile'] 指定策略档位，默认 balanced。
+    kwargs['userId'] 可指定用户（不传则对全部启用自选的用户逐个跑）。
     建议在每个交易日收盘后调度。
     """
     profile = 'balanced'
@@ -27,14 +29,28 @@ async def run_strategy_job(*args, **kwargs) -> None:
         profile = args[0].strip()
     elif kwargs.get('profile'):
         profile = str(kwargs['profile']).strip()
+    user_id = int(kwargs.get('userId') or 0) or None
 
-    if await JobQueue.enqueue('strategy_run', {'profile': profile}):
-        logger.info(f'[量化定时任务] 已入队 profile={profile}')
+    if await JobQueue.enqueue('strategy_run', {'profile': profile, 'userId': user_id}):
+        logger.info(f'[量化定时任务] 已入队 profile={profile} userId={user_id}')
         return
     async with AsyncSessionLocal() as db:
         try:
-            result = await QuantService.run_strategy_services(db, RunStrategyModel(profile=profile))
-            logger.info(f'[量化定时任务] 执行完成: {result.get("message")}, 信号数={result.get("signalCount")}')
+            if user_id:
+                result = await QuantService.run_strategy_services(
+                    db, RunStrategyModel(profile=profile), user_id=user_id
+                )
+                logger.info(f'[量化定时任务] 执行完成: {result.get("message")}, 信号数={result.get("signalCount")}')
+            else:
+                # 未指定用户：对每个有启用自选的账号各跑一次
+                users = (await QuantWatchlistDao.distinct_users(db)) or [1]
+                for uid in users:
+                    result = await QuantService.run_strategy_services(
+                        db, RunStrategyModel(profile=profile), user_id=uid
+                    )
+                    logger.info(
+                        f'[量化定时任务] user={uid} 完成: 信号数={result.get("signalCount")}'
+                    )
         except Exception as e:
             logger.error(f'[量化定时任务] 执行失败: {e}')
             raise

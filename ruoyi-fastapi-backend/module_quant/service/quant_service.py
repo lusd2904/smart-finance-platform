@@ -117,27 +117,34 @@ class QuantService:
 
     @classmethod
     async def get_watchlist_services(
-        cls, query_db: AsyncSession, query_object: QuantWatchlistPageQueryModel, is_page: bool = True
+        cls,
+        query_db: AsyncSession,
+        query_object: QuantWatchlistPageQueryModel,
+        is_page: bool = True,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        """获取自选池分页列表"""
-        return await QuantWatchlistDao.get_watchlist(query_db, query_object, is_page)
+        """获取自选池分页列表（user_id 非空时按账号隔离）"""
+        return await QuantWatchlistDao.get_watchlist(query_db, query_object, is_page, user_id=user_id)
 
     @classmethod
     async def add_watchlist_services(
-        cls, query_db: AsyncSession, add_model: AddQuantWatchlistModel
+        cls, query_db: AsyncSession, add_model: AddQuantWatchlistModel, user_id: int | None = None
     ) -> CrudResponseModel:
-        """新增自选标的（去重）"""
+        """新增自选标的（账号内去重）"""
         symbol = (add_model.symbol or '').strip().upper()
         market = (add_model.market or 'US').strip().upper()
         if not symbol:
             raise ServiceException(message='标的代码不能为空')
-        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
+        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
         if existing:
             raise ServiceException(message=f'{symbol}({market}) 已在自选池中')
         try:
             await QuantWatchlistDao.add_watchlist(
                 query_db,
                 {
+                    'user_id': user_id,
                     'symbol': symbol,
                     'market': market,
                     'note': add_model.note,
@@ -152,8 +159,10 @@ class QuantService:
             raise e
 
     @classmethod
-    async def delete_watchlist_services(cls, query_db: AsyncSession, ids: str) -> CrudResponseModel:
-        """删除自选标的"""
+    async def delete_watchlist_services(
+        cls, query_db: AsyncSession, ids: str, user_id: int | None = None
+    ) -> CrudResponseModel:
+        """删除自选标的（user_id 非空时只能删自己的）"""
         if not ids:
             raise ServiceException(message='传入ID为空')
         try:
@@ -161,7 +170,7 @@ class QuantService:
         except ValueError:
             raise ServiceException(message='ID格式非法，应为逗号分隔的数字')
         try:
-            await QuantWatchlistDao.delete_watchlist(query_db, id_list)
+            await QuantWatchlistDao.delete_watchlist(query_db, id_list, user_id=user_id)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception as e:
@@ -172,10 +181,10 @@ class QuantService:
 
     @classmethod
     async def run_strategy_services(
-        cls, query_db: AsyncSession, run_model: RunStrategyModel
+        cls, query_db: AsyncSession, run_model: RunStrategyModel, user_id: int | None = None
     ) -> dict[str, Any]:
         """
-        跑一次策略并入库。symbols 不传则用自选池。
+        跑一次策略并入库。symbols 不传则用当前用户自选池（未识别用户时退回全池）。
         """
         profile = run_model.profile if run_model.profile in VALID_PROFILES else 'balanced'
         profile_cfg = await cls.load_profile_config(query_db, profile)
@@ -184,9 +193,9 @@ class QuantService:
         if run_model.symbols:
             targets = [{'symbol': s.strip().upper(), 'market': 'US'} for s in run_model.symbols if s and s.strip()]
         else:
-            watchlist = await QuantWatchlistDao.get_enabled_symbols(query_db)
+            watchlist = await QuantWatchlistDao.get_enabled_symbols(query_db, user_id=user_id)
             targets = [{'symbol': w.symbol, 'market': w.market} for w in watchlist]
-            # 自选池为空则退回全市场（前端提示“留空则全市场”）
+            # 自选池为空则退回精选池（前端提示“留空则全市场”）
             if not targets:
                 from module_market.constant.instruments import TARGET_INSTRUMENTS
                 targets = [{'symbol': it[0], 'market': it[2]} for it in TARGET_INSTRUMENTS]
@@ -207,6 +216,7 @@ class QuantService:
                 query_db,
                 {
                     'cycle_id': cycle_id,
+                    'user_id': user_id or 1,
                     'strategy_profile': profile,
                     'symbols_count': cycle_result['symbolsCount'],
                     'signal_count': cycle_result['signalCount'],
@@ -219,6 +229,7 @@ class QuantService:
                 signal_rows.append(
                     {
                         'run_id': run_id,
+                        'user_id': user_id or 1,
                         'symbol': s['symbol'],
                         'signal': s['signal'],
                         'score': s.get('score'),
@@ -384,14 +395,14 @@ class QuantService:
 
     @classmethod
     async def get_symbol_latest_scan_services(
-        cls, query_db: AsyncSession, symbol: str, market: str = 'US'
+        cls, query_db: AsyncSession, symbol: str, market: str = 'US', user_id: int | None = None
     ) -> dict[str, Any]:
-        """单标的：最近趋势扫描 + 最近 AI 研判"""
+        """单标的：最近趋势扫描 + 最近 AI 研判（趋势信号按账号隔离）"""
         from module_market.service.market_service import MarketService
 
         symbol = (symbol or '').strip().upper()
         market = (market or 'US').strip().upper()
-        signal = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol)
+        signal = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol, user_id=user_id)
         latest_trend = MarketService._map_signal_to_trend(signal)
         latest_ai = await MarketService.get_latest_ai_analysis(query_db, symbol, market)
         return {

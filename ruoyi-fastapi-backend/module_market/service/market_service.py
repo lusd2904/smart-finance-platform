@@ -669,6 +669,7 @@ class MarketService:
         market: str = 'US',
         include: str = 'core',
         history_limit: int = 120,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         symbol = (symbol or '').strip().upper()
         market = (market or 'US').strip().upper()
@@ -700,7 +701,7 @@ class MarketService:
         tech_card = cls._tech_card_from_snapshot(snapshot)
 
         latest_ai = await cls.get_latest_ai_analysis(query_db, symbol, market)
-        latest_trend = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol)
+        latest_trend = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol, user_id=user_id)
 
         core = {
             'symbol': symbol,

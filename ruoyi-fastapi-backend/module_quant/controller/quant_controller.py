@@ -233,8 +233,11 @@ async def get_watchlist_list(
     request: Request,
     watchlist_page_query: Annotated[QuantWatchlistPageQueryModel, Query()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.get_watchlist_services(query_db, watchlist_page_query, is_page=True)
+    result = await QuantService.get_watchlist_services(
+        query_db, watchlist_page_query, is_page=True, user_id=_current_user_id(current_user)
+    )
     logger.info('获取自选池列表成功')
     return ResponseUtil.success(model_content=result)
 
@@ -242,7 +245,7 @@ async def get_watchlist_list(
 @quant_controller.post(
     '/watchlist',
     summary='新增自选标的接口',
-    description='向量化自选池新增标的',
+    description='向当前用户量化自选池新增标的',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:watchlist:add')],
 )
@@ -251,8 +254,9 @@ async def add_watchlist(
     request: Request,
     add_model: AddQuantWatchlistModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.add_watchlist_services(query_db, add_model)
+    result = await QuantService.add_watchlist_services(query_db, add_model, user_id=_current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -260,7 +264,7 @@ async def add_watchlist(
 @quant_controller.delete(
     '/watchlist/{ids}',
     summary='删除自选标的接口',
-    description='从量化自选池删除标的',
+    description='从当前用户量化自选池删除标的',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:watchlist:remove')],
 )
@@ -269,8 +273,9 @@ async def delete_watchlist(
     request: Request,
     ids: Annotated[str, Path(description='需要删除的自选ID')],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.delete_watchlist_services(query_db, ids)
+    result = await QuantService.delete_watchlist_services(query_db, ids, user_id=_current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -289,10 +294,15 @@ async def run_strategy(
     request: Request,
     run_model: Annotated[RunStrategyModel, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     ticket = await JobQueue.submit(
         'strategy_run',
-        {'profile': getattr(run_model, 'profile', None) or 'balanced', 'symbols': getattr(run_model, 'symbols', None)},
+        {
+            'profile': getattr(run_model, 'profile', None) or 'balanced',
+            'symbols': getattr(run_model, 'symbols', None),
+            'userId': _current_user_id(current_user),
+        },
     )
     if not ticket:
         raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
@@ -356,9 +366,12 @@ async def get_symbol_latest_scan(
     request: Request,
     symbol: Annotated[str, Path()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     market: Annotated[str, Query()] = 'US',
 ) -> Response:
-    result = await QuantService.get_symbol_latest_scan_services(query_db, symbol, market)
+    result = await QuantService.get_symbol_latest_scan_services(
+        query_db, symbol, market, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=result)
 
 

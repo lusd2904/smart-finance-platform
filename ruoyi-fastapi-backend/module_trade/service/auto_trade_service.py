@@ -181,6 +181,7 @@ class AutoTradeService:
         from module_quant.dao.quant_dao import QuantWatchlistDao
 
         rows = await QuantWatchlistDao.get_enabled_symbols(db)
+        seen: set[tuple[str, str]] = set()
         for row in rows:
             sym = str(getattr(row, 'symbol', '') or '').strip()
             mkt = str(getattr(row, 'market', '') or 'US').strip().upper()
@@ -188,6 +189,9 @@ class AutoTradeService:
                 if '.' in sym:
                     sym, inferred = parse_symbol_market(sym, mkt)
                     mkt = inferred or mkt
+                if (sym, mkt) in seen:
+                    continue  # 多账号重复加入同一标的时只扫一次
+                seen.add((sym, mkt))
                 items.append({'symbol': sym, 'market': mkt})
         return items
 

@@ -15,6 +15,7 @@ class QuantStrategyRun(Base):
 
     run_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='运行ID')
     cycle_id = Column(String(64), nullable=True, index=True, comment='批次ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='触发用户ID')
     strategy_profile = Column(String(20), nullable=False, server_default="'balanced'", comment='策略档位')
     symbols_count = Column(Integer, nullable=False, server_default='0', comment='参与标的数')
     signal_count = Column(Integer, nullable=False, server_default='0', comment='产出信号数')
@@ -31,6 +32,7 @@ class QuantStrategySignal(Base):
 
     signal_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='信号ID')
     run_id = Column(BigInteger, nullable=False, index=True, comment='所属运行ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='归属用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     signal = Column(String(8), nullable=False, server_default="'HOLD'", comment='信号（BUY/HOLD/SELL）')
     score = Column(Float, nullable=True, comment='综合打分（0-100）')
@@ -96,13 +98,17 @@ class QuantDailyListItem(Base):
 
 class QuantWatchlist(Base):
     """
-    量化自选池表
+    量化自选池表（按登录账号隔离）
     """
 
     __tablename__ = 'quant_watchlist'
-    __table_args__ = {'comment': '量化自选池表'}
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', 'market', name='uk_quant_watchlist_user_symbol'),
+        {'comment': '量化自选池表'},
+    )
 
     id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='所属用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场（US/HK/CN）')
     note = Column(String(255), nullable=True, comment='备注')

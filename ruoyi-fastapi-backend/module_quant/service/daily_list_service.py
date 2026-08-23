@@ -213,7 +213,7 @@ class DailyListService:
             row.selected = '1'
             if auto_join:
                 row.auto_trade = '1'
-                await cls._join_quant(db, row.symbol, row.market)
+                await cls._join_quant(db, row.symbol, row.market, user_id)
             result = await cls._place_or_queue(db, row, user_id)
             outcomes.append(result)
         if auto_join:
@@ -235,7 +235,7 @@ class DailyListService:
                 continue
             row.auto_trade = '1' if enabled else '0'
             if enabled:
-                await cls._join_quant(db, row.symbol, row.market)
+                await cls._join_quant(db, row.symbol, row.market, user_id)
         await db.commit()
         items = await QuantDailyListDao.list_items(db, latest.list_id)
         return serialize_list(latest, items)
@@ -287,13 +287,14 @@ class DailyListService:
         return {'outcomes': outcomes}
 
     @classmethod
-    async def _join_quant(cls, db: AsyncSession, symbol: str, market: str) -> None:
-        existing = await QuantWatchlistDao.get_by_symbol(db, symbol, market)
+    async def _join_quant(cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None) -> None:
+        existing = await QuantWatchlistDao.get_by_symbol(db, symbol, market, user_id=user_id)
         if existing:
             return
         await QuantWatchlistDao.add_watchlist(
             db,
             {
+                'user_id': user_id or 1,
                 'symbol': symbol,
                 'market': market,
                 'note': '次日清单自动交易',

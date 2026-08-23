@@ -32,12 +32,17 @@ class QuantWatchlistDao:
 
     @classmethod
     async def get_watchlist(
-        cls, db: AsyncSession, query_object: QuantWatchlistPageQueryModel, is_page: bool = False
+        cls,
+        db: AsyncSession,
+        query_object: QuantWatchlistPageQueryModel,
+        is_page: bool = False,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        """根据查询参数获取自选池列表"""
+        """根据查询参数获取自选池列表（user_id 非空时按账号隔离）"""
         query = (
             select(QuantWatchlist)
             .where(
+                QuantWatchlist.user_id == user_id if user_id is not None else True,
                 QuantWatchlist.symbol.like(f'%{query_object.symbol}%') if query_object.symbol else True,
                 QuantWatchlist.market == query_object.market if query_object.market else True,
                 QuantWatchlist.enabled == query_object.enabled if query_object.enabled else True,
@@ -47,29 +52,33 @@ class QuantWatchlistDao:
         return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
 
     @classmethod
-    async def get_enabled_symbols(cls, db: AsyncSession) -> list[QuantWatchlist]:
-        """获取所有启用的自选标的"""
-        rows = (
-            (await db.execute(select(QuantWatchlist).where(QuantWatchlist.enabled == '1')))
-            .scalars()
-            .all()
-        )
+    async def get_enabled_symbols(cls, db: AsyncSession, user_id: int | None = None) -> list[QuantWatchlist]:
+        """获取启用的自选标的；user_id 为空时返回全部（定时任务按用户分组前使用）"""
+        query = select(QuantWatchlist).where(QuantWatchlist.enabled == '1')
+        if user_id is not None:
+            query = query.where(QuantWatchlist.user_id == user_id)
+        rows = (await db.execute(query)).scalars().all()
         return list(rows)
 
     @classmethod
-    async def get_by_symbol(cls, db: AsyncSession, symbol: str, market: str) -> QuantWatchlist | None:
-        """按代码+市场查重"""
-        return (
-            (
-                await db.execute(
-                    select(QuantWatchlist).where(
-                        QuantWatchlist.symbol == symbol, QuantWatchlist.market == market
-                    )
-                )
-            )
+    async def distinct_users(cls, db: AsyncSession) -> list[int]:
+        """有启用自选的账号ID列表（定时任务逐用户跑策略用）"""
+        rows = (
+            (await db.execute(select(QuantWatchlist.user_id).where(QuantWatchlist.enabled == '1').distinct()))
             .scalars()
-            .first()
+            .all()
         )
+        return [int(u) for u in rows if u]
+
+    @classmethod
+    async def get_by_symbol(
+        cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None
+    ) -> QuantWatchlist | None:
+        """按代码+市场查重（user_id 非空时限定在该账号内）"""
+        query = select(QuantWatchlist).where(QuantWatchlist.symbol == symbol, QuantWatchlist.market == market)
+        if user_id is not None:
+            query = query.where(QuantWatchlist.user_id == user_id)
+        return (await db.execute(query)).scalars().first()
 
     @classmethod
     async def add_watchlist(cls, db: AsyncSession, item: dict) -> QuantWatchlist:
@@ -80,9 +89,12 @@ class QuantWatchlistDao:
         return db_item
 
     @classmethod
-    async def delete_watchlist(cls, db: AsyncSession, ids: list[int]) -> None:
-        """删除自选标的"""
-        await db.execute(delete(QuantWatchlist).where(QuantWatchlist.id.in_(ids)))
+    async def delete_watchlist(cls, db: AsyncSession, ids: list[int], user_id: int | None = None) -> None:
+        """删除自选标的（user_id 非空时只能删自己的）"""
+        query = delete(QuantWatchlist).where(QuantWatchlist.id.in_(ids))
+        if user_id is not None:
+            query = query.where(QuantWatchlist.user_id == user_id)
+        await db.execute(query)
 
 
 class QuantStrategyDao:
@@ -171,16 +183,16 @@ class QuantStrategyDao:
 
     @classmethod
     async def get_latest_signal_for_symbol(
-        cls, db: AsyncSession, symbol: str
+        cls, db: AsyncSession, symbol: str, user_id: int | None = None
     ) -> QuantStrategySignal | None:
-        """获取某标的最近一次策略信号"""
+        """获取某标的最近一次策略信号（user_id 非空时只看该账号自己的信号）"""
+        query = select(QuantStrategySignal).where(QuantStrategySignal.symbol == symbol)
+        if user_id is not None:
+            query = query.where(QuantStrategySignal.user_id == int(user_id))
         return (
             (
                 await db.execute(
-                    select(QuantStrategySignal)
-                    .where(QuantStrategySignal.symbol == symbol)
-                    .order_by(desc(QuantStrategySignal.create_time), desc(QuantStrategySignal.signal_id))
-                    .limit(1)
+                    query.order_by(desc(QuantStrategySignal.create_time), desc(QuantStrategySignal.signal_id)).limit(1)
                 )
             )
             .scalars()
