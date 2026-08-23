@@ -236,6 +236,14 @@ export function getStockPickLatest(query) {
   })
 }
 
+export function getStockPickDates(query) {
+  return request({
+    url: '/market/picks/dates',
+    method: 'get',
+    params: query
+  })
+}
+
 export function runStockPick() {
   return request({
     url: '/market/picks/run',

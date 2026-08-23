@@ -9,6 +9,16 @@
         </div>
       </div>
       <div class="hero-actions">
+        <el-select
+          v-model="tradeDate"
+          clearable
+          placeholder="交易日"
+          style="width: 132px"
+          :loading="datesLoading"
+          @change="loadLatest"
+        >
+          <el-option v-for="d in dateOptions" :key="d.tradeDate" :label="d.tradeDate" :value="d.tradeDate" />
+        </el-select>
         <el-radio-group v-model="market" size="small" @change="loadLatest">
           <el-radio-button label="">全部</el-radio-button>
           <el-radio-button label="CN">A股</el-radio-button>
@@ -52,7 +62,7 @@
           <span class="panel-sub">{{ latest.message || '入选后由模型写建议；失败则保留规则分' }}</span>
         </div>
       </template>
-      <el-table v-loading="loading" :data="items" stripe empty-text="暂无选股单，点击「生成选股单」或等待收盘任务">
+      <el-table v-loading="loading" :data="items" stripe :empty-text="emptyText">
         <el-table-column prop="rankNo" label="#" width="52" />
         <el-table-column prop="market" label="市场" width="76" align="center">
           <template #default="{ row }"><el-tag size="small" effect="plain">{{ marketLabel(row.market) }}</el-tag></template>
@@ -113,6 +123,7 @@
 <script setup name="MarketRecommendations">
 import {
   addMarketWatchlist,
+  getStockPickDates,
   getStockPickLatest,
   getStockPickMood,
   refreshStockPickMood,
@@ -122,6 +133,9 @@ import {
 const router = useRouter()
 const { proxy } = getCurrentInstance()
 const market = ref('')
+const tradeDate = ref('')
+const dateOptions = ref([])
+const datesLoading = ref(false)
 const loading = ref(false)
 const moodLoading = ref(false)
 const runLoading = ref(false)
@@ -134,10 +148,15 @@ const detailTitle = computed(() => (detail.value ? `${detail.value.name || ''} $
 
 const items = computed(() => latest.value.items || [])
 const headlines = computed(() => (mood.value.headlines || []).slice(0, 6))
+const emptyText = computed(() => {
+  if (tradeDate.value && latest.value.empty) return '该交易日暂无选股单'
+  return '暂无选股单，点击「生成选股单」或等待收盘任务'
+})
 const tableTitle = computed(() => {
   const n = items.value.length
-  const date = latest.value.tradeDate || ''
-  return `${date || '选股单'} · ${n} 只`
+  const date = latest.value.tradeDate || tradeDate.value || ''
+  const marketText = market.value ? marketLabel(market.value) : '全市场'
+  return `${date || '选股单'} · ${marketText} · ${n} 只`
 })
 
 const marketCards = computed(() => {
@@ -212,17 +231,35 @@ async function loadMood() {
   mood.value = res.data || mood.value
 }
 
+async function loadDates() {
+  datesLoading.value = true
+  try {
+    const res = await getStockPickDates({ limit: 60 })
+    dateOptions.value = res.data?.dates || []
+    if (!tradeDate.value && dateOptions.value.length) {
+      tradeDate.value = dateOptions.value[0].tradeDate
+    }
+  } finally {
+    datesLoading.value = false
+  }
+}
+
 async function loadLatest() {
   loading.value = true
   try {
-    const res = await getStockPickLatest({ market: market.value || undefined })
+    const res = await getStockPickLatest({
+      market: market.value || undefined,
+      tradeDate: tradeDate.value || undefined
+    })
     latest.value = res.data || { items: [], empty: true }
+    if (latest.value.tradeDate) tradeDate.value = latest.value.tradeDate
   } finally {
     loading.value = false
   }
 }
 
 async function loadAll() {
+  await loadDates()
   await Promise.all([loadMood(), loadLatest()])
 }
 
@@ -244,8 +281,9 @@ async function handleRun() {
     proxy?.$modal?.msgSuccess?.(res.msg || '已提交')
     if (res.data && res.data.items) {
       latest.value = res.data
+      if (res.data.tradeDate) tradeDate.value = res.data.tradeDate
     } else {
-      setTimeout(loadLatest, 3000)
+      setTimeout(loadAll, 3000)
     }
   } finally {
     runLoading.value = false

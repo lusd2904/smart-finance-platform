@@ -165,8 +165,25 @@ async def refresh_stock_pick_mood(request: Request) -> Response:
 
 
 @market_controller.get(
+    '/picks/dates',
+    summary='可选历史选股交易日',
+    dependencies=[UserInterfaceAuthDependency(['market:picks:list', 'market:heat:list', 'market:instrument:list'])],
+)
+async def get_stock_pick_dates(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    limit: Annotated[int, Query(description='最近 N 个交易日')] = 60,
+) -> Response:
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    data = await StockPickService.list_dates_services(query_db, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
     '/picks/latest',
     summary='最新全市场智能选股单',
+    description='省略 tradeDate 取最近一日；指定 tradeDate 则返回该日选股单。',
     dependencies=[UserInterfaceAuthDependency(['market:picks:list', 'market:heat:list', 'market:instrument:list'])],
 )
 async def get_stock_pick_latest(
@@ -174,6 +191,7 @@ async def get_stock_pick_latest(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     market: Annotated[str | None, Query()] = None,
+    trade_date: Annotated[str | None, Query(alias='tradeDate', description='交易日 YYYY-MM-DD')] = None,
 ) -> Response:
     from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
 
@@ -182,7 +200,9 @@ async def get_stock_pick_latest(
         user_id = _current_user_id(current_user)
     except Exception:
         user_id = None
-    data = await StockPickService.get_latest_services(query_db, market=market, user_id=user_id)
+    data = await StockPickService.get_latest_services(
+        query_db, market=market, user_id=user_id, trade_date=trade_date
+    )
     return ResponseUtil.success(data=data)
 
 

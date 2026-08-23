@@ -37,6 +37,21 @@ class StockPickDao:
         )
 
     @classmethod
+    async def list_dates(cls, db: AsyncSession, limit: int = 60) -> list[MarketStockPick]:
+        cap = max(1, min(int(limit or 60), 120))
+        return list(
+            (
+                await db.execute(
+                    select(MarketStockPick)
+                    .order_by(desc(MarketStockPick.trade_date), desc(MarketStockPick.pick_id))
+                    .limit(cap)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    @classmethod
     async def list_items(cls, db: AsyncSession, pick_id: int, market: str | None = None) -> list[MarketStockPickItem]:
         query = select(MarketStockPickItem).where(MarketStockPickItem.pick_id == pick_id)
         if market:

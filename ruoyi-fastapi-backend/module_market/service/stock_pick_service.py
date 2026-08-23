@@ -114,15 +114,42 @@ class StockPickService:
         }
 
     @classmethod
+    async def list_dates_services(cls, db: AsyncSession, limit: int = 60) -> dict[str, Any]:
+        rows = await StockPickDao.list_dates(db, limit=limit)
+        dates = [
+            {
+                'id': row.pick_id,
+                'tradeDate': row.trade_date,
+                'status': row.status,
+                'pickedCount': row.picked_count,
+                'aiCount': row.ai_count,
+                'modelName': row.model_name,
+                'updatedAt': row.update_time.strftime('%Y-%m-%d %H:%M:%S') if row.update_time else None,
+            }
+            for row in rows
+        ]
+        return {'dates': dates}
+
+    @classmethod
     async def get_latest_services(
-        cls, db: AsyncSession, market: str | None = None, user_id: int | None = None
+        cls,
+        db: AsyncSession,
+        market: str | None = None,
+        user_id: int | None = None,
+        trade_date: str | None = None,
     ) -> dict[str, Any]:
-        run = await StockPickDao.get_latest(db)
+        run = await StockPickDao.get_by_date(db, trade_date) if trade_date else await StockPickDao.get_latest(db)
         if not run:
             mood = await cls.get_mood_services(db)
+            message = (
+                '该交易日暂无选股单'
+                if trade_date
+                else '还没有选股单。可手动生成，或等收盘后的定时任务。'
+            )
             return {
                 'empty': True,
-                'message': '还没有选股单。可手动生成，或等收盘后的定时任务。',
+                'message': message,
+                'tradeDate': trade_date,
                 'mood': mood,
                 'items': [],
             }
@@ -255,7 +282,6 @@ class StockPickService:
     @classmethod
     async def run(cls, db: AsyncSession, *, trigger: str = 'manual', use_ai: bool = True) -> dict[str, Any]:  # noqa: PLR0915
         mood = await cls.get_mood_services(db)
-        mood.get('sessions') or {}
         open_markets = set(mood.get('openMarkets') or [])
         sentiment = mood.get('sentiment') or {}
         heats = mood.get('heat') or {}
