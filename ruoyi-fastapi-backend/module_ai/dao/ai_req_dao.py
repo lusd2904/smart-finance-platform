@@ -1,11 +1,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_admin.entity.do.user_do import SysUser
-from module_ai.entity.do.ai_req_do import AiReqItem, AiReqMessage
+from module_ai.entity.do.ai_req_do import AiReqBot, AiReqItem, AiReqMessage
 
 EXCLUDED_USERNAMES = frozenset({'admin', 'niangao'})
 
@@ -51,6 +51,47 @@ class AiReqDao:
         if not after_id:
             rows.reverse()
         return rows
+
+    @classmethod
+    async def list_bots(cls, db: AsyncSession) -> list[AiReqBot]:
+        rows = (await db.execute(select(AiReqBot).order_by(AiReqBot.sort_order, AiReqBot.bot_id))).scalars().all()
+        return list(rows)
+
+    @classmethod
+    async def list_enabled_bots(cls, db: AsyncSession) -> list[AiReqBot]:
+        rows = (
+            (
+                await db.execute(
+                    select(AiReqBot)
+                    .where(AiReqBot.enabled == '1')
+                    .order_by(AiReqBot.sort_order, AiReqBot.bot_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
+    async def replace_bots(cls, db: AsyncSession, rows: list[dict[str, Any]]) -> list[AiReqBot]:
+        await db.execute(delete(AiReqBot))
+        saved: list[AiReqBot] = []
+        for item in rows:
+            row = AiReqBot(**item)
+            db.add(row)
+            saved.append(row)
+        await db.flush()
+        for row in saved:
+            await db.refresh(row)
+        return saved
+
+    @classmethod
+    async def get_item_by_title(cls, db: AsyncSession, title: str) -> AiReqItem | None:
+        return (
+            (await db.execute(select(AiReqItem).where(AiReqItem.title == title).order_by(desc(AiReqItem.item_id))))
+            .scalars()
+            .first()
+        )
 
     @classmethod
     async def add_item(cls, db: AsyncSession, item: dict[str, Any]) -> AiReqItem:

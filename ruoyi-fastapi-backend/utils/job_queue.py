@@ -44,6 +44,9 @@ JOB_GROUPS = {
     'daily_review': 'llm',
     'req_send': 'llm',
     'req_summarize': 'llm',
+    'daily_list_scan': 'quant',
+    'daily_list_open': 'quant',
+    'feishu_push': 'llm',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -426,6 +429,34 @@ async def _req_summarize(payload: dict[str, Any]) -> dict[str, Any]:
         return await AiReqService.process_summarize_job(db, payload or {})
 
 
+async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_quant.service.daily_list_service import DailyListService
+
+    profile = str((payload or {}).get('profile') or 'balanced')
+    user_id = int((payload or {}).get('userId') or 0)
+    async with AsyncSessionLocal() as db:
+        if user_id:
+            return await DailyListService.scan_user(db, user_id, profile)
+        return await DailyListService.scan_all_users(db, profile)
+
+
+async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_quant.service.daily_list_service import DailyListService
+
+    async with AsyncSessionLocal() as db:
+        return await DailyListService.execute_queued(db)
+
+
+async def _feishu_push(_payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_trade.service.feishu_push_service import FeishuPushService
+
+    async with AsyncSessionLocal() as db:
+        return await FeishuPushService.run_due(db)
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'finance_briefings': _finance_briefings,
@@ -443,4 +474,7 @@ HANDLERS = {
     'daily_review': _daily_review,
     'req_send': _req_send,
     'req_summarize': _req_summarize,
+    'daily_list_scan': _daily_list_scan,
+    'daily_list_open': _daily_list_open,
+    'feishu_push': _feishu_push,
 }

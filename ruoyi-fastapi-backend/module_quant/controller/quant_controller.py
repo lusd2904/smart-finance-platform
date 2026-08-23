@@ -414,3 +414,96 @@ async def save_longbridge_config(
     )
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
+
+
+# ---------------------------------------------------------------- 次日策略清单 ---
+
+
+@quant_controller.get(
+    '/daily-list',
+    summary='当前用户次日策略清单',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:list')],
+)
+async def get_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    data = await DailyListService.get_latest(query_db, _current_user_id(current_user))
+    return ResponseUtil.success(data=data)
+
+
+@quant_controller.post(
+    '/daily-list/scan',
+    summary='扫描生成次日策略清单',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:scan')],
+)
+@Log(title='次日策略清单扫描', business_type=BusinessType.OTHER)
+async def scan_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from utils.job_queue import JobQueue
+
+    profile = str((body or {}).get('profile') or 'balanced')
+    ticket = await JobQueue.submit(
+        'daily_list_scan', {'userId': _current_user_id(current_user), 'profile': profile}
+    )
+    if ticket:
+        return ResponseUtil.success(data=ticket, msg='已加入后台队列')
+    from module_quant.service.daily_list_service import DailyListService
+
+    data = await DailyListService.scan_user(query_db, _current_user_id(current_user), profile)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '扫描完成')
+
+
+@quant_controller.post(
+    '/daily-list/open',
+    summary='勾选后长桥模拟开仓',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:open')],
+)
+@Log(title='次日清单模拟开仓', business_type=BusinessType.OTHER)
+async def open_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    body = body or {}
+    raw_ids = body.get('itemIds') or body.get('ids') or []
+    item_ids = [int(i) for i in raw_ids]
+    data = await DailyListService.open_selected(
+        query_db, _current_user_id(current_user), item_ids, auto_join=bool(body.get('autoJoin'))
+    )
+    return ResponseUtil.success(data=data, msg='已提交勾选标的')
+
+
+@quant_controller.post(
+    '/daily-list/auto',
+    summary='加入量化后持续自动交易',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:auto')],
+)
+@Log(title='次日清单自动交易', business_type=BusinessType.UPDATE)
+async def auto_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    body = body or {}
+    raw_ids = body.get('itemIds') or []
+    data = await DailyListService.set_auto(
+        query_db,
+        _current_user_id(current_user),
+        enabled=body.get('enabled') not in {False, '0', 0, 'false'},
+        item_ids=[int(i) for i in raw_ids] or None,
+    )
+    return ResponseUtil.success(data=data, msg='已更新自动交易开关')

@@ -10,6 +10,7 @@ from module_trade.entity.do.trade_do import (
     PlatAiTradeRunLog,
     PlatAutoTradeDecision,
     PlatBacktestRun,
+    PlatFeishuSubscription,
     PlatNotification,
     PlatRiskEvent,
     PlatRiskRule,
@@ -21,6 +22,35 @@ class TradeDao:
     """
     交易、风控、通知与回测数据库操作层
     """
+
+    # ---------------- 飞书订阅 ----------------
+    @classmethod
+    async def get_feishu_sub(cls, db: AsyncSession, user_id: int) -> PlatFeishuSubscription | None:
+        return (
+            (await db.execute(select(PlatFeishuSubscription).where(PlatFeishuSubscription.user_id == int(user_id))))
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def list_feishu_subs(cls, db: AsyncSession) -> list[PlatFeishuSubscription]:
+        return list((await db.execute(select(PlatFeishuSubscription))).scalars().all())
+
+    @classmethod
+    async def upsert_feishu_sub(cls, db: AsyncSession, user_id: int, values: dict[str, Any]) -> PlatFeishuSubscription:
+        row = await cls.get_feishu_sub(db, user_id)
+        now = datetime.now()
+        if row:
+            for key, value in values.items():
+                setattr(row, key, value)
+            row.update_time = now
+            await db.flush()
+            return row
+        row = PlatFeishuSubscription(user_id=int(user_id), create_time=now, update_time=now, **values)
+        db.add(row)
+        await db.flush()
+        await db.refresh(row)
+        return row
 
     # ---------------- 通知 ----------------
     @classmethod

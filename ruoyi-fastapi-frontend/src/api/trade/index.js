@@ -114,3 +114,12 @@ export function listAiBatches() {
 export function listAiBatchItems(batchId) {
   return request({ url: '/trade/ai/batches/' + batchId + '/items', method: 'get' })
 }
+export function getFeishuConfig() {
+  return request({ url: '/trade/feishu/config', method: 'get' })
+}
+export function saveFeishuConfig(data) {
+  return request({ url: '/trade/feishu/config', method: 'put', data })
+}
+export function testFeishuPush(data) {
+  return request({ url: '/trade/feishu/test', method: 'post', data: data || {} })
+}

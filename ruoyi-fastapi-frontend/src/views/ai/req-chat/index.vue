@@ -3,18 +3,18 @@
     <el-container class="shell">
       <el-aside width="240px" class="side">
         <div class="side-title">需求沟通</div>
-        <div class="side-sub">不含 admin / niangao · 固定 Grok</div>
+        <div class="side-sub">不含 admin / niangao · 机器人可在 AI 管理配置</div>
         <div class="member" v-for="m in members" :key="m.userId + m.role">
           <el-avatar :size="28" :class="m.role === 'ai' ? 'ai' : 'user'">{{ (m.nickName || '?').slice(0, 1) }}</el-avatar>
           <div>
             <div class="m-name">{{ m.nickName }}</div>
-            <div class="m-role">{{ m.role === 'ai' ? 'Grok' : m.userName }}</div>
+            <div class="m-role">{{ m.role === 'ai' ? (m.isDecider ? '确定者' : 'AI') : m.userName }}</div>
           </div>
         </div>
       </el-aside>
       <el-main class="main">
         <div class="toolbar">
-          <span>{{ pendingHint || '讨论可行性，确定后让 Grok 写入需求清单' }}</span>
+          <span>{{ pendingHint || '全员并行讨论，确认后由确定者写入需求清单' }}</span>
           <div>
             <el-button type="success" :loading="summarizing" @click="handleSummarize" v-hasPermi="['ai:req:chat']">总结并写入清单</el-button>
             <el-button @click="$router.push('/ai/req-list')">打开需求清单</el-button>
@@ -84,8 +84,8 @@ async function loadMessages(silent) {
 
 function trackJob(jobId, hint) {
   if (!jobId) return
-  pendingJobs.set(jobId, hint || 'Grok 正在后台处理')
-  pendingHint.value = hint || 'Grok 正在后台处理，完成后会刷新对话'
+  pendingJobs.set(jobId, hint || '机器人正在并行回复')
+  pendingHint.value = hint || '机器人正在并行回复，完成后会刷新对话'
 }
 
 async function pollPendingJobs() {
@@ -126,8 +126,8 @@ async function handleSend() {
     if (data.aiMessage) messages.value.push(data.aiMessage)
     scrollBottom()
     if (data.accepted || data.jobId) {
-      trackJob(data.jobId, '已发送，Grok 正在后台回复')
-      proxy.$modal.msgSuccess(res.msg || '已发送，Grok 正在后台回复')
+      trackJob(data.jobId, '已发送，机器人正在并行回复')
+      proxy.$modal.msgSuccess(res.msg || '已发送，机器人正在并行回复')
     } else if ((data.requirements || []).length) {
       proxy.$modal.msgSuccess(`已写入 ${(data.requirements || []).length} 条需求`)
     }

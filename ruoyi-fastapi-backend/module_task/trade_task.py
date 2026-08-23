@@ -27,3 +27,17 @@ async def run_auto_trade_scan_job(*args, **kwargs) -> None:
         except Exception as exc:
             logger.error(f'[自动交易定时扫描] 执行失败: {exc}')
             raise
+
+
+async def run_feishu_push_job(*args, **kwargs) -> None:
+    """按用户时区推送飞书策略摘要；非交易日/空清单静默。"""
+    from utils.job_queue import JobQueue
+
+    if await JobQueue.enqueue('feishu_push', {}):
+        logger.info('[飞书推送] 已入队')
+        return
+    from module_trade.service.feishu_push_service import FeishuPushService
+
+    async with AsyncSessionLocal() as db:
+        result = await FeishuPushService.run_due(db)
+        logger.info(f'[飞书推送] {result}')

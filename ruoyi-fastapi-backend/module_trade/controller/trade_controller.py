@@ -590,3 +590,60 @@ async def ai_batch_items(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
     return ResponseUtil.success(data=await PlatformExtService.list_ai_batch_items(query_db, batch_id))
+
+
+@trade_controller.get(
+    '/feishu/config',
+    summary='飞书推送订阅',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:query')],
+)
+async def get_feishu_config(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    from module_trade.service.feishu_push_service import FeishuPushService
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    return ResponseUtil.success(data=await FeishuPushService.get_config(query_db, user_id))
+
+
+@trade_controller.put(
+    '/feishu/config',
+    summary='保存飞书推送订阅',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:edit')],
+)
+@Log(title='飞书推送订阅', business_type=BusinessType.UPDATE)
+async def put_feishu_config(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from module_trade.service.feishu_push_service import FeishuPushService
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    data = await FeishuPushService.save_config(query_db, user_id, body or {})
+    return ResponseUtil.success(data=data, msg='订阅已保存')
+
+
+@trade_controller.post(
+    '/feishu/test',
+    summary='发送飞书测试卡片',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:test')],
+)
+@Log(title='飞书测试推送', business_type=BusinessType.OTHER)
+async def test_feishu(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict, Body()] = None,
+) -> Response:
+    from module_trade.service.feishu_push_service import FeishuPushService
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    data = await FeishuPushService.test_push(query_db, user_id, str((body or {}).get('channel') or 'personal'))
+    return ResponseUtil.success(data=data, msg=data.get('message') or '已发送')

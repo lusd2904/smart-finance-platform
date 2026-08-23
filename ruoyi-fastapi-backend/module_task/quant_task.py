@@ -78,6 +78,31 @@ async def run_position_monitor_job(*args, **kwargs) -> None:
             raise
 
 
+async def run_daily_list_scan_job(*args, **kwargs) -> None:
+    """A股收盘后扫描次日策略清单。"""
+    profile = str(kwargs.get('profile') or (args[0] if args else 'balanced') or 'balanced')
+    if await JobQueue.enqueue('daily_list_scan', {'profile': profile}):
+        logger.info('[次日清单] 扫描已入队')
+        return
+    from module_quant.service.daily_list_service import DailyListService
+
+    async with AsyncSessionLocal() as db:
+        result = await DailyListService.scan_all_users(db, profile)
+        logger.info(f'[次日清单] 扫描完成: {result}')
+
+
+async def run_daily_list_open_job(*args, **kwargs) -> None:
+    """开盘执行排队的模拟开仓。"""
+    if await JobQueue.enqueue('daily_list_open', {}):
+        logger.info('[次日清单] 开盘送单已入队')
+        return
+    from module_quant.service.daily_list_service import DailyListService
+
+    async with AsyncSessionLocal() as db:
+        result = await DailyListService.execute_queued(db)
+        logger.info(f'[次日清单] 开盘送单完成: {result}')
+
+
 async def run_indicator_refresh_job(*args, **kwargs) -> None:
     """行情看板 / 指标快照刷新。"""
     if await JobQueue.enqueue('indicator_refresh', {}):

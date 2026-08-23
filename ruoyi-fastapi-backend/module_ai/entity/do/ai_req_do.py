@@ -21,6 +21,22 @@ class AiReqMessage(Base):
     create_time = Column(DateTime, nullable=True, default=datetime.now, index=True, comment='发送时间')
 
 
+class AiReqBot(Base):
+    """需求沟通参与机器人。"""
+
+    __tablename__ = 'ai_req_bot'
+    __table_args__ = {'comment': '需求沟通AI机器人'}
+
+    bot_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='机器人ID')
+    model_id = Column(BigInteger, nullable=False, unique=True, comment='ai_models.model_id')
+    display_name = Column(String(64), nullable=False, comment='群内显示名')
+    enabled = Column(String(1), nullable=False, server_default="'1'", comment='是否参与')
+    is_decider = Column(String(1), nullable=False, server_default="'0'", comment='是否清单确定者')
+    sort_order = Column(Integer, nullable=False, server_default='0', comment='发言顺序')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
 class AiReqItem(Base):
     """AI 需求清单条目。"""
 

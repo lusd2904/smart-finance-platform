@@ -260,6 +260,11 @@ services:
       - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
       - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
       - ./ruoyi-fastapi-backend/sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
+      - ./ruoyi-fastapi-backend/sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
+      - ./ruoyi-fastapi-backend/sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
+      - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
+      - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
+      - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
     networks:
       - sentiment-network

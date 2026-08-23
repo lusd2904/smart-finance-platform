@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from module_quant.entity.do.quant_do import (
+    QuantDailyList,
+    QuantDailyListItem,
     QuantFactorQc,
     QuantFactorSnapshot,
     QuantLongbridgeConfig,
@@ -405,3 +407,106 @@ class QuantFactorQcDao:
             .all()
         )
         return list(rows)
+
+
+class QuantDailyListDao:
+    @classmethod
+    async def get_by_trade_date(cls, db: AsyncSession, user_id: int, trade_date) -> QuantDailyList | None:
+        return (
+            (
+                await db.execute(
+                    select(QuantDailyList).where(
+                        QuantDailyList.user_id == int(user_id), QuantDailyList.trade_date == trade_date
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def latest_for_user(cls, db: AsyncSession, user_id: int) -> QuantDailyList | None:
+        return (
+            (
+                await db.execute(
+                    select(QuantDailyList)
+                    .where(QuantDailyList.user_id == int(user_id))
+                    .order_by(desc(QuantDailyList.trade_date), desc(QuantDailyList.list_id))
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def upsert_list(cls, db: AsyncSession, values: dict[str, Any]) -> QuantDailyList:
+        existing = await cls.get_by_trade_date(db, values['user_id'], values['trade_date'])
+        now = datetime.now()
+        if existing:
+            for key, value in values.items():
+                setattr(existing, key, value)
+            existing.update_time = now
+            await db.flush()
+            return existing
+        row = QuantDailyList(create_time=now, update_time=now, **values)
+        db.add(row)
+        await db.flush()
+        await db.refresh(row)
+        return row
+
+    @classmethod
+    async def list_items(cls, db: AsyncSession, list_id: int) -> list[QuantDailyListItem]:
+        rows = (
+            (
+                await db.execute(
+                    select(QuantDailyListItem)
+                    .where(QuantDailyListItem.list_id == int(list_id))
+                    .order_by(desc(QuantDailyListItem.confidence), QuantDailyListItem.item_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
+    async def get_item(cls, db: AsyncSession, item_id: int, user_id: int) -> QuantDailyListItem | None:
+        return (
+            (
+                await db.execute(
+                    select(QuantDailyListItem).where(
+                        QuantDailyListItem.item_id == int(item_id),
+                        QuantDailyListItem.user_id == int(user_id),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def replace_items(cls, db: AsyncSession, list_id: int, items: list[dict[str, Any]]) -> list[QuantDailyListItem]:
+        await db.execute(delete(QuantDailyListItem).where(QuantDailyListItem.list_id == int(list_id)))
+        rows = [QuantDailyListItem(**item) for item in items]
+        db.add_all(rows)
+        await db.flush()
+        return rows
+
+    @classmethod
+    async def list_queued(cls, db: AsyncSession) -> list[QuantDailyListItem]:
+        rows = (
+            (await db.execute(select(QuantDailyListItem).where(QuantDailyListItem.status == 'queued')))
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
+    async def distinct_watchlist_users(cls, db: AsyncSession) -> list[int]:
+        from module_market.entity.do.market_do import MarketWatchlist
+
+        rows = (
+            await db.execute(select(MarketWatchlist.user_id).where(MarketWatchlist.enabled == '1').distinct())
+        ).all()
+        return [int(r[0]) for r in rows if r[0]]

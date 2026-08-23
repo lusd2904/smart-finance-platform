@@ -890,13 +890,15 @@ class LongbridgeService:
         price: float | None = None,
         time_in_force: str = 'Day',
         market: str = 'US',
+        allow_sim: bool = False,
     ) -> dict[str, Any]:
         """
-        提交订单。side: buy/sell；order_type: LO/MO 等；未配置凭据或未开启交易开关时不真正下单。
+        提交订单。side: buy/sell；order_type: LO/MO 等。
+        默认需开启实盘开关；allow_sim=True 时按当前用户凭据下单（产品约定配置的是模拟账户）。
         """
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
-        if not cls.is_trading_enabled():
+        if not allow_sim and not cls.is_trading_enabled():
             return {
                 'configured': True,
                 'ok': False,
@@ -1220,6 +1222,7 @@ class LongbridgeService:
         price: float | None = None,
         time_in_force: str = 'Day',
         market: str = 'US',
+        allow_sim: bool = False,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
             cls.submit_order,
@@ -1230,6 +1233,7 @@ class LongbridgeService:
             price,
             time_in_force,
             market,
+            allow_sim,
         )
 
     @classmethod

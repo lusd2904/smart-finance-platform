@@ -31,3 +31,11 @@ export function updateReqStatus(itemId, data) {
 export function exportReqItems(status) {
   return request({ url: '/ai/req/items/export', method: 'get', params: status ? { status } : {} })
 }
+
+export function listReqBots() {
+  return request({ url: '/ai/req/bots', method: 'get' })
+}
+
+export function saveReqBots(data) {
+  return request({ url: '/ai/req/bots', method: 'put', data })
+}

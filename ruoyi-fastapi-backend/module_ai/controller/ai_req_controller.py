@@ -35,6 +35,33 @@ def _user_fields(current_user: CurrentUserModel) -> tuple[int, str, str]:
 
 
 @ai_req_controller.get(
+    '/bots',
+    summary='需求沟通机器人配置',
+    dependencies=[UserInterfaceAuthDependency('ai:req:bot')],
+)
+async def get_req_bots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    return ResponseUtil.success(data=await AiReqService.list_bots_services(query_db))
+
+
+@ai_req_controller.put(
+    '/bots',
+    summary='保存需求沟通机器人',
+    dependencies=[UserInterfaceAuthDependency('ai:req:bot:edit')],
+)
+@Log(title='需求沟通机器人', business_type=BusinessType.UPDATE)
+async def put_req_bots(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: Annotated[dict, Body()],
+) -> Response:
+    data = await AiReqService.save_bots_services(query_db, body)
+    return ResponseUtil.success(data=data, msg='机器人配置已保存，下一轮讨论生效')
+
+
+@ai_req_controller.get(
     '/room',
     summary='需求沟通群信息',
     dependencies=[UserInterfaceAuthDependency('ai:req:chat')],

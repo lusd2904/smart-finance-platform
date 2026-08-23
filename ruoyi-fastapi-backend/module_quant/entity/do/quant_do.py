@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CHAR, BigInteger, Column, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CHAR, BigInteger, Column, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from config.database import Base
 
@@ -38,6 +38,60 @@ class QuantStrategySignal(Base):
     reason = Column(String(500), nullable=True, comment='信号理由')
     factor_json = Column(Text, nullable=True, comment='因子明细JSON')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='生成时间')
+
+
+class QuantDailyList(Base):
+    """次日策略清单。"""
+
+    __tablename__ = 'quant_daily_list'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'trade_date', name='uk_daily_list_user_trade'),
+        {'comment': '次日策略清单'},
+    )
+
+    list_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='清单ID')
+    user_id = Column(BigInteger, nullable=False, index=True, comment='所属用户')
+    scan_date = Column(Date, nullable=False, comment='扫描日')
+    trade_date = Column(Date, nullable=False, comment='下一交易日')
+    profile = Column(String(20), nullable=False, server_default="'balanced'", comment='策略档位')
+    status = Column(String(16), nullable=False, server_default="'open'", comment='open/empty/skipped')
+    auto_enabled = Column(CHAR(1), nullable=False, server_default='0', comment='持续自动交易')
+    item_count = Column(Integer, nullable=False, server_default='0', comment='标的数')
+    message = Column(String(500), nullable=True, comment='说明')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
+class QuantDailyListItem(Base):
+    """次日策略清单标的。"""
+
+    __tablename__ = 'quant_daily_list_item'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', 'market', 'trade_date', 'side', name='uk_daily_item_user_symbol_day'),
+        {'comment': '次日策略清单标的'},
+    )
+
+    item_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='条目ID')
+    list_id = Column(BigInteger, nullable=False, index=True, comment='清单ID')
+    user_id = Column(BigInteger, nullable=False, index=True, comment='所属用户')
+    trade_date = Column(Date, nullable=False, comment='拟交易日')
+    symbol = Column(String(32), nullable=False, comment='标的代码')
+    market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
+    name = Column(String(64), nullable=True, comment='名称')
+    signal = Column('signal', String(8), nullable=False, server_default="'BUY'", comment='信号')
+    score = Column(Float, nullable=True, comment='打分')
+    confidence = Column(Integer, nullable=True, comment='置信度')
+    reason = Column(String(500), nullable=True, comment='理由')
+    selected = Column(CHAR(1), nullable=False, server_default='0', comment='勾选')
+    auto_trade = Column(CHAR(1), nullable=False, server_default='0', comment='持续自动交易')
+    status = Column(String(16), nullable=False, server_default="'listed'", comment='listed/queued/submitted/filled/rejected/skipped')
+    side = Column(String(8), nullable=False, server_default="'BUY'", comment='方向')
+    quantity = Column(Integer, nullable=True, comment='数量')
+    price = Column(Float, nullable=True, comment='参考价')
+    order_id = Column(String(64), nullable=True, comment='长桥单号')
+    error = Column(String(500), nullable=True, comment='失败原因')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
 
 
 class QuantWatchlist(Base):
