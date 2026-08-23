@@ -78,14 +78,17 @@
       </template>
       <div v-if="latestAi">
         <el-space wrap>
-          <el-tag :type="decisionTag(latestAi.finalDecision)" effect="dark">{{ latestAi.finalDecision || '--' }}</el-tag>
-          <span>置信度 {{ latestAi.finalConfidence ?? '--' }}%</span>
+          <el-tag :type="decisionTag(latestAi.finalDecision || latestAi.recommendation)" effect="dark">{{ latestAi.finalDecision || latestAi.recommendation || '--' }}</el-tag>
+          <el-tag v-if="latestAi.stance || latestAi.trend" type="info" effect="plain">{{ latestAi.stance || latestAi.trend }}</el-tag>
+          <span>置信度 {{ latestAi.finalConfidence ?? latestAi.confidence ?? '--' }}%</span>
           <span class="muted">{{ latestAi.analysisTime || '--' }}</span>
         </el-space>
         <div class="ai-summary">{{ latestAi.summary || latestAi.summaryText || '--' }}</div>
-        <el-descriptions :column="2" border size="small" style="margin-top: 12px" v-if="latestAi.trend || latestAi.advice">
-          <el-descriptions-item label="趋势">{{ latestAi.trend || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="建议">{{ latestAi.advice || '--' }}</el-descriptions-item>
+        <el-descriptions :column="1" border size="small" style="margin-top: 12px">
+          <el-descriptions-item label="指标">{{ latestAi.indicatorReview || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="舆情">{{ latestAi.sentimentReview || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="操作">{{ latestAi.operationAdvice || latestAi.advice || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="风险">{{ latestAi.riskWarning || '--' }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <el-empty v-else description="暂无研判记录，点击立即研判" :image-size="70" />
@@ -309,11 +312,18 @@ function handleAi() {
       if (data.ok) {
         proxy.$modal.msgSuccess(data.message || '研判完成')
         latestAi.value = {
-          finalDecision: data.finalDecision,
-          finalConfidence: data.finalConfidence,
+          finalDecision: data.finalDecision || data.recommendation,
+          recommendation: data.recommendation || data.finalDecision,
+          finalConfidence: data.finalConfidence ?? data.confidence,
+          confidence: data.confidence ?? data.finalConfidence,
+          stance: data.stance || data.trend,
+          trend: data.trend || data.stance,
           summary: data.summary,
-          trend: data.trend,
+          indicatorReview: data.indicatorReview,
+          sentimentReview: data.sentimentReview,
+          operationAdvice: data.operationAdvice || data.advice,
           advice: data.advice || data.operationAdvice,
+          riskWarning: data.riskWarning,
           analysisTime: new Date().toLocaleString()
         }
       } else {

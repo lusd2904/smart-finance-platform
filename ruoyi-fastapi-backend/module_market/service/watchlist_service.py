@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
-from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import get_instrument_meta
 from module_market.dao.market_dao import (
     MarketInstrumentDao,
@@ -23,12 +22,8 @@ from module_market.entity.vo.market_vo import (
     MarketWatchlistAnalyzeModel,
     MarketWatchlistPageQueryModel,
 )
-from module_market.service.content_cache_service import SymbolContentService
-from module_market.service.indicator_service import IndicatorService
 from module_market.service.market_service import MarketService
-from module_market.service.watchlist_analyzer import WatchlistAiAnalyzer, rule_based_analysis
-from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao, SentimentNewsDao
-from utils.crypto_util import CryptoUtil
+from module_market.service.stock_pick_service import StockPickService
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
@@ -327,7 +322,7 @@ class MarketWatchlistService:
             for name in row.get('groups') or []:
                 group_counts[name] = group_counts.get(name, 0) + 1
         groups = [{'name': name, 'count': count} for name, count in sorted(group_counts.items(), key=lambda x: (-x[1], x[0]))]
-        ai_conf = await cls._resolve_ai(query_db)
+        ai_conf = await StockPickService._resolve_ai(query_db)
         return {
             'count': len(rows),
             'bullish': stance_count['偏多'],
@@ -339,7 +334,7 @@ class MarketWatchlistService:
             'aiModel': ai_conf.get('modelName'),
             'aiHint': None
             if ai_conf.get('available')
-            else '未配置可用 AI 模型，小时分析将使用技术指标兜底。请在「AI 模型管理」填写 Base URL / API Key / 模型。',
+            else '未配置可用 AI 模型，分析将使用规则打分兜底。请在「AI 模型管理」适用范围选行情中心，默认 grok-4.6。',
             'groups': groups,
             'items': rows,
         }
@@ -379,141 +374,6 @@ class MarketWatchlistService:
         }
 
     @classmethod
-    async def _resolve_ai(cls, query_db: AsyncSession) -> dict[str, Any]:
-        base_url = api_key = model_name = None
-        temperature = 0.2
-        try:
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'market')
-            if ai_model:
-                base_url = ai_model.base_url
-                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
-                model_name = ai_model.model_code
-                if ai_model.temperature is not None:
-                    temperature = ai_model.temperature
-        except Exception as exc:
-            logger.warning(f'[自选分析] 解析 AI 模型失败: {exc}')
-        return {
-            'baseUrl': base_url,
-            'apiKey': api_key,
-            'modelName': model_name,
-            'temperature': temperature,
-            'available': bool(base_url and api_key and model_name),
-        }
-
-    @classmethod
-    async def _collect_context(
-        cls,
-        query_db: AsyncSession,
-        symbol: str,
-        market: str,
-        name: str | None,
-        refresh_content: bool,
-    ) -> dict[str, Any]:
-        klines = await asyncio.to_thread(InfluxUtil.query_klines, market, symbol, '-180d', 'now()', 200)
-        quote = MarketService._build_quote_from_klines(klines[-2:] if klines else [])
-        snapshot = await asyncio.to_thread(IndicatorService.latest_snapshot, klines) if klines else {}
-        news_items: list[dict[str, Any]] = []
-        for content_type in ('news', 'announcement', 'topic'):
-            try:
-                bundle = await SymbolContentService.get_content(
-                    query_db,
-                    symbol=symbol,
-                    market=market,
-                    content_type=content_type,
-                    limit=6,
-                    refresh=refresh_content and content_type == 'news',
-                )
-                news_items.extend(
-                    {
-                        'contentType': content_type,
-                        'title': item.get('title'),
-                        'summary': (item.get('summary') or item.get('content') or '')[:400],
-                        'publishedAt': item.get('publishedAt'),
-                        'sourceName': item.get('sourceName'),
-                    }
-                    for item in bundle.get('items') or []
-                )
-            except Exception as exc:  # noqa: PERF203 - 单内容源失败不中断其余来源
-                logger.warning(f'[自选分析] 读取 {symbol} {content_type} 失败: {exc}')
-
-        keywords = [symbol]
-        if name:
-            keywords.append(name)
-            compact = name.replace('-W', '').replace('-SW', '').strip()
-            if compact and compact != name:
-                keywords.append(compact)
-        sentiment_rows = await SentimentNewsDao.search_news_by_keywords(query_db, keywords, limit=8)
-        sentiment_news = [
-            {
-                'title': r.title,
-                'content': (r.content or '')[:400],
-                'source': r.source,
-                'pubTime': _fmt_dt(r.pub_time),
-            }
-            for r in sentiment_rows
-        ]
-        latest_sent = await SentimentAnalysisDao.get_latest_analysis(query_db)
-        market_sentiment = None
-        if latest_sent:
-            market_sentiment = {
-                'summary': latest_sent.summary,
-                'usDirection': latest_sent.us_direction,
-                'usScore': latest_sent.us_score,
-                'hkDirection': latest_sent.hk_direction,
-                'hkScore': latest_sent.hk_score,
-                'aDirection': latest_sent.a_direction,
-                'aScore': latest_sent.a_score,
-                'riskEvents': latest_sent.risk_events,
-            }
-        return {
-            'symbol': symbol,
-            'market': market,
-            'name': name or symbol,
-            'price': quote.get('last') or snapshot.get('close'),
-            'changePercent': quote.get('changeRate'),
-            'indicators': snapshot,
-            'news': news_items[:12],
-            'sentimentNews': sentiment_news,
-            'marketSentiment': market_sentiment,
-            'klineCount': len(klines or []),
-        }
-
-    @classmethod
-    def _normalize_result(cls, parsed: dict[str, Any] | None, fallback: dict[str, Any]) -> dict[str, Any]:
-        data = dict(fallback)
-        if not parsed:
-            return data
-        mapping = {
-            'stance': 'stance',
-            'recommendation': 'recommendation',
-            'confidence': 'confidence',
-            'summary': 'summary',
-            'indicator_review': 'indicator_review',
-            'news_review': 'news_review',
-            'sentiment_review': 'sentiment_review',
-            'operation_advice': 'operation_advice',
-            'risk_warning': 'risk_warning',
-            'key_points': 'key_points',
-        }
-        for src, dest in mapping.items():
-            if parsed.get(src) not in (None, ''):
-                data[dest] = parsed.get(src)
-        try:
-            data['confidence'] = int(data.get('confidence') or 50)
-        except (TypeError, ValueError):
-            data['confidence'] = 50
-        data['confidence'] = max(0, min(100, data['confidence']))
-        rec = str(data.get('recommendation') or '观望')
-        if rec.lower() in {'buy', 'long'}:
-            rec = '买入'
-        elif rec.lower() in {'sell', 'short'}:
-            rec = '卖出'
-        elif rec.lower() in {'hold'}:
-            rec = '持有'
-        data['recommendation'] = rec
-        return data
-
-    @classmethod
     async def analyze_one(
         cls,
         query_db: AsyncSession,
@@ -525,36 +385,29 @@ class MarketWatchlistService:
         refresh_content: bool = False,
         ai_conf: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        del ai_conf  # 统一走 StockPickService 内部解析行情中心 Grok 4.6
+        del refresh_content
         symbol = (symbol or '').strip().upper()
         market = (market or 'US').strip().upper()
-        context = await cls._collect_context(query_db, symbol, market, name, refresh_content)
-        fallback = rule_based_analysis(context)
-        ai_conf = ai_conf if ai_conf is not None else await cls._resolve_ai(query_db)
-        parsed = None
-        source = 'rule'
-        raw = ''
-        model_name = None
-        message = '已用技术指标生成兜底建议'
-        if ai_conf.get('available'):
-            ai_result = await WatchlistAiAnalyzer.analyze(
-                base_url=ai_conf['baseUrl'],
-                api_key=ai_conf['apiKey'],
-                model_name=ai_conf['modelName'],
-                context=context,
-                temperature=float(ai_conf.get('temperature') or 0.2),
-            )
-            raw = ai_result.get('raw') or ''
-            if ai_result.get('ok'):
-                parsed = ai_result.get('result')
-                source = 'ai'
-                model_name = ai_conf.get('modelName')
-                message = '分析成功'
-            else:
-                message = f'模型失败，已回退指标建议: {ai_result.get("error")}'
-        else:
-            message = '未配置 AI，已用技术指标、资讯与舆情生成兜底建议'
+        resolved_name = name or _resolve_watchlist_name(symbol, market)
+        analyzed = await StockPickService.analyze_symbol(
+            query_db,
+            symbol,
+            market,
+            use_ai=True,
+            name=resolved_name,
+        )
+        if not analyzed.get('ok'):
+            return {
+                'ok': False,
+                'symbol': symbol,
+                'market': market,
+                'message': analyzed.get('message') or '分析失败',
+            }
 
-        result = cls._normalize_result(parsed, fallback)
+        source = analyzed.get('source') or 'rule'
+        model_name = analyzed.get('modelName')
+        message = analyzed.get('message') or '分析成功'
         row = await MarketWatchlistAnalysisDao.add(
             query_db,
             {
@@ -562,28 +415,38 @@ class MarketWatchlistService:
                 'user_id': user_id,
                 'symbol': symbol,
                 'market': market,
-                'price': context.get('price'),
-                'change_percent': context.get('changePercent'),
-                'stance': result.get('stance'),
-                'recommendation': result.get('recommendation'),
-                'confidence': result.get('confidence'),
-                'summary': result.get('summary'),
-                'indicator_review': result.get('indicator_review'),
-                'news_review': result.get('news_review'),
-                'sentiment_review': result.get('sentiment_review'),
-                'operation_advice': result.get('operation_advice'),
-                'risk_warning': result.get('risk_warning'),
+                'price': analyzed.get('price'),
+                'change_percent': analyzed.get('changePct'),
+                'stance': analyzed.get('stance'),
+                'recommendation': analyzed.get('recommendation'),
+                'confidence': analyzed.get('confidence'),
+                'summary': analyzed.get('summary'),
+                'indicator_review': analyzed.get('indicatorReview'),
+                'news_review': '',
+                'sentiment_review': analyzed.get('sentimentReview'),
+                'operation_advice': analyzed.get('operationAdvice'),
+                'risk_warning': analyzed.get('riskWarning'),
                 'source': source,
                 'model_name': model_name,
-                'indicators_json': _dump(context.get('indicators') or {}),
-                'news_json': _dump(context.get('news') or []),
-                'sentiment_json': _dump(
+                'indicators_json': _dump(analyzed.get('metrics') or {}),
+                'news_json': _dump([]),
+                'sentiment_json': _dump({'summary': analyzed.get('sentimentReview')}),
+                'raw_json': _dump(
                     {
-                        'news': context.get('sentimentNews') or [],
-                        'market': context.get('marketSentiment'),
+                        'recommendation': analyzed.get('recommendation'),
+                        'stance': analyzed.get('stance'),
+                        'confidence': analyzed.get('confidence'),
+                        'summary': analyzed.get('summary'),
+                        'indicatorReview': analyzed.get('indicatorReview'),
+                        'sentimentReview': analyzed.get('sentimentReview'),
+                        'operationAdvice': analyzed.get('operationAdvice'),
+                        'riskWarning': analyzed.get('riskWarning'),
+                        'pickScore': analyzed.get('pickScore'),
+                        'factorScore': analyzed.get('factorScore'),
+                        'signal': analyzed.get('signal'),
+                        'source': source,
                     }
                 ),
-                'raw_json': _dump(parsed or {'fallback': fallback, 'raw': raw[:4000]}),
                 'analysis_time': datetime.now(),
             },
         )
@@ -613,11 +476,11 @@ class MarketWatchlistService:
             {
                 'ok': True,
                 'message': message,
-                'name': context.get('name'),
-                'newsCount': len(context.get('news') or []),
-                'sentimentCount': len(context.get('sentimentNews') or []),
-                'klineCount': context.get('klineCount'),
-                'keyPoints': result.get('key_points') or [],
+                'name': resolved_name,
+                'pickScore': analyzed.get('pickScore'),
+                'factorScore': analyzed.get('factorScore'),
+                'signal': analyzed.get('signal'),
+                'klineCount': analyzed.get('klineCount'),
             }
         )
         return payload
@@ -629,7 +492,6 @@ class MarketWatchlistService:
         body: MarketWatchlistAnalyzeModel,
         user_id: int | None = None,
     ) -> dict[str, Any]:
-        ai_conf = await cls._resolve_ai(query_db)
         targets: list[dict[str, Any]] = []
         if body.symbol:
             symbol = body.symbol.strip().upper()
@@ -679,7 +541,6 @@ class MarketWatchlistService:
                 watchlist_id=target.get('id'),
                 user_id=target.get('userId') or user_id,
                 refresh_content=bool(body.refresh_content),
-                ai_conf=ai_conf,
             )
 
         # 并发执行但限流，避免同时打满 Influx/LLM；AsyncSession 非并发安全，
@@ -710,7 +571,7 @@ class MarketWatchlistService:
             'ok': len(failed) == 0,
             'count': len(results),
             'failedCount': len(failed),
-            'aiAvailable': bool(ai_conf.get('available')),
+            'aiAvailable': True,
             'items': results,
             'failed': failed,
             'message': f'完成 {len(results)} 只，失败 {len(failed)} 只',

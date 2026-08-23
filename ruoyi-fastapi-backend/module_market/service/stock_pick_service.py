@@ -11,7 +11,7 @@ from sqlalchemy import desc, select
 
 from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, MARKET_SCOPE
 from module_ai.dao.ai_model_dao import AiModelDao
-from module_market.constant.instruments import TARGET_INSTRUMENTS
+from module_market.constant.instruments import TARGET_INSTRUMENTS, get_instrument_meta
 from module_market.dao.heat_dao import MarketHeatDao
 from module_market.dao.market_dao import MarketWatchlistDao
 from module_market.dao.stock_pick_dao import StockPickDao
@@ -210,6 +210,196 @@ class StockPickService:
             'updatedAt': run.update_time.strftime('%Y-%m-%d %H:%M:%S') if run.update_time else None,
             'context': context,
             'items': payload_items,
+        }
+
+    @classmethod
+    def _build_analyzer_context(cls, mood: dict[str, Any]) -> dict[str, Any]:
+        open_markets = set(mood.get('openMarkets') or [])
+        sentiment = mood.get('sentiment') or {}
+        heats = mood.get('heat') or {}
+        index_chg: dict[str, float] = {}
+        for item in mood.get('indices') or []:
+            market = str(item.get('market') or '').upper()
+            chg = item.get('changePct')
+            if market and isinstance(chg, (int, float)) and market not in index_chg:
+                index_chg[market] = float(chg)
+        return {
+            'markets': {
+                m: {
+                    'open': m in open_markets,
+                    'heatScore': (heats.get(m) or {}).get('heatScore'),
+                    'indexChangePct': index_chg.get(m),
+                    'sentiment': sentiment.get(SENTIMENT_FIELD[m]),
+                }
+                for m in MARKETS
+            },
+            'sentiment': sentiment,
+        }
+
+    @classmethod
+    def _score_symbol_row(
+        cls,
+        *,
+        symbol: str,
+        name: str,
+        market: str,
+        klines: list[dict[str, Any]],
+        mood: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        computed = FactorService.compute_from_klines(klines)
+        if not computed.get('ok'):
+            return None
+        open_markets = set(mood.get('openMarkets') or [])
+        sentiment = mood.get('sentiment') or {}
+        heats = mood.get('heat') or {}
+        index_chg: dict[str, float] = {}
+        for item in mood.get('indices') or []:
+            mkt = str(item.get('market') or '').upper()
+            chg = item.get('changePct')
+            if mkt and isinstance(chg, (int, float)) and mkt not in index_chg:
+                index_chg[mkt] = float(chg)
+        metrics = computed.get('metrics') or {}
+        score = computed.get('score') or {}
+        decision = decide_signal(score)
+        heat = heats.get(market) or {}
+        sent_raw = sentiment.get(SENTIMENT_FIELD.get(market, 'usScore'))
+        opened = market in open_markets
+        pick_score = combine_pick_score(
+            score.get('total'),
+            sentiment_raw=sent_raw,
+            heat_score=heat.get('heatScore'),
+            index_open=opened,
+            index_change_pct=index_chg.get(market),
+        )
+        reco, stance = reco_from_signal(decision.get('signal'), pick_score)
+        tags = list(score.get('tags') or [])[:6]
+        tags.append('盘中含指数' if opened else '休市无指数')
+        return {
+            'symbol': symbol,
+            'name': name,
+            'market': market,
+            'price': metrics.get('latestClose'),
+            'changePct': metrics.get('dayChangePercent'),
+            'factorScore': score.get('total'),
+            'pickScore': pick_score,
+            'signal': decision.get('signal'),
+            'recommendation': reco,
+            'stance': stance,
+            'confidence': decision.get('confidence'),
+            'reason': decision.get('reason'),
+            'summary': decision.get('reason'),
+            'indicatorReview': '、'.join(tags) or '指标中性',
+            'sentimentReview': sentiment.get('summary') or '暂无舆情',
+            'operationAdvice': reco,
+            'riskWarning': '无',
+            'tags': tags,
+            'source': 'rule',
+            'metrics': {
+                'rsi14': metrics.get('rsi14'),
+                'macdHist': metrics.get('macdHist'),
+                'ma20': metrics.get('ma20'),
+                'volumeRatio20': metrics.get('volumeRatio20'),
+                'return20': metrics.get('return20'),
+            },
+            'klineCount': len(klines),
+        }
+
+    @classmethod
+    async def analyze_symbol(
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str,
+        *,
+        use_ai: bool = True,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        """单标的研判：与智能选股同一套指标打分 + 舆情/热度/指数 + Grok 4.6。"""
+        symbol = (symbol or '').strip().upper()
+        market = (market or 'US').strip().upper()
+        if not symbol:
+            return {'ok': False, 'available': False, 'message': '标的代码不能为空', 'symbol': symbol, 'market': market}
+        if not name:
+            meta = get_instrument_meta(symbol)
+            name = meta[1] if meta else symbol
+
+        cutoff = (date.today() - timedelta(days=400)).isoformat()
+        kline_map = await StockPickDao.load_recent_daily_klines(db, [symbol], cutoff)
+        klines = kline_map.get(symbol) or []
+        if not klines:
+            return {
+                'ok': False,
+                'available': True,
+                'message': f'标的 {symbol} 暂无K线数据，请先同步',
+                'symbol': symbol,
+                'market': market,
+                'name': name,
+            }
+
+        mood = await cls.get_mood_services(db)
+        row = cls._score_symbol_row(symbol=symbol, name=name, market=market, klines=klines, mood=mood)
+        if not row:
+            return {
+                'ok': False,
+                'available': True,
+                'message': f'标的 {symbol} K线不足以计算指标',
+                'symbol': symbol,
+                'market': market,
+                'name': name,
+                'klineCount': len(klines),
+            }
+
+        ai_cfg = await cls._resolve_ai(db) if use_ai else {'available': False, 'reason': '未启用 AI'}
+        model_name = ai_cfg.get('modelName')
+        ai_error = ai_cfg.get('reason')
+        ai_ok = False
+        if ai_cfg.get('available'):
+            context = cls._build_analyzer_context(mood)
+            ai_result = await StockPickAnalyzer.analyze(
+                ai_cfg['baseUrl'],
+                ai_cfg['apiKey'],
+                ai_cfg['modelName'],
+                row,
+                context,
+                temperature=float(ai_cfg.get('temperature') or 0.2),
+            )
+            if ai_result.get('ok') and ai_result.get('result'):
+                apply_ai_result(row, ai_result['result'])
+                ai_ok = True
+            else:
+                ai_error = str(ai_result.get('error') or ai_error or '模型未返回有效 JSON')
+        elif use_ai:
+            logger.warning(f'[单标的研判] {symbol} 跳过 AI：{ai_error}')
+
+        message = '分析成功' if (not use_ai or ai_ok or row.get('source') == 'rule') else f'分析失败: {ai_error}'
+        return {
+            'ok': True,
+            'available': bool(ai_cfg.get('available')),
+            'symbol': symbol,
+            'market': market,
+            'name': name,
+            'price': row.get('price'),
+            'changePct': row.get('changePct'),
+            'factorScore': row.get('factorScore'),
+            'pickScore': row.get('pickScore'),
+            'signal': row.get('signal'),
+            'recommendation': row.get('recommendation'),
+            'stance': row.get('stance'),
+            'confidence': row.get('confidence'),
+            'summary': row.get('summary'),
+            'indicatorReview': row.get('indicatorReview'),
+            'sentimentReview': row.get('sentimentReview'),
+            'operationAdvice': row.get('operationAdvice'),
+            'riskWarning': row.get('riskWarning'),
+            'tags': row.get('tags') or [],
+            'source': row.get('source'),
+            'modelName': model_name if row.get('source') == 'ai' else None,
+            'metrics': row.get('metrics') or {},
+            'reason': row.get('reason'),
+            'klineCount': row.get('klineCount'),
+            'message': message,
+            'aiOk': ai_ok,
+            'aiError': ai_error if use_ai and not ai_ok else None,
         }
 
     @classmethod

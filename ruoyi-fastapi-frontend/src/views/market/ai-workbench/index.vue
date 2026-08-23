@@ -43,10 +43,15 @@
           <el-col :md="14" :xs="24">
             <el-card shadow="never" v-loading="loading">
               <template #header>研判结论</template>
-              <el-tag v-if="result.finalDecision || result.trend" class="mb8">{{ result.finalDecision || result.trend }}</el-tag>
-              <div class="sum">{{ result.summary || result.trendSummary || '暂无结论' }}</div>
-              <div class="sub" v-if="result.advice || result.operationAdvice"><b>建议：</b>{{ result.advice || result.operationAdvice }}</div>
-              <div class="sub" v-if="result.support"><b>支撑：</b>{{ result.support }} · <b>压力：</b>{{ result.resistance }}</div>
+              <el-space wrap class="mb8">
+                <el-tag v-if="result.recommendation || result.finalDecision">{{ result.recommendation || result.finalDecision }}</el-tag>
+                <el-tag v-if="result.stance || result.trend" type="info" effect="plain">{{ result.stance || result.trend }}</el-tag>
+                <span v-if="result.confidence != null || result.finalConfidence != null">置信度 {{ result.confidence ?? result.finalConfidence }}%</span>
+              </el-space>
+              <div class="sum">{{ result.summary || '暂无结论' }}</div>
+              <div class="sub" v-if="result.indicatorReview"><b>指标：</b>{{ result.indicatorReview }}</div>
+              <div class="sub" v-if="result.sentimentReview"><b>舆情：</b>{{ result.sentimentReview }}</div>
+              <div class="sub" v-if="result.operationAdvice || result.advice"><b>操作：</b>{{ result.operationAdvice || result.advice }}</div>
               <div class="sub" v-if="result.riskWarning"><b>风险：</b>{{ result.riskWarning }}</div>
             </el-card>
           </el-col>

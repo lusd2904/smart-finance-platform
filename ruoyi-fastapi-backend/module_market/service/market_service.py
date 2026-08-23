@@ -9,7 +9,6 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import TARGET_INSTRUMENTS, get_instrument_meta
 from module_market.dao.market_dao import MarketInstrumentDao, SymbolAiAnalysisDao
 from module_market.entity.vo.market_vo import (
@@ -31,12 +30,11 @@ from module_market.service.kline_period import (
     resample_how,
 )
 from module_market.service.listing_service import ListingService
-from module_market.service.market_analyzer_service import MarketAiAnalyzer
+from module_market.service.stock_pick_service import StockPickService
 from module_market.service.sync_service import MarketSyncService
 from module_market.service.tradingview_service import _resample_klines
 from module_quant.dao.quant_dao import QuantStrategyDao
 from utils.common_util import CamelCaseUtil
-from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
@@ -422,211 +420,154 @@ class MarketService:
     # ---------- AI分析 ----------
 
     @classmethod
-    def _map_decision(cls, result: dict[str, Any] | None) -> tuple[str, int, str]:
-        """从模型 JSON 映射 final_decision / confidence / summary"""
-        if not result:
-            return '观望', 50, ''
-        advice = str(result.get('operation_advice') or result.get('advice') or '')
-        trend = str(result.get('trend') or '')
-        text = advice + trend
-        decision = '观望'
-        if any(k in text for k in ('买入', '加仓', '做多', 'BUY', '买')):
-            decision = '买入'
-        elif any(k in text for k in ('卖出', '减仓', '做空', 'SELL', '卖')):
-            decision = '卖出'
-        elif '多头' in trend:
-            decision = '买入'
-        elif '空头' in trend:
-            decision = '卖出'
-        # 简易置信度：有支撑压力与摘要则 70，否则 55
-        confidence = 70 if (result.get('support') or result.get('resistance')) else 55
-        if trend == '震荡':
-            confidence = 50
-        summary = (
-            result.get('trend_summary')
-            or result.get('summary')
-            or advice
-            or result.get('indicator_review')
-            or ''
-        )
-        return decision, confidence, str(summary)
+    def _flatten_pick_analysis(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """把智能选股研判字段映射为行情 AI 接口的扁平响应（兼容旧字段）。"""
+        recommendation = data.get('recommendation') or '观望'
+        confidence = data.get('confidence')
+        stance = data.get('stance')
+        return {
+            'ok': data.get('ok', False),
+            'available': data.get('available', False),
+            'symbol': data.get('symbol'),
+            'market': data.get('market'),
+            'name': data.get('name'),
+            'modelName': data.get('modelName'),
+            'klineCount': data.get('klineCount'),
+            'price': data.get('price'),
+            'changePct': data.get('changePct'),
+            'factorScore': data.get('factorScore'),
+            'pickScore': data.get('pickScore'),
+            'signal': data.get('signal'),
+            'recommendation': recommendation,
+            'stance': stance,
+            'confidence': confidence,
+            'summary': data.get('summary'),
+            'indicatorReview': data.get('indicatorReview'),
+            'sentimentReview': data.get('sentimentReview'),
+            'operationAdvice': data.get('operationAdvice'),
+            'riskWarning': data.get('riskWarning'),
+            'tags': data.get('tags') or [],
+            'source': data.get('source'),
+            'metrics': data.get('metrics') or {},
+            'finalDecision': recommendation,
+            'finalConfidence': confidence,
+            'trend': stance,
+            'advice': data.get('operationAdvice'),
+            'message': data.get('message'),
+            'aiOk': data.get('aiOk'),
+            'aiError': data.get('aiError'),
+        }
+
+    @classmethod
+    async def _persist_symbol_ai_analysis(
+        cls, query_db: AsyncSession, data: dict[str, Any]
+    ) -> None:
+        if not data.get('ok'):
+            return
+        try:
+            await SymbolAiAnalysisDao.add(
+                query_db,
+                {
+                    'symbol': str(data.get('symbol') or '').strip().upper(),
+                    'market': str(data.get('market') or 'US').upper(),
+                    'price': float(data['price']) if data.get('price') is not None else None,
+                    'final_decision': data.get('recommendation') or data.get('finalDecision'),
+                    'final_confidence': data.get('confidence') or data.get('finalConfidence'),
+                    'summary_text': data.get('summary') or '',
+                    'indicators_json': json.dumps(data.get('metrics') or {}, ensure_ascii=False, default=str)[:60000],
+                    'raw_json': json.dumps(
+                        {
+                            'recommendation': data.get('recommendation'),
+                            'stance': data.get('stance'),
+                            'confidence': data.get('confidence'),
+                            'summary': data.get('summary'),
+                            'indicatorReview': data.get('indicatorReview'),
+                            'sentimentReview': data.get('sentimentReview'),
+                            'operationAdvice': data.get('operationAdvice'),
+                            'riskWarning': data.get('riskWarning'),
+                            'pickScore': data.get('pickScore'),
+                            'factorScore': data.get('factorScore'),
+                            'signal': data.get('signal'),
+                            'source': data.get('source'),
+                        },
+                        ensure_ascii=False,
+                        default=str,
+                    )[:60000],
+                    'model_name': data.get('modelName'),
+                    'analysis_time': datetime.now(),
+                },
+            )
+            await query_db.commit()
+        except Exception as exc:
+            await query_db.rollback()
+            logger.warning(f'[行情AI] 落库失败: {exc}')
 
     @classmethod
     async def ai_analyze_services(
         cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
     ) -> dict[str, Any]:
         """
-        对某标的做AI行情分析service：复用ai_models(scope='sentiment')的AI连接配置，
-        取近N日K线+最新指标快照喂给模型，结果落库 symbol_ai_analysis。
+        对某标的做 AI 行情分析：复用智能选股同一套打分与 Grok 4.6 研判，结果落库 symbol_ai_analysis。
         """
-        base_url = api_key = model_name = None
-        temperature = 0.2
-        try:
-            # 与舆情一致：sentiment -> global -> chat -> 任意可用模型
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
-            if ai_model:
-                base_url = ai_model.base_url
-                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
-                model_name = ai_model.model_code
-                if ai_model.temperature is not None:
-                    temperature = ai_model.temperature
-        except Exception as exc:
-            logger.warning(f'[行情AI] 解析 AI 模型失败: {exc}')
-
-        if not base_url or not api_key or not model_name:
-            return {
-                'ok': False,
-                'available': False,
-                'message': '未配置AI分析参数，请先在AI模型管理(scope=sentiment)或舆情AI配置中填写 Base URL / API Key / 模型',
-                'result': None,
-            }
-
-        loop = asyncio.get_running_loop()
-        klines = await loop.run_in_executor(
-            None,
-            InfluxUtil.query_klines,
-            analyze_object.market,
+        analyzed = await StockPickService.analyze_symbol(
+            query_db,
             analyze_object.symbol,
-            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
-            'now()',
-            400,
+            analyze_object.market or 'US',
+            use_ai=True,
         )
-        if not klines:
-            return {
-                'ok': False,
-                'available': True,
-                'message': f'标的 {analyze_object.symbol} 暂无K线数据，请先同步',
-                'result': None,
-            }
+        if not analyzed.get('ok'):
+            return cls._flatten_pick_analysis(analyzed)
 
-        recent = klines[-analyze_object.days :] if analyze_object.days > 0 else klines
-        snapshot = await loop.run_in_executor(None, IndicatorService.latest_snapshot, klines)
-
-        meta = get_instrument_meta(analyze_object.symbol)
-        name = meta[1] if meta else analyze_object.symbol
-
-        ai_result = await MarketAiAnalyzer.analyze(
-            base_url=base_url,
-            api_key=api_key,
-            model_name=model_name,
-            symbol=analyze_object.symbol,
-            name=name,
-            klines=recent,
-            indicator_snapshot=snapshot,
-            temperature=temperature,
-        )
-
-        parsed = ai_result.get('result') if ai_result.get('ok') else None
-        decision, confidence, summary = cls._map_decision(parsed)
-        price = snapshot.get('close') or (recent[-1].get('close') if recent else None)
-
-        if ai_result.get('ok') and parsed:
-            try:
-                await SymbolAiAnalysisDao.add(
-                    query_db,
-                    {
-                        'symbol': analyze_object.symbol.strip().upper(),
-                        'market': (analyze_object.market or 'US').upper(),
-                        'price': float(price) if price is not None else None,
-                        'final_decision': decision,
-                        'final_confidence': confidence,
-                        'summary_text': summary,
-                        'indicators_json': json.dumps(snapshot, ensure_ascii=False, default=str)[:60000],
-                        'raw_json': json.dumps(parsed, ensure_ascii=False, default=str)[:60000],
-                        'model_name': model_name,
-                        'analysis_time': datetime.now(),
-                    },
-                )
-                await query_db.commit()
-            except Exception as e:
-                await query_db.rollback()
-                logger.warning(f'[行情AI] 落库失败: {e}')
-
-        # 扁平字段便于前端直接展示
-        flat = {}
-        if parsed:
-            flat = {
-                'trend': parsed.get('trend'),
-                'summary': summary,
-                'trendSummary': parsed.get('trend_summary'),
-                'support': parsed.get('support'),
-                'resistance': parsed.get('resistance'),
-                'indicatorReview': parsed.get('indicator_review'),
-                'advice': parsed.get('operation_advice') or parsed.get('advice'),
-                'operationAdvice': parsed.get('operation_advice'),
-                'riskWarning': parsed.get('risk_warning'),
-                'finalDecision': decision,
-                'finalConfidence': confidence,
-            }
-
-        return {
-            'ok': ai_result['ok'],
-            'available': True,
-            'symbol': analyze_object.symbol,
-            'name': name,
-            'modelName': model_name,
-            'klineCount': len(recent),
-            'price': price,
-            'finalDecision': decision,
-            'finalConfidence': confidence,
-            'summary': summary,
-            'result': {**(parsed or {}), **flat} if parsed else None,
-            'message': '分析成功' if ai_result['ok'] else f'分析失败: {ai_result.get("error")}',
-            **flat,
+        flat = cls._flatten_pick_analysis(analyzed)
+        await cls._persist_symbol_ai_analysis(query_db, flat)
+        flat['result'] = {
+            'recommendation': flat.get('recommendation'),
+            'stance': flat.get('stance'),
+            'confidence': flat.get('confidence'),
+            'summary': flat.get('summary'),
+            'indicator_review': flat.get('indicatorReview'),
+            'sentiment_review': flat.get('sentimentReview'),
+            'operation_advice': flat.get('operationAdvice'),
+            'risk_warning': flat.get('riskWarning'),
+            'pick_score': flat.get('pickScore'),
+            'factor_score': flat.get('factorScore'),
+            'signal': flat.get('signal'),
+            'source': flat.get('source'),
         }
+        return flat
 
     @classmethod
     async def ai_analyze_stream_services(
         cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
     ) -> AsyncIterator[str] | Any:
         """
-        行情AI分析流式传输生成器
+        行情 AI 分析流式传输：后台走智能选股研判，向前端输出格式化文本。
         """
-        base_url = api_key = model_name = None
-        temperature = 0.2
-        try:
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
-            if ai_model:
-                base_url = ai_model.base_url
-                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
-                model_name = ai_model.model_code
-                if ai_model.temperature is not None:
-                    temperature = ai_model.temperature
-        except Exception as exc:
-            logger.warning(f'[行情AI流式] 解析 AI 模型失败: {exc}')
-
-        if not base_url or not api_key or not model_name:
-            yield json.dumps({'error': '未配置AI分析参数，请先在AI模型管理中配置'}, ensure_ascii=False)
-            return
-
-        klines = await asyncio.to_thread(
-            InfluxUtil.query_klines,
-            analyze_object.market,
+        yield '正在加载 K 线与市场环境…\n'
+        analyzed = await StockPickService.analyze_symbol(
+            query_db,
             analyze_object.symbol,
-            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
-            'now()',
-            400,
+            analyze_object.market or 'US',
+            use_ai=True,
         )
-        if not klines:
-            yield json.dumps({'error': f'标的 {analyze_object.symbol} 暂无K线数据'}, ensure_ascii=False)
+        if not analyzed.get('ok'):
+            yield json.dumps({'error': analyzed.get('message') or '分析失败'}, ensure_ascii=False)
             return
 
-        recent = klines[-analyze_object.days :] if analyze_object.days > 0 else klines
-        snapshot = await asyncio.to_thread(IndicatorService.latest_snapshot, klines)
-        meta = get_instrument_meta(analyze_object.symbol)
-        name = meta[1] if meta else analyze_object.symbol
-
-        async for chunk in MarketAiAnalyzer.analyze_stream(
-            base_url=base_url,
-            api_key=api_key,
-            model_name=model_name,
-            symbol=analyze_object.symbol,
-            name=name,
-            klines=recent,
-            indicator_snapshot=snapshot,
-            temperature=temperature,
-        ):
-            yield chunk
+        flat = cls._flatten_pick_analysis(analyzed)
+        await cls._persist_symbol_ai_analysis(query_db, flat)
+        sections = [
+            ('建议', f'{flat.get("recommendation")} · {flat.get("stance")} · 置信度 {flat.get("confidence")}'),
+            ('综合', flat.get('summary')),
+            ('指标', flat.get('indicatorReview')),
+            ('舆情', flat.get('sentimentReview')),
+            ('操作', flat.get('operationAdvice')),
+            ('风险', flat.get('riskWarning')),
+        ]
+        for title, body in sections:
+            if body:
+                yield f'\n【{title}】\n{body}\n'
+        yield '\n[完成]\n'
 
     @classmethod
     async def get_latest_ai_analysis(
@@ -640,23 +581,36 @@ class MarketService:
             raw = json.loads(row.raw_json) if row.raw_json else {}
         except Exception:
             raw = {}
+        recommendation = raw.get('recommendation') or row.final_decision
+        confidence = raw.get('confidence') if raw.get('confidence') is not None else row.final_confidence
+        stance = raw.get('stance')
         return {
             'analysisId': row.analysis_id,
             'symbol': row.symbol,
             'market': row.market,
             'price': row.price,
-            'finalDecision': row.final_decision,
-            'finalConfidence': row.final_confidence,
+            'recommendation': recommendation,
+            'stance': stance,
+            'confidence': confidence,
+            'finalDecision': recommendation,
+            'finalConfidence': confidence,
+            'trend': stance,
             'summary': row.summary_text,
             'summaryText': row.summary_text,
+            'indicatorReview': raw.get('indicatorReview'),
+            'sentimentReview': raw.get('sentimentReview'),
+            'operationAdvice': raw.get('operationAdvice'),
+            'riskWarning': raw.get('riskWarning'),
+            'pickScore': raw.get('pickScore'),
+            'factorScore': raw.get('factorScore'),
+            'signal': raw.get('signal'),
+            'source': raw.get('source'),
+            'metrics': json.loads(row.indicators_json) if row.indicators_json else {},
             'indicators': json.loads(row.indicators_json) if row.indicators_json else {},
             'raw': raw,
             'modelName': row.model_name,
             'analysisTime': row.analysis_time.strftime('%Y-%m-%d %H:%M:%S') if row.analysis_time else None,
-            'trend': raw.get('trend'),
-            'advice': raw.get('operation_advice'),
-            'support': raw.get('support'),
-            'resistance': raw.get('resistance'),
+            'advice': raw.get('operationAdvice'),
         }
 
     # ---------- 标的详情 overview ----------

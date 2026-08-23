@@ -147,3 +147,88 @@ def test_get_latest_services_missing_date_returns_empty_message() -> None:
     import asyncio
 
     asyncio.run(_run())
+
+
+def test_analyze_symbol_scores_and_applies_ai() -> None:
+    klines = [
+        {'date': f'2026-01-{d:02d}', 'open': 100 + d, 'high': 101 + d, 'low': 99 + d, 'close': 100 + d, 'volume': 1e6}
+        for d in range(1, 61)
+    ]
+    mood = {
+        'openMarkets': ['US'],
+        'sentiment': {'summary': '舆情偏多', 'usScore': 3},
+        'heat': {'US': {'heatScore': 72, 'tradeDate': '2026-08-21'}},
+        'indices': [{'market': 'US', 'changePct': 1.2}],
+    }
+    ai_payload = {
+        'stance': '偏多',
+        'recommendation': '买入',
+        'confidence': 81,
+        'summary': 'AI 综合研判',
+        'indicator_review': '均线多头',
+        'sentiment_review': '舆情支持',
+        'operation_advice': '回踩关注',
+        'risk_warning': '注意波动',
+    }
+
+    async def _run() -> None:
+        with (
+            patch(
+                'module_market.service.stock_pick_service.StockPickDao.load_recent_daily_klines',
+                new=AsyncMock(return_value={'AAPL': klines}),
+            ),
+            patch(
+                'module_market.service.stock_pick_service.StockPickService.get_mood_services',
+                new=AsyncMock(return_value=mood),
+            ),
+            patch(
+                'module_market.service.stock_pick_service.StockPickService._resolve_ai',
+                new=AsyncMock(
+                    return_value={
+                        'available': True,
+                        'baseUrl': 'https://example.com/v1',
+                        'apiKey': 'k',
+                        'modelName': 'grok-4.6',
+                        'temperature': 0.2,
+                    }
+                ),
+            ),
+            patch(
+                'module_market.service.stock_pick_service.StockPickAnalyzer.analyze',
+                new=AsyncMock(return_value={'ok': True, 'result': ai_payload}),
+            ),
+        ):
+            data = await StockPickService.analyze_symbol(None, 'AAPL', 'US', use_ai=True)
+        assert data['ok'] is True
+        assert data['symbol'] == 'AAPL'
+        assert data['recommendation'] == '买入'
+        assert data['stance'] == '偏多'
+        assert data['confidence'] == 81
+        assert data['summary'] == 'AI 综合研判'
+        assert data['indicatorReview'] == '均线多头'
+        assert data['sentimentReview'] == '舆情支持'
+        assert data['operationAdvice'] == '回踩关注'
+        assert data['riskWarning'] == '注意波动'
+        assert data['source'] == 'ai'
+        assert data['modelName'] == 'grok-4.6'
+        assert data['pickScore'] is not None
+        assert data['factorScore'] is not None
+
+    import asyncio
+
+    asyncio.run(_run())
+
+
+def test_analyze_symbol_without_klines_returns_error() -> None:
+    async def _run() -> None:
+        with patch(
+            'module_market.service.stock_pick_service.StockPickDao.load_recent_daily_klines',
+            new=AsyncMock(return_value={}),
+        ):
+            data = await StockPickService.analyze_symbol(None, 'AAPL', 'US')
+        assert data['ok'] is False
+        assert '暂无K线' in str(data.get('message'))
+
+    import asyncio
+
+    asyncio.run(_run())
