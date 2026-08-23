@@ -33,8 +33,16 @@ jobs:
           else
             BASE="$(git rev-parse HEAD~1)"
           fi
-          git diff --name-only --diff-filter=ACM "$BASE"...HEAD -- '*.py' > /tmp/changed_py.txt || true
-          echo "count=$(wc -l < /tmp/changed_py.txt)" >> "$GITHUB_OUTPUT"
+          : > /tmp/changed_py.txt
+          while IFS= read -r path; do
+            case "$path" in
+              ruoyi-fastapi-backend/*)
+                rel="${path#ruoyi-fastapi-backend/}"
+                [ -f "$rel" ] && printf '%s\n' "$rel" >> /tmp/changed_py.txt
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=ACM "$BASE"...HEAD -- '*.py' || true)
+          echo "count=$(wc -l < /tmp/changed_py.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
       - name: Ruff check (changed files)
         if: steps.changed.outputs.count != '0'
         run: ruff check $(cat /tmp/changed_py.txt | tr '\n' ' ')
