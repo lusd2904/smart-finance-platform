@@ -119,3 +119,13 @@ FROM (
   LIMIT 1
 ) src
 WHERE NOT EXISTS (SELECT 1 FROM ai_models m2 WHERE m2.scope = 'market');
+
+-- 现有 Ox Alpha 连接直接改成 Grok 4.6（同一条 Key / Base URL）。
+UPDATE ai_models
+SET model_code = CASE WHEN LOWER(IFNULL(base_url, '')) LIKE '%openrouter%' THEN 'x-ai/grok-4.6' ELSE 'grok-4.6' END,
+    model_name = 'Grok 4.6',
+    provider = CASE WHEN LOWER(IFNULL(base_url, '')) LIKE '%openrouter%' THEN 'OpenRouter' ELSE provider END,
+    support_reasoning = 'Y',
+    update_time = NOW(),
+    remark = '已从 Ox Alpha 切换为 Grok 4.6'
+WHERE model_code IN ('stealth/ox-alpha', 'ox-alpha');
