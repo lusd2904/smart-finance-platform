@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import delete, desc, select, update
@@ -423,7 +423,7 @@ class QuantFactorQcDao:
 
 class QuantDailyListDao:
     @classmethod
-    async def get_by_trade_date(cls, db: AsyncSession, user_id: int, trade_date) -> QuantDailyList | None:
+    async def get_by_trade_date(cls, db: AsyncSession, user_id: int, trade_date: date) -> QuantDailyList | None:
         return (
             (
                 await db.execute(

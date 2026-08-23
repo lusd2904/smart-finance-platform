@@ -45,7 +45,34 @@ jobs:
           echo "count=$(wc -l < /tmp/changed_py.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
       - name: Ruff check (changed files)
         if: steps.changed.outputs.count != '0'
-        run: ruff check $(cat /tmp/changed_py.txt | tr '\n' ' ')
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          mapfile -t rel < /tmp/changed_py.txt
+          repo=()
+          for f in "${rel[@]}"; do
+            repo+=("ruoyi-fastapi-backend/$f")
+          done
+          count_ruff() {
+            local out=""
+            out=$(ruff check "$@" --output-format json 2>/dev/null) || true
+            python3 -c "import json,sys; print(len(json.loads(sys.argv[1] or '[]')))" "$out"
+          }
+          HEAD_COUNT=$(count_ruff "${rel[@]}")
+          git stash push -q -m ci-ruff-base -- "${repo[@]}" || true
+          git checkout "$BASE" -- "${repo[@]}" 2>/dev/null || true
+          BASE_COUNT=$(count_ruff "${rel[@]}")
+          git checkout HEAD -- "${repo[@]}"
+          git stash pop -q 2>/dev/null || true
+          echo "Ruff violations on changed files: head=$HEAD_COUNT base=$BASE_COUNT"
+          if [ "$HEAD_COUNT" -gt "$BASE_COUNT" ]; then
+            echo "::error::Ruff violations increased on changed files ($HEAD_COUNT > $BASE_COUNT)"
+            ruff check "${rel[@]}"
+            exit 1
+          fi
 
   backend-unit:
     name: Backend unit tests

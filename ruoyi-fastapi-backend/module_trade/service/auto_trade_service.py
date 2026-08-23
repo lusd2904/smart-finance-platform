@@ -3,16 +3,20 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_quant.service.longbridge_service import LongbridgeService
 from module_quant.service.strategy_service import StrategyService
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.entity.do.trade_do import PlatAutoTradeDecision
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from module_trade.entity.do.trade_do import PlatAiTradeRunLog
 
 # 客户端允许覆盖的非安全字段；限额/纸账户开关只能由服务端决定
 _CLIENT_CONFIG_KEYS = frozenset({'max_symbols', 'min_confidence', 'strategy_profile', 'custom_thresholds'})
@@ -124,7 +128,7 @@ class AutoTradeService:
         return int(row[0] or 0) if row else 0, float(row[1] or 0.0) if row else 0.0
 
     @classmethod
-    def _serialize_log(cls, log) -> dict[str, Any]:
+    def _serialize_log(cls, log: PlatAiTradeRunLog) -> dict[str, Any]:
         return {
             'runId': log.run_id,
             'cycleId': log.cycle_id,
@@ -141,7 +145,7 @@ class AutoTradeService:
         }
 
     @classmethod
-    def _serialize_decision(cls, d) -> dict[str, Any]:
+    def _serialize_decision(cls, d: PlatAutoTradeDecision) -> dict[str, Any]:
         return {
             'decisionId': d.decision_id,
             'cycleId': d.cycle_id,
@@ -232,7 +236,7 @@ class AutoTradeService:
         }
 
     @classmethod
-    async def run_watchlist_strategy_cycle(
+    async def run_watchlist_strategy_cycle(  # noqa: PLR0912, PLR0915
         cls,
         db: AsyncSession,
         symbols: list[str] | list[dict[str, str]] | None = None,

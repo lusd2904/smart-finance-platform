@@ -10,6 +10,7 @@ from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
+from exceptions.exception import ServiceException
 from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_sentiment.entity.vo.sentiment_vo import (
     DeleteSentimentNewsModel,
@@ -19,7 +20,6 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentNewsModel,
     SentimentNewsPageQueryModel,
 )
-from exceptions.exception import ServiceException
 from module_sentiment.service.sentiment_service import SentimentService
 from utils.job_queue import JobQueue
 from utils.log_util import logger

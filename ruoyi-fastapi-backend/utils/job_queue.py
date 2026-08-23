@@ -63,7 +63,7 @@ def queue_key_for(job_type: str) -> str:
 
 class JobQueue:
     @classmethod
-    def _redis(cls):
+    def _redis(cls) -> Any:
         try:
             from config.get_redis import RedisUtil
 
@@ -225,7 +225,7 @@ class JobQueue:
         for key in keys:
             try:
                 total += int(await redis.llen(key) or 0)
-            except Exception:
+            except Exception:  # noqa: PERF203 - 单队列 key 失败不中断其余统计
                 continue
         return total
 

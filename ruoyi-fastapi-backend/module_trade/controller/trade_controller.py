@@ -191,7 +191,7 @@ async def trade_notifications(
 async def trade_notifications_read(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     notice_id = body.get('id')
@@ -282,7 +282,7 @@ async def auto_trade_status(
 async def auto_trade_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     try:
@@ -537,7 +537,7 @@ async def notices_db(
 async def notices_read_db(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     nid = body.get('id')
@@ -554,7 +554,7 @@ async def notices_read_db(
 async def ai_batch_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     symbols = body.get('symbols')
@@ -619,7 +619,7 @@ async def put_feishu_config(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     from module_trade.service.feishu_push_service import FeishuPushService
 
@@ -639,7 +639,7 @@ async def test_feishu(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     from module_trade.service.feishu_push_service import FeishuPushService
 

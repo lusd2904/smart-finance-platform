@@ -7,10 +7,8 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_market.config.heat_config import (
     DEFAULT_HEAT_WEIGHTS,
@@ -18,7 +16,6 @@ from module_market.config.heat_config import (
     VALID_MARKETS,
     WEIGHT_CONFIG_KEYS,
 )
-from module_market.constant.instruments import get_instrument_meta
 from module_market.dao.heat_dao import MarketHeatDao
 from module_market.dao.market_dao import MarketInstrumentDao, MarketWatchlistDao
 from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
@@ -26,6 +23,9 @@ from module_quant.service.longbridge_service import LongbridgeService
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 from utils.longbridge_breaker import LongbridgeBreaker
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _normalize_market(market: str | None) -> str:
@@ -161,7 +161,7 @@ class MarketHeatService:
         mapping: dict[str, dict[str, Any]] = {}
         for quote in res.get('quotes') or []:
             sym = str(quote.get('symbol') or '')
-            clean = sym.split('.')[0] if market != 'US' else sym.replace('.US', '').replace('.HK', '')
+            clean = sym.split('.', maxsplit=1)[0] if market != 'US' else sym.replace('.US', '').replace('.HK', '')
             if market == 'HK' and '.HK' in sym:
                 clean = sym
             mapping[clean.upper()] = quote
@@ -175,7 +175,7 @@ class MarketHeatService:
         mapping: dict[str, dict[str, Any]] = {}
         for item in res.get('items') or []:
             sym = str(item.get('symbol') or '')
-            clean = sym.split('.')[0] if market != 'US' else sym.replace('.US', '').replace('.HK', '')
+            clean = sym.split('.', maxsplit=1)[0] if market != 'US' else sym.replace('.US', '').replace('.HK', '')
             if market == 'HK' and '.HK' in sym:
                 clean = sym
             mapping[clean.upper()] = item
@@ -236,7 +236,7 @@ class MarketHeatService:
         return round(_clamp_score(score), 2)
 
     @classmethod
-    async def collect_market(cls, db: AsyncSession, market: str, trade_date: str | None = None) -> dict[str, Any]:
+    async def collect_market(cls, db: AsyncSession, market: str, trade_date: str | None = None) -> dict[str, Any]:  # noqa: PLR0915
         market = _normalize_market(market)
         session_date = _resolve_trade_date(market, trade_date)
         if not _is_weekday(session_date):
@@ -256,7 +256,7 @@ class MarketHeatService:
         weights = await cls.resolve_weights()
         universe = await cls._universe_symbols(db, market)
         symbols = [sym for sym, _name in universe]
-        name_map = {sym: name for sym, name in universe}
+        name_map = dict(universe)
 
         loop = asyncio.get_running_loop()
         quote_map, static_map = await asyncio.gather(

@@ -477,7 +477,7 @@ def parse_tencent_kline_payload(
     return rows
 
 
-def parse_tencent_minute_payload(payload: dict[str, Any], symbol: str, market: str) -> list[dict[str, Any]]:
+def parse_tencent_minute_payload(payload: dict[str, Any], symbol: str, market: str) -> list[dict[str, Any]]:  # noqa: PLR0912
     """腾讯分时：HHMM price volume [amount]，volume 多为累计，落库用增量。"""
     data = payload.get('data') if isinstance(payload, dict) else None
     if not isinstance(data, dict):

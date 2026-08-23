@@ -7,6 +7,8 @@ import json
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import desc, select
+
 from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, MARKET_SCOPE
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import TARGET_INSTRUMENTS
@@ -31,7 +33,6 @@ from module_quant.service.factor_service import FactorService
 from module_quant.service.strategy_service import decide_signal
 from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao
 from module_sentiment.entity.do.sentiment_do import SentimentNews
-from sqlalchemy import desc, select
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
 
@@ -252,9 +253,9 @@ class StockPickService:
         return ai_count, last_err
 
     @classmethod
-    async def run(cls, db: AsyncSession, *, trigger: str = 'manual', use_ai: bool = True) -> dict[str, Any]:
+    async def run(cls, db: AsyncSession, *, trigger: str = 'manual', use_ai: bool = True) -> dict[str, Any]:  # noqa: PLR0915
         mood = await cls.get_mood_services(db)
-        sessions = mood.get('sessions') or {}
+        mood.get('sessions') or {}
         open_markets = set(mood.get('openMarkets') or [])
         sentiment = mood.get('sentiment') or {}
         heats = mood.get('heat') or {}
@@ -378,32 +379,31 @@ class StockPickService:
         elif use_ai:
             logger.warning(f'[选股] 跳过 AI：{ai_error}')
 
-        db_rows = []
-        for row in picked:
-            db_rows.append(
-                {
-                    'rank_no': int(row.get('rankNo') or 0),
-                    'symbol': row['symbol'],
-                    'name': row.get('name'),
-                    'market': row['market'],
-                    'price': row.get('price'),
-                    'change_pct': row.get('changePct'),
-                    'factor_score': row.get('factorScore'),
-                    'pick_score': row.get('pickScore'),
-                    'signal': row.get('signal'),
-                    'recommendation': row.get('recommendation'),
-                    'stance': row.get('stance'),
-                    'confidence': row.get('confidence'),
-                    'summary': row.get('summary'),
-                    'indicator_review': row.get('indicatorReview'),
-                    'sentiment_review': row.get('sentimentReview'),
-                    'operation_advice': row.get('operationAdvice'),
-                    'risk_warning': row.get('riskWarning'),
-                    'tags_json': json.dumps(row.get('tags') or [], ensure_ascii=False),
-                    'source': row.get('source') or 'rule',
-                    'factor_json': json.dumps(row.get('metrics') or {}, ensure_ascii=False),
-                }
-            )
+        db_rows = [
+            {
+                'rank_no': int(row.get('rankNo') or 0),
+                'symbol': row['symbol'],
+                'name': row.get('name'),
+                'market': row['market'],
+                'price': row.get('price'),
+                'change_pct': row.get('changePct'),
+                'factor_score': row.get('factorScore'),
+                'pick_score': row.get('pickScore'),
+                'signal': row.get('signal'),
+                'recommendation': row.get('recommendation'),
+                'stance': row.get('stance'),
+                'confidence': row.get('confidence'),
+                'summary': row.get('summary'),
+                'indicator_review': row.get('indicatorReview'),
+                'sentiment_review': row.get('sentimentReview'),
+                'operation_advice': row.get('operationAdvice'),
+                'risk_warning': row.get('riskWarning'),
+                'tags_json': json.dumps(row.get('tags') or [], ensure_ascii=False),
+                'source': row.get('source') or 'rule',
+                'factor_json': json.dumps(row.get('metrics') or {}, ensure_ascii=False),
+            }
+            for row in picked
+        ]
         await StockPickDao.replace_items(db, pick_id, db_rows)
         status = 'empty' if not picked else ('partial' if use_ai and ai_count < len(picked) else 'ok')
         hint = mood.get('hint') or ''

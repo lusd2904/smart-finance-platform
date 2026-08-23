@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -199,7 +200,7 @@ def create_app() -> FastAPI:
     auto_register_routers(app)
 
     @app.get('/health', summary='健康检查', include_in_schema=False)
-    async def health():
+    async def health() -> dict[str, Any]:
         from utils.longbridge_breaker import LongbridgeBreaker
 
         return {
@@ -211,7 +212,7 @@ def create_app() -> FastAPI:
         }
 
     @app.get('/metrics', summary='Prometheus 监控指标', include_in_schema=False)
-    async def metrics():
+    async def metrics() -> Any:
         from middlewares.metrics_middleware import render_metrics
 
         return render_metrics()

@@ -30,9 +30,7 @@ def is_auth_failure(exc: BaseException | str | None) -> bool:
         return True
     if 'token' in lowered and any(word in lowered for word in ('invalid', 'expired', '失效', '过期')):
         return True
-    if '凭证失效' in text or '令牌无效' in text:
-        return True
-    return False
+    return bool('凭证失效' in text or '令牌无效' in text)
 
 
 def is_timeout_failure(exc: BaseException | str | None) -> bool:

@@ -7,12 +7,12 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.market_service import MarketService
+from module_market.service.tradingview_service import TradingViewDatafeedService
 from module_quant.service.longbridge_service import LongbridgeService
 from module_quant.service.readmodel_service import ReadModelService
 from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
-from module_market.service.finance_news_service import FinanceNewsService
-from module_market.service.tradingview_service import TradingViewDatafeedService
 
 
 def test_quote_from_two_real_bars() -> None:

@@ -8,9 +8,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
@@ -29,9 +27,11 @@ from module_quant.entity.vo.quant_vo import (
 from module_quant.service.factor_service import FactorService
 from module_quant.service.longbridge_service import LongbridgeService, resolve_longbridge_user_id
 from module_quant.service.strategy_service import StrategyService
-from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 VALID_PROFILES = {'conservative', 'balanced', 'aggressive'}
 
@@ -168,7 +168,7 @@ class QuantService:
         try:
             id_list = [int(i) for i in ids.split(',') if i.strip()]
         except ValueError:
-            raise ServiceException(message='ID格式非法，应为逗号分隔的数字')
+            raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
         try:
             await QuantWatchlistDao.delete_watchlist(query_db, id_list, user_id=user_id)
             await query_db.commit()
@@ -224,21 +224,20 @@ class QuantService:
                 },
             )
             run_id = run.run_id  # commit 后 ORM 属性会过期，提前取出主键
-            signal_rows = []
-            for s in cycle_result['signals']:
-                signal_rows.append(
-                    {
-                        'run_id': run_id,
-                        'user_id': user_id or 1,
-                        'symbol': s['symbol'],
-                        'signal': s['signal'],
-                        'score': s.get('score'),
-                        'confidence': s.get('confidence'),
-                        'reason': (s.get('reason') or '')[:500],
-                        'factor_json': json.dumps(s.get('factor_json') or {}, ensure_ascii=False)[:60000],
-                        'create_time': datetime.now(),
-                    }
-                )
+            signal_rows = [
+                {
+                    'run_id': run_id,
+                    'user_id': user_id or 1,
+                    'symbol': s['symbol'],
+                    'signal': s['signal'],
+                    'score': s.get('score'),
+                    'confidence': s.get('confidence'),
+                    'reason': (s.get('reason') or '')[:500],
+                    'factor_json': json.dumps(s.get('factor_json') or {}, ensure_ascii=False)[:60000],
+                    'create_time': datetime.now(),
+                }
+                for s in cycle_result['signals']
+            ]
             if signal_rows:
                 await QuantStrategyDao.add_signals(query_db, signal_rows)
             await query_db.commit()

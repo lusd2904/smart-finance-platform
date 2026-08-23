@@ -14,12 +14,15 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from module_market.constant.instruments import LISTED_CATEGORY
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 UA = {
     'User-Agent': (
@@ -85,7 +88,7 @@ def _http_get(url: str, headers: dict[str, str] | None = None, timeout: int = 20
             for enc in ('utf-8', 'gbk', 'gb2312'):
                 try:
                     return raw.decode(enc)
-                except UnicodeDecodeError:
+                except UnicodeDecodeError:  # noqa: PERF203 - 多编码逐个尝试
                     continue
             return raw.decode('utf-8', 'replace')
         except Exception as exc:
@@ -161,7 +164,7 @@ def normalize_us_symbol(raw: str | None) -> str | None:
         text = text[:-3]
     if not text or text.startswith('^') or not US_SYMBOL_RE.match(text):
         return None
-    if text.endswith('.W') or text.endswith('.U') or text.endswith('.R'):
+    if text.endswith(('.W', '.U', '.R')):
         return None
     return text
 
@@ -257,7 +260,7 @@ def parse_sina_us_jsonp(text: str) -> tuple[int, list[dict[str, str]]]:
 def parse_nasdaq_listed(text: str) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for line in (text or '').splitlines():
-        if not line or line.startswith('File Creation') or line.startswith('Symbol|'):
+        if not line or line.startswith(('File Creation', 'Symbol|')):
             continue
         parts = line.split('|')
         if len(parts) < 4:
@@ -277,7 +280,7 @@ def parse_nasdaq_listed(text: str) -> list[dict[str, str]]:
 def parse_nasdaq_otherlisted(text: str) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for line in (text or '').splitlines():
-        if not line or line.startswith('File Creation') or line.startswith('ACT Symbol|'):
+        if not line or line.startswith(('File Creation', 'ACT Symbol|')):
             continue
         parts = line.split('|')
         if len(parts) < 7:

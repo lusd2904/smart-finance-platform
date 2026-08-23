@@ -199,7 +199,7 @@ class TradeDao:
             try:
                 await db.execute(text(sql))
                 await db.commit()
-            except Exception:
+            except Exception:  # noqa: PERF203 - 单条 DDL 失败不中断其余迁移
                 await db.rollback()
         try:
             await db.execute(
@@ -314,16 +314,15 @@ class TradeDao:
             existing.update_time = now
             await db.flush()
             return existing
-        else:
-            db_item = PlatStrategyProfile(
-                profile_code=code,
-                profile_name=name,
-                config_json=config_json,
-                update_time=now,
-            )
-            db.add(db_item)
-            await db.flush()
-            return db_item
+        db_item = PlatStrategyProfile(
+            profile_code=code,
+            profile_name=name,
+            config_json=config_json,
+            update_time=now,
+        )
+        db.add(db_item)
+        await db.flush()
+        return db_item
 
     # ---------------- 批量 AI ----------------
     @classmethod

@@ -71,12 +71,10 @@ def clamp_universe_page(page_num: int | None, page_size: int | None) -> tuple[in
         ps = int(page_size or UNIVERSE_PAGE_SIZE_DEFAULT)
     except (TypeError, ValueError):
         ps = UNIVERSE_PAGE_SIZE_DEFAULT
-    if pn < 1:
-        pn = 1
+    pn = max(pn, 1)
     if ps < 1:
         ps = UNIVERSE_PAGE_SIZE_DEFAULT
-    if ps > UNIVERSE_PAGE_SIZE_MAX:
-        ps = UNIVERSE_PAGE_SIZE_MAX
+    ps = min(ps, UNIVERSE_PAGE_SIZE_MAX)
     return pn, ps
 
 # (symbol, name, market, category)

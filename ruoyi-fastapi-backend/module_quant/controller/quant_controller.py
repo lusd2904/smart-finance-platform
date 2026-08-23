@@ -458,7 +458,7 @@ async def scan_daily_list(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     from utils.job_queue import JobQueue
 
@@ -484,7 +484,7 @@ async def open_daily_list(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     from module_quant.service.daily_list_service import DailyListService
 
@@ -507,7 +507,7 @@ async def auto_daily_list(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     from module_quant.service.daily_list_service import DailyListService
 
@@ -516,7 +516,7 @@ async def auto_daily_list(
     data = await DailyListService.set_auto(
         query_db,
         _current_user_id(current_user),
-        enabled=body.get('enabled') not in {False, '0', 0, 'false'},
+        enabled=body.get('enabled') not in {False, '0', 'false'},
         item_ids=[int(i) for i in raw_ids] or None,
     )
     return ResponseUtil.success(data=data, msg='已更新自动交易开关')

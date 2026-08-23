@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, desc, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_market.entity.do.market_do import MarketPriceHistoryDaily, MarketStockPick, MarketStockPickItem
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class StockPickDao:

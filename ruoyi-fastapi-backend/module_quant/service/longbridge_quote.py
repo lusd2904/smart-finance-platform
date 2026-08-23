@@ -13,7 +13,7 @@ def is_cn_market(market: str | None, symbol: str | None = None) -> bool:
     if mkt in {'CN', 'SH', 'SZ', 'A'}:
         return True
     raw = str(symbol or '').strip().upper()
-    return raw.endswith('.SH') or raw.endswith('.SZ')
+    return raw.endswith(('.SH', '.SZ'))
 
 
 def to_float(value: Any) -> float | None:

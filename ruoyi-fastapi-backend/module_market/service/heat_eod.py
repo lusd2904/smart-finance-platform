@@ -45,7 +45,7 @@ def _http_get(url: str, timeout: int = 20, encoding: str = 'utf-8') -> str:
             for enc in (encoding, 'utf-8', 'gbk'):
                 try:
                     return raw.decode(enc)
-                except Exception:
+                except Exception:  # noqa: PERF203 - 多编码逐个尝试
                     continue
             return raw.decode('utf-8', 'replace')
         except Exception as exc:
@@ -501,7 +501,7 @@ async def collect_all(markets: list[str] | None = None) -> list[dict[str, Any]]:
         for market in markets or ['CN', 'HK', 'US']:
             try:
                 results.append(await collect_market(db, market))
-            except Exception as exc:
+            except Exception as exc:  # noqa: PERF203 - 单市场失败不中断其余市场
                 logger.exception(f'[heat_eod] {market} failed')
                 results.append({'market': market, 'status': 'error', 'error': str(exc)})
     return results
