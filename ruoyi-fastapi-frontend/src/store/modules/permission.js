@@ -13,8 +13,7 @@ const HIDDEN_PAGE_ACTIVE_MENU = {
   '/market/tradingview': '/market/board',
   '/market/stock-pool': '/market/board',
   '/market/dashboard': '/market/heat',
-  '/market/coverage': '/market/board',
-  '/market/recommendations': '/market/finance-news'
+  '/market/coverage': '/market/board'
 }
 
 // 匹配views里面所有的.vue文件

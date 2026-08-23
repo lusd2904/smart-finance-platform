@@ -47,6 +47,8 @@ JOB_GROUPS = {
     'daily_list_scan': 'quant',
     'daily_list_open': 'quant',
     'feishu_push': 'llm',
+    'stock_pick_run': 'llm',
+    'eod_kline_sync': 'market',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -386,14 +388,19 @@ async def _indicator_refresh(_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _strategy_run(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal
-    from module_quant.entity.vo.quant_vo import RunStrategyModel
-    from module_quant.service.quant_service import QuantService
+    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from module_quant.entity.vo.quant_vo import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+        RunStrategyModel,
+    )
+    from module_quant.service.quant_service import QuantService  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
 
     profile = str(payload.get('profile') or 'balanced')
     symbols = payload.get('symbols')
+    user_id = int(payload.get('userId') or 0) or None
     async with AsyncSessionLocal() as db:
-        return await QuantService.run_strategy_services(db, RunStrategyModel(profile=profile, symbols=symbols))
+        return await QuantService.run_strategy_services(
+            db, RunStrategyModel(profile=profile, symbols=symbols), user_id=user_id
+        )
 
 
 async def _position_monitor(_payload: dict[str, Any]) -> dict[str, Any]:
@@ -453,6 +460,24 @@ async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
         return await DailyListService.execute_queued(db)
 
 
+async def _stock_pick_run(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal  # noqa: PLC0415
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    trigger = str((payload or {}).get('trigger') or 'schedule')
+    use_ai = bool((payload or {}).get('useAi', True))
+    async with AsyncSessionLocal() as db:
+        return await StockPickService.run(db, trigger=trigger, use_ai=use_ai)
+
+
+async def _eod_kline_sync(payload: dict[str, Any]) -> dict[str, Any]:
+    from module_market.service.sync_service import MarketSyncService  # noqa: PLC0415
+
+    market = str((payload or {}).get('market') or 'US').upper()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: MarketSyncService.sync_eod_market(market))
+
+
 async def _feishu_push(_payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
     from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
@@ -483,4 +508,6 @@ HANDLERS = {
     'daily_list_scan': _daily_list_scan,
     'daily_list_open': _daily_list_open,
     'feishu_push': _feishu_push,
+    'stock_pick_run': _stock_pick_run,
+    'eod_kline_sync': _eod_kline_sync,
 }

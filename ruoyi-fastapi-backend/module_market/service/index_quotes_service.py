@@ -59,6 +59,21 @@ def _is_in_session(market: str, now_local: datetime) -> bool:
     return any(start <= current < end for start, end in _SESSIONS[market])
 
 
+def list_session_status(now: datetime | None = None) -> dict[str, dict[str, Any]]:
+    """三市场是否盘中。未开盘的市场选股时去掉实时指数，只用指标+舆情。"""
+    out: dict[str, dict[str, Any]] = {}
+    for market, tz_name in _MARKET_TZ.items():
+        tz = ZoneInfo(tz_name)
+        now_local = now.astimezone(tz) if now and now.tzinfo else datetime.now(tz)
+        out[market] = {
+            'market': market,
+            'open': _is_in_session(market, now_local),
+            'localTime': now_local.strftime('%Y-%m-%d %H:%M:%S'),
+            'timezone': tz_name,
+        }
+    return out
+
+
 def _parse_quote_time(raw: str) -> datetime | None:
     """兼容腾讯三种时间戳格式：美股 2026-08-21、港股 2026/08/21、A股 20260821161402。"""
     raw = (raw or '').strip()

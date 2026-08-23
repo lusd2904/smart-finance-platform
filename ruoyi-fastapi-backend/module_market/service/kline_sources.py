@@ -68,6 +68,11 @@ SINA_HK_DAILY_URL = (
 )
 TENCENT_FQKLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
 TENCENT_HK_FQKLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get'
+TENCENT_MINUTE_URLS = {
+    'CN': 'http://web.ifzq.gtimg.cn/appstock/app/minute/query',
+    'HK': 'http://web.ifzq.gtimg.cn/appstock/app/hkMinute/query',
+    'US': 'http://web.ifzq.gtimg.cn/appstock/app/UsMinute/query',
+}
 EASTMONEY_KLINE_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get'
 YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}'
 STOOQ_CSV_URL = 'https://stooq.com/q/d/l/'
@@ -76,6 +81,13 @@ NETEASE_CHD_URL = 'https://quotes.money.163.com/service/chddata.html'
 PRIMARY_SOURCES = ('sina', 'tencent')
 FALLBACK_SOURCES = ('eastmoney', 'yahoo', 'stooq', 'netease')
 ALL_SOURCES = PRIMARY_SOURCES + FALLBACK_SOURCES
+
+
+def primary_sources_for(market: str) -> tuple[str, ...]:
+    """港股新浪日K经常空，先腾讯；美股/A股仍先新浪。"""
+    if (market or '').strip().upper() == 'HK':
+        return ('tencent', 'sina')
+    return PRIMARY_SOURCES
 # 首源已有足够日K时不再打第二源/回退源，降低封禁概率
 MIN_BARS_STOP = 40
 DEFAULT_SOURCE_INTERVAL = float(os.environ.get('KLINE_SOURCE_INTERVAL', '0.8'))
@@ -234,6 +246,44 @@ def validate_ohlcv_row(row: dict[str, Any]) -> dict[str, Any] | None:
         'close': close,
         'volume': volume,
         'turnover': turnover,
+        'source': source,
+    }
+
+
+def validate_minute_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """分时/分钟点：trade_date 带时分，OHLC 允许四点同价。"""
+    raw = str(row.get('trade_date') or '').strip().replace('T', ' ')
+    if len(raw) < 16 or raw[4] != '-' or raw[7] != '-':
+        return None
+    close = _finite_price(row.get('close'))
+    if close is None or close <= 0:
+        return None
+    price = close
+    open_ = _finite_price(row.get('open')) or price
+    high = _finite_price(row.get('high')) or price
+    low = _finite_price(row.get('low')) or price
+    if high < low:
+        return None
+    volume = _finite_price(row.get('volume'))
+    if volume is None or volume < 0:
+        volume = 0.0
+    symbol = str(row.get('symbol') or '').strip()
+    market = str(row.get('market') or 'US').strip().upper() or 'US'
+    source = str(row.get('source') or '').strip() or 'tencent'
+    if not symbol:
+        return None
+    stamp = raw[:19] if len(raw) >= 19 else raw[:16]
+    if len(stamp) == 16:
+        stamp = stamp + ':00'
+    return {
+        'symbol': symbol,
+        'market': market,
+        'trade_date': stamp,
+        'open': open_,
+        'high': high,
+        'low': low,
+        'close': close,
+        'volume': volume,
         'source': source,
     }
 
@@ -427,6 +477,80 @@ def parse_tencent_kline_payload(
     return rows
 
 
+def parse_tencent_minute_payload(payload: dict[str, Any], symbol: str, market: str) -> list[dict[str, Any]]:
+    """腾讯分时：HHMM price volume [amount]，volume 多为累计，落库用增量。"""
+    data = payload.get('data') if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return []
+    block = None
+    for value in data.values():
+        if isinstance(value, dict) and isinstance((value.get('data') or {}).get('data'), list):
+            block = value.get('data') or {}
+            break
+    if not isinstance(block, dict):
+        return []
+    day = str(block.get('date') or '')
+    if len(day) != 8 or not day.isdigit():
+        return []
+    day_iso = f'{day[:4]}-{day[4:6]}-{day[6:8]}'
+    series = block.get('data') or []
+    if not isinstance(series, list):
+        return []
+    out: list[dict[str, Any]] = []
+    prev_vol = 0.0
+    for item in series:
+        text = str(item or '').strip()
+        parts = text.split()
+        if len(parts) < 2:
+            continue
+        hhmm = parts[0].zfill(4)
+        if len(hhmm) != 4 or not hhmm.isdigit():
+            continue
+        price = _finite_price(parts[1])
+        if price is None or price <= 0:
+            continue
+        cum = _finite_price(parts[2]) if len(parts) > 2 else 0.0
+        if cum is None:
+            cum = 0.0
+        delta = cum - prev_vol
+        if delta < 0:
+            delta = cum
+        prev_vol = cum
+        stamp = f'{day_iso} {hhmm[:2]}:{hhmm[2:]}:00'
+        parsed = validate_minute_row(
+            {
+                'symbol': symbol,
+                'market': market,
+                'trade_date': stamp,
+                'open': price,
+                'high': price,
+                'low': price,
+                'close': price,
+                'volume': delta,
+                'source': 'tencent',
+            }
+        )
+        if parsed:
+            out.append(parsed)
+    return out
+
+
+def fetch_tencent_minute(symbol: str, market: str) -> list[dict[str, Any]]:
+    mkt = (market or 'US').upper()
+    code = tencent_symbol(symbol, mkt)
+    url = TENCENT_MINUTE_URLS.get(mkt) or TENCENT_MINUTE_URLS['US']
+
+    def _do() -> list[dict[str, Any]]:
+        resp = _http_get(url, params={'code': code}, timeout=30)
+        resp.raise_for_status()
+        payload = resp.json() if resp.text else {}
+        if not payload:
+            payload = _extract_json_object(resp.text)
+        return parse_tencent_minute_payload(payload if isinstance(payload, dict) else {}, symbol, mkt)
+
+    return _call_source('tencent', _do)
+
+
 def parse_eastmoney_klines(
     payload: dict[str, Any], symbol: str, market: str, years: int
 ) -> list[dict[str, Any]]:
@@ -602,7 +726,7 @@ def _call_source(name: str, fn: Callable[[], list[dict[str, Any]]]) -> list[dict
             breaker.record_success()
             _THROTTLE.reward(name)
             return valid
-        breaker.record_failure()
+        # 无数据（停牌/窝轮）不是源挂了，不拉熔断
         return []
     except Exception as exc:
         breaker.record_failure()
@@ -754,10 +878,16 @@ _FETCHERS: dict[str, Callable[[str, str, int], list[dict[str, Any]]]] = {
 }
 
 
-def fetch_real_klines(symbol: str, market: str = 'US', years: int = 10) -> tuple[list[dict[str, Any]], list[str]]:
+def fetch_real_klines(
+    symbol: str,
+    market: str = 'US',
+    years: int = 10,
+    use_fallbacks: bool = True,
+) -> tuple[list[dict[str, Any]], list[str]]:
     """
     Fetch real daily bars. Primary Sina then Tencent, then fallbacks.
     首源已有足够 K 线时不再打后续源。Empty when every source fails — never fake.
+    全市场慢同步应关掉 fallbacks，避免 Yahoo 429 把进程睡死。
     """
     symbol = (symbol or '').strip()
     market = (market or 'US').strip().upper()
@@ -766,8 +896,9 @@ def fetch_real_klines(symbol: str, market: str = 'US', years: int = 10) -> tuple
 
     used: list[str] = []
     merged: list[dict[str, Any]] = []
+    primaries = primary_sources_for(market)
 
-    for name in PRIMARY_SOURCES:
+    for name in primaries:
         rows = _FETCHERS[name](symbol, market, years)
         if rows:
             used.append(name)
@@ -775,8 +906,8 @@ def fetch_real_klines(symbol: str, market: str = 'US', years: int = 10) -> tuple
             if len(merged) >= MIN_BARS_STOP:
                 return merged, used
 
-    if not merged:
-        primaries_blocked = all(not get_circuit_breaker(name).allow() for name in PRIMARY_SOURCES)
+    if not merged and use_fallbacks:
+        primaries_blocked = all(not get_circuit_breaker(name).allow() for name in primaries)
         if primaries_blocked:
             logger.warning(f'[K线源] {symbol} 主源均熔断，跳过回退以免继续打穿')
             return [], []

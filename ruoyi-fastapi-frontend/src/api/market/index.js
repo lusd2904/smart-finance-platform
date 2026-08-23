@@ -214,6 +214,37 @@ export function getMarketHeatConfig() {
   })
 }
 
+export function getStockPickMood() {
+  return request({
+    url: '/market/picks/mood',
+    method: 'get'
+  })
+}
+
+export function refreshStockPickMood() {
+  return request({
+    url: '/market/picks/mood/refresh',
+    method: 'post'
+  })
+}
+
+export function getStockPickLatest(query) {
+  return request({
+    url: '/market/picks/latest',
+    method: 'get',
+    params: query
+  })
+}
+
+export function runStockPick() {
+  return request({
+    url: '/market/picks/run',
+    method: 'post',
+    timeout: 180000,
+    loadingText: '生成选股单…'
+  })
+}
+
 export function collectMarketHeat(query) {
   return request({
     url: '/market/heat/collect',

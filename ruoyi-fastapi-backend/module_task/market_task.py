@@ -214,3 +214,46 @@ async def collect_market_heat_cn_job(*args, **kwargs) -> None:
     """A股收盘后采集热度与 Top50。invoke_target: module_task.market_task.collect_market_heat_cn_job"""
     await _collect_market_heat('CN')
 
+
+async def _eod_kline_sync(market: str) -> dict[str, Any]:
+    from module_market.service.sync_service import MarketSyncService  # noqa: PLC0415
+
+    payload = {'market': market.upper()}
+    if await JobQueue.enqueue('eod_kline_sync', payload):
+        logger.info(f'[收盘K线] 已入队 market={market}')
+        return {'queued': True, 'market': market}
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, lambda: MarketSyncService.sync_eod_market(market))
+    logger.info(f'[收盘K线] 完成 market={market}: {result}')
+    return result
+
+
+async def eod_kline_sync_cn_job(*args, **kwargs) -> None:
+    """A股收盘后拉日K+分时。invoke_target: module_task.market_task.eod_kline_sync_cn_job"""
+    await _eod_kline_sync('CN')
+
+
+async def eod_kline_sync_hk_job(*args, **kwargs) -> None:
+    """港股收盘后拉日K+分时。invoke_target: module_task.market_task.eod_kline_sync_hk_job"""
+    await _eod_kline_sync('HK')
+
+
+async def eod_kline_sync_us_job(*args, **kwargs) -> None:
+    """美股收盘后拉日K+分时。invoke_target: module_task.market_task.eod_kline_sync_us_job"""
+    await _eod_kline_sync('US')
+
+
+async def run_stock_pick_job(*args, **kwargs) -> None:
+    """智能选股扫描。invoke_target: module_task.market_task.run_stock_pick_job"""
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    payload = {'trigger': 'schedule'}
+    if await JobQueue.enqueue('stock_pick_run', payload):
+        logger.info('[选股] 已入队')
+        return
+    async with AsyncSessionLocal() as db:
+        result = await StockPickService.run(db, trigger='schedule', use_ai=True)
+        logger.info(
+            f'[选股] 完成 status={result.get("status")} picked={result.get("pickedCount")} ai={result.get("aiCount")}'
+        )
+

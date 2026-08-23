@@ -1,0 +1,400 @@
+"""全市场智能选股：指标 + 舆情 + 开盘指数（休市去掉指数）。"""
+
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+from module_ai.dao.ai_model_dao import AiModelDao
+from module_market.constant.instruments import TARGET_INSTRUMENTS
+from module_market.dao.heat_dao import MarketHeatDao
+from module_market.dao.market_dao import MarketWatchlistDao
+from module_market.dao.stock_pick_dao import StockPickDao
+from module_market.service.heat_service import MarketHeatService
+from module_market.service.index_quotes_service import MarketIndexService, list_session_status
+from module_market.service.stock_pick_analyzer import StockPickAnalyzer
+from module_market.service.stock_pick_scoring import (
+    AI_PER_MARKET,
+    CANDIDATE_CAP,
+    PICKS_PER_MARKET,
+    SENTIMENT_FIELD,
+    ai_shortlist,
+    combine_pick_score,
+    merge_candidates,
+    reco_from_signal,
+    select_top_picks,
+)
+from module_quant.service.factor_service import FactorService
+from module_quant.service.strategy_service import decide_signal
+from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao
+from module_sentiment.entity.do.sentiment_do import SentimentNews
+from sqlalchemy import desc, select
+from utils.crypto_util import CryptoUtil
+from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+MARKETS = ('CN', 'HK', 'US')
+
+
+def _featured_for_market(market: str) -> list[dict[str, Any]]:
+    return [
+        {'symbol': symbol, 'name': name, 'market': mkt, 'category': category}
+        for symbol, name, mkt, category in TARGET_INSTRUMENTS
+        if mkt == market
+    ]
+
+
+class StockPickService:
+    @classmethod
+    def _serialize_sentiment(cls, row: Any) -> dict[str, Any]:
+        if not row:
+            return {}
+        return {
+            'summary': row.summary,
+            'usScore': row.us_score,
+            'hkScore': row.hk_score,
+            'aScore': row.a_score,
+            'usDirection': row.us_direction,
+            'hkDirection': row.hk_direction,
+            'aDirection': row.a_direction,
+            'usReason': row.us_reason,
+            'hkReason': row.hk_reason,
+            'aReason': row.a_reason,
+            'analyzedAt': row.create_time.strftime('%Y-%m-%d %H:%M:%S') if row.create_time else None,
+            'modelName': row.model_name,
+        }
+
+    @classmethod
+    async def _headlines(cls, db: AsyncSession, limit: int = 8) -> list[dict[str, str]]:
+        rows = (
+            (await db.execute(select(SentimentNews).order_by(desc(SentimentNews.pub_time)).limit(limit)))
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                'title': row.title,
+                'source': row.source or '',
+                'pubTime': row.pub_time.strftime('%Y-%m-%d %H:%M') if row.pub_time else '',
+            }
+            for row in rows
+        ]
+
+    @classmethod
+    async def get_mood_services(cls, db: AsyncSession) -> dict[str, Any]:
+        sessions = list_session_status()
+        quotes = await MarketIndexService.get_in_session_quotes()
+        latest = await SentimentAnalysisDao.get_latest_analysis(db)
+        sentiment = cls._serialize_sentiment(latest)
+        heats: dict[str, Any] = {}
+        for market in MARKETS:
+            heat = await MarketHeatDao.get_latest_heat(db, market)
+            if heat:
+                heats[market] = MarketHeatService._serialize_heat(heat)
+        open_markets = [m for m, info in sessions.items() if info.get('open')]
+        return {
+            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'sessions': sessions,
+            'openMarkets': open_markets,
+            'indices': quotes.get('items') or [],
+            'sentiment': sentiment,
+            'heat': heats,
+            'headlines': await cls._headlines(db),
+            'hint': (
+                '仅开盘市场附带实时指数；休市市场只用指标和舆情动态分析。'
+                if open_markets
+                else '三市场均未开盘，已去掉实时指数，按指标+舆情分析。'
+            ),
+        }
+
+    @classmethod
+    async def get_latest_services(
+        cls, db: AsyncSession, market: str | None = None, user_id: int | None = None
+    ) -> dict[str, Any]:
+        run = await StockPickDao.get_latest(db)
+        if not run:
+            mood = await cls.get_mood_services(db)
+            return {
+                'empty': True,
+                'message': '还没有选股单。可手动生成，或等收盘后的定时任务。',
+                'mood': mood,
+                'items': [],
+            }
+        items = await StockPickDao.list_items(db, run.pick_id, market=market)
+        watch_set: set[tuple[str, str]] = set()
+        if user_id:
+            watch = await MarketWatchlistDao.get_enabled(db, user_id=user_id)
+            watch_set = {(w.symbol.upper(), (w.market or 'US').upper()) for w in watch}
+        payload_items = []
+        for row in items:
+            tags = []
+            try:
+                tags = json.loads(row.tags_json or '[]')
+            except Exception:
+                tags = []
+            payload_items.append(
+                {
+                    'itemId': row.item_id,
+                    'rankNo': row.rank_no,
+                    'symbol': row.symbol,
+                    'name': row.name,
+                    'market': row.market,
+                    'price': row.price,
+                    'changePct': row.change_pct,
+                    'factorScore': row.factor_score,
+                    'pickScore': row.pick_score,
+                    'signal': row.signal,
+                    'recommendation': row.recommendation,
+                    'stance': row.stance,
+                    'confidence': row.confidence,
+                    'summary': row.summary,
+                    'indicatorReview': row.indicator_review,
+                    'sentimentReview': row.sentiment_review,
+                    'operationAdvice': row.operation_advice,
+                    'riskWarning': row.risk_warning,
+                    'tags': tags,
+                    'source': row.source,
+                    'inWatchlist': (str(row.symbol or '').upper(), str(row.market or 'US').upper()) in watch_set,
+                }
+            )
+        context = {}
+        try:
+            context = json.loads(run.context_json or '{}')
+        except Exception:
+            context = {}
+        return {
+            'empty': False,
+            'pickId': run.pick_id,
+            'tradeDate': run.trade_date,
+            'status': run.status,
+            'trigger': run.trigger_source,
+            'scannedCount': run.scanned_count,
+            'pickedCount': run.picked_count,
+            'aiCount': run.ai_count,
+            'modelName': run.model_name,
+            'openMarkets': [x for x in (run.open_markets or '').split(',') if x],
+            'message': run.message,
+            'updatedAt': run.update_time.strftime('%Y-%m-%d %H:%M:%S') if run.update_time else None,
+            'context': context,
+            'items': payload_items,
+        }
+
+    @classmethod
+    async def _resolve_ai(cls, db: AsyncSession) -> dict[str, Any]:
+        try:
+            model = await AiModelDao.resolve_ai_model_for_business(db, 'market')
+        except Exception as exc:
+            logger.warning(f'[选股] 解析模型失败: {exc}')
+            model = None
+        if not model:
+            return {'available': False}
+        api_key = CryptoUtil.decrypt(model.api_key) if model.api_key else None
+        return {
+            'available': bool(model.base_url and api_key and model.model_code),
+            'baseUrl': model.base_url,
+            'apiKey': api_key,
+            'modelName': model.model_code,
+            'temperature': model.temperature if model.temperature is not None else 0.2,
+        }
+
+    @classmethod
+    async def run(cls, db: AsyncSession, *, trigger: str = 'manual', use_ai: bool = True) -> dict[str, Any]:
+        mood = await cls.get_mood_services(db)
+        sessions = mood.get('sessions') or {}
+        open_markets = set(mood.get('openMarkets') or [])
+        sentiment = mood.get('sentiment') or {}
+        heats = mood.get('heat') or {}
+        index_chg: dict[str, float] = {}
+        for item in mood.get('indices') or []:
+            market = str(item.get('market') or '').upper()
+            chg = item.get('changePct')
+            if market and isinstance(chg, (int, float)) and market not in index_chg:
+                index_chg[market] = float(chg)
+
+        trade_dates = [str(h.get('tradeDate')) for h in heats.values() if h.get('tradeDate')]
+        trade_date = max(trade_dates) if trade_dates else date.today().isoformat()
+
+        run = await StockPickDao.upsert_run(
+            db,
+            {
+                'trade_date': trade_date,
+                'status': 'running',
+                'trigger_source': trigger,
+                'open_markets': ','.join(sorted(open_markets)),
+                'message': '扫描中',
+                'context_json': json.dumps(
+                    {'mood': {k: mood[k] for k in ('sessions', 'openMarkets', 'indices', 'sentiment', 'hint') if k in mood}},
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            },
+        )
+        await db.commit()
+
+        scored: list[dict[str, Any]] = []
+        scanned = 0
+        cutoff = (date.today() - timedelta(days=400)).isoformat()
+        for market in MARKETS:
+            heat = heats.get(market) or {}
+            top50 = []
+            if heat.get('tradeDate'):
+                raw_top = await MarketHeatDao.list_top50(db, market, str(heat['tradeDate']))
+                top50 = [
+                    {'symbol': r.symbol, 'name': r.name, 'market': market, 'category': 'listed'} for r in raw_top
+                ]
+            candidates = merge_candidates(top50, _featured_for_market(market), cap=CANDIDATE_CAP)
+            symbols = [c['symbol'] for c in candidates]
+            kline_map = await StockPickDao.load_recent_daily_klines(db, symbols, cutoff)
+            sent_raw = sentiment.get(SENTIMENT_FIELD[market])
+            heat_score = heat.get('heatScore')
+            opened = market in open_markets
+            for cand in candidates:
+                scanned += 1
+                klines = kline_map.get(cand['symbol']) or []
+                computed = FactorService.compute_from_klines(klines)
+                if not computed.get('ok'):
+                    continue
+                metrics = computed.get('metrics') or {}
+                score = computed.get('score') or {}
+                decision = decide_signal(score)
+                pick_score = combine_pick_score(
+                    score.get('total'),
+                    sentiment_raw=sent_raw,
+                    heat_score=heat_score,
+                    index_open=opened,
+                    index_change_pct=index_chg.get(market),
+                )
+                reco, stance = reco_from_signal(decision.get('signal'), pick_score)
+                tags = list(score.get('tags') or [])[:6]
+                if opened:
+                    tags.append('盘中含指数')
+                else:
+                    tags.append('休市无指数')
+                scored.append(
+                    {
+                        'symbol': cand['symbol'],
+                        'name': cand.get('name') or cand['symbol'],
+                        'market': market,
+                        'price': metrics.get('latestClose'),
+                        'changePct': metrics.get('dayChangePercent'),
+                        'factorScore': score.get('total'),
+                        'pickScore': pick_score,
+                        'signal': decision.get('signal'),
+                        'recommendation': reco,
+                        'stance': stance,
+                        'confidence': decision.get('confidence'),
+                        'reason': decision.get('reason'),
+                        'summary': decision.get('reason'),
+                        'indicatorReview': '、'.join(tags) or '指标中性',
+                        'sentimentReview': sentiment.get('summary') or '暂无舆情',
+                        'operationAdvice': reco,
+                        'riskWarning': '无',
+                        'tags': tags,
+                        'source': 'rule',
+                        'metrics': {
+                            'rsi14': metrics.get('rsi14'),
+                            'macdHist': metrics.get('macdHist'),
+                            'ma20': metrics.get('ma20'),
+                            'volumeRatio20': metrics.get('volumeRatio20'),
+                            'return20': metrics.get('return20'),
+                        },
+                    }
+                )
+
+        picked = select_top_picks(scored, per_market=PICKS_PER_MARKET)
+        ai_cfg = await cls._resolve_ai(db) if use_ai else {'available': False}
+        ai_count = 0
+        model_name = ai_cfg.get('modelName')
+        if ai_cfg.get('available'):
+            shortlist = {(r['symbol'], r['market']) for r in ai_shortlist(picked, per_market=AI_PER_MARKET)}
+            context = {
+                'markets': {
+                    m: {
+                        'open': m in open_markets,
+                        'heatScore': (heats.get(m) or {}).get('heatScore'),
+                        'indexChangePct': index_chg.get(m),
+                        'sentiment': sentiment.get(SENTIMENT_FIELD[m]),
+                    }
+                    for m in MARKETS
+                },
+                'sentiment': sentiment,
+            }
+            for row in picked:
+                if (row['symbol'], row['market']) not in shortlist:
+                    continue
+                result = await StockPickAnalyzer.analyze(
+                    ai_cfg['baseUrl'],
+                    ai_cfg['apiKey'],
+                    ai_cfg['modelName'],
+                    row,
+                    context,
+                    temperature=float(ai_cfg.get('temperature') or 0.2),
+                )
+                parsed = result.get('result') if result.get('ok') else None
+                if not parsed:
+                    continue
+                ai_count += 1
+                row['source'] = 'ai'
+                row['stance'] = parsed.get('stance') or row['stance']
+                row['recommendation'] = parsed.get('recommendation') or row['recommendation']
+                if parsed.get('confidence') is not None:
+                    try:
+                        row['confidence'] = int(parsed.get('confidence'))
+                    except (TypeError, ValueError):
+                        pass
+                row['summary'] = parsed.get('summary') or row['summary']
+                row['indicatorReview'] = parsed.get('indicator_review') or row['indicatorReview']
+                row['sentimentReview'] = parsed.get('sentiment_review') or row['sentimentReview']
+                row['operationAdvice'] = parsed.get('operation_advice') or row['operationAdvice']
+                row['riskWarning'] = parsed.get('risk_warning') or row['riskWarning']
+
+        db_rows = []
+        for row in picked:
+            db_rows.append(
+                {
+                    'rank_no': int(row.get('rankNo') or 0),
+                    'symbol': row['symbol'],
+                    'name': row.get('name'),
+                    'market': row['market'],
+                    'price': row.get('price'),
+                    'change_pct': row.get('changePct'),
+                    'factor_score': row.get('factorScore'),
+                    'pick_score': row.get('pickScore'),
+                    'signal': row.get('signal'),
+                    'recommendation': row.get('recommendation'),
+                    'stance': row.get('stance'),
+                    'confidence': row.get('confidence'),
+                    'summary': row.get('summary'),
+                    'indicator_review': row.get('indicatorReview'),
+                    'sentiment_review': row.get('sentimentReview'),
+                    'operation_advice': row.get('operationAdvice'),
+                    'risk_warning': row.get('riskWarning'),
+                    'tags_json': json.dumps(row.get('tags') or [], ensure_ascii=False),
+                    'source': row.get('source') or 'rule',
+                    'factor_json': json.dumps(row.get('metrics') or {}, ensure_ascii=False),
+                }
+            )
+        await StockPickDao.replace_items(db, run.pick_id, db_rows)
+        status = 'empty' if not picked else ('partial' if use_ai and not ai_count else 'ok')
+        hint = mood.get('hint') or ''
+        message = f'{hint} 扫描{scanned}只，入选{len(picked)}只，AI {ai_count}只。'
+        await StockPickDao.upsert_run(
+            db,
+            {
+                'trade_date': trade_date,
+                'status': status,
+                'trigger_source': trigger,
+                'scanned_count': scanned,
+                'picked_count': len(picked),
+                'ai_count': ai_count,
+                'model_name': model_name,
+                'open_markets': ','.join(sorted(open_markets)),
+                'message': message[:500],
+            },
+        )
+        await db.commit()
+        logger.info(f'[选股] {message}')
+        return await cls.get_latest_services(db)

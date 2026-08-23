@@ -106,6 +106,43 @@ class InfluxUtil:
         return len(points)
 
     @classmethod
+    def write_minute_klines(cls, market: str, rows: list[dict[str, Any]]) -> int:
+        """批量写入分时/分钟K（measurement=minute_kline）。trade_date 需带时分。"""
+        if not rows:
+            return 0
+        bucket = bucket_for_market(market)
+        points: list[Point] = []
+        for row in rows:
+            td = row.get('trade_date')
+            if isinstance(td, datetime):
+                ts = td
+            elif isinstance(td, str):
+                text = td.replace('T', ' ').strip()
+                text = text[:19] if len(text) >= 19 else text[:16]
+                try:
+                    ts = datetime.strptime(text, '%Y-%m-%d %H:%M:%S' if len(text) >= 19 else '%Y-%m-%d %H:%M')
+                except ValueError:
+                    continue
+            else:
+                continue
+            points.append(
+                Point(cls.MEASUREMENT_MINUTE)
+                .tag('symbol', str(row.get('symbol') or ''))
+                .tag('market', str(market).upper())
+                .field('open', float(row.get('open') or 0))
+                .field('high', float(row.get('high') or 0))
+                .field('low', float(row.get('low') or 0))
+                .field('close', float(row.get('close') or 0))
+                .field('volume', float(row.get('volume') or 0))
+                .time(ts, WritePrecision.S)
+            )
+        if not points:
+            return 0
+        write_api = get_client().write_api(write_options=SYNCHRONOUS)
+        write_api.write(bucket=bucket, record=points)
+        return len(points)
+
+    @classmethod
     def query_klines(
         cls,
         market: str,

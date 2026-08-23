@@ -137,6 +137,74 @@ async def get_market_instrument_universe(
 
 
 @market_controller.get(
+    '/picks/mood',
+    summary='当前三市场情绪与开盘状态',
+    description='手动查看舆情与是否开盘。未开盘市场不含实时指数。',
+    dependencies=[UserInterfaceAuthDependency(['market:picks:list', 'market:heat:list', 'market:instrument:list'])],
+)
+async def get_stock_pick_mood(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    data = await StockPickService.get_mood_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/picks/mood/refresh',
+    summary='刷新当前舆情分析',
+    dependencies=[UserInterfaceAuthDependency(['market:picks:run', 'market:ai:analyze'])],
+)
+async def refresh_stock_pick_mood(request: Request) -> Response:
+    ticket = await JobQueue.submit('sentiment_collect', {'analyze': True})
+    if ticket:
+        return ResponseUtil.success(data=ticket, msg='已排队刷新舆情')
+    return ResponseUtil.failure(msg='队列不可用，请稍后在任务中心执行舆情采集')
+
+
+@market_controller.get(
+    '/picks/latest',
+    summary='最新全市场智能选股单',
+    dependencies=[UserInterfaceAuthDependency(['market:picks:list', 'market:heat:list', 'market:instrument:list'])],
+)
+async def get_stock_pick_latest(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    market: Annotated[str | None, Query()] = None,
+) -> Response:
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    user_id = None
+    try:
+        user_id = _current_user_id(current_user)
+    except Exception:
+        user_id = None
+    data = await StockPickService.get_latest_services(query_db, market=market, user_id=user_id)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/picks/run',
+    summary='手动生成智能选股单',
+    dependencies=[UserInterfaceAuthDependency(['market:picks:run', 'market:ai:analyze'])],
+)
+async def run_stock_pick(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+
+    ticket = await JobQueue.submit('stock_pick_run', {'trigger': 'manual', 'useAi': True})
+    if ticket:
+        return ResponseUtil.success(data=ticket, msg='已加入选股队列，稍后刷新')
+    data = await StockPickService.run(query_db, trigger='manual', use_ai=True)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '已生成选股单')
+
+
+@market_controller.get(
     '/kline',
     summary='获取K线数据接口',
     description='用于获取指定标的日K线数组',
@@ -259,12 +327,18 @@ async def get_symbol_overview(
     request: Request,
     symbol: Annotated[str, Path(description='标的代码')],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     market: Annotated[str, Query(description='市场 US/CN/HK')] = 'US',
     include: Annotated[str, Query(description='core|all')] = 'core',
     history_limit: Annotated[int, Query(description='历史K线条数')] = 120,
 ) -> Response:
     data = await MarketService.get_symbol_overview_services(
-        query_db, symbol=symbol, market=market, include=include, history_limit=history_limit
+        query_db,
+        symbol=symbol,
+        market=market,
+        include=include,
+        history_limit=history_limit,
+        user_id=_current_user_id(current_user),
     )
     return ResponseUtil.success(data=data)
 

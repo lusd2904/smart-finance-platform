@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -25,7 +25,12 @@ from module_market.constant.instruments import (
     TARGET_INSTRUMENTS,
     get_target_symbols,
 )
-from module_market.service.kline_sources import PRIMARY_SOURCES, fetch_real_klines, get_circuit_breaker
+from module_market.service.kline_sources import (
+    PRIMARY_SOURCES,
+    fetch_real_klines,
+    fetch_tencent_minute,
+    get_circuit_breaker,
+)
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
@@ -43,6 +48,36 @@ SINA_DAILY_URL = (
 DEFAULT_SYMBOL_INTERVAL = float(os.environ.get('KLINE_SYMBOL_INTERVAL', '1.5'))
 SYNC_SKIP_MIN_BARS = int(os.environ.get('KLINE_SKIP_MIN_BARS', '200'))
 SYNC_SKIP_FRESH_DAYS = int(os.environ.get('KLINE_SKIP_FRESH_DAYS', '10'))
+
+def eod_session_date(market: str, now: datetime | None = None) -> date:
+    """该市场刚刚结束的那个交易日（当地时区，收盘后才切到当天）。"""
+    from zoneinfo import ZoneInfo
+
+    tz_name = {'CN': 'Asia/Shanghai', 'HK': 'Asia/Hong_Kong', 'US': 'America/New_York'}.get(
+        (market or 'US').upper(), 'America/New_York'
+    )
+    close_hour = {'CN': 15, 'HK': 16, 'US': 16}.get((market or 'US').upper(), 16)
+    tz = ZoneInfo(tz_name)
+    local = (now or datetime.now(tz)).astimezone(tz) if now and now.tzinfo else datetime.now(tz)
+    day = local.date()
+    if local.hour < close_hour or (local.hour == close_hour and local.minute < 5):
+        day = day - timedelta(days=1)
+    while day.weekday() >= 5:
+        day = day - timedelta(days=1)
+    return day
+
+
+def should_skip_eod(last_date: str | None, session_date: date | None = None) -> bool:
+    """收盘增量：本地已有该交易日日K则跳过。"""
+    if not last_date:
+        return False
+    try:
+        last = date.fromisoformat(str(last_date)[:10])
+    except ValueError:
+        return False
+    as_of = session_date or date.today()
+    return last >= as_of
+
 
 def should_skip_synced(
     bars: int,
@@ -395,29 +430,40 @@ class MarketSyncService:
 
     @classmethod
     def _wait_if_primaries_blocked(cls) -> None:
+        """仅当 sina、腾讯都熔断才整段暂停；单源冷却不挡住另一源。"""
+        still_up = [name for name in PRIMARY_SOURCES if get_circuit_breaker(name).allow()]
+        if still_up:
+            return
         blocked_until = 0.0
         for name in PRIMARY_SOURCES:
             br = get_circuit_breaker(name)
-            if not br.allow():
-                blocked_until = max(blocked_until, float(br.opened_until or 0))
+            blocked_until = max(blocked_until, float(br.opened_until or 0))
         if blocked_until <= 0:
             return
-        wait = min(120.0, max(5.0, blocked_until - time.time() + 2.0))
-        logger.warning(f'[行情同步] 主源熔断，暂停 {wait:.0f}s 避免继续打穿')
+        wait = min(30.0, max(2.0, blocked_until - time.time() + 1.0))
+        logger.warning(f'[行情同步] 主源均熔断，暂停 {wait:.0f}s')
         time.sleep(wait)
 
     @classmethod
-    def sync_symbol(cls, symbol: str, market: str = 'US', years: int = 10) -> int:
+    def sync_symbol(
+        cls,
+        symbol: str,
+        market: str = 'US',
+        years: int = 10,
+        use_fallbacks: bool = True,
+    ) -> int:
         """
         同步单个标的：外网真源 → Influx，并写入本库日K便于续跑。
-        不再额外打一遍未限流的新浪接口。
+        全市场慢同步关闭 fallbacks，避免 Yahoo 429 把进程睡死。
         """
         symbol = (symbol or '').strip()
         market = (market or 'US').strip().upper()
         if not symbol:
             return 0
 
-        real_rows, used_sources = fetch_real_klines(symbol, market, years)
+        real_rows, used_sources = fetch_real_klines(
+            symbol, market, years, use_fallbacks=use_fallbacks
+        )
         quant_rows = cls._rows_from_quant_mysql(symbol, market, years)
         local_rows = cls._rows_from_local_mysql(symbol, market, years)
         rows = cls._merge_rows(local_rows, quant_rows, real_rows)
@@ -520,9 +566,9 @@ class MarketSyncService:
                 skipped.append(symbol)
                 details[symbol] = 0
                 continue
-            cls._wait_if_primaries_blocked()
+            pts = 0
             try:
-                pts = cls.sync_symbol(symbol, market, years)
+                pts = cls.sync_symbol(symbol, market, years, use_fallbacks=False)
                 details[symbol] = pts
                 total += pts
                 if pts == 0:
@@ -535,11 +581,9 @@ class MarketSyncService:
                 failed.append(symbol)
                 details[symbol] = 0
                 consecutive_fail += 1
-            if consecutive_fail >= _CONSECUTIVE_FAIL_COOLDOWN_AT:
-                cooldown = min(120.0, 15.0 * (consecutive_fail - (_CONSECUTIVE_FAIL_COOLDOWN_AT - 1)))
-                logger.warning(f'[行情同步] 连续失败 {consecutive_fail}，额外休眠 {cooldown:.0f}s')
-                time.sleep(cooldown)
-            if interval > 0:
+            if consecutive_fail >= _CONSECUTIVE_FAIL_COOLDOWN_AT and consecutive_fail % 20 == 0:
+                logger.warning(f'[行情同步] 连续失败 {consecutive_fail}，跳过空标的继续')
+            if pts > 0 and interval > 0:
                 time.sleep(interval)
             if idx % 20 == 0:
                 logger.info(
@@ -553,6 +597,114 @@ class MarketSyncService:
             'details': details,
             'failed': failed,
             'scanned': len(targets),
+        }
+
+    @classmethod
+    def _eod_minute_targets(cls, market: str, cap: int = 80) -> list[tuple[str, str]]:
+        market = (market or 'US').upper()
+        seen: set[str] = set()
+        out: list[tuple[str, str]] = []
+        conn = cls._app_db_conn()
+        if conn is not None:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT symbol, name FROM market_top50_snapshot
+                        WHERE market=%s AND trade_date=(
+                          SELECT MAX(trade_date) FROM market_top50_snapshot WHERE market=%s
+                        )
+                        ORDER BY rank_no
+                        """,
+                        (market, market),
+                    )
+                    for symbol, name in cur.fetchall() or []:
+                        code = str(symbol or '').strip()
+                        if code and code not in seen:
+                            seen.add(code)
+                            out.append((code, name or code))
+            finally:
+                conn.close()
+        for symbol, name, mkt, category in TARGET_INSTRUMENTS:
+            if mkt != market or category == 'index':
+                continue
+            if symbol not in seen:
+                seen.add(symbol)
+                out.append((symbol, name))
+        return out[: max(1, int(cap))]
+
+    @classmethod
+    def sync_minutes(cls, market: str, symbol_interval: float = 0.4) -> dict[str, Any]:
+        """收盘后拉取当日分时（腾讯 last session），写入 Influx minute_kline。"""
+        market = (market or 'US').upper()
+        targets = cls._eod_minute_targets(market)
+        synced: list[str] = []
+        failed: list[str] = []
+        total = 0
+        interval = max(0.0, float(symbol_interval))
+        for idx, (symbol, _name) in enumerate(targets, start=1):
+            try:
+                rows = fetch_tencent_minute(symbol, market)
+                written = InfluxUtil.write_minute_klines(market, rows) if rows else 0
+                if written:
+                    synced.append(symbol)
+                    total += written
+                else:
+                    failed.append(symbol)
+            except Exception as exc:
+                logger.warning(f'[收盘分时] {symbol}({market}) 失败: {exc}')
+                failed.append(symbol)
+            if interval and idx < len(targets):
+                time.sleep(interval)
+        logger.info(f'[收盘分时] market={market} ok={len(synced)} fail={len(failed)} points={total}')
+        return {
+            'market': market,
+            'scanned': len(targets),
+            'synced_symbols': synced,
+            'failed': failed,
+            'total_points': total,
+        }
+
+    @classmethod
+    def sync_eod_market(cls, market: str, years: int = 2, symbol_interval: float = 0.4) -> dict[str, Any]:
+        """某一市场收盘后：增量日K（缺当日才拉）+ 精选/Top50 分时。"""
+        market = (market or 'US').upper()
+        session = eod_session_date(market)
+        interval = max(0.0, float(symbol_interval))
+        targets = cls._iter_universe(markets=[market], include_listed=True)
+        details: dict[str, int] = {}
+        failed: list[str] = []
+        skipped: list[str] = []
+        total = 0
+        for idx, (symbol, _name, mkt, _category, _bars, last_date) in enumerate(targets, start=1):
+            if should_skip_eod(last_date, session):
+                skipped.append(symbol)
+                continue
+            pts = 0
+            try:
+                pts = cls.sync_symbol(symbol, mkt, years, use_fallbacks=False)
+            except Exception as exc:
+                logger.warning(f'[收盘日K] {symbol}({market}) 失败: {exc}')
+            details[symbol] = pts
+            total += pts
+            if pts <= 0:
+                failed.append(symbol)
+            elif interval:
+                time.sleep(interval)
+            if idx % 50 == 0:
+                logger.info(f'[收盘日K] {market} {idx}/{len(targets)} points={total} skip={len(skipped)}')
+        minutes = cls.sync_minutes(market, symbol_interval=interval)
+        return {
+            'market': market,
+            'sessionDate': session.isoformat(),
+            'daily': {
+                'scanned': len(targets),
+                'synced_symbols': [s for s, n in details.items() if n > 0],
+                'skipped': skipped,
+                'failed': failed,
+                'total_points': total,
+            },
+            'minute': minutes,
         }
 
     @classmethod

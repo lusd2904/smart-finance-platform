@@ -232,3 +232,61 @@ class MarketTop50Snapshot(Base):
     currency = Column(String(10), nullable=True, comment='货币')
     as_of_time = Column(DateTime, nullable=True, comment='快照时间')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+
+
+class MarketStockPick(Base):
+    """全市场智能选股单（按交易日一份）。"""
+
+    __tablename__ = 'market_stock_pick'
+    __table_args__ = (
+        UniqueConstraint('trade_date', name='uk_market_stock_pick_date'),
+        {'comment': '全市场智能选股单'},
+    )
+
+    pick_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='选股单ID')
+    trade_date = Column(String(10), nullable=False, index=True, comment='交易日 YYYY-MM-DD')
+    status = Column(String(16), nullable=False, server_default="'ok'", comment='running/ok/partial/empty/error')
+    trigger_source = Column(String(16), nullable=True, server_default="'manual'", comment='manual/schedule')
+    scanned_count = Column(Integer, nullable=True, server_default='0', comment='扫描标的数')
+    picked_count = Column(Integer, nullable=True, server_default='0', comment='入选数')
+    ai_count = Column(Integer, nullable=True, server_default='0', comment='AI 覆盖数')
+    model_name = Column(String(100), nullable=True, comment='模型名')
+    open_markets = Column(String(32), nullable=True, comment='当时开盘市场 US,HK,CN')
+    context_json = Column(Text, nullable=True, comment='大盘/舆情/热度上下文 JSON')
+    message = Column(String(500), nullable=True, comment='状态说明')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
+class MarketStockPickItem(Base):
+    """智能选股单标的。"""
+
+    __tablename__ = 'market_stock_pick_item'
+    __table_args__ = (
+        UniqueConstraint('pick_id', 'symbol', 'market', name='uk_market_stock_pick_item'),
+        {'comment': '全市场智能选股条目'},
+    )
+
+    item_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='条目ID')
+    pick_id = Column(BigInteger, nullable=False, index=True, comment='选股单ID')
+    rank_no = Column(Integer, nullable=False, server_default='0', comment='分市场排名')
+    symbol = Column(String(32), nullable=False, comment='代码')
+    name = Column(String(100), nullable=True, comment='名称')
+    market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
+    price = Column(Float, nullable=True, comment='最新价')
+    change_pct = Column(Float, nullable=True, comment='涨跌幅%')
+    factor_score = Column(Float, nullable=True, comment='因子综合分')
+    pick_score = Column(Float, nullable=True, comment='选股综合分')
+    signal = Column(String(8), nullable=True, comment='BUY/HOLD/SELL')
+    recommendation = Column(String(16), nullable=True, comment='买入/关注/观望/回避')
+    stance = Column(String(16), nullable=True, comment='偏多/偏空/中性')
+    confidence = Column(Integer, nullable=True, comment='置信度')
+    summary = Column(Text, nullable=True, comment='综合摘要')
+    indicator_review = Column(Text, nullable=True, comment='指标解读')
+    sentiment_review = Column(Text, nullable=True, comment='舆情解读')
+    operation_advice = Column(Text, nullable=True, comment='操作建议')
+    risk_warning = Column(Text, nullable=True, comment='风险提示')
+    tags_json = Column(Text, nullable=True, comment='标签 JSON')
+    source = Column(String(16), nullable=True, server_default="'rule'", comment='ai/rule')
+    factor_json = Column(Text, nullable=True, comment='因子快照 JSON')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')

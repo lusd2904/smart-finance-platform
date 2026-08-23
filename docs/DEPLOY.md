@@ -62,6 +62,8 @@ docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai
   < ruoyi-fastapi-backend/sql/quant-longbridge-user.sql
 docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
   < ruoyi-fastapi-backend/sql/market-universe-menu.sql
+docker exec -i sentiment-mysql mysql -uroot -pCHANGE_ME_DB_PASSWORD sentiment-ai \
+  < ruoyi-fastapi-backend/sql/market-stock-pick.sql
 ```
 
 空库还需按 README 导入 `sql/` 下的菜单脚本。
