@@ -1,3 +1,6 @@
+> **[已归档]** 本清单为 2026-08 上旬的重构接入总计划，Phase 1–4.4 及后续迭代已完成大部分条目。
+> 保留于 `docs/archive/` 仅作历史参考，不再维护。
+
 # longbridge-platform-core 深度重构与功能拆解接入完整计划清单
 
 本文档基于对原平台 **`longbridge-platform-core`** 与当前重构平台 **`smart-finance-platform`**（RuoYi-FastAPI + Vue3）的全代码库对比，梳理出所有缺失及待深化的业务子系统、算法引擎、接口与前端工作台，并按微模块进行详细拆解。

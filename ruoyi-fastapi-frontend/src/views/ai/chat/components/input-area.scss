@@ -1,0 +1,75 @@
+// 输入区样式（ChatInputArea.vue scoped 引入）
+.chat-input-area {
+  background-color: var(--el-bg-color);
+  padding: 20px;
+  border-top: 1px solid var(--el-border-color);
+
+  .input-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+    padding: 10px;
+    background-color: var(--el-bg-color);
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+    transition: all 0.3s;
+
+    &:focus-within {
+      border-color: var(--el-color-primary);
+      box-shadow: 0 2px 12px 0 var(--el-color-primary-light-9);
+    }
+
+    .selected-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+
+      .selected-image-item {
+        width: 60px;
+        height: 60px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid var(--el-border-color);
+        background-color: var(--el-fill-color-light);
+      }
+    }
+
+    :deep(.el-textarea__inner) {
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      resize: none;
+      max-height: 200px;
+      background-color: transparent;
+      color: var(--el-text-color-primary);
+
+      &:focus {
+        box-shadow: none;
+      }
+    }
+
+    .input-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--el-border-color);
+
+      .left-actions {
+        display: flex;
+        align-items: center;
+
+        .toggle-chip {
+          border-radius: 999px;
+          margin-left: 0;
+        }
+      }
+    }
+  }
+
+  .chat-image-input {
+    display: none;
+  }
+}
