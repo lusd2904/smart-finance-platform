@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -81,15 +82,28 @@ class StockPickAnalyzer:
             ],
         }
         headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
-        try:
-            async with httpx.AsyncClient(timeout=90) as client:
-                resp = await client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-            raw = data['choices'][0]['message']['content'] or ''
-        except Exception as exc:
-            logger.warning(f"[选股AI] {item.get('symbol')} 调用失败: {exc}")
-            return {'ok': False, 'error': str(exc)}
+        last_error = ''
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=90) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    if resp.status_code == 429:
+                        last_error = '429 Too Many Requests'
+                        await asyncio.sleep(2.0 * (attempt + 1))
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                raw = data['choices'][0]['message']['content'] or ''
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(f"[选股AI] {item.get('symbol')} 调用失败: {exc}")
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                return {'ok': False, 'error': last_error}
+        else:
+            return {'ok': False, 'error': last_error}
         try:
             parsed = cls.parse_response(raw)
         except Exception as exc:

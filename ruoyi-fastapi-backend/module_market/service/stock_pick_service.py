@@ -281,6 +281,7 @@ class StockPickService:
                 ),
             },
         )
+        pick_id = int(run.pick_id)
         await db.commit()
 
         scored: list[dict[str, Any]] = []
@@ -401,7 +402,7 @@ class StockPickService:
                     'factor_json': json.dumps(row.get('metrics') or {}, ensure_ascii=False),
                 }
             )
-        await StockPickDao.replace_items(db, run.pick_id, db_rows)
+        await StockPickDao.replace_items(db, pick_id, db_rows)
         status = 'empty' if not picked else ('partial' if use_ai and ai_count < len(picked) else 'ok')
         hint = mood.get('hint') or ''
         ai_part = f'AI {ai_count}/{len(picked)}'

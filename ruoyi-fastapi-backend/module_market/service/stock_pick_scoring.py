@@ -9,7 +9,7 @@ SENTIMENT_FIELD = {'US': 'usScore', 'HK': 'hkScore', 'CN': 'aScore'}
 CANDIDATE_CAP = 80
 PICKS_PER_MARKET = 10
 AI_PER_MARKET = 10
-AI_CONCURRENCY = 3
+AI_CONCURRENCY = 2
 
 
 def clamp_score(value: float | None, default: float = 50.0) -> float:
