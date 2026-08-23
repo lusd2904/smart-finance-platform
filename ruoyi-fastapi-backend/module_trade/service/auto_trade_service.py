@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 # 客户端允许覆盖的非安全字段；限额/纸账户开关只能由服务端决定
 _CLIENT_CONFIG_KEYS = frozenset({'max_symbols', 'min_confidence', 'strategy_profile', 'custom_thresholds'})
+MIN_TARGET_AMOUNT_USD = 50
 
 
 def merge_runtime_config(custom_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -187,7 +188,7 @@ class AutoTradeService:
                         items.append({'symbol': sym, 'market': mkt})
             return items
 
-        from module_quant.dao.quant_dao import QuantWatchlistDao
+        from module_quant.dao.quant_dao import QuantWatchlistDao  # noqa: PLC0415 - 服务层延迟加载，缩短模块导入链
 
         rows = await QuantWatchlistDao.get_enabled_symbols(db, user_id=user_id)
         for row in rows:
@@ -425,7 +426,7 @@ class AutoTradeService:
                     if net_assets > 0:
                         cap_by_ratio = net_assets * float(config['max_position_ratio'])
                         target_amount = min(target_amount, cap_by_ratio)
-                    if target_amount < 50:
+                    if target_amount < MIN_TARGET_AMOUNT_USD:
                         skipped_reasons.append(
                             {'symbol': symbol, 'reason': f'剩余可用日内额度不足 (${target_amount:.2f})'}
                         )

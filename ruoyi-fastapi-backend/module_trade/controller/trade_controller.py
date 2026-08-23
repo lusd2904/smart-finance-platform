@@ -617,7 +617,9 @@ async def get_feishu_config(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    from module_trade.service.feishu_push_service import FeishuPushService
+    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+        FeishuPushService,
+    )
 
     user = current_user.user if current_user else None
     user_id = int(getattr(user, 'user_id', 0) or 0)
@@ -636,7 +638,9 @@ async def put_feishu_config(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    from module_trade.service.feishu_push_service import FeishuPushService
+    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+        FeishuPushService,
+    )
 
     user = current_user.user if current_user else None
     user_id = int(getattr(user, 'user_id', 0) or 0)
@@ -656,7 +660,9 @@ async def test_feishu(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    from module_trade.service.feishu_push_service import FeishuPushService
+    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+        FeishuPushService,
+    )
 
     user = current_user.user if current_user else None
     user_id = int(getattr(user, 'user_id', 0) or 0)
