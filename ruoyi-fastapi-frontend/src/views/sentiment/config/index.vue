@@ -21,7 +21,7 @@
         <el-descriptions-item label="API 地址">{{ form.baseUrl || '--' }}</el-descriptions-item>
         <el-descriptions-item label="温度">{{ form.temperature ?? '--' }}</el-descriptions-item>
       </el-descriptions>
-      <div class="hint">舆情 / 行情 AI 分析会自动复用「AI 管理」中的可用模型（优先 sentiment → global → chat）。</div>
+      <div class="hint">舆情优先 sentiment → global → chat。智能选股 / 自选分析优先「行情中心 (market)」，默认 Grok 4.6。</div>
     </el-card>
 
     <el-card shadow="never" class="config-card" v-loading="loading">

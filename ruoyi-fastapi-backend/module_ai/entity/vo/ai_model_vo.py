@@ -18,7 +18,7 @@ class AiModelModel(BaseModel):
     model_name: str | None = Field(default=None, description='模型名称')
     provider: str | None = Field(default=None, description='提供商')
     model_sort: int | None = Field(default=None, description='显示顺序')
-    scope: str | None = Field(default=None, description='适用范围(chat/sentiment/quant/global)')
+    scope: str | None = Field(default=None, description='适用范围(chat/sentiment/quant/global/market)')
     api_key: str | None = Field(default=None, description='API Key')
     base_url: str | None = Field(default=None, description='Base URL')
     max_tokens: int | None = Field(default=None, description='最大输出token')

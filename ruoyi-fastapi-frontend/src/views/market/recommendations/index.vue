@@ -4,7 +4,7 @@
       <div class="hero-left">
         <div class="hero-title">智能选股</div>
         <div class="hero-sub">
-          入选标的都会走 AI 研判（指标 + 舆情 + 开盘指数）
+          入选标的都会走 AI 研判（指标 + 舆情 + 开盘指数）。模型在「AI 管理 / 模型管理」配，适用范围选行情中心，默认 Grok 4.6。
           <el-tag v-if="latest.updatedAt" size="small" effect="plain" class="asof-tag">{{ latest.updatedAt }}</el-tag>
         </div>
       </div>

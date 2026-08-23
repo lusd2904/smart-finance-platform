@@ -7,6 +7,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, MARKET_SCOPE
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_market.dao.heat_dao import MarketHeatDao
@@ -187,14 +188,15 @@ class StockPickService:
     async def _resolve_ai(cls, db: AsyncSession) -> dict[str, Any]:
         model = None
         try:
-            model = await AiModelDao.resolve_ai_model_for_business(db, 'sentiment')
-            if model is None:
-                model = await AiModelDao.resolve_ai_model_for_business(db, 'market')
+            # 走 AI 模型管理：适用范围「行情中心」优先，没有则默认 Grok 4.6，再回退全局/助手。
+            model = await AiModelDao.resolve_ai_model_for_business(
+                db, MARKET_SCOPE, preferred_codes=GROK46_MODEL_CODES
+            )
         except Exception as exc:
             logger.warning(f'[选股] 解析模型失败: {exc}')
             return {'available': False, 'reason': f'解析模型失败: {exc}'}
         if not model:
-            return {'available': False, 'reason': '未配置可用 AI 模型（AI 模型管理里填写 Base URL / Key / 模型）'}
+            return {'available': False, 'reason': '未配置可用 AI 模型（AI 管理 → 模型管理，适用范围选行情中心，默认 grok-4.6）'}
         api_key = model.api_key
         if api_key:
             try:

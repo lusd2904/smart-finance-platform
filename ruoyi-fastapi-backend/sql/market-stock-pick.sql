@@ -85,3 +85,37 @@ FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 122);
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
 SELECT 123, '美股收盘拉日K与分时', 'default', 'default', 'module_task.market_task.eod_kline_sync_us_job', NULL, NULL, '0 25 21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股收盘后增量日K+分时（UTC 21:25=北京 05:25）'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 123);
+
+-- 智能选股默认 Grok 4.6（适用范围 market）。已有行情模型不覆盖；凭据复用当前启用模型。
+-- OpenRouter 模型编码为 x-ai/grok-4.6，直连 xAI 为 grok-4.6。换模型：AI 管理 → 模型管理。
+INSERT INTO ai_models (
+  model_code, model_name, provider, model_sort, scope, api_key, base_url,
+  model_type, max_tokens, temperature, support_reasoning, support_images,
+  status, create_by, create_time, remark
+)
+SELECT
+  CASE WHEN LOWER(IFNULL(src.base_url, '')) LIKE '%openrouter%' THEN 'x-ai/grok-4.6' ELSE 'grok-4.6' END,
+  'Grok 4.6',
+  CASE WHEN LOWER(IFNULL(src.base_url, '')) LIKE '%openrouter%' THEN 'OpenRouter' ELSE 'xAI' END,
+  0,
+  'market',
+  src.api_key,
+  src.base_url,
+  src.model_type,
+  src.max_tokens,
+  IFNULL(src.temperature, 0.2),
+  'Y',
+  'N',
+  '0',
+  'admin',
+  sysdate(),
+  '智能选股默认模型；适用范围=行情中心(market)，可在 AI 模型管理更换'
+FROM (
+  SELECT * FROM ai_models
+  WHERE status = '0'
+    AND IFNULL(base_url, '') <> ''
+    AND IFNULL(api_key, '') <> ''
+  ORDER BY model_sort, model_id
+  LIMIT 1
+) src
+WHERE NOT EXISTS (SELECT 1 FROM ai_models m2 WHERE m2.scope = 'market');
