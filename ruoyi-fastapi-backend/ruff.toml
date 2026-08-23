@@ -47,6 +47,7 @@ ignore = [
     "RUF002", # docstring contains ambiguous
     "RUF003", # comment contains ambiguous
     "RUF012", # mutable class attributes should be annotated with typing.ClassVar
+    "PLC0415",  # lazy imports to avoid circular deps / heavy module import at startup
 ]
 
 [lint.flake8-type-checking]

@@ -73,6 +73,14 @@ US_PAGE_SIZE = 100
 EM_PAGE_SIZE = 100
 UPSERT_CHUNK = 400
 US_SYMBOL_RE = re.compile(r'^[A-Z][A-Z0-9.\-]{0,15}$')
+CN_SYMBOL_LEN = 6
+HK_CODE_MIN_LEN_FOR_ETF = 5
+HK_SYMBOL_MAX_LEN = 4
+NASDAQ_MIN_PARTS = 4
+NASDAQ_TEST_FLAG_IDX = 4
+NASDAQ_ETF_FLAG_IDX = 6
+NASDAQ_OTHER_MIN_PARTS = 7
+MIN_SINA_LISTING_ROWS = 500
 
 
 def _http_get(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> str:
@@ -124,7 +132,7 @@ def normalize_cn_symbol(raw: str | None) -> str | None:
         return None
     text = re.sub(r'^(SH|SZ|BJ|SS)', '', text)
     text = text.replace('.SS', '').replace('.SZ', '').replace('.BJ', '')
-    if text.isdigit() and len(text) == 6:
+    if text.isdigit() and len(text) == CN_SYMBOL_LEN:
         return text
     return None
 
@@ -136,7 +144,7 @@ def _is_hk_non_equity(symbol: str, name: str) -> bool:
     if 'ETF' in upper or 'ETN' in upper:
         return True
     code = symbol.replace('.HK', '')
-    return len(code) >= 5
+    return len(code) >= HK_CODE_MIN_LEN_FOR_ETF
 
 
 def _is_us_non_equity(name: str) -> bool:
@@ -150,9 +158,9 @@ def normalize_hk_symbol(raw: str | None) -> str | None:
     if not text:
         return None
     text = text.lstrip('0') or '0'
-    if len(text) > 4:
+    if len(text) > HK_SYMBOL_MAX_LEN:
         return None
-    padded = text.zfill(4) if len(text) <= 4 else text
+    padded = text.zfill(HK_SYMBOL_MAX_LEN) if len(text) <= HK_SYMBOL_MAX_LEN else text
     return f'{padded}.HK'
 
 
@@ -263,12 +271,12 @@ def parse_nasdaq_listed(text: str) -> list[dict[str, str]]:
         if not line or line.startswith(('File Creation', 'Symbol|')):
             continue
         parts = line.split('|')
-        if len(parts) < 4:
+        if len(parts) < NASDAQ_MIN_PARTS:
             continue
         symbol = normalize_us_symbol(parts[0])
         name = _clip_name(parts[1] if len(parts) > 1 else symbol)
         test_flag = parts[3]
-        etf_flag = parts[6] if len(parts) > 6 else 'N'
+        etf_flag = parts[NASDAQ_ETF_FLAG_IDX] if len(parts) > NASDAQ_ETF_FLAG_IDX else 'N'
         if not symbol or str(test_flag).upper() == 'Y' or str(etf_flag).upper() == 'Y':
             continue
         if _is_us_non_equity(name):
@@ -283,11 +291,11 @@ def parse_nasdaq_otherlisted(text: str) -> list[dict[str, str]]:
         if not line or line.startswith(('File Creation', 'ACT Symbol|')):
             continue
         parts = line.split('|')
-        if len(parts) < 7:
+        if len(parts) < NASDAQ_OTHER_MIN_PARTS:
             continue
         if str(parts[6]).upper() == 'Y':
             continue
-        if len(parts) > 4 and str(parts[4]).upper() == 'Y':
+        if len(parts) > NASDAQ_TEST_FLAG_IDX and str(parts[NASDAQ_TEST_FLAG_IDX]).upper() == 'Y':
             continue
         symbol = normalize_us_symbol(parts[0])
         if not symbol:
@@ -462,7 +470,7 @@ def fetch_market(market: str) -> list[dict[str, str]]:
     except Exception as exc:
         logger.warning(f'[listings] sina {code} failed: {exc}')
         primary = []
-    if len(primary) >= 500:
+    if len(primary) >= MIN_SINA_LISTING_ROWS:
         return primary
     logger.info(f'[listings] {code} sina got {len(primary)}, trying fallback')
     if code == 'US':

@@ -27,6 +27,13 @@ from utils.longbridge_breaker import LongbridgeBreaker
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+WEEKEND_WEEKDAY = 5
+ACTIVE_HEAT_SCORE = 70.0
+COLD_HEAT_SCORE = 35.0
+MIN_KLINES_FOR_CHANGE = 2
+ADVANCE_CHANGE_THRESHOLD = 0.05
+DECLINE_CHANGE_THRESHOLD = -0.05
+
 
 def _normalize_market(market: str | None) -> str:
     code = str(market or 'US').strip().upper()
@@ -45,7 +52,7 @@ def _is_weekday(date_str: str) -> bool:
         dt = datetime.strptime(date_str, '%Y-%m-%d')
     except ValueError:
         return False
-    return dt.weekday() < 5
+    return dt.weekday() < WEEKEND_WEEKDAY
 
 
 def _resolve_trade_date(market: str, trade_date: str | None) -> str:
@@ -95,9 +102,9 @@ def _heat_summary(score: float, market: str, index_change: float | None, advance
     elif decline > advance * 1.2:
         breadth = '普跌'
     level = '中性'
-    if score >= 70:
+    if score >= ACTIVE_HEAT_SCORE:
         level = '活跃'
-    elif score <= 35:
+    elif score <= COLD_HEAT_SCORE:
         level = '偏冷'
     idx_text = f'指数{index_change:+.2f}%' if index_change is not None else '指数待更新'
     return f'{label}{trend}，{idx_text}，{breadth}（涨{advance}/跌{decline}），热度{level}。'
@@ -185,7 +192,7 @@ class MarketHeatService:
     @classmethod
     def _index_change_from_influx(cls, market: str, symbol: str) -> float | None:
         klines = InfluxUtil.query_klines(market, symbol, '-30d', 'now()', 3)
-        if len(klines) < 2:
+        if len(klines) < MIN_KLINES_FOR_CHANGE:
             return None
         prev = klines[-2]
         last = klines[-1]
@@ -280,9 +287,9 @@ class MarketHeatService:
             if change_pct is None:
                 change_pct = quote.get('change')
             if change_pct is not None:
-                if change_pct > 0.05:
+                if change_pct > ADVANCE_CHANGE_THRESHOLD:
                     advance += 1
-                elif change_pct < -0.05:
+                elif change_pct < DECLINE_CHANGE_THRESHOLD:
                     decline += 1
                 else:
                     flat += 1

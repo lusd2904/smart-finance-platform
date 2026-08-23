@@ -188,7 +188,7 @@ class AutoTradeService:
                         items.append({'symbol': sym, 'market': mkt})
             return items
 
-        from module_quant.dao.quant_dao import QuantWatchlistDao  # noqa: PLC0415 - 服务层延迟加载，缩短模块导入链
+        from module_quant.dao.quant_dao import QuantWatchlistDao
 
         rows = await QuantWatchlistDao.get_enabled_symbols(db, user_id=user_id)
         for row in rows:
@@ -238,7 +238,7 @@ class AutoTradeService:
         }
 
     @classmethod
-    async def run_watchlist_strategy_cycle(  # noqa: PLR0912, PLR0915
+    async def run_watchlist_strategy_cycle(
         cls,
         db: AsyncSession,
         symbols: list[str] | list[dict[str, str]] | None = None,
@@ -254,7 +254,7 @@ class AutoTradeService:
         多账户语义：user_id 决定三件事——扫谁的自选、用谁的券商凭据、护栏额度算谁的。
         不传 user_id 时回退请求上下文用户，再回退管理员(1)。
         """
-        from module_quant.service.longbridge_service import (  # noqa: PLC0415 - 服务层延迟加载，缩短模块导入链
+        from module_quant.service.longbridge_service import (
             resolve_longbridge_user_id,
         )
 

@@ -25,7 +25,7 @@ trade_controller = APIRouterPro(
 def _current_user_id(current_user: CurrentUserModel) -> int:
     user = current_user.user if current_user else None
     user_id = getattr(user, 'user_id', None) if user else None
-    from exceptions.exception import ServiceException  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+    from exceptions.exception import ServiceException
 
     if not user_id:
         raise ServiceException(message='无法识别当前用户')
@@ -256,7 +256,7 @@ async def trade_backtest_detail(
     return ResponseUtil.success(data=data)
 
 
-from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E402
+from module_trade.service.auto_trade_service import AutoTradeService
 
 
 @trade_controller.get(
@@ -617,7 +617,7 @@ async def get_feishu_config(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+    from module_trade.service.feishu_push_service import (
         FeishuPushService,
     )
 
@@ -638,7 +638,7 @@ async def put_feishu_config(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+    from module_trade.service.feishu_push_service import (
         FeishuPushService,
     )
 
@@ -660,7 +660,7 @@ async def test_feishu(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 控制器辅助函数延迟加载，缩短模块导入链
+    from module_trade.service.feishu_push_service import (
         FeishuPushService,
     )
 

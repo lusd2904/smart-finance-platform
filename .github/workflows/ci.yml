@@ -52,35 +52,53 @@ jobs:
           else
             BASE="$(git rev-parse HEAD~1)"
           fi
+          RUFF_DIR=ruoyi-fastapi-backend
           mapfile -t rel < /tmp/changed_py.txt
           TMP=$(mktemp -d)
           trap 'rm -rf "$TMP"' EXIT
-          head_paths=()
-          base_paths=()
+          overlap_head=()
+          overlap_base=()
+          new_head=()
           for f in "${rel[@]}"; do
-            head_paths+=("ruoyi-fastapi-backend/$f")
             if git cat-file -e "$BASE:ruoyi-fastapi-backend/$f" 2>/dev/null; then
               mkdir -p "$TMP/$(dirname "$f")"
               git show "$BASE:ruoyi-fastapi-backend/$f" > "$TMP/$f"
-              base_paths+=("$TMP/$f")
+              overlap_head+=("$f")
+              overlap_base+=("$TMP/$f")
+            else
+              new_head+=("$f")
             fi
           done
           count_ruff() {
             if [ "$#" -eq 0 ]; then echo 0; return; fi
             local out=""
-            out=$(ruff check "$@" --output-format json 2>/dev/null) || true
+            out=$(cd "$RUFF_DIR" && ruff check --config ruff.toml "$@" --output-format json 2>/dev/null) || true
             python3 -c "import json,sys; print(len(json.loads(sys.argv[1] or '[]')))" "$out"
           }
-          HEAD_COUNT=$(count_ruff "${head_paths[@]}")
-          if [ "${#base_paths[@]}" -eq 0 ]; then
-            BASE_COUNT=0
+          if [ "${#overlap_head[@]}" -eq 0 ]; then
+            HEAD_OVERLAP=0
+            BASE_OVERLAP=0
           else
-            BASE_COUNT=$(count_ruff "${base_paths[@]}")
+            HEAD_OVERLAP=$(count_ruff "${overlap_head[@]}")
+            BASE_OVERLAP=$(count_ruff "${overlap_base[@]}")
           fi
-          echo "Ruff violations on changed files: head=$HEAD_COUNT base=$BASE_COUNT"
-          if [ "$HEAD_COUNT" -gt "$BASE_COUNT" ]; then
-            echo "::error::Ruff violations increased on changed files ($HEAD_COUNT > $BASE_COUNT)"
-            ruff check "${head_paths[@]}"
+          if [ "${#new_head[@]}" -eq 0 ]; then
+            HEAD_NEW=0
+          else
+            HEAD_NEW=$(count_ruff "${new_head[@]}")
+          fi
+          echo "Ruff violations on changed files: overlap head=$HEAD_OVERLAP base=$BASE_OVERLAP; new-only head=$HEAD_NEW"
+          FAILED=0
+          if [ "$HEAD_OVERLAP" -gt "$BASE_OVERLAP" ]; then
+            echo "::error::Ruff violations increased on overlap files ($HEAD_OVERLAP > $BASE_OVERLAP)"
+            FAILED=1
+          fi
+          if [ "$HEAD_NEW" -gt 0 ]; then
+            echo "::error::Ruff violations on new-only files ($HEAD_NEW > 0)"
+            FAILED=1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            cd "$RUFF_DIR" && ruff check --config ruff.toml "${rel[@]}"
             exit 1
           fi
 

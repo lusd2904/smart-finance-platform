@@ -540,7 +540,7 @@ class QuantDailyListDao:
 
     @classmethod
     async def distinct_watchlist_users(cls, db: AsyncSession) -> list[int]:
-        from module_market.entity.do.market_do import MarketWatchlist  # noqa: PLC0415 - 避免跨模块循环导入
+        from module_market.entity.do.market_do import MarketWatchlist
 
         rows = (
             await db.execute(select(MarketWatchlist.user_id).where(MarketWatchlist.enabled == '1').distinct())

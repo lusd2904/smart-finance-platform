@@ -45,9 +45,9 @@ def _empty(section: str, reason: str = 'unavailable') -> dict[str, Any]:
 
 def _market_sessions() -> list[dict[str, Any]]:
     """三市场开闭市状态：按各时区本地时间判断工作日与收盘时段。"""
-    from zoneinfo import ZoneInfo  # noqa: PLC0415 - 标准库按需加载
+    from zoneinfo import ZoneInfo
 
-    from module_market.config.heat_config import MARKET_META  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+    from module_market.config.heat_config import MARKET_META
 
     sessions = []
     for market in ('US', 'HK', 'CN'):
@@ -152,7 +152,7 @@ class DashboardService:
     @staticmethod
     async def _asset_block(query_db: AsyncSession) -> dict[str, Any]:
         """账户资产：走读模型定时快照（Redis），不直连长桥。"""
-        from module_quant.service.readmodel_service import ReadModelService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_quant.service.readmodel_service import ReadModelService
 
         scheduled = await ReadModelService.get_scheduled('overview')
         asset = (scheduled or {}).get('asset') if isinstance(scheduled, dict) else None
@@ -177,7 +177,7 @@ class DashboardService:
     @staticmethod
     async def _quotes_block(query_db: AsyncSession) -> dict[str, Any]:
         """指数/看板行情：只读 Redis 看板缓存，绝不打 Influx。"""
-        from module_market.service.market_service import MarketService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_market.service.market_service import MarketService
 
         board = await MarketService.get_board_quotes_services(query_db)
         indices = board.get('indices') or []
@@ -196,8 +196,8 @@ class DashboardService:
     @staticmethod
     async def _heat_block(query_db: AsyncSession) -> dict[str, Any]:
         """三市场最新热度摘要：指数涨跌 + 涨跌家数 + 成交额 + 热度分。"""
-        from module_market.dao.heat_dao import MarketHeatDao  # noqa: PLC0415 - 聚合层延迟加载各业务模块
-        from module_market.service.heat_service import MarketHeatService  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_market.dao.heat_dao import MarketHeatDao
+        from module_market.service.heat_service import MarketHeatService
 
         markets = {}
         for market in ('US', 'HK', 'CN'):
@@ -226,7 +226,7 @@ class DashboardService:
     @staticmethod
     async def _watch_signals_block(query_db: AsyncSession, user_id: int | None) -> dict[str, Any]:
         """自选信号 Top5：按综合建议排序（偏多/偏空优先，中性靠后）。"""
-        from module_market.service.watchlist_service import (  # noqa: PLC0415 - 聚合层延迟加载
+        from module_market.service.watchlist_service import (
             MarketWatchlistService,
         )
 
@@ -273,12 +273,12 @@ class DashboardService:
     @staticmethod
     async def _sentiment_block(query_db: AsyncSession) -> dict[str, Any]:
         """舆情统计 + 最新 AI 研判。"""
-        from module_sentiment.dao.sentiment_dao import (  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_sentiment.dao.sentiment_dao import (
             SentimentAnalysisDao,
             SentimentNewsDao,
         )
-        from module_sentiment.entity.vo.sentiment_vo import SentimentAnalysisModel  # noqa: PLC0415 - 聚合层延迟加载
-        from utils.common_util import CamelCaseUtil  # noqa: PLC0415 - 聚合层延迟加载
+        from module_sentiment.entity.vo.sentiment_vo import SentimentAnalysisModel
+        from utils.common_util import CamelCaseUtil
 
         stats = await SentimentNewsDao.count_news(query_db)
         latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
@@ -301,7 +301,7 @@ class DashboardService:
     @staticmethod
     async def _briefings_block(query_db: AsyncSession) -> dict[str, Any]:
         """财经简报流：只读库内已生成简报，不触发外部刷新。"""
-        from module_market.dao.market_dao import FinanceBriefingDao  # noqa: PLC0415 - 聚合层延迟加载各业务模块
+        from module_market.dao.market_dao import FinanceBriefingDao
 
         rows = await FinanceBriefingDao.get_latest(query_db, limit=8)
         data = [
@@ -325,12 +325,12 @@ class DashboardService:
     @staticmethod
     async def _health_block(query_db: AsyncSession) -> dict[str, Any]:
         """运行状态：K线覆盖率 + 最近任务执行（成功/失败计数）。"""
-        from datetime import timedelta  # noqa: PLC0415 - 标准库按需加载
+        from datetime import timedelta
 
-        from sqlalchemy import desc, func, select  # noqa: PLC0415 - 按需加载
+        from sqlalchemy import desc, func, select
 
-        from module_admin.entity.do.job_do import SysJobLog  # noqa: PLC0415 - 聚合层延迟加载各业务模块
-        from module_trade.service.platform_ext_service import (  # noqa: PLC0415 - 聚合层延迟加载
+        from module_admin.entity.do.job_do import SysJobLog
+        from module_trade.service.platform_ext_service import (
             PlatformExtService,
         )
 

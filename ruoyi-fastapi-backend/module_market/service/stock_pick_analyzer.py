@@ -11,6 +11,9 @@ import httpx
 
 from utils.log_util import logger
 
+HTTP_TOO_MANY_REQUESTS = 429
+MAX_RETRY_ATTEMPT_INDEX = 2
+
 SYSTEM_PROMPT = """你是二级市场选股助手。综合技术指标、当前舆情、以及仅在开盘时提供的大盘指数，给出克制的短线建议。
 休市时没有实时指数，不要编造盘口，只根据指标和舆情判断。
 
@@ -87,7 +90,7 @@ class StockPickAnalyzer:
             try:
                 async with httpx.AsyncClient(timeout=90) as client:
                     resp = await client.post(url, json=payload, headers=headers)
-                    if resp.status_code == 429:
+                    if resp.status_code == HTTP_TOO_MANY_REQUESTS:
                         last_error = '429 Too Many Requests'
                         await asyncio.sleep(2.0 * (attempt + 1))
                         continue
@@ -98,7 +101,7 @@ class StockPickAnalyzer:
             except Exception as exc:
                 last_error = str(exc)
                 logger.warning(f"[选股AI] {item.get('symbol')} 调用失败: {exc}")
-                if attempt < 2:
+                if attempt < MAX_RETRY_ATTEMPT_INDEX:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 return {'ok': False, 'error': last_error}

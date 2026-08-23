@@ -10,6 +10,8 @@ CANDIDATE_CAP = 80
 PICKS_PER_MARKET = 10
 AI_PER_MARKET = 10
 AI_CONCURRENCY = 2
+BUY_SCORE_THRESHOLD = 62.0
+WATCH_SCORE_THRESHOLD = 58.0
 
 
 def clamp_score(value: float | None, default: float = 50.0) -> float:
@@ -97,13 +99,13 @@ def combine_pick_score(
 
 def reco_from_signal(signal: str | None, pick_score: float) -> tuple[str, str]:
     sig = (signal or 'HOLD').upper()
-    if sig == 'BUY' and pick_score >= 62:
+    if sig == 'BUY' and pick_score >= BUY_SCORE_THRESHOLD:
         return '买入', '偏多'
     if sig == 'BUY':
         return '关注', '偏多'
     if sig == 'SELL':
         return '回避', '偏空'
-    if pick_score >= 58:
+    if pick_score >= WATCH_SCORE_THRESHOLD:
         return '关注', '偏多'
     return '观望', '中性'
 

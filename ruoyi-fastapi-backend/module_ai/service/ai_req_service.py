@@ -402,7 +402,7 @@ class AiReqService:
 
     @classmethod
     async def _enqueue(cls, job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from utils.job_queue import JobQueue  # noqa: PLC0415 - 延迟导入避免循环依赖（job_queue 依赖较重）
+        from utils.job_queue import JobQueue
 
         ticket = await JobQueue.submit(job_type, payload)
         if not ticket:
