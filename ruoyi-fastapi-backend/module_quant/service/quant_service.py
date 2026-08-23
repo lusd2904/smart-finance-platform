@@ -282,10 +282,11 @@ class QuantService:
     async def get_scan_runs_services(cls, query_db: AsyncSession, limit: int = 20) -> dict[str, Any]:
         """只读扫描运行列表（最近 N 条）"""
         runs = await QuantStrategyDao.get_scan_runs(query_db, limit=limit)
+        signals_by_run = await QuantStrategyDao.get_signals_by_runs(query_db, [r.run_id for r in runs])
         items = []
         opportunity_total = 0
         for run in runs:
-            signals = await QuantStrategyDao.get_signals_by_run(query_db, run.run_id)
+            signals = signals_by_run.get(run.run_id, [])
             opportunities = [s for s in signals if s.signal == 'BUY']
             skipped = [s for s in signals if s.signal == 'HOLD']
             opportunity_total += len(opportunities)

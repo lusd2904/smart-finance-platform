@@ -157,6 +157,29 @@ class QuantStrategyDao:
         return list(rows)
 
     @classmethod
+    async def get_signals_by_runs(
+        cls, db: AsyncSession, run_ids: list[int]
+    ) -> dict[int, list[QuantStrategySignal]]:
+        """批量获取多次运行的信号，按 run_id 分组（消除列表页 1+N 查询）"""
+        if not run_ids:
+            return {}
+        rows = (
+            (
+                await db.execute(
+                    select(QuantStrategySignal)
+                    .where(QuantStrategySignal.run_id.in_([int(r) for r in run_ids]))
+                    .order_by(desc(QuantStrategySignal.score))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        grouped: dict[int, list[QuantStrategySignal]] = {}
+        for row in rows:
+            grouped.setdefault(int(row.run_id), []).append(row)
+        return grouped
+
+    @classmethod
     async def get_run_by_id(cls, db: AsyncSession, run_id: int) -> QuantStrategyRun | None:
         """按主键获取策略运行记录"""
         return (
