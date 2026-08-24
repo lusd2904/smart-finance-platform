@@ -148,6 +148,14 @@ def _hit_rate(flags: list[bool | None]) -> float | None:
     return round(sum(known) / len(known), 4)
 
 
+def _quote_from_mysql(q: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'last': q.get('price'),
+        'changeRate': q.get('changeRate'),
+        'tradeDate': q.get('tradeDate'),
+    }
+
+
 class MarketWatchlistService:
     """行情自选清单服务。"""
 
@@ -261,23 +269,36 @@ class MarketWatchlistService:
         items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
+        all_symbols = [row.symbol for row in items]
+        mysql_quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, all_symbols)
         quotes: dict[str, dict[str, Any]] = {}
+        for symbol, raw in mysql_quotes.items():
+            if raw.get('price') is not None:
+                quotes[symbol] = _quote_from_mysql(raw)
         by_market: dict[str, list[str]] = {}
         for row in items:
-            by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
+            if row.symbol not in quotes or quotes[row.symbol].get('last') is None:
+                by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
+        influx_hits = 0
         for market, symbols in by_market.items():
+            if not symbols:
+                continue
             try:
                 grouped = await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d')
             except Exception as exc:
-                # 自选页主路径：库故障降级为无行情，页面仍可看分析记录
                 logger.error(f'[自选] 行情批量查询失败 market={market}: {exc}')
                 grouped = {}
             for symbol in symbols:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
                     quotes[symbol] = quote
-        # Browse/list path: last price from Influx latest 2 daily bars only — do not overlay Longbridge realtime.
-        quote_source = 'influx'
+                    influx_hits += 1
+        if influx_hits and mysql_quotes:
+            quote_source = 'mysql+influx'
+        elif influx_hits:
+            quote_source = 'influx'
+        else:
+            quote_source = 'mysql'
 
         rows = []
         stance_count = {'偏多': 0, '偏空': 0, '中性': 0}

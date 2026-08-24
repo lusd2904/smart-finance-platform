@@ -18,6 +18,7 @@ _client: InfluxDBClient | None = None
 
 
 _MAX_QUERY_LIMIT = 5000
+_LATEST_KLINES_CHUNK = 80
 _TS_LEN_FULL = 19  # 'YYYY-MM-DD HH:MM:SS' 长度
 _TS_LEN_MIN = 16  # 'YYYY-MM-DD HH:MM' 长度
 
@@ -213,6 +214,7 @@ from(bucket: "{bucket}")
         """
         Batch-read the latest N daily bars for many symbols in one Flux query.
         Returns {symbol: [{date, open, high, low, close, volume}, ...]} ascending.
+        Large symbol lists are chunked to avoid Flux payload limits.
         """
         safe_symbols = []
         for raw in symbols or []:
@@ -221,6 +223,22 @@ from(bucket: "{bucket}")
                 safe_symbols.append(cleaned)
         if not safe_symbols:
             return {}
+        if len(safe_symbols) <= _LATEST_KLINES_CHUNK:
+            return cls._query_latest_klines_chunk(market, safe_symbols, n, start)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for i in range(0, len(safe_symbols), _LATEST_KLINES_CHUNK):
+            chunk = safe_symbols[i : i + _LATEST_KLINES_CHUNK]
+            grouped.update(cls._query_latest_klines_chunk(market, chunk, n, start))
+        return grouped
+
+    @classmethod
+    def _query_latest_klines_chunk(
+        cls,
+        market: str,
+        safe_symbols: list[str],
+        n: int = 2,
+        start: str = '-60d',
+    ) -> dict[str, list[dict[str, Any]]]:
         start_clause = _safe_time_clause(start)
         if start_clause is None:
             return {}

@@ -6,6 +6,8 @@ import httpx
 
 from utils.log_util import logger
 
+GATEWAY_FAILOVER_CODES = frozenset({502, 503, 524})
+
 ANALYSIS_SYSTEM_PROMPT = """你是一名资深宏观与市场策略分析师。用户会给你一批最新财经舆情快讯，请你综合分析这批舆情对全球主要股指的短期（1-3个交易日）影响。
 
 请严格按以下JSON格式输出（不要输出任何JSON以外的内容，不要用markdown代码块包裹）：
@@ -104,6 +106,15 @@ class SentimentAiAnalyzer:
                         'code': 429,
                         'retryAfter': int(retry_after) if str(retry_after).isdigit() else 60,
                     }
+                if resp.status_code in GATEWAY_FAILOVER_CODES:
+                    logger.warning(f'[舆情AI分析] 网关错误 {resp.status_code}，可切换模型重试')
+                    return {
+                        'ok': False,
+                        'result': None,
+                        'raw': (resp.text or '')[:2000],
+                        'error': f'网关错误 {resp.status_code}',
+                        'code': resp.status_code,
+                    }
                 resp.raise_for_status()
                 data = resp.json()
             raw = data['choices'][0]['message']['content'] or ''
@@ -118,11 +129,18 @@ class SentimentAiAnalyzer:
                     'code': 429,
                     'retryAfter': int(retry_after) if str(retry_after).isdigit() else 60,
                 }
+            status = e.response.status_code if e.response is not None else None
             logger.error(f'[舆情AI分析] 调用模型失败: {e}')
-            return {'ok': False, 'result': None, 'raw': '', 'error': f'调用模型失败: {e}'}
+            return {
+                'ok': False,
+                'result': None,
+                'raw': '',
+                'error': f'调用模型失败: {e}',
+                'code': status,
+            }
         except Exception as e:
             logger.error(f'[舆情AI分析] 调用模型失败: {e}')
-            return {'ok': False, 'result': None, 'raw': '', 'error': f'调用模型失败: {e}'}
+            return {'ok': False, 'result': None, 'raw': '', 'error': f'调用模型失败: {e}', 'code': None}
         try:
             result = cls._parse_response(raw)
             return {'ok': True, 'result': result, 'raw': raw, 'error': None}

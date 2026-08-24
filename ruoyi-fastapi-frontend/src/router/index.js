@@ -53,6 +53,31 @@ export const constantRoutes = [
     hidden: true
   },
   {
+    path: '/market',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: 'symbol',
+        component: () => import('@/views/market/symbol/index.vue'),
+        name: 'MarketSymbolDirect',
+        meta: { title: '标的详情', activeMenu: '/market/board' }
+      },
+      {
+        path: 'kline',
+        component: () => import('@/views/market/kline/index.vue'),
+        name: 'MarketKlineDirect',
+        meta: { title: '行情K线', activeMenu: '/market/board' }
+      },
+      {
+        path: 'tradingview',
+        component: () => import('@/views/market/tradingview/index.vue'),
+        name: 'MarketTradingviewDirect',
+        meta: { title: '高级图表', activeMenu: '/market/board' }
+      }
+    ]
+  },
+  {
     path: "/:pathMatch(.*)*",
     component: () => import('@/views/error/404'),
     hidden: true

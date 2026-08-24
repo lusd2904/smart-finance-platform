@@ -91,6 +91,12 @@ class MarketService:
         return await loop.run_in_executor(None, ListingService.sync, markets)
 
     @classmethod
+    async def sync_listings_from_influx_services(cls, markets: list[str] | None = None) -> dict[str, Any]:
+        """从 Influx 已有序列同步全市场代码到 market_instrument（listed）。"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, ListingService.sync_from_influx, markets)
+
+    @classmethod
     async def get_instrument_list_services(
         cls, query_db: AsyncSession, query_object: MarketInstrumentQueryModel
     ) -> list[dict[str, Any]]:

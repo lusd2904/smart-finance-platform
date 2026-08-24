@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 
 from module_market.constant.instruments import LISTED_CATEGORY
 from utils.http_fetch import fetch
+from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 
 if TYPE_CHECKING:
@@ -588,6 +589,56 @@ class ListingService:
                 'byMarket': breakdown,
             }
             logger.info(f'[listings] sync done {result}')
+            return result
+        finally:
+            if close_conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    @classmethod
+    def sync_from_influx(
+        cls,
+        markets: list[str] | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        database: str | None = None,
+        conn: Any | None = None,
+    ) -> dict[str, Any]:
+        """从 Influx 已有 K 线序列同步全市场代码到 market_instrument（listed），不覆盖精选分类。"""
+        wanted = [m.upper() for m in (markets or ['US', 'CN', 'HK'])]
+        fetched: dict[str, list[dict[str, str]]] = {}
+        for market in wanted:
+            symbols = InfluxUtil.list_symbols(market)
+            fetched[market] = [
+                {'symbol': sym, 'name': sym, 'market': market, 'category': LISTED_CATEGORY}
+                for sym in symbols
+                if sym
+            ]
+            logger.info(f'[listings] influx fetched {market}={len(fetched[market])}')
+        close_conn = False
+        if conn is None:
+            conn = _connect(host=host, port=port, user=user, password=password, database=database)
+            close_conn = True
+        try:
+            all_rows: list[dict[str, str]] = []
+            for rows in fetched.values():
+                all_rows.extend(rows)
+            upsert = upsert_listed_rows(conn, all_rows)
+            breakdown = count_by_market(conn)
+            total = sum(int(item['count']) for item in breakdown)
+            result = {
+                'source': 'influx',
+                'fetched': {m: len(rows) for m, rows in fetched.items()},
+                'upserted': upsert['fetched'],
+                'affected': upsert['affected'],
+                'total': total,
+                'byMarket': breakdown,
+            }
+            logger.info(f'[listings] influx sync done {result}')
             return result
         finally:
             if close_conn:

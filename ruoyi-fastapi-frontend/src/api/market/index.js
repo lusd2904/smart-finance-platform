@@ -76,7 +76,8 @@ export function getSymbolOverview(symbol, query) {
   return request({
     url: '/market/symbols/' + encodeURIComponent(symbol) + '/overview',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 120000
   })
 }
 
@@ -131,7 +132,8 @@ export function getFinanceBriefings(query) {
 export function getMarketWatchlistOverview() {
   return request({
     url: '/market/watchlist/overview',
-    method: 'get'
+    method: 'get',
+    timeout: 120000
   })
 }
 

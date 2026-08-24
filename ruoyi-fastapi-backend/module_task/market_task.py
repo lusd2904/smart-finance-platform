@@ -76,8 +76,13 @@ async def sync_listings_job(*args, **kwargs) -> None:
 
     try:
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, ListingService.sync)
-        logger.info(f'[全市场代码] 同步完成: {result}')
+        try:
+            result = await loop.run_in_executor(None, ListingService.sync_from_influx)
+            logger.info(f'[全市场代码] Influx 同步完成: {result}')
+        except Exception as exc:
+            logger.warning(f'[全市场代码] Influx 同步失败，回退外部源: {exc}')
+            result = await loop.run_in_executor(None, ListingService.sync)
+            logger.info(f'[全市场代码] 外部源同步完成: {result}')
     except Exception as e:
         logger.error(f'[全市场代码] 同步失败: {e}')
         raise

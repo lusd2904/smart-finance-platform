@@ -2,11 +2,14 @@ import json
 import re
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
+from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, select_ai_model_row
 from module_ai.dao.ai_model_dao import AiModelDao
+from module_ai.entity.do.ai_model_do import AiModels
 from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
 from module_sentiment.entity.vo.sentiment_vo import (
     DeleteSentimentNewsModel,
@@ -16,7 +19,7 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentNewsPageQueryModel,
 )
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
-from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
+from module_sentiment.service.analyzer_service import GATEWAY_FAILOVER_CODES, SentimentAiAnalyzer
 from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
@@ -28,6 +31,57 @@ class SentimentService:
     """
     舆情分析模块服务层
     """
+
+    ANALYZE_WINDOW_MINUTES = 10
+    MAX_NEWS_SAFETY_CAP = 200
+
+    @staticmethod
+    def _is_complete_model(model: AiModels) -> bool:
+        return bool(model.base_url and model.api_key and model.model_code)
+
+    @classmethod
+    def _is_gateway_failover_code(cls, code: int | None) -> bool:
+        return code in GATEWAY_FAILOVER_CODES
+
+    @classmethod
+    async def _list_sentiment_ai_candidates(cls, query_db: AsyncSession) -> list[AiModels]:
+        rows = (
+            (
+                await query_db.execute(
+                    select(AiModels)
+                    .where(AiModels.status == '0')
+                    .order_by(AiModels.model_sort, AiModels.model_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        complete = [model for model in rows if cls._is_complete_model(model)]
+        if not complete:
+            return []
+        primary = select_ai_model_row(complete, 'sentiment', GROK46_MODEL_CODES)
+        ordered: list[AiModels] = []
+        seen: set[int] = set()
+        if primary and primary.model_id is not None:
+            ordered.append(primary)
+            seen.add(int(primary.model_id))
+        for model in complete:
+            model_id = model.model_id
+            if model_id is None or int(model_id) in seen:
+                continue
+            ordered.append(model)
+            seen.add(int(model_id))
+        return ordered
+
+    @staticmethod
+    def _model_runtime_config(model: AiModels) -> dict[str, Any]:
+        api_key = CryptoUtil.decrypt(model.api_key) or ''
+        return {
+            'baseUrl': model.base_url or '',
+            'apiKey': api_key,
+            'modelName': model.model_code or '',
+            'temperature': model.temperature if model.temperature is not None else 0.2,
+        }
 
     # ---------- 资讯 ----------
 
@@ -125,8 +179,10 @@ class SentimentService:
         舆情特有的业务参数(max_news_per_round/auto_analyze/enabled_sources)仍存储在sentiment_ai_config，
         此处合并两部分数据，保持接口返回结构与迁移前一致
         """
-        # 统一从 AI 模型管理解析：sentiment -> global -> chat -> 任意可用模型
-        ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
+        # 统一从 AI 模型管理解析：sentiment -> grok-4.6 -> global -> chat -> 任意可用模型
+        ai_model = await AiModelDao.resolve_ai_model_for_business(
+            query_db, 'sentiment', preferred_codes=GROK46_MODEL_CODES
+        )
         ext_config = await SentimentAiConfigDao.get_config(query_db)
 
         if ai_model:
@@ -143,7 +199,7 @@ class SentimentService:
             enabled_sources = ext_config.enabled_sources
         else:
             max_news_per_round, auto_analyze, enabled_sources = (
-                30,
+                200,
                 '1',
                 'eastmoney,sina,ths,wallstreetcn,google_news',
             )
@@ -375,12 +431,19 @@ class SentimentService:
         :return: {'analyzed': 条数, 'analysisId': int|None, 'message': str}
         """
         config = await cls.get_ai_config_services(query_db)
-        if not config.base_url or not config.api_key or not config.model_name:
+        candidates = await cls._list_sentiment_ai_candidates(query_db)
+        if not candidates:
             raise ServiceException(message='请先在AI配置中填写Base URL、API Key与模型名称')
-        limit = config.max_news_per_round or 30
-        news_rows = await SentimentNewsDao.get_unanalyzed_news(query_db, limit)
+        limit = min(int(config.max_news_per_round or cls.MAX_NEWS_SAFETY_CAP), cls.MAX_NEWS_SAFETY_CAP)
+        news_rows = await SentimentNewsDao.get_unanalyzed_news(
+            query_db, limit, window_minutes=cls.ANALYZE_WINDOW_MINUTES
+        )
         if not news_rows:
-            return {'analyzed': 0, 'analysisId': None, 'message': '暂无待分析的舆情资讯'}
+            return {
+                'analyzed': 0,
+                'analysisId': None,
+                'message': f'最近 {cls.ANALYZE_WINDOW_MINUTES} 分钟内暂无待分析的舆情资讯',
+            }
         news_list = [
             {
                 'news_id': r.news_id,
@@ -391,13 +454,31 @@ class SentimentService:
             }
             for r in news_rows
         ]
-        ai_result = await SentimentAiAnalyzer.analyze(
-            base_url=config.base_url,
-            api_key=config.api_key,
-            model_name=config.model_name,
-            news_list=news_list,
-            temperature=config.temperature if config.temperature is not None else 0.2,
-        )
+        ai_result: dict[str, Any] | None = None
+        used_model_name = ''
+        for model in candidates:
+            runtime = cls._model_runtime_config(model)
+            if not (runtime['baseUrl'] and runtime['apiKey'] and runtime['modelName']):
+                continue
+            ai_result = await SentimentAiAnalyzer.analyze(
+                base_url=runtime['baseUrl'],
+                api_key=runtime['apiKey'],
+                model_name=runtime['modelName'],
+                news_list=news_list,
+                temperature=runtime['temperature'],
+            )
+            used_model_name = runtime['modelName']
+            if ai_result.get('ok'):
+                break
+            if ai_result.get('code') == 429:
+                break
+            if not cls._is_gateway_failover_code(ai_result.get('code')):
+                break
+            logger.warning(
+                f'[舆情分析] 模型 {runtime["modelName"]} 网关 {ai_result.get("code")}，尝试下一模型'
+            )
+        if ai_result is None:
+            raise ServiceException(message='未找到可用的 AI 模型配置')
         if ai_result.get('code') == 429:
             return {
                 'analyzed': 0,
@@ -410,7 +491,7 @@ class SentimentService:
         analysis_record: dict[str, Any] = {
             'news_count': len(news_ids),
             'news_ids': ','.join(str(i) for i in news_ids),
-            'model_name': config.model_name,
+            'model_name': used_model_name or config.model_name,
             'raw_response': (ai_result.get('raw') or '')[:60000],
             'create_time': now_beijing(),
         }

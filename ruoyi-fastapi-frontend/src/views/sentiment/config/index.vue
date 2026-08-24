@@ -21,7 +21,7 @@
         <el-descriptions-item label="API 地址">{{ form.baseUrl || '--' }}</el-descriptions-item>
         <el-descriptions-item label="温度">{{ form.temperature ?? '--' }}</el-descriptions-item>
       </el-descriptions>
-      <div class="hint">舆情优先 sentiment → global → chat。智能选股 / 自选分析优先「行情中心 (market)」，默认 Grok 4.6。</div>
+      <div class="hint">舆情优先 sentiment → Grok 4.6 → global → chat。智能选股 / 自选分析优先「行情中心 (market)」，默认 Grok 4.6。</div>
     </el-card>
 
     <el-card shadow="never" class="config-card" v-loading="loading">
@@ -33,6 +33,7 @@
       <el-form ref="configRef" :model="form" label-width="140px" style="max-width: 720px">
         <el-form-item label="单轮分析资讯数" prop="maxNewsPerRound">
           <el-input-number v-model="form.maxNewsPerRound" :min="1" :max="200" />
+          <div class="field-hint">每次分析仅处理最近约 10 分钟内未分析的资讯，上限 200 条（安全封顶）。</div>
         </el-form-item>
         <el-form-item label="自动分析" prop="autoAnalyze">
           <el-switch v-model="form.autoAnalyze" active-value="1" inactive-value="0" active-text="开" inactive-text="关" />
@@ -72,7 +73,7 @@ const form = ref({
   apiKey: undefined,
   modelName: undefined,
   temperature: 0.7,
-  maxNewsPerRound: 20,
+  maxNewsPerRound: 200,
   autoAnalyze: '0',
   enabledSources: '',
   modelScope: undefined,
@@ -94,7 +95,7 @@ function getConfigData() {
         apiKey: data.apiKey,
         modelName: data.modelName,
         temperature: data.temperature != null ? Number(data.temperature) : 0.7,
-        maxNewsPerRound: data.maxNewsPerRound != null ? Number(data.maxNewsPerRound) : 20,
+        maxNewsPerRound: data.maxNewsPerRound != null ? Number(data.maxNewsPerRound) : 200,
         autoAnalyze: data.autoAnalyze != null ? String(data.autoAnalyze) : '0',
         enabledSources: data.enabledSources || '',
         modelScope: data.modelScope,
@@ -150,5 +151,11 @@ getConfigData()
   font-size: 12px;
   color: #909399;
   line-height: 1.6;
+}
+.field-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
 }
 </style>
