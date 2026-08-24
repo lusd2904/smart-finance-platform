@@ -50,6 +50,21 @@ curl -sS \
 | `trend[].usScore` | number \| null | 美股分数 |
 | `trend[].hkScore` | number \| null | 港股分数 |
 | `trend[].aScore` | number \| null | A股分数 |
+| `indexes` | array | 盘中大盘指数条（与 `/market/index/quotes` 的 `items` 一致）；**空数组时客户端应隐藏指数条** |
+| `indexes[].market` | string | 市场：`US` / `HK` / `CN` |
+| `indexes[].symbol` | string | 腾讯行情代码（如 `usINX`、`sh000001`） |
+| `indexes[].name` | string | 指数名称 |
+| `indexes[].last` | number \| null | 最新价 |
+| `indexes[].prevClose` | number \| null | 昨收 |
+| `indexes[].changePct` | number \| null | 涨跌幅（%） |
+| `indexes[].quoteTime` | string | 行情时间戳（上游原始格式） |
+| `indexesAsOf` | string | 指数数据快照时间（`YYYY-MM-DD HH:MM:SS`） |
+| `indexesCached` | boolean | 是否来自 Redis 缓存（后端 30s TTL） |
+| `sessions` | object | 三市场开盘状态，键为 `US` / `HK` / `CN` |
+| `sessions.<M>.market` | string | 市场代码 |
+| `sessions.<M>.open` | boolean | 是否处于交易时段 |
+| `sessions.<M>.localTime` | string | 当地当前时间 |
+| `sessions.<M>.timezone` | string | IANA 时区名 |
 
 ## 错误
 
