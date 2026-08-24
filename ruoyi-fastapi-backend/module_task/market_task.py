@@ -45,7 +45,7 @@ async def sync_klines_slow_job(*args, **kwargs) -> None:
     慢速同步全市场日K（源级限流、精选优先、已有新K线则跳过）。
     invoke_target: module_task.market_task.sync_klines_slow_job
     """
-    from module_market.service.sync_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.sync_service import (
         MarketSyncService,
     )
 
@@ -70,7 +70,7 @@ async def sync_listings_job(*args, **kwargs) -> None:
     同步美股/A股/港股全市场代码到 market_instrument。
     invoke_target: module_task.market_task.sync_listings_job
     """
-    from module_market.service.listing_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.listing_service import (
         ListingService,
     )
 
@@ -100,7 +100,7 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
     定时刷新财经资讯简报流。
     invoke_target: module_task.market_task.refresh_finance_briefings_job
     """
-    from module_market.service.finance_news_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.finance_news_service import (
         FinanceNewsService,
     )
 
@@ -117,10 +117,10 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
 
 
 async def refresh_symbol_content_now() -> dict[str, Any]:
-    from module_market.service.content_cache_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.content_cache_service import (
         SymbolContentService,
     )
-    from utils.longbridge_breaker import LongbridgeBreaker  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
+    from utils.longbridge_breaker import LongbridgeBreaker
 
     if not LongbridgeBreaker.allow():
         return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'total': 0}
@@ -190,7 +190,7 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
     每小时对行情自选清单做综合分析（指标 + 长桥资讯 + 舆情）。
     invoke_target: module_task.market_task.analyze_watchlist_job
     """
-    from module_market.service.watchlist_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.watchlist_service import (
         MarketWatchlistService,
     )
 
@@ -210,7 +210,7 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
 
 
 async def _collect_market_heat(market: str, trade_date: str | None = None) -> None:
-    from module_market.service.heat_service import (  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
+    from module_market.service.heat_service import (
         MarketHeatService,
     )
 
@@ -243,7 +243,7 @@ async def collect_market_heat_cn_job(*args, **kwargs) -> None:
 
 
 async def _eod_kline_sync(market: str) -> dict[str, Any]:
-    from module_market.service.sync_service import MarketSyncService  # noqa: PLC0415
+    from module_market.service.sync_service import MarketSyncService
 
     payload = {'market': market.upper()}
     if await JobQueue.enqueue('eod_kline_sync', payload):
@@ -272,7 +272,7 @@ async def eod_kline_sync_us_job(*args, **kwargs) -> None:
 
 async def run_stock_pick_job(*args, **kwargs) -> None:
     """智能选股扫描。invoke_target: module_task.market_task.run_stock_pick_job"""
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+    from module_market.service.stock_pick_service import StockPickService
 
     payload = {'trigger': 'schedule'}
     if await JobQueue.enqueue('stock_pick_run', payload):

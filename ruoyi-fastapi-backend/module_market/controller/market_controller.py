@@ -30,8 +30,8 @@ from module_market.entity.vo.market_vo import (
 )
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService
-from module_market.service.market_service import MarketService
 from module_market.service.market_review_service import MarketReviewService
+from module_market.service.market_service import MarketService
 from module_market.service.stock_pick_service import StockPickService
 from module_market.service.tradingview_service import TradingViewDatafeedService
 from module_market.service.watchlist_service import MarketWatchlistService

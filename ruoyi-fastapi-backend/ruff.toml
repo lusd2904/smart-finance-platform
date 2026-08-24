@@ -70,3 +70,4 @@ quote-style = "single"
 # 测试代码允许字面量断言值与局部延迟导入
 [lint.per-file-ignores]
 "tests/**" = ["PLR2004", "ANN", "PLC0415"]
+"module_market/service/market_review_*.py" = ["PLR2004", "PLR0912", "PERF203", "PERF401", "TC002"]

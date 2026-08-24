@@ -268,7 +268,7 @@ class TradeService:
         fee_rate: float = 0.0005,
         slippage: float = 0.0002,
     ) -> dict[str, Any]:
-        from utils.influx_util import InfluxUtil  # noqa: PLC0415 - 按需加载时序库客户端
+        from utils.influx_util import InfluxUtil
 
         klines = await asyncio.to_thread(
             InfluxUtil.query_klines, market, symbol, f'-{max(days, _BACKTEST_MIN_DAYS)}d', 'now()'

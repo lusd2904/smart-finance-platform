@@ -558,11 +558,11 @@ async def _indicator_refresh(_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _strategy_run(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
-    from module_quant.entity.vo.quant_vo import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from config.database import AsyncSessionLocal
+    from module_quant.entity.vo.quant_vo import (
         RunStrategyModel,
     )
-    from module_quant.service.quant_service import QuantService  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from module_quant.service.quant_service import QuantService
 
     profile = str(payload.get('profile') or 'balanced')
     symbols = payload.get('symbols')
@@ -607,8 +607,8 @@ async def _req_summarize(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
-    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from config.database import AsyncSessionLocal
+    from module_quant.service.daily_list_service import (
         DailyListService,
     )
 
@@ -621,8 +621,8 @@ async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
-    from module_quant.service.daily_list_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from config.database import AsyncSessionLocal
+    from module_quant.service.daily_list_service import (
         DailyListService,
     )
 
@@ -631,8 +631,8 @@ async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _stock_pick_run(payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal  # noqa: PLC0415
-    from module_market.service.stock_pick_service import StockPickService  # noqa: PLC0415
+    from config.database import AsyncSessionLocal
+    from module_market.service.stock_pick_service import StockPickService
 
     trigger = str((payload or {}).get('trigger') or 'schedule')
     use_ai = bool((payload or {}).get('useAi', True))
@@ -641,7 +641,7 @@ async def _stock_pick_run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _eod_kline_sync(payload: dict[str, Any]) -> dict[str, Any]:
-    from module_market.service.sync_service import MarketSyncService  # noqa: PLC0415
+    from module_market.service.sync_service import MarketSyncService
 
     market = str((payload or {}).get('market') or 'US').upper()
     loop = asyncio.get_running_loop()
@@ -649,8 +649,8 @@ async def _eod_kline_sync(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _feishu_push(_payload: dict[str, Any]) -> dict[str, Any]:
-    from config.database import AsyncSessionLocal  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
-    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 队列 handler 延迟加载，缩短模块导入链
+    from config.database import AsyncSessionLocal
+    from module_trade.service.feishu_push_service import (
         FeishuPushService,
     )
 
