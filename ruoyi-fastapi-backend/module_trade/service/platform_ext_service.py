@@ -8,10 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from exceptions.exception import ServiceException
 from module_market.constant.instruments import TARGET_INSTRUMENTS
@@ -27,6 +24,9 @@ from module_trade.service.risk_event_workflow import (
 )
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 _SEEDS_DONE = False
 
@@ -335,8 +335,9 @@ class PlatformExtService:
     async def evaluate_risk(cls, db: AsyncSession) -> dict[str, Any]:
         """基于规则 + 最近策略信号生成风险事件。"""
         await cls.ensure_seed_data(db)
-        from module_quant.entity.do.quant_do import QuantStrategySignal
         from sqlalchemy import desc, select
+
+        from module_quant.entity.do.quant_do import QuantStrategySignal
 
         rules = await cls.list_risk_rules(db)
         enabled = [r for r in rules if str(r.get('enabled')) == '1']
