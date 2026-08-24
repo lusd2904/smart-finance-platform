@@ -37,6 +37,8 @@ class AppSettings(BaseSettings):
     app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai'] = 'all'
     # 对外需求清单 GET /open/requirements 的 X-Req-Token，空则关闭
     requirements_export_token: str = ''
+    # 舆情大盘 Widget GET /sentiment/widget/dashboard 的 X-Widget-Token，空则关闭
+    sentiment_widget_token: str = ''
     # CORS 域名白名单，逗号分隔；dev 未配置时放开来源但关闭凭证，prod 必须显式配置
     app_cors_origins: str = ''
 
