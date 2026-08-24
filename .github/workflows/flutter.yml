@@ -143,7 +143,16 @@ jobs:
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
           $srcdir = "$PWD\build\windows\x64\runner\Release"
-          $makensis = (Get-Command makensis.exe -ErrorAction Stop).Source
+          # choco 安装后 PATH 未必在本 step 生效，按已知路径查找 makensis
+          $makensis = @(
+            "C:\Program Files (x86)\NSIS\makensis.exe",
+            "C:\Program Files\NSIS\makensis.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) {
+            $cmd = Get-Command makensis.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $makensis = $cmd.Source }
+          }
+          if (-not $makensis) { throw "makensis not found after choco install nsis" }
           & $makensis "/DVERSION=$version" "/DSRCDIR=$srcdir" windows\packaging\installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
