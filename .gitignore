@@ -161,7 +161,6 @@ node_modules/
 .playwright-browsers/
 desktop/release/
 output/
-package-lock.json
 .env
 .env.*
 !.env.example

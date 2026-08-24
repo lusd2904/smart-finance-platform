@@ -1,9 +1,9 @@
-agno==2.4.8
+agno==2.9.0
 aiofiles==25.1.0
 alembic==1.18.3
 APScheduler==3.11.2
 async-lru==2.1.0
-asyncmy==0.2.11
+asyncmy==0.2.14
 bcrypt==5.0.0
 fastapi[all]==0.141.1
 loguru==0.7.3
