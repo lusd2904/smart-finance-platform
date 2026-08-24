@@ -154,7 +154,7 @@ class SnapshotService:
             'profile': profile,
             'symbolCount': len(ok_items),
             'failedCount': len(failed),
-            'top': ok_items[:12],
+            'items': ok_items,
             'failed': failed[:20],
             'readModelVersion': 'v2.3',
         }
@@ -312,17 +312,35 @@ class SnapshotService:
         board = await QuantSnapshotDao.get_latest_readmodel(db, 'board')
         factor_payload = _loads(factors.payload_json) if factors else {}
         board_payload = _loads(board.payload_json) if board else {}
+        factor_scan = await cls.build_factor_scan_payload(db, factor_payload)
         return {
             'configured': bool(asset.get('configured')),
             'message': asset.get('message'),
             'asset': asset,
             'position': pos,
-            'factorScan': factor_payload,
+            'factorScan': factor_scan,
             'board': {'count': board_payload.get('count'), 'asOf': board_payload.get('asOf'), 'items': (board_payload.get('items') or [])[:16]},
             'refreshTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'readModelVersion': 'v2.3',
             'source': 'scheduled',
         }
+
+    @classmethod
+    async def build_factor_scan_payload(
+        cls, db: AsyncSession, stored: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """合并读模型元数据与 quant_factor_snapshot 全量行（不虚构价格）。"""
+        payload = dict(stored or {})
+        items = await cls.list_factor_snapshots(db, limit=200)
+        if items:
+            payload['items'] = items
+            payload['symbolCount'] = len(items)
+        elif not payload.get('items'):
+            legacy = payload.pop('top', None) or []
+            if legacy:
+                payload['items'] = legacy
+        payload.pop('top', None)
+        return payload
 
     @classmethod
     async def list_factor_snapshots(cls, db: AsyncSession, limit: int = 80) -> list[dict[str, Any]]:
