@@ -208,7 +208,13 @@ class LoginService:
         #     raise AuthException(data="", message="用户token不合法")
         try:
             if token.startswith('Bearer'):
-                token = token.split(' ')[1]
+                parts = token.split(' ')
+                # 残缺头（「Bearer」/「Bearer 」）切不出令牌部分，必须显式拦截：
+                # 否则 IndexError 未被捕获，经全局兜底处理器返回 code:500 而非 401。
+                if len(parts) != 2 or not parts[1]:
+                    logger.warning('用户token不合法')
+                    raise AuthException(data='', message='用户token不合法')
+                token = parts[1]
             payload = jwt.decode(token, JwtConfig.jwt_secret_key, algorithms=[JwtConfig.jwt_algorithm])
             user_id: str = payload.get('user_id')
             session_id: str = payload.get('session_id')
