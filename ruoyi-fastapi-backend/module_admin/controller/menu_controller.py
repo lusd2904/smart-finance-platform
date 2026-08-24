@@ -15,8 +15,8 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, DynamicResponseModel, ResponseBaseModel
 from module_admin.entity.vo.menu_vo import DeleteMenuModel, MenuModel, MenuQueryModel, MenuTreeModel
-from module_admin.entity.vo.role_vo import RoleMenuQueryModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.role_vo import RoleMenuQueryModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.menu_service import MenuService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil

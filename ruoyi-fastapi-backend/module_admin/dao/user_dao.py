@@ -5,6 +5,9 @@ from typing import Any
 from sqlalchemy import ColumnElement, and_, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.entity.vo.user_vo import (
+    UserModel,
+)
 from common.vo import PageModel
 from module_admin.entity.do.dept_do import SysDept
 from module_admin.entity.do.menu_do import SysMenu
@@ -12,7 +15,6 @@ from module_admin.entity.do.post_do import SysPost
 from module_admin.entity.do.role_do import SysRole, SysRoleMenu
 from module_admin.entity.do.user_do import SysUser, SysUserPost, SysUserRole
 from module_admin.entity.vo.user_vo import (
-    UserModel,
     UserPageQueryModel,
     UserPostModel,
     UserRoleModel,

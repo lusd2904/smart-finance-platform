@@ -120,14 +120,14 @@ const subsystemGroups = [
   },
   {
     id: 'market',
-    name: '行情与图表',
-    desc: '指数快照、多周期 K 线与行情覆盖检测',
-    path: '/market/board',
+    name: '行情中心',
+    desc: '市场热度、报价台、自选与财经资讯',
+    path: '/market/heat',
     icon: Histogram,
     links: [
-      { name: '全市场行情台', path: '/market/board' },
-      { name: '高级图表', path: '/market/tradingview' },
-      { name: '行情覆盖', path: '/market/coverage' }
+      { name: '市场热度', path: '/market/heat' },
+      { name: '行情台', path: '/market/board' },
+      { name: '自选清单', path: '/market/watchlist' }
     ]
   },
   {
@@ -173,6 +173,7 @@ const subsystemGroups = [
     icon: Monitor,
     links: [
       { name: '工作台首页', path: '/index' },
+      { name: '自动分析任务', path: '/analysis/jobs' },
       { name: '系统监控', path: '/monitor/job' }
     ]
   }

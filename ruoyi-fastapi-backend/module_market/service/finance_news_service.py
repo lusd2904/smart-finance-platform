@@ -8,22 +8,28 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
-from xml.etree import ElementTree
+from xml.etree import ElementTree as ET
 
 import httpx
 from sqlalchemy import desc, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_market.dao.market_dao import FinanceBriefingDao
-from module_market.entity.do.market_do import FinanceBriefing
 from module_market.service.indicator_service import IndicatorService
 from module_quant.entity.do.quant_do import QuantStrategyRun, QuantStrategySignal
 from module_sentiment.entity.do.sentiment_do import SentimentNews
 from utils.common_util import CamelCaseUtil
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+# 指数趋势判断所需最少K线数（前收 + 最新）
+_MIN_BARS_FOR_TREND = 2
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from module_market.entity.do.market_do import FinanceBriefing
 
 
 class FinanceNewsService:
@@ -134,7 +140,7 @@ class FinanceNewsService:
     # ------------------------------------------------------------------ internal
 
     @classmethod
-    async def _build_internal_items(
+    async def _build_internal_items(  # noqa: PLR0912, PLR0915 - 多源聚合逻辑内聚，拆分会打断事务语义
         cls, query_db: AsyncSession, market: str, now: datetime
     ) -> list[dict[str, Any]]:
         label = cls.MARKET_LABELS.get(market, market)
@@ -153,7 +159,7 @@ class FinanceNewsService:
             except Exception as exc:
                 logger.warning(f'[财经资讯] 读取指数K线失败 {sym}: {exc}')
                 klines = []
-            if len(klines) < 2:
+            if len(klines) < _MIN_BARS_FOR_TREND:
                 continue
             prev, last = klines[-2], klines[-1]
             chg = None
@@ -256,7 +262,7 @@ class FinanceNewsService:
         cls, query_db: AsyncSession, now: datetime
     ) -> list[dict[str, Any]]:
         """从最近一次策略运行中取 BUY 信号作为推荐关注，市场归属以标的元数据为准"""
-        from module_market.entity.do.market_do import MarketInstrument
+        from module_market.entity.do.market_do import MarketInstrument  # noqa: PLC0415 - 按需加载 ORM 映射
 
         latest_run = (
             await query_db.execute(select(QuantStrategyRun).order_by(desc(QuantStrategyRun.create_time)).limit(1))
@@ -351,21 +357,28 @@ class FinanceNewsService:
         cls._last_google_status = {'ok': True, 'status': 200, 'message': None}
 
         try:
-            root = ElementTree.fromstring(text)
+            root = ET.fromstring(text)
         except Exception as exc:
             logger.warning(f'[财经资讯] RSS 解析失败: {exc}')
             return []
 
         expires = now + timedelta(minutes=90)
         since = now - timedelta(hours=6)
-        rows: list[dict[str, Any]] = []
+        items_parsed: list[tuple[str, str, str | None]] = []
         for item in root.findall('.//channel/item')[:5]:
             headline = (item.findtext('title') or '').strip()[:190]
             summary = cls._strip_html(item.findtext('description') or '')[:800]
             source_link = (item.findtext('link') or '').strip() or None
             if not headline:
                 continue
-            if await FinanceBriefingDao.recent_duplicate(query_db, market, headline, since):
+            items_parsed.append((headline, summary, source_link))
+        # 批量查重：一次查询替代逐条 recent_duplicate
+        duplicates = await FinanceBriefingDao.filter_duplicates(
+            query_db, market, [h for h, _, _ in items_parsed], since
+        )
+        rows: list[dict[str, Any]] = []
+        for headline, summary, source_link in items_parsed:
+            if headline in duplicates:
                 continue
             rows.append(
                 cls._row(
@@ -395,34 +408,37 @@ class FinanceNewsService:
         ).scalars().all()
         expires = now + timedelta(minutes=90)
         since = now - timedelta(hours=6)
-        rows: list[dict[str, Any]] = []
+        candidates: list[tuple[dict[str, Any], str]] = []
         for n in news_rows:
             title = (n.title or '').strip()
             content = (n.content or '')[:800]
             if not title:
                 continue
             # 无关键词时 CN 默认全收；有关键词则匹配
-            if keywords and not any(k.lower() in (title + content).lower() for k in keywords):
-                # 未匹配时：CN 可放宽接收无明确市场标签的中文资讯
-                if market != 'CN':
-                    continue
-            if await FinanceBriefingDao.recent_duplicate(query_db, market, title[:190], since):
+            if (
+                keywords
+                and not any(k.lower() in (title + content).lower() for k in keywords)
+                and market != 'CN'
+            ):
+                # 未匹配时仅 CN 放宽接收无明确市场标签的中文资讯，其余市场直接跳过
                 continue
-            rows.append(
-                cls._row(
-                    market,
-                    'market-news',
-                    title[:190],
-                    content or title,
-                    f'sentiment-{n.source}' if n.source else 'sentiment',
-                    n.url,
-                    {'kind': 'sentiment-news', 'newsId': n.news_id},
-                    now,
-                    expires,
-                )
+            row = cls._row(
+                market,
+                'market-news',
+                title[:190],
+                content or title,
+                f'sentiment-{n.source}' if n.source else 'sentiment',
+                n.url,
+                {'kind': 'sentiment-news', 'newsId': n.news_id},
+                now,
+                expires,
             )
-            if len(rows) >= 5:
-                break
+            candidates.append((row, title[:190]))
+        # 批量查重：一次查询替代逐条 recent_duplicate
+        duplicates = await FinanceBriefingDao.filter_duplicates(
+            query_db, market, [t for _, t in candidates], since
+        )
+        rows = [row for row, t in candidates if t not in duplicates][:5]
         return rows
 
     # ------------------------------------------------------------------ helpers

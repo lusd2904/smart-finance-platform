@@ -1,0 +1,26 @@
+.chart-panel {
+  width: 100%;
+  height: 300px;
+  margin-bottom: 16px;
+}
+
+.chart-empty {
+  padding: 16px 0 8px;
+}
+
+.table-title {
+  margin-bottom: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+:deep(.selected-table-row) {
+  --el-table-tr-bg-color: var(--el-color-primary-light-9);
+}
+
+@media (max-width: 768px) {
+  .chart-panel {
+    height: 260px;
+  }
+}

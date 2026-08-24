@@ -1,3 +1,4 @@
+import asyncio
 import io
 from datetime import datetime
 from typing import Any
@@ -8,22 +9,24 @@ from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.constant import CommonConstant
+from common.entity.vo.post_vo import PostPageQueryModel
+from common.entity.vo.user_vo import (
+    CurrentUserModel,
+    UserInfoModel,
+    UserModel,
+)
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
 from module_admin.dao.user_dao import UserDao
 from module_admin.entity.do.user_do import SysUserRole
-from module_admin.entity.vo.post_vo import PostPageQueryModel
 from module_admin.entity.vo.user_vo import (
     AddUserModel,
     CrudUserRoleModel,
-    CurrentUserModel,
     DeleteUserModel,
     EditUserModel,
     ResetUserModel,
     SelectedRoleModel,
     UserDetailModel,
-    UserInfoModel,
-    UserModel,
     UserPageQueryModel,
     UserPostModel,
     UserProfileModel,
@@ -422,7 +425,7 @@ class UserService:
             '帐号状态': 'status',
         }
         contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
+        df = await asyncio.to_thread(pd.read_excel, io.BytesIO(contents))
         await file.close()
         df.rename(columns=header_dict, inplace=True)
         add_error_result = []

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CHAR, BigInteger, Column, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CHAR, BigInteger, Column, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from config.database import Base
 
@@ -15,6 +15,7 @@ class QuantStrategyRun(Base):
 
     run_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='运行ID')
     cycle_id = Column(String(64), nullable=True, index=True, comment='批次ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='触发用户ID')
     strategy_profile = Column(String(20), nullable=False, server_default="'balanced'", comment='策略档位')
     symbols_count = Column(Integer, nullable=False, server_default='0', comment='参与标的数')
     signal_count = Column(Integer, nullable=False, server_default='0', comment='产出信号数')
@@ -31,6 +32,7 @@ class QuantStrategySignal(Base):
 
     signal_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='信号ID')
     run_id = Column(BigInteger, nullable=False, index=True, comment='所属运行ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='归属用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     signal = Column(String(8), nullable=False, server_default="'HOLD'", comment='信号（BUY/HOLD/SELL）')
     score = Column(Float, nullable=True, comment='综合打分（0-100）')
@@ -40,15 +42,73 @@ class QuantStrategySignal(Base):
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='生成时间')
 
 
+class QuantDailyList(Base):
+    """次日策略清单。"""
+
+    __tablename__ = 'quant_daily_list'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'trade_date', name='uk_daily_list_user_trade'),
+        {'comment': '次日策略清单'},
+    )
+
+    list_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='清单ID')
+    user_id = Column(BigInteger, nullable=False, index=True, comment='所属用户')
+    scan_date = Column(Date, nullable=False, comment='扫描日')
+    trade_date = Column(Date, nullable=False, comment='下一交易日')
+    profile = Column(String(20), nullable=False, server_default="'balanced'", comment='策略档位')
+    status = Column(String(16), nullable=False, server_default="'open'", comment='open/empty/skipped')
+    auto_enabled = Column(CHAR(1), nullable=False, server_default='0', comment='持续自动交易')
+    item_count = Column(Integer, nullable=False, server_default='0', comment='标的数')
+    message = Column(String(500), nullable=True, comment='说明')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
+class QuantDailyListItem(Base):
+    """次日策略清单标的。"""
+
+    __tablename__ = 'quant_daily_list_item'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', 'market', 'trade_date', 'side', name='uk_daily_item_user_symbol_day'),
+        {'comment': '次日策略清单标的'},
+    )
+
+    item_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='条目ID')
+    list_id = Column(BigInteger, nullable=False, index=True, comment='清单ID')
+    user_id = Column(BigInteger, nullable=False, index=True, comment='所属用户')
+    trade_date = Column(Date, nullable=False, comment='拟交易日')
+    symbol = Column(String(32), nullable=False, comment='标的代码')
+    market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
+    name = Column(String(64), nullable=True, comment='名称')
+    signal = Column('signal', String(8), nullable=False, server_default="'BUY'", comment='信号')
+    score = Column(Float, nullable=True, comment='打分')
+    confidence = Column(Integer, nullable=True, comment='置信度')
+    reason = Column(String(500), nullable=True, comment='理由')
+    selected = Column(CHAR(1), nullable=False, server_default='0', comment='勾选')
+    auto_trade = Column(CHAR(1), nullable=False, server_default='0', comment='持续自动交易')
+    status = Column(String(16), nullable=False, server_default="'listed'", comment='listed/queued/submitted/filled/rejected/skipped')
+    side = Column(String(8), nullable=False, server_default="'BUY'", comment='方向')
+    quantity = Column(Integer, nullable=True, comment='数量')
+    price = Column(Float, nullable=True, comment='参考价')
+    order_id = Column(String(64), nullable=True, comment='长桥单号')
+    error = Column(String(500), nullable=True, comment='失败原因')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
 class QuantWatchlist(Base):
     """
-    量化自选池表
+    量化自选池表（按登录账号隔离）
     """
 
     __tablename__ = 'quant_watchlist'
-    __table_args__ = {'comment': '量化自选池表'}
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', 'market', name='uk_quant_watchlist_user_symbol'),
+        {'comment': '量化自选池表'},
+    )
 
     id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='所属用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场（US/HK/CN）')
     note = Column(String(255), nullable=True, comment='备注')
@@ -58,16 +118,20 @@ class QuantWatchlist(Base):
 
 class QuantLongbridgeConfig(Base):
     """
-    长桥凭据配置表
+    长桥凭据配置表（按用户一行）
     """
 
     __tablename__ = 'quant_longbridge_config'
-    __table_args__ = {'comment': '长桥凭据配置表'}
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uk_quant_longbridge_user'),
+        {'comment': '长桥凭据配置表'},
+    )
 
     id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='配置ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', comment='用户ID')
     app_key = Column(String(255), nullable=True, comment='长桥App Key')
     app_secret = Column(String(255), nullable=True, comment='长桥App Secret')
-    access_token = Column(String(512), nullable=True, comment='长桥Access Token')
+    access_token = Column(String(2048), nullable=True, comment='长桥Access Token')
     region = Column(String(10), nullable=True, server_default="'cn'", comment='区域（cn/hk等）')
     update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
 

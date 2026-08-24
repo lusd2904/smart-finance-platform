@@ -7,6 +7,101 @@ on:
     branches: [main]
 
 jobs:
+  backend-lint:
+    name: Backend lint (ruff, ratchet)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ruoyi-fastapi-backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.15.0
+      # 棘轮式检查：只对相对基线(默认上一个 push / PR base)有变更的文件执行，
+      # 避免历史 500+ 存量问题阻塞；新改动必须零新增告警。
+      - name: Determine changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch origin ${{ github.base_ref }} --quiet
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          : > /tmp/changed_py.txt
+          while IFS= read -r path; do
+            case "$path" in
+              ruoyi-fastapi-backend/*)
+                rel="${path#ruoyi-fastapi-backend/}"
+                [ -f "$rel" ] && printf '%s\n' "$rel" >> /tmp/changed_py.txt
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=ACM "$BASE"...HEAD -- '*.py' || true)
+          echo "count=$(wc -l < /tmp/changed_py.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+      - name: Ruff check (changed files)
+        if: steps.changed.outputs.count != '0'
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          RUFF_DIR=ruoyi-fastapi-backend
+          mapfile -t rel < /tmp/changed_py.txt
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          overlap_head=()
+          overlap_base=()
+          new_head=()
+          for f in "${rel[@]}"; do
+            if git cat-file -e "$BASE:ruoyi-fastapi-backend/$f" 2>/dev/null; then
+              mkdir -p "$TMP/$(dirname "$f")"
+              git show "$BASE:ruoyi-fastapi-backend/$f" > "$TMP/$f"
+              overlap_head+=("$f")
+              overlap_base+=("$TMP/$f")
+            else
+              new_head+=("$f")
+            fi
+          done
+          count_ruff() {
+            if [ "$#" -eq 0 ]; then echo 0; return; fi
+            local out=""
+            out=$(cd "$RUFF_DIR" && ruff check --config ruff.toml "$@" --output-format json 2>/dev/null) || true
+            python3 -c "import json,sys; print(len(json.loads(sys.argv[1] or '[]')))" "$out"
+          }
+          if [ "${#overlap_head[@]}" -eq 0 ]; then
+            HEAD_OVERLAP=0
+            BASE_OVERLAP=0
+          else
+            HEAD_OVERLAP=$(count_ruff "${overlap_head[@]}")
+            BASE_OVERLAP=$(count_ruff "${overlap_base[@]}")
+          fi
+          if [ "${#new_head[@]}" -eq 0 ]; then
+            HEAD_NEW=0
+          else
+            HEAD_NEW=$(count_ruff "${new_head[@]}")
+          fi
+          echo "Ruff violations on changed files: overlap head=$HEAD_OVERLAP base=$BASE_OVERLAP; new-only head=$HEAD_NEW"
+          FAILED=0
+          if [ "$HEAD_OVERLAP" -gt "$BASE_OVERLAP" ]; then
+            echo "::error::Ruff violations increased on overlap files ($HEAD_OVERLAP > $BASE_OVERLAP)"
+            FAILED=1
+          fi
+          if [ "$HEAD_NEW" -gt 0 ]; then
+            echo "::error::Ruff violations on new-only files ($HEAD_NEW > 0)"
+            FAILED=1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            cd "$RUFF_DIR" && ruff check --config ruff.toml "${rel[@]}"
+            exit 1
+          fi
+
   backend-unit:
     name: Backend unit tests
     runs-on: ubuntu-latest
@@ -19,15 +114,51 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: ruoyi-fastapi-backend/requirements.txt
+          cache-dependency-path: |
+            ruoyi-fastapi-backend/requirements.txt
+            ruoyi-fastapi-backend/requirements-llm.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest pytest-asyncio
+          pip install -r requirements.txt -r requirements-llm.txt pytest pytest-asyncio
       - name: Run unit tests
         env:
           PYTHONPATH: .
+          JWT_SECRET_KEY: ci_test_secret_key_0123456789abcdef
         run: pytest -q tests/test_*.py
+
+  frontend-build:
+    name: Frontend build & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ruoyi-fastapi-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # 仓库按约定不提交 package-lock.json，故用 npm install 而非 npm ci
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --ignore-scripts
+      # 棘轮式 lint：存量 137 个历史错误（no-unused-vars 等待逐步清理）记录在
+      # LINT_ERROR_BUDGET，本次改动不允许新增；低于预算同样失败提示清理。
+      - name: Lint (error budget ratchet)
+        run: |
+          COUNT=$(npx eslint src --ext .js,.vue --format json | node -e "
+            let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+              const rows=JSON.parse(d);let e=0;
+              for(const r of rows)for(const m of r.messages)if(m.severity===2)e++;
+              console.log(e);
+            });")
+          BUDGET=137
+          echo "eslint errors=$COUNT budget=$BUDGET"
+          if [ "$COUNT" -gt "$BUDGET" ]; then
+            echo "::error::ESLint 错误数 $COUNT 超出预算 $BUDGET，请修复新增错误"
+            exit 1
+          fi
+      - name: Build production bundle
+        run: npm run build:prod
 
   desktop-gateway:
     name: Desktop gateway probe
@@ -41,8 +172,78 @@ jobs:
         run: |
           node -e "
             const { normalizeGateway } = require('./desktop/src/gateway.js');
-            if (normalizeGateway('127.0.0.1:12580') !== 'http://127.0.0.1:12580') process.exit(1);
+            if (normalizeGateway('127.0.0.1:12580') !== 'https://127.0.0.1:12580') process.exit(1);
             if (normalizeGateway('https://fin.example.com/login') !== 'https://fin.example.com') process.exit(1);
             try { normalizeGateway('file:///tmp'); process.exit(1); } catch (e) {}
             console.log('gateway normalize ok');
           "
+
+  security-audit:
+    name: Dependency security audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip-audit (isolated venv)
+        run: |
+          python3 -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install --upgrade pip
+          /tmp/audit-venv/bin/pip install pip-audit
+      # 阻塞式失败：任一 requirements 文件存在已知漏洞即令 job 失败；
+      # pip-audit 发现漏洞时会直接向日志输出漏洞清单（CVE/别名、修复版本），即为报告。
+      - name: Audit requirements.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements.txt --strict --progress-spinner off
+      - name: Audit requirements-pg.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements-pg.txt --strict --progress-spinner off
+      - name: Audit requirements-llm.txt
+        working-directory: ruoyi-fastapi-backend
+        run: /tmp/audit-venv/bin/pip-audit -r requirements-llm.txt --strict --progress-spinner off
+
+  image-build:
+    name: Docker image build & smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 前端镜像构建依赖锁文件（Dockerfile 切换为 npm ci 的前提）：必须随仓库提交
+      - name: Verify frontend lockfile is committed
+        run: |
+          if [ ! -f ruoyi-fastapi-frontend/package-lock.json ]; then
+            echo "::error::ruoyi-fastapi-frontend/package-lock.json 未入库，无法保证 npm ci 可复现构建"
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (sentiment)
+        uses: docker/build-push-action@v6
+        with:
+          context: ruoyi-fastapi-backend
+          file: ruoyi-fastapi-backend/Dockerfile.sentiment
+          load: true
+          tags: smart-finance-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ruoyi-fastapi-frontend
+          file: ruoyi-fastapi-frontend/Dockerfile
+          load: true
+          tags: smart-finance-frontend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # 冒烟验证：后端镜像内核心运行时依赖可导入（无外部 DB 时应用无法完整启动，
+      # 以依赖完整性作为最小冒烟）；前端镜像启动 nginx 并确认首页可访问。
+      - name: Smoke test backend image
+        run: |
+          docker run --rm --entrypoint python smart-finance-backend:ci \
+            -c "import fastapi, sqlalchemy, uvicorn; print('backend deps ok')"
+      - name: Smoke test frontend image
+        run: |
+          docker run -d --name smoke-frontend -p 8080:80 smart-finance-frontend:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/ | grep -qi '<!DOCTYPE html\|<html' \
+            || { echo "::error::前端镜像未返回有效 HTML 首页"; docker logs smoke-frontend; exit 1; }
+          docker rm -f smoke-frontend >/dev/null

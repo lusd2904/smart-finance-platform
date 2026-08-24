@@ -15,7 +15,7 @@ class BasePageTest:
         """初始化浏览器和登录"""
         # 首先登录获取token
         helper = LoginHelper()
-        self.token = helper.login(username='admin', password='admin123')
+        self.token = helper.login(username='admin')
         assert self.token is not None, '登录应该成功'
 
         # 启动浏览器

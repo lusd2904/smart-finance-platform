@@ -10,6 +10,7 @@ from module_trade.entity.do.trade_do import (
     PlatAiTradeRunLog,
     PlatAutoTradeDecision,
     PlatBacktestRun,
+    PlatFeishuSubscription,
     PlatNotification,
     PlatRiskEvent,
     PlatRiskRule,
@@ -21,6 +22,35 @@ class TradeDao:
     """
     交易、风控、通知与回测数据库操作层
     """
+
+    # ---------------- 飞书订阅 ----------------
+    @classmethod
+    async def get_feishu_sub(cls, db: AsyncSession, user_id: int) -> PlatFeishuSubscription | None:
+        return (
+            (await db.execute(select(PlatFeishuSubscription).where(PlatFeishuSubscription.user_id == int(user_id))))
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def list_feishu_subs(cls, db: AsyncSession) -> list[PlatFeishuSubscription]:
+        return list((await db.execute(select(PlatFeishuSubscription))).scalars().all())
+
+    @classmethod
+    async def upsert_feishu_sub(cls, db: AsyncSession, user_id: int, values: dict[str, Any]) -> PlatFeishuSubscription:
+        row = await cls.get_feishu_sub(db, user_id)
+        now = datetime.now()
+        if row:
+            for key, value in values.items():
+                setattr(row, key, value)
+            row.update_time = now
+            await db.flush()
+            return row
+        row = PlatFeishuSubscription(user_id=int(user_id), create_time=now, update_time=now, **values)
+        db.add(row)
+        await db.flush()
+        await db.refresh(row)
+        return row
 
     # ---------------- 通知 ----------------
     @classmethod
@@ -169,7 +199,7 @@ class TradeDao:
             try:
                 await db.execute(text(sql))
                 await db.commit()
-            except Exception:
+            except Exception:  # noqa: PERF203 - 单条 DDL 失败不中断其余迁移
                 await db.rollback()
         try:
             await db.execute(
@@ -284,16 +314,15 @@ class TradeDao:
             existing.update_time = now
             await db.flush()
             return existing
-        else:
-            db_item = PlatStrategyProfile(
-                profile_code=code,
-                profile_name=name,
-                config_json=config_json,
-                update_time=now,
-            )
-            db.add(db_item)
-            await db.flush()
-            return db_item
+        db_item = PlatStrategyProfile(
+            profile_code=code,
+            profile_name=name,
+            config_json=config_json,
+            update_time=now,
+        )
+        db.add(db_item)
+        await db.flush()
+        return db_item
 
     # ---------------- 批量 AI ----------------
     @classmethod
@@ -351,6 +380,7 @@ class TradeDao:
     async def add_auto_trade_decision(cls, db: AsyncSession, item: dict[str, Any]) -> PlatAutoTradeDecision:
         db_item = PlatAutoTradeDecision(
             cycle_id=item.get('cycle_id', ''),
+            user_id=int(item.get('user_id') or 1),
             account_id=item.get('account_id'),
             symbol=item.get('symbol', ''),
             market=item.get('market', 'US'),
@@ -384,6 +414,7 @@ class TradeDao:
     async def add_ai_trade_run_log(cls, db: AsyncSession, item: dict[str, Any]) -> PlatAiTradeRunLog:
         db_item = PlatAiTradeRunLog(
             cycle_id=item.get('cycle_id', ''),
+            user_id=int(item.get('user_id') or 1),
             source=item.get('source', 'scheduler'),
             strategy_profile=item.get('strategy_profile', 'balanced'),
             target_count=int(item.get('target_count', 0)),
@@ -405,8 +436,13 @@ class TradeDao:
         return db_item
 
     @classmethod
-    async def list_ai_trade_run_logs(cls, db: AsyncSession, limit: int = 30) -> list[PlatAiTradeRunLog]:
-        stmt = select(PlatAiTradeRunLog).order_by(desc(PlatAiTradeRunLog.run_id)).limit(limit)
+    async def list_ai_trade_run_logs(
+        cls, db: AsyncSession, limit: int = 30, user_id: int | None = None
+    ) -> list[PlatAiTradeRunLog]:
+        stmt = select(PlatAiTradeRunLog)
+        if user_id is not None:
+            stmt = stmt.where(PlatAiTradeRunLog.user_id == int(user_id))
+        stmt = stmt.order_by(desc(PlatAiTradeRunLog.run_id)).limit(limit)
         res = await db.execute(stmt)
         return list(res.scalars().all())
 

@@ -80,7 +80,7 @@ class GenInfrastructureGateway:
 
         :return: 用户 VO 模块
         """
-        return import_module('module_admin.entity.vo.user_vo')
+        return import_module('common.entity.vo.user_vo')
 
     @staticmethod
     def get_gen_vo_module() -> Any:

@@ -6,15 +6,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.kline_sources import (
     CircuitBreaker,
+    SourceThrottle,
+    fetch_real_klines,
     merge_real_rows,
     parse_eastmoney_klines,
     parse_sina_daily_items,
     parse_stooq_csv,
     parse_tencent_kline_payload,
+    parse_tencent_minute_payload,
     parse_yahoo_chart,
+    primary_sources_for,
     reset_circuit_breakers,
+    validate_minute_row,
     validate_ohlcv_row,
 )
+from module_market.service.sync_service import MarketSyncService, should_skip_synced
 from module_market.service.tradingview_service import resolve_symbol_candidates
 
 
@@ -95,6 +101,25 @@ def test_parse_sina_and_tencent_real_payloads() -> None:
     assert tencent[0]['high'] == 192.0
 
 
+def test_parse_tencent_minute_and_validate() -> None:
+    payload = {
+        'data': {
+            'sh600519': {
+                'data': {
+                    'date': '20260821',
+                    'data': ['0930 1400.00 1000', '0931 1401.50 1800'],
+                }
+            }
+        }
+    }
+    rows = parse_tencent_minute_payload(payload, '600519', 'CN')
+    assert len(rows) == 2
+    assert rows[0]['trade_date'].startswith('2026-08-21 09:30')
+    assert rows[0]['close'] == 1400.0
+    assert rows[1]['volume'] == 800.0
+    assert validate_minute_row({'symbol': 'AAPL', 'trade_date': 'bad', 'close': 1}) is None
+
+
 def test_parse_eastmoney_yahoo_stooq() -> None:
     years = max(1, date.today().year - 2020)
     em = parse_eastmoney_klines(
@@ -172,3 +197,120 @@ def test_resolve_symbol_candidates_keeps_hk() -> None:
     assert cands[0] == ('0700.HK', 'HK')
     assert ('0700', 'HK') in cands
     assert all(market == 'HK' for _, market in cands)
+
+
+def test_source_throttle_spaces_same_source() -> None:
+    throttle = SourceThrottle(min_interval=0.4)
+    throttle.wait('sina', sleeper=lambda _s: None)
+    pause = throttle.wait('sina', sleeper=lambda _s: None)
+    assert pause >= 0.35
+    other = throttle.wait('tencent', sleeper=lambda _s: None)
+    assert other == 0.0
+
+
+def test_should_skip_synced_fresh_history() -> None:
+    today = date(2026, 8, 22)
+    assert should_skip_synced(500, '2026-08-21', min_bars=200, fresh_days=10, today=today) is True
+    assert should_skip_synced(20, '2026-08-21', min_bars=200, fresh_days=10, today=today) is False
+    assert should_skip_synced(500, '2026-07-01', min_bars=200, fresh_days=10, today=today) is False
+    assert should_skip_synced(500, None, today=today) is False
+
+
+def test_fetch_stops_after_first_good_primary(monkeypatch) -> None:
+    from module_market.service import kline_sources as ks
+
+    reset_circuit_breakers()
+    bars = []
+    for i in range(50):
+        day = f'2024-06-{(i % 28) + 1:02d}'
+        row = validate_ohlcv_row(
+            {
+                'symbol': 'AAPL',
+                'market': 'US',
+                'trade_date': day if i < 28 else f'2024-07-{(i - 27):02d}',
+                'open': 10,
+                'high': 12,
+                'low': 9,
+                'close': 11,
+                'volume': 100,
+                'source': 'sina',
+            }
+        )
+        assert row is not None
+        bars.append(row)
+    called: list[str] = []
+
+    def sina(_symbol: str, _market: str, _years: int) -> list[dict]:
+        called.append('sina')
+        return bars
+
+    def tencent(_symbol: str, _market: str, _years: int) -> list[dict]:
+        called.append('tencent')
+        return [bars[0]] * 50
+
+    monkeypatch.setitem(ks._FETCHERS, 'sina', sina)
+    monkeypatch.setitem(ks._FETCHERS, 'tencent', tencent)
+    rows, used = fetch_real_klines('AAPL', 'US', 2)
+    assert used == ['sina']
+    assert called == ['sina']
+    assert len(rows) >= 40
+
+
+def test_hk_tries_tencent_before_sina(monkeypatch) -> None:
+    from module_market.service import kline_sources as ks
+
+    reset_circuit_breakers()
+    assert primary_sources_for('HK') == ('tencent', 'sina')
+    called: list[str] = []
+    bar = validate_ohlcv_row(
+        {
+            'symbol': '0700.HK',
+            'market': 'HK',
+            'trade_date': '2024-06-03',
+            'open': 10,
+            'high': 12,
+            'low': 9,
+            'close': 11,
+            'volume': 100,
+            'source': 'tencent',
+        }
+    )
+    assert bar is not None
+    bars = []
+    for i in range(50):
+        row = dict(bar)
+        row['trade_date'] = f'2024-06-{(i % 28) + 1:02d}' if i < 28 else f'2024-07-{(i - 27):02d}'
+        bars.append(row)
+
+    def sina(_symbol: str, _market: str, _years: int) -> list[dict]:
+        called.append('sina')
+        return bars
+
+    def tencent(_symbol: str, _market: str, _years: int) -> list[dict]:
+        called.append('tencent')
+        return bars
+
+    monkeypatch.setitem(ks._FETCHERS, 'sina', sina)
+    monkeypatch.setitem(ks._FETCHERS, 'tencent', tencent)
+    _rows, used = fetch_real_klines('0700.HK', 'HK', 2)
+    assert used == ['tencent']
+    assert called == ['tencent']
+
+
+def test_wait_skips_when_one_primary_still_up(monkeypatch) -> None:
+    reset_circuit_breakers()
+    import time as time_mod
+
+    import module_market.service.sync_service as ss
+    from module_market.service.kline_sources import get_circuit_breaker
+
+    now = time_mod.time()
+    br = get_circuit_breaker('sina')
+    br.record_failure(now)
+    br.record_failure(now)
+    br.record_failure(now)
+    assert br.allow(now) is False
+    slept: list[float] = []
+    monkeypatch.setattr(ss.time, 'sleep', slept.append)
+    MarketSyncService._wait_if_primaries_blocked()
+    assert slept == []

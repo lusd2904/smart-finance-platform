@@ -16,8 +16,8 @@ from common.constant import ApiGroup, ApiNamespace
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
-from module_admin.entity.vo.post_vo import DeletePostModel, PostModel, PostPageQueryModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.post_vo import DeletePostModel, PostModel, PostPageQueryModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.post_service import PostService
 from utils.common_util import bytes2file_response
 from utils.log_util import logger

@@ -3,8 +3,9 @@ services:
     image: prom/prometheus:v2.55.1
     container_name: smart-finance-prometheus
     restart: unless-stopped
+    mem_limit: 512m
     ports:
-      - "19090:9090"
+      - "127.0.0.1:19090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -22,11 +23,12 @@ services:
     image: grafana/grafana:11.3.0
     container_name: smart-finance-grafana
     restart: unless-stopped
+    mem_limit: 512m
     ports:
-      - "13000:3000"
+      - "127.0.0.1:13000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?请在 .env 中设置 GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=false
     volumes:

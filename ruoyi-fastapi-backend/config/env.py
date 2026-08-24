@@ -29,6 +29,43 @@ class AppSettings(BaseSettings):
     app_disable_redoc: bool = False
     app_trusted_proxy_ips: str = '127.0.0.1,::1'
     app_trusted_proxy_hops: int = 1
+    # api=仅 HTTP；scheduler=仅 APScheduler；worker=仅队列消费；all=单进程（本地默认）
+    app_role: Literal['api', 'scheduler', 'worker', 'all'] = 'all'
+    # none=不消费；market/quant/llm=单一消费组；all=三组都消费
+    app_job_group: Literal['none', 'market', 'quant', 'llm', 'all'] = 'all'
+    # all=挂全部路由；其余按菜单板块只注册对应模块
+    app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai'] = 'all'
+    # 对外需求清单 GET /open/requirements 的 X-Req-Token，空则关闭
+    requirements_export_token: str = ''
+    # 舆情大盘 Widget GET /sentiment/widget/dashboard 的 X-Widget-Token，空则关闭
+    sentiment_widget_token: str = ''
+    # CORS 域名白名单，逗号分隔；dev 未配置时放开来源但关闭凭证，prod 必须显式配置
+    app_cors_origins: str = ''
+
+    def runs_scheduler(self) -> bool:
+        return self.app_role in {'scheduler', 'all'}
+
+    def runs_job_queue_worker(self) -> bool:
+        if self.app_job_group == 'none':
+            return False
+        return self.app_role in {'scheduler', 'worker', 'all'}
+
+    def router_modules(self) -> set[str] | None:
+        if self.app_module == 'all':
+            return None
+        mapping = {
+            'platform': {'module_admin', 'module_generator', 'module_analysis'},
+            'market': {'module_market'},
+            'quant': {'module_quant'},
+            'trade': {'module_trade'},
+            'sentiment': {'module_sentiment'},
+            'ai': {'module_ai'},
+        }
+        return mapping.get(self.app_module)
+
+
+# JWT secret 最小长度（对应 256-bit 强度）
+JWT_SECRET_MIN_LEN = 32
 
 
 class JwtSettings(BaseSettings):
@@ -36,10 +73,35 @@ class JwtSettings(BaseSettings):
     Jwt配置
     """
 
-    jwt_secret_key: str = 'b01c66dc2c58dc6a0aabfe2144256be36226de378bf87f72c0c795dda67f4d55'
+    # 安全默认：不再内置任何 secret。未显式配置时启动即失败，避免使用公开模板值被伪造 token。
+    jwt_secret_key: str = ''
+    # 库内敏感数据（券商凭据等）加密密钥，与 JWT secret 独立以便单独轮换；未配置时回退 JWT secret（生产强制要求独立配置）
+    credential_encryption_key: str = ''
     jwt_algorithm: str = 'HS256'
-    jwt_expire_minutes: int = 1440
+    # token 有效期从 24h 收紧到 8h；Redis 会话仍随请求滑动续期
+    jwt_expire_minutes: int = 480
     jwt_redis_expire_minutes: int = 30
+
+    def validate_security(self) -> None:
+        """
+        启动安全校验：secret 缺失或仍为历史公开模板值时拒绝启动。
+
+        :return: None
+        """
+        insecure_values = {
+            'b01c66dc2c58dc6a0aabfe2144256be36226de378bf87f72c0c795dda67f4d55',
+            'CHANGE_ME_RANDOM_HEX',
+        }
+        key = (self.jwt_secret_key or '').strip()
+        if not key:
+            raise RuntimeError(
+                '安全检查失败：JWT_SECRET_KEY 未配置。请在 .env 文件中设置随机强密钥'
+                '（可用 `openssl rand -hex 32` 生成），禁止使用公开模板默认值。'
+            )
+        if key.lower() in insecure_values or len(key) < JWT_SECRET_MIN_LEN:
+            raise RuntimeError(
+                '安全检查失败：JWT_SECRET_KEY 为公开模板值或强度不足（<32 字符），请更换为随机强密钥。'
+            )
 
 
 class DataBaseSettings(BaseSettings):
@@ -54,8 +116,10 @@ class DataBaseSettings(BaseSettings):
     db_password: str = 'mysqlroot'
     db_database: str = 'ruoyi-fastapi'
     db_echo: bool = True
+    # 池上限需与 MySQL max_connections 联动：API+调度双引擎同进程时理论峰值 = 2*(pool_size+overflow)，
+    # 默认 20+10 已按 compose 中 max-connections=300 预留余量
     db_max_overflow: int = 10
-    db_pool_size: int = 50
+    db_pool_size: int = 20
     db_pool_recycle: int = 3600
     db_pool_timeout: int = 30
 
@@ -89,6 +153,19 @@ class InfluxSettings(BaseSettings):
     influx_org: str = 'longbridge'
     influx_bucket_us: str = 'market_us'
     influx_bucket_cn: str = 'market_data'
+
+
+class KlineSettings(BaseSettings):
+    """
+    行情K线同步配置（module_market 同步任务）
+    """
+
+    # 全市场慢速同步单个标的间隔（秒）
+    kline_symbol_interval: float = 1.5
+    # 本地日K条数达到该值才允许跳过外网补源
+    kline_skip_min_bars: int = 200
+    # 本地最新日K距今不超过该天数才跳过外网补源
+    kline_skip_fresh_days: int = 10
 
 
 class LongbridgeSettings(BaseSettings):
@@ -260,8 +337,10 @@ class GetConfig:
         """
         获取Jwt配置
         """
-        # 实例化Jwt配置模型
-        return JwtSettings()
+        # 实例化Jwt配置模型并执行启动安全校验
+        jwt_config = JwtSettings()
+        jwt_config.validate_security()
+        return jwt_config
 
     def get_database_config(self) -> DataBaseSettings:
         """
@@ -294,6 +373,12 @@ class GetConfig:
         获取长桥证券SDK配置
         """
         return LongbridgeSettings()
+
+    def get_kline_config(self) -> KlineSettings:
+        """
+        获取行情K线同步配置
+        """
+        return KlineSettings()
 
     def get_transport_crypto_config(self) -> TransportCryptoSettings:
         """

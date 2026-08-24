@@ -1,0 +1,196 @@
+<template>
+  <div class="app-container req-chat">
+    <el-container class="shell">
+      <el-aside width="240px" class="side">
+        <div class="side-title">需求沟通</div>
+        <div class="side-sub">不含 admin / niangao · 机器人可在 AI 管理配置</div>
+        <div class="member" v-for="m in members" :key="m.userId + m.role">
+          <el-avatar :size="28" :class="m.role === 'ai' ? 'ai' : 'user'">{{ (m.nickName || '?').slice(0, 1) }}</el-avatar>
+          <div>
+            <div class="m-name">{{ m.nickName }}</div>
+            <div class="m-role">{{ m.role === 'ai' ? (m.isDecider ? '确定者' : 'AI') : m.userName }}</div>
+          </div>
+        </div>
+      </el-aside>
+      <el-main class="main">
+        <div class="toolbar">
+          <span>{{ pendingHint || '全员并行讨论，确认后由确定者写入需求清单' }}</span>
+          <div>
+            <el-button type="success" :loading="summarizing" @click="handleSummarize" v-hasPermi="['ai:req:chat']">总结并写入清单</el-button>
+            <el-button @click="$router.push('/ai/req-list')">打开需求清单</el-button>
+          </div>
+        </div>
+        <div ref="listRef" class="msgs" v-loading="loading">
+          <div v-for="msg in messages" :key="msg.msgId" :class="['row', msg.role]">
+            <div class="bubble">
+              <div class="who">{{ msg.nickName }} <span>{{ msg.createTime }}</span></div>
+              <div class="body">{{ msg.content }}</div>
+            </div>
+          </div>
+          <el-empty v-if="!messages.length && !loading" description="还没有消息，先说明要做的需求" />
+        </div>
+        <div class="composer">
+          <el-input
+            v-model="draft"
+            type="textarea"
+            :rows="3"
+            placeholder="输入需求讨论。确定后可点「总结并写入清单」，或在对话里说「确定需求，写入清单」。"
+            @keydown.enter.exact.prevent="handleSend"
+          />
+          <el-button type="primary" :loading="sending" :disabled="!draft.trim()" @click="handleSend">发送</el-button>
+        </div>
+      </el-main>
+    </el-container>
+  </div>
+</template>
+
+<script setup name="AiReqChat">
+import { getReqRoom, getReqMessages, sendReqMessage, summarizeReq, getReqJob } from '@/api/ai/req'
+
+const { proxy } = getCurrentInstance()
+const loading = ref(false)
+const sending = ref(false)
+const summarizing = ref(false)
+const members = ref([])
+const messages = ref([])
+const draft = ref('')
+const pendingHint = ref('')
+const listRef = ref()
+let timer = null
+const pendingJobs = new Map()
+
+function scrollBottom() {
+  nextTick(() => {
+    const el = listRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+async function loadRoom() {
+  const res = await getReqRoom()
+  members.value = (res.data && res.data.members) || []
+}
+
+async function loadMessages(silent) {
+  if (!silent) loading.value = true
+  try {
+    const res = await getReqMessages({ limit: 200 })
+    messages.value = (res.data && res.data.items) || []
+    scrollBottom()
+  } finally {
+    if (!silent) loading.value = false
+  }
+}
+
+function trackJob(jobId, hint) {
+  if (!jobId) return
+  pendingJobs.set(jobId, hint || '机器人正在并行回复')
+  pendingHint.value = hint || '机器人正在并行回复，完成后会刷新对话'
+}
+
+async function pollPendingJobs() {
+  if (!pendingJobs.size) {
+    pendingHint.value = ''
+    return
+  }
+  for (const jobId of [...pendingJobs.keys()]) {
+    try {
+      const res = await getReqJob(jobId)
+      const ticket = res.data || {}
+      if (ticket.status === 'done' || ticket.status === 'failed') {
+        pendingJobs.delete(jobId)
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '后台任务失败')
+        } else if (ticket.type === 'req_summarize') {
+          proxy.$modal.msgSuccess(ticket.resultPreview || '总结已完成，请查看需求清单')
+        }
+      }
+    } catch (_e) {
+      pendingJobs.delete(jobId)
+    }
+  }
+  pendingHint.value = pendingJobs.size ? (pendingJobs.values().next().value || 'Grok 正在后台处理') : ''
+  await loadMessages(true)
+}
+
+async function handleSend() {
+  const content = draft.value.trim()
+  if (!content || sending.value) return
+  draft.value = ''
+  await nextTick()
+  sending.value = true
+  try {
+    const res = await sendReqMessage({ content })
+    const data = res.data || {}
+    if (data.userMessage) messages.value.push(data.userMessage)
+    if (data.aiMessage) messages.value.push(data.aiMessage)
+    scrollBottom()
+    if (data.accepted || data.jobId) {
+      trackJob(data.jobId, '已发送，机器人正在并行回复')
+      proxy.$modal.msgSuccess(res.msg || '已发送，机器人正在并行回复')
+    } else if ((data.requirements || []).length) {
+      proxy.$modal.msgSuccess(`已写入 ${(data.requirements || []).length} 条需求`)
+    }
+  } catch (e) {
+    if (!draft.value.trim()) draft.value = content
+    throw e
+  } finally {
+    sending.value = false
+  }
+}
+
+async function handleSummarize() {
+  summarizing.value = true
+  try {
+    const res = await summarizeReq()
+    const data = res.data || {}
+    if (data.userMessage) messages.value.push(data.userMessage)
+    scrollBottom()
+    if (data.accepted || data.jobId) {
+      trackJob(data.jobId, '总结任务已入队，完成后会写入清单')
+    }
+    proxy.$modal.msgSuccess(res.msg || '已加入后台队列')
+  } finally {
+    summarizing.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadRoom()
+  await loadMessages()
+  timer = setInterval(async () => {
+    if (pendingJobs.size) {
+      await pollPendingJobs()
+    } else {
+      await loadMessages(true)
+    }
+  }, 2500)
+})
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+})
+</script>
+
+<style scoped lang="scss">
+.req-chat { height: calc(100vh - 120px); }
+.shell { height: 100%; background: var(--surface-card, #fff); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-soft, #eef2ff); }
+.side { padding: 16px; border-right: 1px solid #eef2ff; background: #f8fafc; }
+.side-title { font-weight: 700; }
+.side-sub { font-size: 12px; color: #94a3b8; margin: 4px 0 14px; }
+.member { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.m-name { font-size: 13px; font-weight: 600; }
+.m-role { font-size: 12px; color: #94a3b8; }
+.el-avatar.ai { background: #111827; color: #fff; }
+.el-avatar.user { background: #6366f1; color: #fff; }
+.main { display: flex; flex-direction: column; padding: 0; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #eef2ff; font-size: 13px; color: #64748b; }
+.msgs { flex: 1; overflow: auto; padding: 16px; }
+.row { display: flex; margin-bottom: 12px; }
+.row.ai { justify-content: flex-start; }
+.row.user { justify-content: flex-end; }
+.bubble { max-width: 72%; background: #f1f5f9; border-radius: 12px; padding: 10px 12px; }
+.row.user .bubble { background: #eef2ff; }
+.who { font-size: 12px; color: #64748b; margin-bottom: 4px; span { margin-left: 8px; color: #94a3b8; } }
+.body { white-space: pre-wrap; line-height: 1.7; color: #0f172a; }
+.composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #eef2ff; align-items: flex-end; }
+</style>

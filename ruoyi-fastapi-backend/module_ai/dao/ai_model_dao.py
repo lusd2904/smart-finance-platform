@@ -1,9 +1,11 @@
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import ColumnElement, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
+from module_ai.constant.ai_model_resolve import select_ai_model_row
 from module_ai.entity.do.ai_model_do import AiModels
 from module_ai.entity.vo.ai_model_vo import AiModelModel, AiModelPageQueryModel
 from utils.page_util import PageUtil
@@ -64,7 +66,7 @@ class AiModelDao:
         根据适用范围(scope)获取AI模型配置(取第一条)
 
         :param db: orm对象
-        :param scope: 适用范围(chat/sentiment/quant/global)
+        :param scope: 适用范围(chat/sentiment/quant/global/market)
         :return: AI模型信息对象
         """
         ai_model_info = (
@@ -82,22 +84,17 @@ class AiModelDao:
         return ai_model_info
 
     @classmethod
-    async def resolve_ai_model_for_business(cls, db: AsyncSession, preferred_scope: str = 'sentiment') -> AiModels | None:
+    async def resolve_ai_model_for_business(
+        cls,
+        db: AsyncSession,
+        preferred_scope: str = 'sentiment',
+        preferred_codes: Sequence[str] | None = None,
+    ) -> AiModels | None:
         """
-        业务模块解析可用 AI 模型：按 preferred_scope -> global -> chat -> 任意启用模型 回退。
-        解决「只在 AI 管理里配了 chat 模型，舆情/行情读不到」的问题。
+        业务模块解析可用 AI 模型：preferred_scope -> preferred_codes -> global -> chat -> 任意启用模型。
+        智能选股传 scope=market 且 preferred_codes=Grok 4.6，换模型在「AI 模型管理」改适用范围即可。
         """
-        scopes = [preferred_scope, 'global', 'chat']
-        seen: set[str] = set()
-        for scope in scopes:
-            if not scope or scope in seen:
-                continue
-            seen.add(scope)
-            model = await cls.get_ai_model_by_scope(db, scope)
-            if model and (model.base_url and model.api_key and model.model_code):
-                return model
-        # 任意启用且三要素齐全的模型
-        row = (
+        rows = (
             (
                 await db.execute(
                     select(AiModels)
@@ -108,10 +105,7 @@ class AiModelDao:
             .scalars()
             .all()
         )
-        for model in row:
-            if model.base_url and model.api_key and model.model_code:
-                return model
-        return None
+        return select_ai_model_row(rows, preferred_scope, preferred_codes)
 
     @classmethod
     async def upsert_ai_model_by_scope(cls, db: AsyncSession, scope: str, values: dict) -> AiModels:
@@ -120,7 +114,7 @@ class AiModelDao:
         用于其他业务模块(如舆情、行情)复用同一份AI连接配置而无需暴露完整的AI模型管理列表
 
         :param db: orm对象
-        :param scope: 适用范围(chat/sentiment/quant/global)
+        :param scope: 适用范围(chat/sentiment/quant/global/market)
         :param values: 需要写入的字段字典
         :return: AI模型信息对象
         """

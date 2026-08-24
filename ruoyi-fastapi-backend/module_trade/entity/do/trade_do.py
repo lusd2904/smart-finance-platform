@@ -65,6 +65,27 @@ class PlatStrategyProfile(Base):
     update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
+class PlatFeishuSubscription(Base):
+    """飞书策略摘要订阅。"""
+
+    __tablename__ = 'plat_feishu_subscription'
+    __table_args__ = {'comment': '飞书策略摘要订阅'}
+
+    sub_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='订阅ID')
+    user_id = Column(BigInteger, nullable=False, unique=True, comment='用户ID')
+    personal_enabled = Column(CHAR(1), nullable=False, server_default='0', comment='个人会话')
+    group_enabled = Column(CHAR(1), nullable=False, server_default='0', comment='群')
+    personal_webhook = Column(String(500), nullable=True, comment='个人 Webhook')
+    group_webhook = Column(String(500), nullable=True, comment='群 Webhook')
+    push_time = Column(String(8), nullable=False, server_default="'18:30'", comment='推送时刻')
+    timezone = Column(String(64), nullable=False, server_default="'Asia/Shanghai'", comment='时区')
+    last_personal_key = Column(String(64), nullable=True, comment='个人去重键')
+    last_group_key = Column(String(64), nullable=True, comment='群去重键')
+    last_error = Column(String(500), nullable=True, comment='最近错误')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+
+
 class PlatNotification(Base):
     """
     系统通知表
@@ -156,6 +177,7 @@ class PlatAutoTradeDecision(Base):
         comment='决策ID',
     )
     cycle_id = Column(String(64), nullable=False, index=True, comment='扫描周期ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='所属用户ID')
     account_id = Column(String(64), nullable=True, comment='账户ID')
     symbol = Column(String(32), nullable=False, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
@@ -186,6 +208,7 @@ class PlatAiTradeRunLog(Base):
         comment='运行记录ID',
     )
     cycle_id = Column(String(64), nullable=False, unique=True, index=True, comment='周期唯一标识')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='触发用户ID')
     source = Column(String(32), nullable=False, server_default="'scheduler'", comment='触发来源(scheduler/manual/api)')
     strategy_profile = Column(String(32), nullable=False, server_default="'balanced'", comment='策略档位')
     target_count = Column(Integer, nullable=False, server_default='0', comment='扫描标的数')

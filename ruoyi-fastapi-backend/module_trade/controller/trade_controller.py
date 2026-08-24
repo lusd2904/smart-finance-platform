@@ -8,9 +8,9 @@ from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.platform_ext_service import PlatformExtService
 from module_trade.service.trade_service import TradeService
@@ -20,6 +20,16 @@ from utils.response_util import ResponseUtil
 trade_controller = APIRouterPro(
     prefix='/trade', order_num=33, tags=['交易中心'], dependencies=[PreAuthDependency()]
 )
+
+
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    from exceptions.exception import ServiceException
+
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
 
 
 @trade_controller.get(
@@ -191,7 +201,7 @@ async def trade_notifications(
 async def trade_notifications_read(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     notice_id = body.get('id')
@@ -257,9 +267,10 @@ from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E4
 async def auto_trade_status(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     try:
-        data = await AutoTradeService.get_status(query_db)
+        data = await AutoTradeService.get_status(query_db, user_id=_current_user_id(current_user))
     except Exception as exc:
         logger.warning(f'[自动交易] status 降级空状态: {exc}')
         data = {
@@ -282,7 +293,8 @@ async def auto_trade_status(
 async def auto_trade_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     try:
@@ -293,6 +305,7 @@ async def auto_trade_run(
             execute=bool(body.get('execute')),
             strategy_profile=body.get('strategyProfile', 'balanced'),
             custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
+            user_id=_current_user_id(current_user),
         )
     except Exception as exc:
         logger.warning(f'[自动交易] run 降级空状态: {exc}')
@@ -315,13 +328,15 @@ async def auto_trade_run(
 async def trade_ai_runs(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query()] = 30,
 ) -> Response:
-    logs = await TradeDao.list_ai_trade_run_logs(query_db, limit=limit)
+    logs = await TradeDao.list_ai_trade_run_logs(query_db, limit=limit, user_id=_current_user_id(current_user))
     res = [
         {
             'runId': log.run_id,
             'cycleId': log.cycle_id,
+            'userId': getattr(log, 'user_id', None),
             'source': log.source,
             'strategyProfile': log.strategy_profile,
             'targetCount': log.target_count,
@@ -537,7 +552,7 @@ async def notices_db(
 async def notices_read_db(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     nid = body.get('id')
@@ -554,7 +569,7 @@ async def notices_read_db(
 async def ai_batch_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
-    body: Annotated[dict, Body()] = None,
+    body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     symbols = body.get('symbols')
@@ -590,3 +605,66 @@ async def ai_batch_items(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
     return ResponseUtil.success(data=await PlatformExtService.list_ai_batch_items(query_db, batch_id))
+
+
+@trade_controller.get(
+    '/feishu/config',
+    summary='飞书推送订阅',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:query')],
+)
+async def get_feishu_config(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    from module_trade.service.feishu_push_service import (
+        FeishuPushService,
+    )
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    return ResponseUtil.success(data=await FeishuPushService.get_config(query_db, user_id))
+
+
+@trade_controller.put(
+    '/feishu/config',
+    summary='保存飞书推送订阅',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:edit')],
+)
+@Log(title='飞书推送订阅', business_type=BusinessType.UPDATE)
+async def put_feishu_config(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from module_trade.service.feishu_push_service import (
+        FeishuPushService,
+    )
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    data = await FeishuPushService.save_config(query_db, user_id, body or {})
+    return ResponseUtil.success(data=data, msg='订阅已保存')
+
+
+@trade_controller.post(
+    '/feishu/test',
+    summary='发送飞书测试卡片',
+    dependencies=[UserInterfaceAuthDependency('trade:feishu:test')],
+)
+@Log(title='飞书测试推送', business_type=BusinessType.OTHER)
+async def test_feishu(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from module_trade.service.feishu_push_service import (
+        FeishuPushService,
+    )
+
+    user = current_user.user if current_user else None
+    user_id = int(getattr(user, 'user_id', 0) or 0)
+    data = await FeishuPushService.test_push(query_db, user_id, str((body or {}).get('channel') or 'personal'))
+    return ResponseUtil.success(data=data, msg=data.get('message') or '已发送')

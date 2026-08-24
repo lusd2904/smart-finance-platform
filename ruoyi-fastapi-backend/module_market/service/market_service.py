@@ -7,11 +7,8 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from module_ai.dao.ai_model_dao import AiModelDao
 from module_market.constant.instruments import TARGET_INSTRUMENTS, get_instrument_meta
 from module_market.dao.market_dao import MarketInstrumentDao, SymbolAiAnalysisDao
 from module_market.entity.vo.market_vo import (
@@ -20,20 +17,41 @@ from module_market.entity.vo.market_vo import (
     MarketAiAnalyzeModel,
     MarketInstrumentModel,
     MarketInstrumentQueryModel,
+    MarketInstrumentUniverseQueryModel,
     MarketSyncModel,
 )
 from module_market.service.content_cache_service import SymbolContentService
 from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
-from module_market.service.kline_period import default_range_start, is_minute_period, normalize_kline_period, resample_how
-from module_market.service.market_analyzer_service import MarketAiAnalyzer
+from module_market.service.kline_period import (
+    default_range_start,
+    is_minute_period,
+    normalize_kline_period,
+    resample_how,
+)
+from module_market.service.listing_service import ListingService
+from module_market.service.stock_pick_service import StockPickService
 from module_market.service.sync_service import MarketSyncService
 from module_market.service.tradingview_service import _resample_klines
 from module_quant.dao.quant_dao import QuantStrategyDao
 from utils.common_util import CamelCaseUtil
-from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxUtil
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+from utils.quote_util import build_quote_from_klines
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+# RSI 超买/超卖阈值
+_RSI_OVERBOUGHT = 70
+_RSI_OVERSOLD = 30
+
+BOARD_QUOTES_CACHE_KEY = 'sfp:cache:board:quotes'
+# 看板缓存兜底过期时间；正常由 jobs 周期刷新，jobs 中断时最多滞后 15 分钟再降级到 scheduled 数据
+BOARD_QUOTES_TTL_SECONDS = 15 * 60
 
 # Common Service pattern - will use BaseService in future
 
@@ -67,6 +85,12 @@ class MarketService:
             raise e
 
     @classmethod
+    async def sync_listings_services(cls, markets: list[str] | None = None) -> dict[str, Any]:
+        """抓取美股/A股/港股全市场代码写入 market_instrument（listed），不覆盖精选分类。"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, ListingService.sync, markets)
+
+    @classmethod
     async def get_instrument_list_services(
         cls, query_db: AsyncSession, query_object: MarketInstrumentQueryModel
     ) -> list[dict[str, Any]]:
@@ -82,7 +106,52 @@ class MarketService:
             MarketInstrumentModel(**CamelCaseUtil.transform_result(r)).model_dump(by_alias=True) for r in rows
         ]
 
+    @classmethod
+    async def get_instrument_universe_services(
+        cls, query_db: AsyncSession, query_object: MarketInstrumentUniverseQueryModel
+    ) -> tuple[Any, dict[str, int]]:
+        """全市场分页列表 + 三市场计数。当前页附带日K最新价，不扫全表。"""
+        page = await MarketInstrumentDao.get_instrument_universe(query_db, query_object)
+        rows = list(page.rows or [])
+        symbols = [str(r.get('symbol')) for r in rows if r.get('symbol')]
+        quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, symbols)
+        for row in rows:
+            q = quotes.get(str(row.get('symbol') or '')) or {}
+            row['price'] = q.get('price')
+            row['prevClose'] = q.get('prevClose')
+            row['changeRate'] = q.get('changeRate')
+            row['tradeDate'] = q.get('tradeDate')
+            row['volume'] = q.get('volume')
+            row['up'] = q.get('up')
+        page.rows = rows
+        counts = await MarketInstrumentDao.get_instrument_market_counts(query_db)
+        return page, counts
+
     # ---------- K线 ----------
+
+    @classmethod
+    def _filter_board_payload(
+        cls,
+        payload: dict[str, Any],
+        category: str | None = None,
+        market: str | None = None,
+    ) -> dict[str, Any]:
+        quotes = list(payload.get('quotes') or [])
+        if market:
+            mkt = market.strip().upper()
+            quotes = [q for q in quotes if str(q.get('market') or '').upper() == mkt]
+        if category:
+            cat = category.strip()
+            quotes = [q for q in quotes if str(q.get('category') or '') == cat]
+        indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
+        index_symbols = {q['symbol'] for q in indices}
+        rows = [q for q in quotes if q.get('symbol') not in index_symbols]
+        filtered = dict(payload)
+        filtered['quotes'] = quotes
+        filtered['indices'] = indices
+        filtered['rows'] = rows
+        filtered['count'] = len(quotes)
+        return filtered
 
     @classmethod
     async def get_board_quotes_services(
@@ -92,31 +161,94 @@ class MarketService:
         market: str | None = None,
     ) -> dict[str, Any]:
         """
-        One-shot board quotes: latest 2 daily bars from Influx per symbol.
-        Browse/list path — Influx/DB only; do not call Longbridge quote APIs here.
+        只读 Redis/SWR 缓存。全市场 Influx 扫描只允许在 jobs 里执行。
         """
-        from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+        cached = await cache_get_json(BOARD_QUOTES_CACHE_KEY)
+        if isinstance(cached, dict) and (cached.get('quotes') or cached.get('rows')):
+            payload = cls._filter_board_payload(cached, category=category, market=market)
+            payload['source'] = payload.get('source') or 'cache'
+            payload['stale'] = False
+            return payload
 
-        instruments = await cls.get_instrument_list_services(
-            query_db, MarketInstrumentQueryModel(category=category, market=market)
+        from module_quant.service.readmodel_service import ReadModelService  # noqa: PLC0415 - 避免循环导入
+
+        scheduled = await ReadModelService.get_scheduled('board')
+        if isinstance(scheduled, dict) and scheduled.get('items'):
+            adapted = cls._adapt_scheduled_board(scheduled)
+            payload = cls._filter_board_payload(adapted, category=category, market=market)
+            payload['source'] = 'scheduled'
+            payload['stale'] = True
+            return payload
+
+        return {
+            'quotes': [],
+            'indices': [],
+            'rows': [],
+            'source': 'empty',
+            'stale': True,
+            'count': 0,
+            'message': '看板缓存尚未生成，请等待 jobs 预热',
+        }
+
+    @classmethod
+    def _adapt_scheduled_board(cls, scheduled: dict[str, Any]) -> dict[str, Any]:
+        quotes: list[dict[str, Any]] = []
+        for item in scheduled.get('items') or []:
+            change_rate = item.get('changeRate')
+            quotes.append(
+                {
+                    'symbol': item.get('symbol'),
+                    'name': item.get('name'),
+                    'market': item.get('market'),
+                    'category': item.get('category'),
+                    'price': item.get('close') if item.get('close') is not None else item.get('price'),
+                    'change': item.get('change'),
+                    'changeRate': change_rate,
+                    'volume': item.get('volume'),
+                    'tradeDate': item.get('asOf') or item.get('tradeDate'),
+                    'changeText': (
+                        f"{'+' if change_rate >= 0 else ''}{change_rate:.2f}%"
+                        if isinstance(change_rate, (int, float))
+                        else '--'
+                    ),
+                    'up': True if change_rate is None else change_rate >= 0,
+                    'source': 'scheduled',
+                }
+            )
+        return {
+            'quotes': quotes,
+            'asOf': scheduled.get('asOf'),
+            'source': 'scheduled',
+        }
+
+    @classmethod
+    async def refresh_board_quotes_cache(cls, query_db: AsyncSession) -> dict[str, Any]:
+        """
+        jobs 专用：扫描 Influx 最新两根日K，写入 Redis。请求线程禁止调用。
+        """
+        from module_market.entity.vo.market_vo import (  # noqa: PLC0415 - jobs 专用路径按需加载
+            MarketInstrumentQueryModel,
         )
+
+        instruments = await cls.get_instrument_list_services(query_db, MarketInstrumentQueryModel())
         by_market: dict[str, list[str]] = {}
-        meta_by_symbol: dict[str, dict[str, Any]] = {}
         for item in instruments:
             sym = str(item.get('symbol') or '').strip()
             if not sym:
                 continue
             mkt = str(item.get('market') or 'US').strip().upper() or 'US'
             by_market.setdefault(mkt, []).append(sym)
-            meta_by_symbol[sym] = item
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         bars_by_symbol: dict[str, list[dict[str, Any]]] = {}
         for mkt, symbols in by_market.items():
-            grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
+            try:
+                grouped = await loop.run_in_executor(None, InfluxUtil.query_latest_klines, mkt, symbols, 2, '-60d')
+            except Exception as exc:
+                # 看板是页面主路径：库故障降级为无行情并记录，不让整页 500
+                logger.error(f'[看板] 行情批量查询失败 market={mkt}: {exc}')
+                grouped = {}
             bars_by_symbol.update(grouped or {})
-
-        # Browse/list path: do not batch-call Longbridge get_realtime_quote (slow + token failures).
 
         quotes: list[dict[str, Any]] = []
         for item in instruments:
@@ -156,13 +288,17 @@ class MarketService:
         indices = [q for q in quotes if q.get('category') == 'index' or str(q.get('symbol') or '').startswith('^')]
         index_symbols = {q['symbol'] for q in indices}
         rows = [q for q in quotes if q['symbol'] not in index_symbols]
-        return {
+        payload = {
             'quotes': quotes,
             'indices': indices,
             'rows': rows,
-            'source': 'influx',
+            'source': 'cache',
             'count': len(quotes),
+            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'stale': False,
         }
+        await cache_set_json(BOARD_QUOTES_CACHE_KEY, payload, BOARD_QUOTES_TTL_SECONDS)
+        return {'count': len(quotes), 'asOf': payload['asOf']}
 
     @classmethod
     async def get_kline_services(cls, query_object: KlineQueryModel) -> list[dict[str, Any]]:
@@ -171,7 +307,7 @@ class MarketService:
         daily/weekly/monthly 来自 daily_kline（周/月为真实日K聚合）；
         分钟级只读 minute_kline，没有则空列表，不补造。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         period = normalize_kline_period(query_object.period)
         start = default_range_start(period, query_object.start)
         if is_minute_period(period):
@@ -204,7 +340,7 @@ class MarketService:
         if not klines or how not in {'5min', '15min'}:
             return klines
         try:
-            import pandas as pd
+            import pandas as pd  # noqa: PLC0415 - pandas 为可选重依赖，缺失时跳过重采样
         except Exception:
             return klines
         df = pd.DataFrame(klines)
@@ -239,7 +375,7 @@ class MarketService:
         """
         计算全部技术指标service。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         klines = await loop.run_in_executor(
             None,
             InfluxUtil.query_klines,
@@ -263,7 +399,7 @@ class MarketService:
         手动触发同步service（同步IO放线程池执行，避免阻塞事件循环）。
         正式链路：外网/存量补源 → 直接写 Influx，无 MySQL 中间层。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None, MarketSyncService.sync, sync_object.symbol, sync_object.years
         )
@@ -276,7 +412,7 @@ class MarketService:
         """
         将本库 MySQL 历史日K一次性迁入 Influx（可选，仅存量迁移）。
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, MarketSyncService.mysql_to_influx, symbol, market
         )
@@ -284,211 +420,154 @@ class MarketService:
     # ---------- AI分析 ----------
 
     @classmethod
-    def _map_decision(cls, result: dict[str, Any] | None) -> tuple[str, int, str]:
-        """从模型 JSON 映射 final_decision / confidence / summary"""
-        if not result:
-            return '观望', 50, ''
-        advice = str(result.get('operation_advice') or result.get('advice') or '')
-        trend = str(result.get('trend') or '')
-        text = advice + trend
-        decision = '观望'
-        if any(k in text for k in ('买入', '加仓', '做多', 'BUY', '买')):
-            decision = '买入'
-        elif any(k in text for k in ('卖出', '减仓', '做空', 'SELL', '卖')):
-            decision = '卖出'
-        elif '多头' in trend:
-            decision = '买入'
-        elif '空头' in trend:
-            decision = '卖出'
-        # 简易置信度：有支撑压力与摘要则 70，否则 55
-        confidence = 70 if (result.get('support') or result.get('resistance')) else 55
-        if trend == '震荡':
-            confidence = 50
-        summary = (
-            result.get('trend_summary')
-            or result.get('summary')
-            or advice
-            or result.get('indicator_review')
-            or ''
-        )
-        return decision, confidence, str(summary)
+    def _flatten_pick_analysis(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """把智能选股研判字段映射为行情 AI 接口的扁平响应（兼容旧字段）。"""
+        recommendation = data.get('recommendation') or '观望'
+        confidence = data.get('confidence')
+        stance = data.get('stance')
+        return {
+            'ok': data.get('ok', False),
+            'available': data.get('available', False),
+            'symbol': data.get('symbol'),
+            'market': data.get('market'),
+            'name': data.get('name'),
+            'modelName': data.get('modelName'),
+            'klineCount': data.get('klineCount'),
+            'price': data.get('price'),
+            'changePct': data.get('changePct'),
+            'factorScore': data.get('factorScore'),
+            'pickScore': data.get('pickScore'),
+            'signal': data.get('signal'),
+            'recommendation': recommendation,
+            'stance': stance,
+            'confidence': confidence,
+            'summary': data.get('summary'),
+            'indicatorReview': data.get('indicatorReview'),
+            'sentimentReview': data.get('sentimentReview'),
+            'operationAdvice': data.get('operationAdvice'),
+            'riskWarning': data.get('riskWarning'),
+            'tags': data.get('tags') or [],
+            'source': data.get('source'),
+            'metrics': data.get('metrics') or {},
+            'finalDecision': recommendation,
+            'finalConfidence': confidence,
+            'trend': stance,
+            'advice': data.get('operationAdvice'),
+            'message': data.get('message'),
+            'aiOk': data.get('aiOk'),
+            'aiError': data.get('aiError'),
+        }
+
+    @classmethod
+    async def _persist_symbol_ai_analysis(
+        cls, query_db: AsyncSession, data: dict[str, Any]
+    ) -> None:
+        if not data.get('ok'):
+            return
+        try:
+            await SymbolAiAnalysisDao.add(
+                query_db,
+                {
+                    'symbol': str(data.get('symbol') or '').strip().upper(),
+                    'market': str(data.get('market') or 'US').upper(),
+                    'price': float(data['price']) if data.get('price') is not None else None,
+                    'final_decision': data.get('recommendation') or data.get('finalDecision'),
+                    'final_confidence': data.get('confidence') or data.get('finalConfidence'),
+                    'summary_text': data.get('summary') or '',
+                    'indicators_json': json.dumps(data.get('metrics') or {}, ensure_ascii=False, default=str)[:60000],
+                    'raw_json': json.dumps(
+                        {
+                            'recommendation': data.get('recommendation'),
+                            'stance': data.get('stance'),
+                            'confidence': data.get('confidence'),
+                            'summary': data.get('summary'),
+                            'indicatorReview': data.get('indicatorReview'),
+                            'sentimentReview': data.get('sentimentReview'),
+                            'operationAdvice': data.get('operationAdvice'),
+                            'riskWarning': data.get('riskWarning'),
+                            'pickScore': data.get('pickScore'),
+                            'factorScore': data.get('factorScore'),
+                            'signal': data.get('signal'),
+                            'source': data.get('source'),
+                        },
+                        ensure_ascii=False,
+                        default=str,
+                    )[:60000],
+                    'model_name': data.get('modelName'),
+                    'analysis_time': datetime.now(),
+                },
+            )
+            await query_db.commit()
+        except Exception as exc:
+            await query_db.rollback()
+            logger.warning(f'[行情AI] 落库失败: {exc}')
 
     @classmethod
     async def ai_analyze_services(
         cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
     ) -> dict[str, Any]:
         """
-        对某标的做AI行情分析service：复用ai_models(scope='sentiment')的AI连接配置，
-        取近N日K线+最新指标快照喂给模型，结果落库 symbol_ai_analysis。
+        对某标的做 AI 行情分析：复用智能选股同一套打分与 Grok 4.6 研判，结果落库 symbol_ai_analysis。
         """
-        base_url = api_key = model_name = None
-        temperature = 0.2
-        try:
-            # 与舆情一致：sentiment -> global -> chat -> 任意可用模型
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
-            if ai_model:
-                base_url = ai_model.base_url
-                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
-                model_name = ai_model.model_code
-                if ai_model.temperature is not None:
-                    temperature = ai_model.temperature
-        except Exception as exc:
-            logger.warning(f'[行情AI] 解析 AI 模型失败: {exc}')
-
-        if not base_url or not api_key or not model_name:
-            return {
-                'ok': False,
-                'available': False,
-                'message': '未配置AI分析参数，请先在AI模型管理(scope=sentiment)或舆情AI配置中填写 Base URL / API Key / 模型',
-                'result': None,
-            }
-
-        loop = asyncio.get_event_loop()
-        klines = await loop.run_in_executor(
-            None,
-            InfluxUtil.query_klines,
-            analyze_object.market,
+        analyzed = await StockPickService.analyze_symbol(
+            query_db,
             analyze_object.symbol,
-            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
-            'now()',
-            400,
+            analyze_object.market or 'US',
+            use_ai=True,
         )
-        if not klines:
-            return {
-                'ok': False,
-                'available': True,
-                'message': f'标的 {analyze_object.symbol} 暂无K线数据，请先同步',
-                'result': None,
-            }
+        if not analyzed.get('ok'):
+            return cls._flatten_pick_analysis(analyzed)
 
-        recent = klines[-analyze_object.days :] if analyze_object.days > 0 else klines
-        snapshot = await loop.run_in_executor(None, IndicatorService.latest_snapshot, klines)
-
-        meta = get_instrument_meta(analyze_object.symbol)
-        name = meta[1] if meta else analyze_object.symbol
-
-        ai_result = await MarketAiAnalyzer.analyze(
-            base_url=base_url,
-            api_key=api_key,
-            model_name=model_name,
-            symbol=analyze_object.symbol,
-            name=name,
-            klines=recent,
-            indicator_snapshot=snapshot,
-            temperature=temperature,
-        )
-
-        parsed = ai_result.get('result') if ai_result.get('ok') else None
-        decision, confidence, summary = cls._map_decision(parsed)
-        price = snapshot.get('close') or (recent[-1].get('close') if recent else None)
-
-        if ai_result.get('ok') and parsed:
-            try:
-                await SymbolAiAnalysisDao.add(
-                    query_db,
-                    {
-                        'symbol': analyze_object.symbol.strip().upper(),
-                        'market': (analyze_object.market or 'US').upper(),
-                        'price': float(price) if price is not None else None,
-                        'final_decision': decision,
-                        'final_confidence': confidence,
-                        'summary_text': summary,
-                        'indicators_json': json.dumps(snapshot, ensure_ascii=False, default=str)[:60000],
-                        'raw_json': json.dumps(parsed, ensure_ascii=False, default=str)[:60000],
-                        'model_name': model_name,
-                        'analysis_time': datetime.now(),
-                    },
-                )
-                await query_db.commit()
-            except Exception as e:
-                await query_db.rollback()
-                logger.warning(f'[行情AI] 落库失败: {e}')
-
-        # 扁平字段便于前端直接展示
-        flat = {}
-        if parsed:
-            flat = {
-                'trend': parsed.get('trend'),
-                'summary': summary,
-                'trendSummary': parsed.get('trend_summary'),
-                'support': parsed.get('support'),
-                'resistance': parsed.get('resistance'),
-                'indicatorReview': parsed.get('indicator_review'),
-                'advice': parsed.get('operation_advice') or parsed.get('advice'),
-                'operationAdvice': parsed.get('operation_advice'),
-                'riskWarning': parsed.get('risk_warning'),
-                'finalDecision': decision,
-                'finalConfidence': confidence,
-            }
-
-        return {
-            'ok': ai_result['ok'],
-            'available': True,
-            'symbol': analyze_object.symbol,
-            'name': name,
-            'modelName': model_name,
-            'klineCount': len(recent),
-            'price': price,
-            'finalDecision': decision,
-            'finalConfidence': confidence,
-            'summary': summary,
-            'result': {**(parsed or {}), **flat} if parsed else None,
-            'message': '分析成功' if ai_result['ok'] else f'分析失败: {ai_result.get("error")}',
-            **flat,
+        flat = cls._flatten_pick_analysis(analyzed)
+        await cls._persist_symbol_ai_analysis(query_db, flat)
+        flat['result'] = {
+            'recommendation': flat.get('recommendation'),
+            'stance': flat.get('stance'),
+            'confidence': flat.get('confidence'),
+            'summary': flat.get('summary'),
+            'indicator_review': flat.get('indicatorReview'),
+            'sentiment_review': flat.get('sentimentReview'),
+            'operation_advice': flat.get('operationAdvice'),
+            'risk_warning': flat.get('riskWarning'),
+            'pick_score': flat.get('pickScore'),
+            'factor_score': flat.get('factorScore'),
+            'signal': flat.get('signal'),
+            'source': flat.get('source'),
         }
+        return flat
 
     @classmethod
     async def ai_analyze_stream_services(
         cls, query_db: AsyncSession, analyze_object: MarketAiAnalyzeModel
-    ):
+    ) -> AsyncIterator[str] | Any:
         """
-        行情AI分析流式传输生成器
+        行情 AI 分析流式传输：后台走智能选股研判，向前端输出格式化文本。
         """
-        base_url = api_key = model_name = None
-        temperature = 0.2
-        try:
-            ai_model = await AiModelDao.resolve_ai_model_for_business(query_db, 'sentiment')
-            if ai_model:
-                base_url = ai_model.base_url
-                api_key = CryptoUtil.decrypt(ai_model.api_key) if ai_model.api_key else None
-                model_name = ai_model.model_code
-                if ai_model.temperature is not None:
-                    temperature = ai_model.temperature
-        except Exception as exc:
-            logger.warning(f'[行情AI流式] 解析 AI 模型失败: {exc}')
-
-        if not base_url or not api_key or not model_name:
-            yield json.dumps({'error': '未配置AI分析参数，请先在AI模型管理中配置'}, ensure_ascii=False)
-            return
-
-        klines = await asyncio.to_thread(
-            InfluxUtil.query_klines,
-            analyze_object.market,
+        yield '正在加载 K 线与市场环境…\n'
+        analyzed = await StockPickService.analyze_symbol(
+            query_db,
             analyze_object.symbol,
-            f'-{max(int(analyze_object.days or 120) + 80, 180)}d',
-            'now()',
-            400,
+            analyze_object.market or 'US',
+            use_ai=True,
         )
-        if not klines:
-            yield json.dumps({'error': f'标的 {analyze_object.symbol} 暂无K线数据'}, ensure_ascii=False)
+        if not analyzed.get('ok'):
+            yield json.dumps({'error': analyzed.get('message') or '分析失败'}, ensure_ascii=False)
             return
 
-        recent = klines[-analyze_object.days :] if analyze_object.days > 0 else klines
-        snapshot = await asyncio.to_thread(IndicatorService.latest_snapshot, klines)
-        meta = get_instrument_meta(analyze_object.symbol)
-        name = meta[1] if meta else analyze_object.symbol
-
-        async for chunk in MarketAiAnalyzer.analyze_stream(
-            base_url=base_url,
-            api_key=api_key,
-            model_name=model_name,
-            symbol=analyze_object.symbol,
-            name=name,
-            klines=recent,
-            indicator_snapshot=snapshot,
-            temperature=temperature,
-        ):
-            yield chunk
+        flat = cls._flatten_pick_analysis(analyzed)
+        await cls._persist_symbol_ai_analysis(query_db, flat)
+        sections = [
+            ('建议', f'{flat.get("recommendation")} · {flat.get("stance")} · 置信度 {flat.get("confidence")}'),
+            ('综合', flat.get('summary')),
+            ('指标', flat.get('indicatorReview')),
+            ('舆情', flat.get('sentimentReview')),
+            ('操作', flat.get('operationAdvice')),
+            ('风险', flat.get('riskWarning')),
+        ]
+        for title, body in sections:
+            if body:
+                yield f'\n【{title}】\n{body}\n'
+        yield '\n[完成]\n'
 
     @classmethod
     async def get_latest_ai_analysis(
@@ -502,23 +581,36 @@ class MarketService:
             raw = json.loads(row.raw_json) if row.raw_json else {}
         except Exception:
             raw = {}
+        recommendation = raw.get('recommendation') or row.final_decision
+        confidence = raw.get('confidence') if raw.get('confidence') is not None else row.final_confidence
+        stance = raw.get('stance')
         return {
             'analysisId': row.analysis_id,
             'symbol': row.symbol,
             'market': row.market,
             'price': row.price,
-            'finalDecision': row.final_decision,
-            'finalConfidence': row.final_confidence,
+            'recommendation': recommendation,
+            'stance': stance,
+            'confidence': confidence,
+            'finalDecision': recommendation,
+            'finalConfidence': confidence,
+            'trend': stance,
             'summary': row.summary_text,
             'summaryText': row.summary_text,
+            'indicatorReview': raw.get('indicatorReview'),
+            'sentimentReview': raw.get('sentimentReview'),
+            'operationAdvice': raw.get('operationAdvice'),
+            'riskWarning': raw.get('riskWarning'),
+            'pickScore': raw.get('pickScore'),
+            'factorScore': raw.get('factorScore'),
+            'signal': raw.get('signal'),
+            'source': raw.get('source'),
+            'metrics': json.loads(row.indicators_json) if row.indicators_json else {},
             'indicators': json.loads(row.indicators_json) if row.indicators_json else {},
             'raw': raw,
             'modelName': row.model_name,
             'analysisTime': row.analysis_time.strftime('%Y-%m-%d %H:%M:%S') if row.analysis_time else None,
-            'trend': raw.get('trend'),
-            'advice': raw.get('operation_advice'),
-            'support': raw.get('support'),
-            'resistance': raw.get('resistance'),
+            'advice': raw.get('operationAdvice'),
         }
 
     # ---------- 标的详情 overview ----------
@@ -531,6 +623,7 @@ class MarketService:
         market: str = 'US',
         include: str = 'core',
         history_limit: int = 120,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         symbol = (symbol or '').strip().upper()
         market = (market or 'US').strip().upper()
@@ -542,7 +635,7 @@ class MarketService:
         name = (instrument.name if instrument else None) or (meta[1] if meta else symbol)
         category = (instrument.category if instrument else None) or (meta[3] if meta else None)
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         klines = await loop.run_in_executor(
             None, InfluxUtil.query_klines, market, symbol, '-1y', 'now()', history_limit
         )
@@ -562,7 +655,7 @@ class MarketService:
         tech_card = cls._tech_card_from_snapshot(snapshot)
 
         latest_ai = await cls.get_latest_ai_analysis(query_db, symbol, market)
-        latest_trend = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol)
+        latest_trend = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol, user_id=user_id)
 
         core = {
             'symbol': symbol,
@@ -603,7 +696,7 @@ class MarketService:
                     query_db, symbol, market, content_type=ctype, limit=8, refresh=False
                 )
                 content_cache[ctype] = pack.get('items') or []
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - 单内容类型失败不中断其余
                 logger.warning(f'[overview] 内容缓存 {ctype} 失败: {e}')
 
         core.update(
@@ -630,28 +723,8 @@ class MarketService:
 
     @classmethod
     def _build_quote_from_klines(cls, klines: list[dict[str, Any]]) -> dict[str, Any]:
-        if not klines:
-            return {}
-        last = klines[-1]
-        prev = klines[-2] if len(klines) > 1 else None
-        change = change_rate = None
-        try:
-            if prev and prev.get('close') and last.get('close'):
-                change = round(float(last['close']) - float(prev['close']), 4)
-                change_rate = round(change / float(prev['close']) * 100, 4)
-        except (TypeError, ValueError, ZeroDivisionError):
-            pass
-        return {
-            'last': last.get('close'),
-            'open': last.get('open'),
-            'high': last.get('high'),
-            'low': last.get('low'),
-            'volume': last.get('volume'),
-            'tradeDate': last.get('date'),
-            'change': change,
-            'changeRate': change_rate,
-            'prevClose': prev.get('close') if prev else None,
-        }
+        # 统一走公共实现，与 trade 侧保持一致
+        return build_quote_from_klines(klines)
 
     @classmethod
     def _tech_card_from_snapshot(cls, snap: dict[str, Any]) -> dict[str, Any]:
@@ -667,9 +740,9 @@ class MarketService:
                 trend_label = '偏多'
             elif close and ma20 and float(close) < float(ma20) and macd_hist is not None and float(macd_hist) < 0:
                 trend_label = '偏空'
-            elif rsi is not None and float(rsi) > 70:
+            elif rsi is not None and float(rsi) > _RSI_OVERBOUGHT:
                 trend_label = '超买'
-            elif rsi is not None and float(rsi) < 30:
+            elif rsi is not None and float(rsi) < _RSI_OVERSOLD:
                 trend_label = '超卖'
         except (TypeError, ValueError):
             pass

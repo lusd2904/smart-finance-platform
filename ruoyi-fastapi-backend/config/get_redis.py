@@ -3,10 +3,8 @@ from redis import asyncio as aioredis
 from redis.exceptions import AuthenticationError, RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from config.database import AsyncSessionLocal
 from config.env import RedisConfig
-from module_admin.service.config_service import ConfigService
-from module_admin.service.dict_service import DictDataService
+from config.providers import get_cache_warm_provider
 from utils.log_util import logger
 
 
@@ -94,23 +92,21 @@ class RedisUtil:
         logger.info('✅️ 关闭redis连接成功')
 
     @classmethod
-    async def init_sys_dict(cls, redis: FastAPI) -> None:
+    async def init_sys_dict(cls, redis: aioredis.Redis) -> None:
         """
-        应用启动时缓存字典表
+        应用启动时缓存字典表（实现由 config.providers 装配，公共层不依赖业务模块）
 
         :param redis: redis对象
         :return:
         """
-        async with AsyncSessionLocal() as session:
-            await DictDataService.init_cache_sys_dict_services(session, redis)
+        await get_cache_warm_provider().warm_dict_cache(redis)
 
     @classmethod
     async def init_sys_config(cls, redis: aioredis.Redis) -> None:
         """
-        应用启动时缓存参数配置表
+        应用启动时缓存参数配置表（实现由 config.providers 装配，公共层不依赖业务模块）
 
         :param redis: redis对象
         :return:
         """
-        async with AsyncSessionLocal() as session:
-            await ConfigService.init_cache_sys_config_services(session, redis)
+        await get_cache_warm_provider().warm_config_cache(redis)

@@ -168,3 +168,19 @@ export function updateLongbridgeConfig(data) {
     data: data
   })
 }
+
+export function getDailyList() {
+  return request({ url: '/quant/daily-list', method: 'get' })
+}
+
+export function scanDailyList(data) {
+  return request({ url: '/quant/daily-list/scan', method: 'post', data: data || {} })
+}
+
+export function openDailyList(data) {
+  return request({ url: '/quant/daily-list/open', method: 'post', data })
+}
+
+export function setDailyListAuto(data) {
+  return request({ url: '/quant/daily-list/auto', method: 'post', data })
+}

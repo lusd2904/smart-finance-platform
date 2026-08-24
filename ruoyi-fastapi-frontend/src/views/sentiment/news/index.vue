@@ -89,7 +89,7 @@
       </el-table-column>
       <el-table-column label="发布时间" align="center" prop="pubTime" width="170">
         <template #default="scope">
-          <span>{{ parseTime(scope.row.pubTime) }}</span>
+          <span>{{ formatBeijingTime(scope.row.pubTime) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="是否已分析" align="center" prop="analyzed" width="110">
@@ -101,7 +101,7 @@
       </el-table-column>
       <el-table-column label="采集时间" align="center" prop="createTime" width="170">
         <template #default="scope">
-          <span>{{ parseTime(scope.row.createTime) }}</span>
+          <span>{{ formatBeijingTime(scope.row.createTime) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" align="center" width="140" class-name="small-padding fixed-width">
@@ -138,7 +138,7 @@
           >
             {{ String(currentNews.analyzed) === '1' ? '已分析' : '未分析' }}
           </el-tag>
-          <span class="meta-time">{{ parseTime(currentNews.pubTime) || parseTime(currentNews.createTime) || '--' }}</span>
+          <span class="meta-time">{{ formatBeijingTime(currentNews.pubTime) || formatBeijingTime(currentNews.createTime) || '--' }}</span>
         </div>
         <h3 class="drawer-title">{{ currentNews.title }}</h3>
         <div class="drawer-body">
@@ -157,6 +157,7 @@
 
 <script setup name="SentimentNews">
 import { listNews, delNews, collectNews } from '@/api/sentiment';
+import { formatBeijingTime } from '@/utils/beijingTime';
 
 const { proxy } = getCurrentInstance();
 
@@ -252,9 +253,10 @@ function openContent(row) {
 /** 手动采集 */
 function handleCollect() {
   collectLoading.value = true;
-  collectNews().then(() => {
-    proxy.$modal.msgSuccess('采集任务已触发');
-    getList();
+  collectNews().then((res) => {
+    const d = (res && res.data) || {};
+    proxy.$modal.msgSuccess((res && res.msg) || (d.accepted ? '已加入后台队列' : '采集任务已触发'));
+    if (!d.accepted) getList();
   }).finally(() => {
     collectLoading.value = false;
   });

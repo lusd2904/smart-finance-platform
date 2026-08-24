@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.annotation.log_annotation import Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
+from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import PageResponseModel, ResponseBaseModel
+from exceptions.exception import ServiceException
 from module_quant.entity.vo.quant_vo import (
     AddQuantWatchlistModel,
     QuantLongbridgeConfigModel,
@@ -21,12 +23,21 @@ from module_quant.entity.vo.quant_vo import (
 )
 from module_quant.service.factor_qc_service import FactorQcService
 from module_quant.service.quant_service import QuantService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
 quant_controller = APIRouterPro(
     prefix='/quant', order_num=32, tags=['量化交易'], dependencies=[PreAuthDependency()]
 )
+
+
+def _current_user_id(current_user: CurrentUserModel) -> int:
+    user = current_user.user if current_user else None
+    user_id = getattr(user, 'user_id', None) if user else None
+    if not user_id:
+        raise ServiceException(message='无法识别当前用户')
+    return int(user_id)
 
 
 from module_quant.service.readmodel_service import ReadModelService  # noqa: E402
@@ -222,8 +233,11 @@ async def get_watchlist_list(
     request: Request,
     watchlist_page_query: Annotated[QuantWatchlistPageQueryModel, Query()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.get_watchlist_services(query_db, watchlist_page_query, is_page=True)
+    result = await QuantService.get_watchlist_services(
+        query_db, watchlist_page_query, is_page=True, user_id=_current_user_id(current_user)
+    )
     logger.info('获取自选池列表成功')
     return ResponseUtil.success(model_content=result)
 
@@ -231,7 +245,7 @@ async def get_watchlist_list(
 @quant_controller.post(
     '/watchlist',
     summary='新增自选标的接口',
-    description='向量化自选池新增标的',
+    description='向当前用户量化自选池新增标的',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:watchlist:add')],
 )
@@ -240,8 +254,9 @@ async def add_watchlist(
     request: Request,
     add_model: AddQuantWatchlistModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.add_watchlist_services(query_db, add_model)
+    result = await QuantService.add_watchlist_services(query_db, add_model, user_id=_current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -249,7 +264,7 @@ async def add_watchlist(
 @quant_controller.delete(
     '/watchlist/{ids}',
     summary='删除自选标的接口',
-    description='从量化自选池删除标的',
+    description='从当前用户量化自选池删除标的',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:watchlist:remove')],
 )
@@ -258,8 +273,9 @@ async def delete_watchlist(
     request: Request,
     ids: Annotated[str, Path(description='需要删除的自选ID')],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.delete_watchlist_services(query_db, ids)
+    result = await QuantService.delete_watchlist_services(query_db, ids, user_id=_current_user_id(current_user))
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
 
@@ -278,10 +294,20 @@ async def run_strategy(
     request: Request,
     run_model: Annotated[RunStrategyModel, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.run_strategy_services(query_db, run_model)
-    logger.info(f'策略运行完成: {result.get("message")}')
-    return ResponseUtil.success(data=result, msg=result.get('message'))
+    ticket = await JobQueue.submit(
+        'strategy_run',
+        {
+            'profile': getattr(run_model, 'profile', None) or 'balanced',
+            'symbols': getattr(run_model, 'symbols', None),
+            'userId': _current_user_id(current_user),
+        },
+    )
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'策略运行已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后在策略历史中查看结果')
 
 
 @quant_controller.get(
@@ -340,9 +366,12 @@ async def get_symbol_latest_scan(
     request: Request,
     symbol: Annotated[str, Path()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     market: Annotated[str, Query()] = 'US',
 ) -> Response:
-    result = await QuantService.get_symbol_latest_scan_services(query_db, symbol, market)
+    result = await QuantService.get_symbol_latest_scan_services(
+        query_db, symbol, market, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=result)
 
 
@@ -358,29 +387,31 @@ async def get_symbol_latest_scan(
 async def test_longbridge(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.test_longbridge_services(query_db)
+    result = await QuantService.test_longbridge_services(query_db, _current_user_id(current_user))
     return ResponseUtil.success(data=result)
 
 
 @quant_controller.get(
     '/longbridge/config',
     summary='获取长桥凭据配置接口',
-    description='获取长桥凭据配置（敏感字段脱敏）',
+    description='获取当前登录用户的长桥凭据配置（敏感字段脱敏）',
     dependencies=[UserInterfaceAuthDependency('quant:longbridge:config')],
 )
 async def get_longbridge_config(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    config = await QuantService.get_longbridge_config_services(query_db)
+    config = await QuantService.get_longbridge_config_services(query_db, _current_user_id(current_user))
     return ResponseUtil.success(data=config)
 
 
 @quant_controller.put(
     '/longbridge/config',
     summary='保存长桥凭据配置接口',
-    description='保存长桥凭据配置，保存后DB凭据优先于env生效',
+    description='保存当前登录用户的长桥凭据配置，保存后DB凭据优先于env生效',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('quant:longbridge:config')],
 )
@@ -389,7 +420,103 @@ async def save_longbridge_config(
     request: Request,
     config: QuantLongbridgeConfigModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.save_longbridge_config_services(query_db, config)
+    result = await QuantService.save_longbridge_config_services(
+        query_db, config, _current_user_id(current_user)
+    )
     logger.info(result.message)
     return ResponseUtil.success(msg=result.message)
+
+
+# ---------------------------------------------------------------- 次日策略清单 ---
+
+
+@quant_controller.get(
+    '/daily-list',
+    summary='当前用户次日策略清单',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:list')],
+)
+async def get_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    data = await DailyListService.get_latest(query_db, _current_user_id(current_user))
+    return ResponseUtil.success(data=data)
+
+
+@quant_controller.post(
+    '/daily-list/scan',
+    summary='扫描生成次日策略清单',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:scan')],
+)
+@Log(title='次日策略清单扫描', business_type=BusinessType.OTHER)
+async def scan_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from utils.job_queue import JobQueue
+
+    profile = str((body or {}).get('profile') or 'balanced')
+    ticket = await JobQueue.submit(
+        'daily_list_scan', {'userId': _current_user_id(current_user), 'profile': profile}
+    )
+    if ticket:
+        return ResponseUtil.success(data=ticket, msg='已加入后台队列')
+    from module_quant.service.daily_list_service import DailyListService
+
+    data = await DailyListService.scan_user(query_db, _current_user_id(current_user), profile)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '扫描完成')
+
+
+@quant_controller.post(
+    '/daily-list/open',
+    summary='勾选后长桥模拟开仓',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:open')],
+)
+@Log(title='次日清单模拟开仓', business_type=BusinessType.OTHER)
+async def open_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    body = body or {}
+    raw_ids = body.get('itemIds') or body.get('ids') or []
+    item_ids = [int(i) for i in raw_ids]
+    data = await DailyListService.open_selected(
+        query_db, _current_user_id(current_user), item_ids, auto_join=bool(body.get('autoJoin'))
+    )
+    return ResponseUtil.success(data=data, msg='已提交勾选标的')
+
+
+@quant_controller.post(
+    '/daily-list/auto',
+    summary='加入量化后持续自动交易',
+    dependencies=[UserInterfaceAuthDependency('quant:dailylist:auto')],
+)
+@Log(title='次日清单自动交易', business_type=BusinessType.UPDATE)
+async def auto_daily_list(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from module_quant.service.daily_list_service import DailyListService
+
+    body = body or {}
+    raw_ids = body.get('itemIds') or []
+    data = await DailyListService.set_auto(
+        query_db,
+        _current_user_id(current_user),
+        enabled=body.get('enabled') not in {False, '0', 'false'},
+        item_ids=[int(i) for i in raw_ids] or None,
+    )
+    return ResponseUtil.success(data=data, msg='已更新自动交易开关')

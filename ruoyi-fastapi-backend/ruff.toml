@@ -47,6 +47,7 @@ ignore = [
     "RUF002", # docstring contains ambiguous
     "RUF003", # comment contains ambiguous
     "RUF012", # mutable class attributes should be annotated with typing.ClassVar
+    "PLC0415",  # lazy imports to avoid circular deps / heavy module import at startup
 ]
 
 [lint.flake8-type-checking]
@@ -66,3 +67,6 @@ keep-runtime-typing = true
 [format]
 docstring-code-format = true
 quote-style = "single"
+# 测试代码允许字面量断言值与局部延迟导入
+[lint.per-file-ignores]
+"tests/**" = ["PLR2004", "ANN", "PLC0415"]

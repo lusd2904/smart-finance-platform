@@ -4,11 +4,7 @@ from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.constant import CommonConstant
-from common.vo import CrudResponseModel, PageModel
-from exceptions.exception import ServiceException
-from module_admin.dao.role_dao import RoleDao
-from module_admin.dao.user_dao import UserDao
-from module_admin.entity.vo.role_vo import (
+from common.entity.vo.role_vo import (
     AddRoleModel,
     DeleteRoleModel,
     RoleDeptModel,
@@ -17,7 +13,12 @@ from module_admin.entity.vo.role_vo import (
     RoleModel,
     RolePageQueryModel,
 )
-from module_admin.entity.vo.user_vo import UserInfoModel, UserRolePageQueryModel
+from common.entity.vo.user_vo import UserInfoModel
+from common.vo import CrudResponseModel, PageModel
+from exceptions.exception import ServiceException
+from module_admin.dao.role_dao import RoleDao
+from module_admin.dao.user_dao import UserDao
+from module_admin.entity.vo.user_vo import UserRolePageQueryModel
 from utils.common_util import CamelCaseUtil
 from utils.excel_util import ExcelUtil
 

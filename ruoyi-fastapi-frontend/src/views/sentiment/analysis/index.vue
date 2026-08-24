@@ -42,7 +42,7 @@
       <el-table-column label="编号" align="center" prop="analysisId" width="80" />
       <el-table-column label="分析时间" align="center" prop="createTime" width="170">
         <template #default="scope">
-          <span>{{ parseTime(scope.row.createTime) }}</span>
+          <span>{{ formatBeijingTime(scope.row.createTime) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="资讯条数" align="center" prop="newsCount" width="90" />
@@ -97,7 +97,7 @@
     <!-- 分析详情对话框 -->
     <el-dialog title="分析详情" v-model="open" width="820px" append-to-body>
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="分析时间">{{ parseTime(detail.createTime) }}</el-descriptions-item>
+        <el-descriptions-item label="分析时间">{{ formatBeijingTime(detail.createTime) }}</el-descriptions-item>
         <el-descriptions-item label="资讯条数">{{ detail.newsCount }}</el-descriptions-item>
         <el-descriptions-item label="模型">{{ detail.modelName }}</el-descriptions-item>
         <el-descriptions-item label="状态">
@@ -150,6 +150,7 @@
 
 <script setup name="SentimentAnalysis">
 import { listAnalysis, getAnalysis, runAnalysis } from '@/api/sentiment';
+import { formatBeijingTime } from '@/utils/beijingTime';
 
 const { proxy } = getCurrentInstance();
 
@@ -253,9 +254,10 @@ function handleDetail(row) {
 /** 手动分析 */
 function handleAnalyze() {
   analyzeLoading.value = true;
-  runAnalysis().then(() => {
-    proxy.$modal.msgSuccess('AI分析任务已触发');
-    getList();
+  runAnalysis().then((res) => {
+    const d = (res && res.data) || {};
+    proxy.$modal.msgSuccess((res && res.msg) || (d.accepted ? '已加入后台队列' : 'AI分析任务已触发'));
+    if (!d.accepted) getList();
   }).finally(() => {
     analyzeLoading.value = false;
   });

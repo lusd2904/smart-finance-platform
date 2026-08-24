@@ -30,10 +30,20 @@ function createSetupWindow(notice) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // preload.js 仅使用 contextBridge/ipcRenderer（沙箱允许的有限 Node API），可安全开启沙箱
+      sandbox: true,
     },
   })
   setupWindow.loadFile(path.join(__dirname, 'setup.html'))
+  // 新建窗口分支：等渲染层（含 preload 桥接）就绪后再补发 notice，
+  // 否则首启探测失败时新窗口会在监听器挂上之前错过事件。
+  if (notice) {
+    setupWindow.webContents.once('did-finish-load', () => {
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.webContents.send('gateway:notice', notice)
+      }
+    })
+  }
   setupWindow.on('closed', () => {
     setupWindow = null
   })
@@ -58,7 +68,8 @@ function createMainWindow(gatewayUrl) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // 无 preload、仅加载远程网关页面，保持渲染进程沙箱化
+      sandbox: true,
     },
   })
   mainWindow.loadURL(gatewayUrl)
@@ -135,6 +146,9 @@ function registerIpc() {
       url,
       confirmOnLaunch: true,
       lastVerifiedAt: new Date().toISOString(),
+      // last-good：探测通过并成功进入后记录，供下次启动失败时在配置窗展示
+      lastGoodUrl: url,
+      lastGoodAt: new Date().toISOString(),
     })
     createMainWindow(saved.url)
     if (setupWindow && !setupWindow.isDestroyed()) {
@@ -154,7 +168,15 @@ async function boot() {
   const config = loadGateway(userDataDir())
   const probed = await probeGateway(config.url)
   if (!probed.ok) {
-    createSetupWindow(probed.message)
+    // 明确错误态：不自动降级。把失败地址、last-good 与（HTTPS 时）手动降级候选一并交给配置窗，
+    // 由用户决定是修正地址还是显式改用 http://。
+    createSetupWindow({
+      kind: 'probe_failed',
+      message: probed.message,
+      failedUrl: config.url || '',
+      lastGoodUrl: config.lastGoodUrl || null,
+      fallbackUrl: probed.fallbackUrl || null,
+    })
     return
   }
   createMainWindow(config.url)

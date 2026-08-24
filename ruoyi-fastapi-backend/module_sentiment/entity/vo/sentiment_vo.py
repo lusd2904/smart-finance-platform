@@ -1,7 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.alias_generators import to_camel
+
+from utils.time_format_util import format_beijing_datetime
 
 
 class SentimentNewsModel(BaseModel):
@@ -20,6 +22,10 @@ class SentimentNewsModel(BaseModel):
     uniq_hash: str | None = Field(default=None, description='去重hash')
     analyzed: str | None = Field(default=None, description='是否已分析（0否 1是）')
     create_time: datetime | None = Field(default=None, description='采集时间')
+
+    @field_serializer('pub_time', 'create_time')
+    def _serialize_news_times(self, value: datetime | None) -> str | None:
+        return format_beijing_datetime(value)
 
 
 class SentimentNewsPageQueryModel(BaseModel):
@@ -65,6 +71,10 @@ class SentimentAnalysisModel(BaseModel):
     error_msg: str | None = Field(default=None, description='失败原因')
     create_time: datetime | None = Field(default=None, description='分析时间')
 
+    @field_serializer('create_time')
+    def _serialize_analysis_time(self, value: datetime | None) -> str | None:
+        return format_beijing_datetime(value)
+
 
 class SentimentAnalysisPageQueryModel(BaseModel):
     """
@@ -97,6 +107,10 @@ class SentimentAiConfigModel(BaseModel):
     enabled_sources: str | None = Field(default=None, description='启用的数据源')
     update_by: str | None = Field(default=None, description='更新者')
     update_time: datetime | None = Field(default=None, description='更新时间')
+
+    @field_serializer('update_time')
+    def _serialize_config_time(self, value: datetime | None) -> str | None:
+        return format_beijing_datetime(value)
     model_scope: str | None = Field(default=None, description='当前复用的模型 scope（只读）')
     model_id: int | None = Field(default=None, description='当前复用的模型ID（只读）')
 

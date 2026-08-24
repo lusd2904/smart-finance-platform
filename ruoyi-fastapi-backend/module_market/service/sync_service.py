@@ -10,21 +10,36 @@
 from __future__ import annotations
 
 import json
-from datetime import date
-from typing import Any
+import os
+import time
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote_plus
 
 import httpx
-import pymysql
+from sqlalchemy import create_engine, text
 
-from config.env import DataBaseConfig
+from config.env import DataBaseConfig, GetConfig
 from module_market.constant.instruments import (
     INDEX_SOURCE_MAP,
+    LISTED_CATEGORY,
     TARGET_INSTRUMENTS,
     get_target_symbols,
 )
-from module_market.service.kline_sources import fetch_real_klines
+from module_market.service.kline_sources import (
+    PRIMARY_SOURCES,
+    fetch_real_klines,
+    fetch_tencent_minute,
+    get_circuit_breaker,
+)
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
+# 连续失败达到该次数后触发指数冷却
+_CONSECUTIVE_FAIL_COOLDOWN_AT = 8
 
 # 可选外部源库（老项目 quant_trade）
 SOURCE_DB = 'quant_trade'
@@ -34,6 +49,71 @@ SINA_DAILY_URL = (
     'https://stock.finance.sina.com.cn/usstock/api/jsonp_v2.php/'
     'var%20t=/US_MinKService.getDailyK'
 )
+_kline_cfg = GetConfig().get_kline_config()
+# 环境变量覆盖走 pydantic BaseSettings（KLINE_SYMBOL_INTERVAL 等，语义与旧 os.environ 直读方式一致）
+DEFAULT_SYMBOL_INTERVAL = float(_kline_cfg.kline_symbol_interval)
+SYNC_SKIP_MIN_BARS = int(_kline_cfg.kline_skip_min_bars)
+SYNC_SKIP_FRESH_DAYS = int(_kline_cfg.kline_skip_fresh_days)
+# 本地历史日K表已改为版本化迁移管理：表缺失时按此提示处理，不再运行时自动建表
+HISTORY_TABLE_HINT = (
+    '表 market_price_history_daily 不存在——请执行 python3 scripts/sql_migrate.py apply '
+    '或手动应用 ruoyi-fastapi-backend/sql/market-price-history-daily.sql'
+)
+# 收盘判定：整点后 5 分钟内仍视为前一交易日；weekday>=5 即周六周日
+_EOD_MINUTE_GUARD = 5
+_WEEKEND_MIN_WEEKDAY = 5
+
+def eod_session_date(market: str, now: datetime | None = None) -> date:
+    """该市场刚刚结束的那个交易日（当地时区，收盘后才切到当天）。"""
+    from zoneinfo import ZoneInfo
+
+    tz_name = {'CN': 'Asia/Shanghai', 'HK': 'Asia/Hong_Kong', 'US': 'America/New_York'}.get(
+        (market or 'US').upper(), 'America/New_York'
+    )
+    close_hour = {'CN': 15, 'HK': 16, 'US': 16}.get((market or 'US').upper(), 16)
+    tz = ZoneInfo(tz_name)
+    local = (now or datetime.now(tz)).astimezone(tz) if now and now.tzinfo else datetime.now(tz)
+    day = local.date()
+    if local.hour < close_hour or (local.hour == close_hour and local.minute < _EOD_MINUTE_GUARD):
+        day = day - timedelta(days=1)
+    while day.weekday() >= _WEEKEND_MIN_WEEKDAY:
+        day = day - timedelta(days=1)
+    return day
+
+
+def should_skip_eod(last_date: str | None, session_date: date | None = None) -> bool:
+    """收盘增量：本地已有该交易日日K则跳过。"""
+    if not last_date:
+        return False
+    try:
+        last = date.fromisoformat(str(last_date)[:10])
+    except ValueError:
+        return False
+    as_of = session_date or date.today()
+    return last >= as_of
+
+
+def should_skip_synced(
+    bars: int,
+    last_date: str | None,
+    *,
+    min_bars: int = SYNC_SKIP_MIN_BARS,
+    fresh_days: int = SYNC_SKIP_FRESH_DAYS,
+    today: date | None = None,
+) -> bool:
+    """本地已有足够且较新的日K时跳过外网，避免重复打源。"""
+    if int(bars or 0) < int(min_bars):
+        return False
+    if not last_date:
+        return False
+    try:
+        last = date.fromisoformat(str(last_date)[:10])
+    except ValueError:
+        return False
+    as_of = today or date.today()
+    return (as_of - last).days <= int(fresh_days)
+
+
 SINA_HEADERS = {
     'Referer': 'https://finance.sina.com.cn',
     'User-Agent': (
@@ -46,71 +126,42 @@ SINA_HEADERS = {
 class MarketSyncService:
     """行情数据同步服务（同步 IO，可放线程池）。"""
 
-    @classmethod
-    def _app_db_conn(cls) -> pymysql.connections.Connection | None:
-        try:
-            return pymysql.connect(
-                host=DataBaseConfig.db_host,
-                port=int(DataBaseConfig.db_port),
-                user=DataBaseConfig.db_username,
-                password=DataBaseConfig.db_password,
-                database=DataBaseConfig.db_database,
-                charset='utf8mb4',
-                autocommit=True,
-            )
-        except Exception as e:
-            logger.info(f'[行情同步] 业务数据库直连跳过 (非MySQL或不可用): {e}')
-            return None
+    _sync_engines: dict[str, Engine] = {}
 
     @classmethod
-    def _quant_db_conn(cls) -> pymysql.connections.Connection | None:
-        try:
-            return pymysql.connect(
-                host=DataBaseConfig.db_host,
-                port=int(DataBaseConfig.db_port),
-                user=DataBaseConfig.db_username,
-                password=DataBaseConfig.db_password,
-                database=SOURCE_DB,
-                charset='utf8mb4',
-            )
-        except Exception as e:
-            logger.info(f'[行情同步] quant_trade 不可用: {e}')
-            return None
-
-    @classmethod
-    def ensure_history_table(cls) -> None:
-        """确保本地历史日K表存在（仅用于存量迁移读取，非写入必经层）。"""
-        sql = """
-        CREATE TABLE IF NOT EXISTS market_price_history_daily (
-          id BIGINT NOT NULL AUTO_INCREMENT,
-          symbol VARCHAR(32) NOT NULL,
-          market VARCHAR(10) NOT NULL DEFAULT 'US',
-          trade_date VARCHAR(10) NOT NULL,
-          open_price DOUBLE NULL,
-          high_price DOUBLE NULL,
-          low_price DOUBLE NULL,
-          close_price DOUBLE NULL,
-          volume DOUBLE NULL,
-          turnover DOUBLE NULL,
-          source VARCHAR(32) NULL DEFAULT 'sina',
-          update_time DATETIME NULL,
-          PRIMARY KEY (id),
-          UNIQUE KEY uniq_symbol_trade_date (symbol, trade_date),
-          KEY ix_symbol (symbol),
-          KEY ix_trade_date (trade_date)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='日K历史行情表(存量迁移用)'
+    def _engine_for(cls, database: str) -> Engine | None:
         """
+        SQLAlchemy 同步引擎（pymysql 驱动），按库名缓存。
+
+        本服务为同步 IO（调用方负责线程池隔离）；连接参数统一来自
+        DataBaseConfig，不再手建裸 pymysql 连接。创建失败返回 None，
+        与改造前各调用点的降级语义一致。
+        """
+        engine = cls._sync_engines.get(database)
+        if engine is not None:
+            return engine
         try:
-            conn = cls._app_db_conn()
-            if conn is None:
-                return
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(sql)
-            finally:
-                conn.close()
+            url = (
+                f'mysql+pymysql://{quote_plus(DataBaseConfig.db_username)}:'
+                f'{quote_plus(DataBaseConfig.db_password)}'
+                f'@{DataBaseConfig.db_host}:{int(DataBaseConfig.db_port)}/{database}?charset=utf8mb4'
+            )
+            engine = create_engine(url, pool_pre_ping=True, pool_recycle=1800)
         except Exception as e:
-            logger.info(f'[行情同步] 本地历史表检查跳过: {e}')
+            logger.info(f'[行情同步] 数据库引擎创建跳过 ({database}): {e}')
+            return None
+        cls._sync_engines[database] = engine
+        return engine
+
+    @classmethod
+    def _app_db(cls) -> Engine | None:
+        """业务库引擎。"""
+        return cls._engine_for(str(DataBaseConfig.db_database))
+
+    @classmethod
+    def _quant_db(cls) -> Engine | None:
+        """quant_trade 源库引擎。"""
+        return cls._engine_for(SOURCE_DB)
 
     @classmethod
     def _start_date(cls, years: int) -> date:
@@ -185,30 +236,26 @@ class MarketSyncService:
 
     @classmethod
     def _rows_from_quant_mysql(cls, symbol: str, market: str, years: int) -> list[dict[str, Any]]:
-        conn = cls._quant_db_conn()
-        if conn is None:
+        engine = cls._quant_db()
+        if engine is None:
             return []
         start_str = cls._start_date(years).strftime('%Y-%m-%d')
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f'SELECT symbol, trade_date, open_price, high_price, low_price, close_price, volume '
-                    f'FROM {SOURCE_TABLE} WHERE symbol=%s AND trade_date>=%s ORDER BY trade_date ASC',
-                    (symbol, start_str),
-                )
-                records = cur.fetchall()
+            with engine.connect() as conn:
+                records = conn.execute(
+                    text(
+                        f'SELECT symbol, trade_date, open_price, high_price, low_price, close_price, volume '
+                        f'FROM {SOURCE_TABLE} WHERE symbol=:symbol AND trade_date>=:start ORDER BY trade_date ASC'
+                    ),
+                    {'symbol': symbol, 'start': start_str},
+                ).fetchall()
         except Exception as e:
             logger.warning(f'[行情同步] quant_trade 查询失败 {symbol}: {e}')
             return []
-        finally:
-            conn.close()
         rows = []
         for r in records or []:
             td = r[1]
-            if hasattr(td, 'strftime'):
-                td = td.strftime('%Y-%m-%d')
-            else:
-                td = str(td)[:10]
+            td = td.strftime('%Y-%m-%d') if hasattr(td, 'strftime') else str(td)[:10]
             rows.append(
                 {
                     'symbol': symbol,
@@ -229,40 +276,38 @@ class MarketSyncService:
     def _rows_from_local_mysql(cls, symbol: str, market: str, years: int) -> list[dict[str, Any]]:
         """从本库 market_price_history_daily 读取（可选存量迁移源）。"""
         try:
-            cls.ensure_history_table()
             start_str = cls._start_date(years).strftime('%Y-%m-%d')
-            conn = cls._app_db_conn()
-            if conn is None:
+            engine = cls._app_db()
+            if engine is None:
                 return []
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
+            with engine.connect() as conn:
+                records = conn.execute(
+                    text(
                         'SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume '
-                        'FROM market_price_history_daily WHERE symbol=%s AND trade_date>=%s ORDER BY trade_date',
-                        (symbol, start_str),
-                    )
-                    records = cur.fetchall()
-            finally:
-                conn.close()
+                        'FROM market_price_history_daily WHERE symbol=:symbol AND trade_date>=:start ORDER BY trade_date'
+                    ),
+                    {'symbol': symbol, 'start': start_str},
+                ).fetchall()
         except Exception as e:
-            logger.info(f'[行情同步] 本库历史表不可用 {symbol}: {e}')
+            if "doesn't exist" in str(e):
+                logger.warning(f'[行情同步] {HISTORY_TABLE_HINT} ({symbol})')
+            else:
+                logger.info(f'[行情同步] 本库历史表不可用 {symbol}: {e}')
             return []
-        rows = []
-        for r in records or []:
-            rows.append(
-                {
-                    'symbol': r[0],
-                    'market': (r[1] or market or 'US').upper(),
-                    'trade_date': str(r[2])[:10],
-                    'open': float(r[3] or 0),
-                    'high': float(r[4] or 0),
-                    'low': float(r[5] or 0),
-                    'close': float(r[6] or 0),
-                    'volume': float(r[7] or 0),
-                    'source': 'local_mysql',
-                }
-            )
-        return rows
+        return [
+            {
+                'symbol': r[0],
+                'market': (r[1] or market or 'US').upper(),
+                'trade_date': str(r[2])[:10],
+                'open': float(r[3] or 0),
+                'high': float(r[4] or 0),
+                'low': float(r[5] or 0),
+                'close': float(r[6] or 0),
+                'volume': float(r[7] or 0),
+                'source': 'local_mysql',
+            }
+            for r in records or []
+        ]
 
     @classmethod
     def _merge_rows(cls, *sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -315,23 +360,97 @@ class MarketSyncService:
         return InfluxUtil.write_klines(market, payload)
 
     @classmethod
-    def sync_symbol(cls, symbol: str, market: str = 'US', years: int = 10) -> int:
+    def _save_mysql(cls, rows: list[dict[str, Any]]) -> int:
+        """顺带写入本库日K，便于全市场慢同步断点续跑。"""
+        if not rows:
+            return 0
+        engine = cls._app_db()
+        if engine is None:
+            return 0
+        sql = """
+        INSERT INTO market_price_history_daily
+          (symbol, market, trade_date, open_price, high_price, low_price, close_price, volume, turnover, source, update_time)
+        VALUES
+          (:symbol, :market, :trade_date, :open_price, :high_price, :low_price, :close_price, :volume, :turnover, :source, :update_time)
+        ON DUPLICATE KEY UPDATE
+          market=VALUES(market),
+          open_price=VALUES(open_price),
+          high_price=VALUES(high_price),
+          low_price=VALUES(low_price),
+          close_price=VALUES(close_price),
+          volume=VALUES(volume),
+          turnover=VALUES(turnover),
+          source=VALUES(source),
+          update_time=VALUES(update_time)
         """
-        同步单个标的到 Influx（无 MySQL 中间层）：
-        - 主源：新浪外网日K
-        - 补源：quant_trade / 本库历史表（仅填补缺失日期）
-        - 只写 Influx
+        now = datetime.now()
+        payload = [
+            {
+                'symbol': r['symbol'],
+                'market': r.get('market') or 'US',
+                'trade_date': r['trade_date'],
+                'open_price': r.get('open'),
+                'high_price': r.get('high'),
+                'low_price': r.get('low'),
+                'close_price': r.get('close'),
+                'volume': r.get('volume'),
+                'turnover': r.get('turnover') or 0,
+                'source': r.get('source') or 'unknown',
+                'update_time': now,
+            }
+            for r in rows
+        ]
+        try:
+            with engine.begin() as conn:
+                for i in range(0, len(payload), 400):
+                    conn.execute(text(sql), payload[i : i + 400])
+            return len(payload)
+        except Exception as exc:
+            if "doesn't exist" in str(exc):
+                logger.warning(f'[行情同步] {HISTORY_TABLE_HINT}')
+            else:
+                logger.warning(f'[行情同步] 写本库日K失败: {exc}')
+            return 0
+
+    @classmethod
+    def _wait_if_primaries_blocked(cls) -> None:
+        """仅当 sina、腾讯都熔断才整段暂停；单源冷却不挡住另一源。"""
+        still_up = [name for name in PRIMARY_SOURCES if get_circuit_breaker(name).allow()]
+        if still_up:
+            return
+        blocked_until = 0.0
+        for name in PRIMARY_SOURCES:
+            br = get_circuit_breaker(name)
+            blocked_until = max(blocked_until, float(br.opened_until or 0))
+        if blocked_until <= 0:
+            return
+        wait = min(30.0, max(2.0, blocked_until - time.time() + 1.0))
+        logger.warning(f'[行情同步] 主源均熔断，暂停 {wait:.0f}s')
+        time.sleep(wait)
+
+    @classmethod
+    def sync_symbol(
+        cls,
+        symbol: str,
+        market: str = 'US',
+        years: int = 10,
+        use_fallbacks: bool = True,
+    ) -> int:
+        """
+        同步单个标的：外网真源 → Influx，并写入本库日K便于续跑。
+        全市场慢同步关闭 fallbacks，避免 Yahoo 429 把进程睡死。
         """
         symbol = (symbol or '').strip()
         market = (market or 'US').strip().upper()
         if not symbol:
             return 0
 
-        real_rows, used_sources = fetch_real_klines(symbol, market, years)
-        sina_rows = cls._rows_from_sina(symbol, market, years) if not real_rows else []
+        real_rows, used_sources = fetch_real_klines(
+            symbol, market, years, use_fallbacks=use_fallbacks
+        )
         quant_rows = cls._rows_from_quant_mysql(symbol, market, years)
         local_rows = cls._rows_from_local_mysql(symbol, market, years)
-        rows = cls._merge_rows(local_rows, quant_rows, sina_rows, real_rows)
+        rows = cls._merge_rows(local_rows, quant_rows, real_rows)
         if used_sources:
             logger.info(f'[行情同步] {symbol} 外网真源={used_sources}')
 
@@ -339,7 +458,6 @@ class MarketSyncService:
             logger.warning(f'[行情同步] {symbol} 无可用真实行情数据')
             return 0
 
-        # 统计主源
         src_counts: dict[str, int] = {}
         for r in rows:
             s = r.get('source') or 'unknown'
@@ -347,6 +465,7 @@ class MarketSyncService:
         primary = max(src_counts, key=src_counts.get) if src_counts else 'unknown'
 
         n_influx = cls._save_influx(market, rows)
+        cls._save_mysql(rows)
         logger.info(
             f'[行情同步] {symbol} 完成 primary={primary} sources={src_counts} '
             f'influx={n_influx} range={rows[0]["trade_date"]}~{rows[-1]["trade_date"]} '
@@ -355,26 +474,216 @@ class MarketSyncService:
         return n_influx
 
     @classmethod
+    def _iter_universe(
+        cls,
+        markets: list[str] | None = None,
+        include_listed: bool = True,
+    ) -> list[tuple[str, str, str, str, int, str | None]]:
+        engine = cls._app_db()
+        if engine is None:
+            return [(s, n, m, c, 0, None) for s, n, m, c in TARGET_INSTRUMENTS]
+        wanted = [m.upper() for m in (markets or ['US', 'CN', 'HK'])]
+        placeholders = ','.join(f':m{i}' for i in range(len(wanted)))
+        sql = f"""
+        SELECT i.symbol, i.name, i.market, i.category,
+               COALESCE(p.bars, 0) AS bars, p.last_date
+        FROM market_instrument i
+        LEFT JOIN (
+          SELECT symbol, COUNT(*) AS bars, MAX(trade_date) AS last_date
+          FROM market_price_history_daily
+          GROUP BY symbol
+        ) p ON p.symbol = i.symbol
+        WHERE i.enabled='1' AND i.market IN ({placeholders})
+        """
+        params: dict[str, Any] = {f'm{i}': v for i, v in enumerate(wanted)}
+        if not include_listed:
+            sql += ' AND i.category <> :listed_cat'
+            params['listed_cat'] = LISTED_CATEGORY
+        sql += " ORDER BY (i.category = 'listed'), FIELD(i.market, 'US','HK','CN'), i.symbol"
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), params).fetchall() or []
+        out: list[tuple[str, str, str, str, int, str | None]] = []
+        for row in rows:
+            last = row[5]
+            if last is not None:
+                last = str(last)[:10]
+            out.append((row[0], row[1] or row[0], row[2], row[3], int(row[4] or 0), last))
+        return out
+
+    @classmethod
     def sync_all(cls, years: int = 10) -> dict[str, Any]:
+        return cls.sync_universe(years=years, include_listed=False, symbol_interval=DEFAULT_SYMBOL_INTERVAL)
+
+    @classmethod
+    def sync_universe(
+        cls,
+        years: int = 10,
+        markets: list[str] | None = None,
+        include_listed: bool = True,
+        limit: int | None = None,
+        symbol_interval: float | None = None,
+        skip_synced: bool = True,
+        stop_path: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        慢速全市场日K同步：精选优先，源级限流，已有足够新K线则跳过。
+        创建 stop_path 文件可安全停。
+        """
+        interval = DEFAULT_SYMBOL_INTERVAL if symbol_interval is None else max(0.0, float(symbol_interval))
+        targets = cls._iter_universe(markets=markets, include_listed=include_listed)
+        if limit:
+            targets = targets[: max(0, int(limit))]
         details: dict[str, int] = {}
         failed: list[str] = []
+        skipped: list[str] = []
         total = 0
-        for symbol, _name, market, _category in TARGET_INSTRUMENTS:
+        consecutive_fail = 0
+        for idx, (symbol, _name, market, _category, bars, last_date) in enumerate(targets, start=1):
+            if stop_path and os.path.exists(stop_path):
+                logger.info(f'[行情同步] 收到停止文件 {stop_path}，已处理 {idx - 1}/{len(targets)}')
+                break
+            if skip_synced and should_skip_synced(bars, last_date):
+                skipped.append(symbol)
+                details[symbol] = 0
+                continue
+            pts = 0
             try:
-                pts = cls.sync_symbol(symbol, market, years)
+                pts = cls.sync_symbol(symbol, market, years, use_fallbacks=False)
                 details[symbol] = pts
                 total += pts
                 if pts == 0:
                     failed.append(symbol)
+                    consecutive_fail += 1
+                else:
+                    consecutive_fail = 0
             except Exception as e:
                 logger.error(f'[行情同步] {symbol} 失败: {e}')
                 failed.append(symbol)
                 details[symbol] = 0
+                consecutive_fail += 1
+            if consecutive_fail >= _CONSECUTIVE_FAIL_COOLDOWN_AT and consecutive_fail % 20 == 0:
+                logger.warning(f'[行情同步] 连续失败 {consecutive_fail}，跳过空标的继续')
+            if pts > 0 and interval > 0:
+                time.sleep(interval)
+            if idx % 20 == 0:
+                logger.info(
+                    f'[行情同步] 进度 {idx}/{len(targets)} ok={len([s for s, n in details.items() if n > 0])} '
+                    f'skip={len(skipped)} fail={len(failed)} points={total}'
+                )
         return {
             'synced_symbols': [s for s, n in details.items() if n > 0],
+            'skipped': skipped,
             'total_points': total,
             'details': details,
             'failed': failed,
+            'scanned': len(targets),
+        }
+
+    @classmethod
+    def _eod_minute_targets(cls, market: str, cap: int = 80) -> list[tuple[str, str]]:
+        market = (market or 'US').upper()
+        seen: set[str] = set()
+        out: list[tuple[str, str]] = []
+        engine = cls._app_db()
+        if engine is not None:
+            with engine.connect() as conn:
+                rows_top50 = conn.execute(
+                    text(
+                        """
+                        SELECT symbol, name FROM market_top50_snapshot
+                        WHERE market=:market AND trade_date=(
+                          SELECT MAX(trade_date) FROM market_top50_snapshot WHERE market=:market
+                        )
+                        ORDER BY rank_no
+                        """
+                    ),
+                    {'market': market},
+                ).fetchall() or []
+                for symbol, name in rows_top50:
+                    code = str(symbol or '').strip()
+                    if code and code not in seen:
+                        seen.add(code)
+                        out.append((code, name or code))
+        for symbol, name, mkt, category in TARGET_INSTRUMENTS:
+            if mkt != market or category == 'index':
+                continue
+            if symbol not in seen:
+                seen.add(symbol)
+                out.append((symbol, name))
+        return out[: max(1, int(cap))]
+
+    @classmethod
+    def sync_minutes(cls, market: str, symbol_interval: float = 0.4) -> dict[str, Any]:
+        """收盘后拉取当日分时（腾讯 last session），写入 Influx minute_kline。"""
+        market = (market or 'US').upper()
+        targets = cls._eod_minute_targets(market)
+        synced: list[str] = []
+        failed: list[str] = []
+        total = 0
+        interval = max(0.0, float(symbol_interval))
+        for idx, (symbol, _name) in enumerate(targets, start=1):
+            try:
+                rows = fetch_tencent_minute(symbol, market)
+                written = InfluxUtil.write_minute_klines(market, rows) if rows else 0
+                if written:
+                    synced.append(symbol)
+                    total += written
+                else:
+                    failed.append(symbol)
+            except Exception as exc:
+                logger.warning(f'[收盘分时] {symbol}({market}) 失败: {exc}')
+                failed.append(symbol)
+            if interval and idx < len(targets):
+                time.sleep(interval)
+        logger.info(f'[收盘分时] market={market} ok={len(synced)} fail={len(failed)} points={total}')
+        return {
+            'market': market,
+            'scanned': len(targets),
+            'synced_symbols': synced,
+            'failed': failed,
+            'total_points': total,
+        }
+
+    @classmethod
+    def sync_eod_market(cls, market: str, years: int = 2, symbol_interval: float = 0.4) -> dict[str, Any]:
+        """某一市场收盘后：增量日K（缺当日才拉）+ 精选/Top50 分时。"""
+        market = (market or 'US').upper()
+        session = eod_session_date(market)
+        interval = max(0.0, float(symbol_interval))
+        targets = cls._iter_universe(markets=[market], include_listed=True)
+        details: dict[str, int] = {}
+        failed: list[str] = []
+        skipped: list[str] = []
+        total = 0
+        for idx, (symbol, _name, mkt, _category, _bars, last_date) in enumerate(targets, start=1):
+            if should_skip_eod(last_date, session):
+                skipped.append(symbol)
+                continue
+            pts = 0
+            try:
+                pts = cls.sync_symbol(symbol, mkt, years, use_fallbacks=False)
+            except Exception as exc:
+                logger.warning(f'[收盘日K] {symbol}({market}) 失败: {exc}')
+            details[symbol] = pts
+            total += pts
+            if pts <= 0:
+                failed.append(symbol)
+            elif interval:
+                time.sleep(interval)
+            if idx % 50 == 0:
+                logger.info(f'[收盘日K] {market} {idx}/{len(targets)} points={total} skip={len(skipped)}')
+        minutes = cls.sync_minutes(market, symbol_interval=interval)
+        return {
+            'market': market,
+            'sessionDate': session.isoformat(),
+            'daily': {
+                'scanned': len(targets),
+                'synced_symbols': [s for s, n in details.items() if n > 0],
+                'skipped': skipped,
+                'failed': failed,
+                'total_points': total,
+            },
+            'minute': minutes,
         }
 
     @classmethod
@@ -403,27 +712,26 @@ class MarketSyncService:
         """
         仅从 MySQL 日K 表转存到 Influx（存量迁移，不访问外网）。
         """
-        cls.ensure_history_table()
+        engine = cls._app_db()
+        if engine is None:
+            return {'total_points': 0, 'markets': [], 'message': 'MySQL 不可用'}
+        stmt = (
+            'SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume '
+            'FROM market_price_history_daily WHERE symbol=:symbol ORDER BY trade_date'
+            if symbol
+            else (
+                'SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume '
+                'FROM market_price_history_daily ORDER BY symbol, trade_date'
+            )
+        )
         try:
-            conn = cls._app_db_conn()
+            with engine.connect() as conn:
+                records = conn.execute(text(stmt), {'symbol': symbol} if symbol else {}).fetchall()
         except Exception as e:
-            return {'total_points': 0, 'markets': [], 'message': f'MySQL 不可用: {e}'}
-        try:
-            with conn.cursor() as cur:
-                if symbol:
-                    cur.execute(
-                        'SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume '
-                        'FROM market_price_history_daily WHERE symbol=%s ORDER BY trade_date',
-                        (symbol,),
-                    )
-                else:
-                    cur.execute(
-                        'SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume '
-                        'FROM market_price_history_daily ORDER BY symbol, trade_date'
-                    )
-                records = cur.fetchall()
-        finally:
-            conn.close()
+            if "doesn't exist" in str(e):
+                logger.warning(f'[行情同步] {HISTORY_TABLE_HINT}')
+                return {'total_points': 0, 'markets': [], 'message': HISTORY_TABLE_HINT}
+            raise
 
         by_market: dict[str, list[dict[str, Any]]] = {}
         for r in records or []:

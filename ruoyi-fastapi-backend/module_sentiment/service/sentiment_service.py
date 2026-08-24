@@ -1,4 +1,5 @@
-from datetime import datetime
+import json
+import re
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,7 @@ from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+from utils.time_format_util import apply_beijing_times, format_beijing_datetime, now_beijing
 
 
 class SentimentService:
@@ -35,7 +37,7 @@ class SentimentService:
         """
         获取舆情资讯分页列表service
         """
-        return await SentimentNewsDao.get_news_list(query_db, query_object, is_page)
+        return apply_beijing_times(await SentimentNewsDao.get_news_list(query_db, query_object, is_page))
 
     @classmethod
     async def delete_news_services(
@@ -67,7 +69,7 @@ class SentimentService:
             if latest
             else None
         )
-        return stats
+        return apply_beijing_times(stats)
 
     # ---------- 采集 ----------
 
@@ -100,7 +102,7 @@ class SentimentService:
         fresh = [n for n in news_list if n['uniq_hash'] not in existing]
         for n in fresh:
             n['analyzed'] = '0'
-            n['create_time'] = datetime.now()
+            n['create_time'] = now_beijing()
         try:
             if fresh:
                 await SentimentNewsDao.add_news_batch(query_db, fresh)
@@ -177,7 +179,7 @@ class SentimentService:
             exclude_unset=True,
             exclude={'config_id', 'base_url', 'api_key', 'model_name', 'temperature', 'model_scope', 'model_id'},
         )
-        now = datetime.now()
+        now = now_beijing()
         ext_values = config_dict
         ext_values['update_by'] = update_by
         ext_values['update_time'] = now
@@ -199,7 +201,7 @@ class SentimentService:
         """
         获取分析结果分页列表service
         """
-        return await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page)
+        return apply_beijing_times(await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page))
 
     @classmethod
     async def get_analysis_detail_services(cls, query_db: AsyncSession, analysis_id: int) -> SentimentAnalysisModel:
@@ -219,13 +221,134 @@ class SentimentService:
         return [
             {
                 'analysisId': r.analysis_id,
-                'createTime': r.create_time.strftime('%m-%d %H:%M') if r.create_time else '',
+                'createTime': format_beijing_datetime(r.create_time, '%m-%d %H:%M') if r.create_time else '',
                 'usScore': r.us_score,
                 'hkScore': r.hk_score,
                 'aScore': r.a_score,
             }
             for r in rows
         ]
+
+    @staticmethod
+    def _normalize_direction(direction: str | None) -> str:
+        if not direction:
+            return ''
+        d = str(direction).lower()
+        if any(token in d for token in ('多', 'bull', 'up', '涨', 'positive')):
+            return 'up'
+        if any(token in d for token in ('空', 'bear', 'down', '跌', 'negative')):
+            return 'down'
+        return 'flat'
+
+    @staticmethod
+    def _parse_risk_events(raw: str | list | None) -> list[str]:
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [item if isinstance(item, str) else str(item) for item in raw]
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [item if isinstance(item, str) else str(item) for item in parsed]
+        except Exception:
+            pass
+        return [part.strip() for part in re.split(r'[\n;；]', str(raw)) if part.strip()]
+
+    @classmethod
+    def _market_cards(cls, latest: dict[str, Any]) -> list[dict[str, Any]]:
+        specs = (
+            ('us', '美股三大指数', 'usDirection', 'usScore', 'usReason'),
+            ('hk', '港股指数', 'hkDirection', 'hkScore', 'hkReason'),
+            ('a', 'A股指数', 'aDirection', 'aScore', 'aReason'),
+        )
+        markets: list[dict[str, Any]] = []
+        for key, name, direction_key, score_key, reason_key in specs:
+            direction = latest.get(direction_key)
+            markets.append(
+                {
+                    'key': key,
+                    'name': name,
+                    'direction': direction,
+                    'directionNorm': cls._normalize_direction(direction),
+                    'score': latest.get(score_key),
+                    'reason': latest.get(reason_key),
+                }
+            )
+        return markets
+
+    @classmethod
+    async def get_widget_dashboard_services(cls, query_db: AsyncSession, trend_limit: int = 24) -> dict[str, Any]:
+        """
+        聚合舆情大盘数据，供 macOS Widget 等只读客户端使用。
+        """
+        limit = max(1, min(int(trend_limit or 24), 100))
+        stats = await cls.get_stats_services(query_db)
+        latest_row: dict[str, Any] = {}
+        page = await cls.get_analysis_list_services(
+            query_db,
+            SentimentAnalysisPageQueryModel(page_num=1, page_size=1, status='0'),
+            is_page=True,
+        )
+        page_rows = getattr(page, 'rows', None) or []
+        if page_rows:
+            first = page_rows[0]
+            latest_row = first if isinstance(first, dict) else dict(first)
+        elif stats.get('latestAnalysis') and isinstance(stats['latestAnalysis'], dict):
+            latest_row = stats['latestAnalysis']
+
+        trend_rows = await SentimentAnalysisDao.get_recent_analysis(query_db, limit)
+        trend_rows.reverse()
+        trend = [
+            {
+                'createTime': format_beijing_datetime(row.create_time),
+                'usScore': row.us_score,
+                'hkScore': row.hk_score,
+                'aScore': row.a_score,
+            }
+            for row in trend_rows
+        ]
+
+        updated_at = latest_row.get('createTime') or format_beijing_datetime(now_beijing())
+        summary = latest_row.get('summary') or ''
+        risk_events = cls._parse_risk_events(latest_row.get('riskEvents'))
+
+        widget_latest = {
+            key: latest_row.get(key)
+            for key in (
+                'analysisId',
+                'createTime',
+                'summary',
+                'usDirection',
+                'usScore',
+                'usReason',
+                'hkDirection',
+                'hkScore',
+                'hkReason',
+                'aDirection',
+                'aScore',
+                'aReason',
+                'riskEvents',
+                'modelName',
+                'status',
+            )
+            if key in latest_row
+        }
+
+        return apply_beijing_times(
+            {
+                'updatedAt': updated_at,
+                'stats': {
+                    'total': stats.get('total', 0),
+                    'today': stats.get('today', 0),
+                    'unanalyzed': stats.get('unanalyzed', 0),
+                },
+                'markets': cls._market_cards(latest_row),
+                'summary': summary,
+                'riskEvents': risk_events,
+                'latest': widget_latest,
+                'trend': trend,
+            }
+        )
 
     @classmethod
     async def run_analysis_services(cls, query_db: AsyncSession) -> dict[str, Any]:
@@ -272,7 +395,7 @@ class SentimentService:
             'news_ids': ','.join(str(i) for i in news_ids),
             'model_name': config.model_name,
             'raw_response': (ai_result.get('raw') or '')[:60000],
-            'create_time': datetime.now(),
+            'create_time': now_beijing(),
         }
         if ai_result['ok']:
             result = ai_result['result']

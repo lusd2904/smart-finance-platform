@@ -17,7 +17,7 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
 from module_admin.entity.vo.config_vo import ConfigModel, ConfigPageQueryModel, DeleteConfigModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.config_service import ConfigService
 from utils.common_util import bytes2file_response
 from utils.log_util import logger

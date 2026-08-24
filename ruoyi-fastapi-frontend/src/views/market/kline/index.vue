@@ -45,6 +45,8 @@
                   <el-radio-button label="monthly">月K</el-radio-button>
                 </el-radio-group>
                 <el-button size="small" type="primary" plain icon="Refresh" :loading="syncLoading" @click="handleSync" v-hasPermi="['market:sync']">手动同步</el-button>
+                <el-button size="small" :disabled="!current" @click="goDetail">详情</el-button>
+                <el-button size="small" :disabled="!current" @click="goTradingview">高级图</el-button>
                 <el-button size="small" type="success" icon="MagicStick" :loading="aiLoading" :disabled="!current" @click="handleAiAnalyze" v-hasPermi="['market:ai:analyze']">AI分析</el-button>
               </div>
             </div>
@@ -81,20 +83,32 @@
     <el-dialog title="AI 行情研判" v-model="aiOpen" width="640px" append-to-body>
       <div v-loading="aiLoading">
         <el-descriptions :column="2" border v-if="aiResult">
-          <el-descriptions-item label="趋势判断">
-            <el-tag :color="trendColor(aiResult.trend)" effect="dark" style="border:none;color:#fff">{{ aiResult.trend || '--' }}</el-tag>
+          <el-descriptions-item label="建议">
+            <el-tag :color="trendColor(aiResult.recommendation || aiResult.stance)" effect="dark" style="border:none;color:#fff">{{ aiResult.recommendation || '--' }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="操作建议">{{ aiResult.advice || '--' }}</el-descriptions-item>
-          <el-descriptions-item label="支撑位">{{ aiResult.support ?? '--' }}</el-descriptions-item>
-          <el-descriptions-item label="压力位">{{ aiResult.resistance ?? '--' }}</el-descriptions-item>
+          <el-descriptions-item label="立场">{{ aiResult.stance || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="置信度">{{ aiResult.confidence ?? '--' }}%</el-descriptions-item>
+          <el-descriptions-item label="选股分">{{ aiResult.pickScore ?? '--' }}</el-descriptions-item>
         </el-descriptions>
         <div class="ai-section" v-if="aiResult && aiResult.summary">
-          <div class="ai-title">研判摘要</div>
+          <div class="ai-title">综合研判</div>
           <div class="ai-body">{{ aiResult.summary }}</div>
         </div>
-        <div class="ai-section" v-if="aiResult && aiResult.reason">
-          <div class="ai-title">分析依据</div>
-          <div class="ai-body">{{ aiResult.reason }}</div>
+        <div class="ai-section" v-if="aiResult && aiResult.indicatorReview">
+          <div class="ai-title">指标解读</div>
+          <div class="ai-body">{{ aiResult.indicatorReview }}</div>
+        </div>
+        <div class="ai-section" v-if="aiResult && aiResult.sentimentReview">
+          <div class="ai-title">舆情解读</div>
+          <div class="ai-body">{{ aiResult.sentimentReview }}</div>
+        </div>
+        <div class="ai-section" v-if="aiResult && aiResult.operationAdvice">
+          <div class="ai-title">操作建议</div>
+          <div class="ai-body">{{ aiResult.operationAdvice }}</div>
+        </div>
+        <div class="ai-section" v-if="aiResult && aiResult.riskWarning">
+          <div class="ai-title">风险提示</div>
+          <div class="ai-body">{{ aiResult.riskWarning }}</div>
         </div>
         <el-empty v-if="!aiResult && !aiLoading" description="暂无研判结果" :image-size="70" />
       </div>
@@ -106,11 +120,21 @@
 </template>
 
 <script setup name="MarketKline">
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
+const router = useRouter();
+
+function goDetail() {
+  if (!current.value) return;
+  router.push({ path: '/market/symbol', query: { symbol: current.value.symbol, market: current.value.market || 'US' } });
+}
+function goTradingview() {
+  if (!current.value) return;
+  router.push({ path: '/market/tradingview', query: { symbol: current.value.symbol, market: current.value.market || 'US' } });
+}
 
 const CATEGORY_MAP = {
   index: '三大指数',
@@ -375,9 +399,11 @@ function handleSync() {
   syncLoading.value = true;
   syncMarket(current.value ? { symbol: current.value.symbol } : {}).then(res => {
     const d = res.data || {};
-    proxy.$modal.msgSuccess(`同步完成，标的 ${d.syncedSymbols ?? '-'} 个，数据点 ${d.totalPoints ?? '-'}`);
-    loadKline();
-    loadIndicators();
+    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : `同步完成，标的 ${d.syncedSymbols ?? '-'} 个`));
+    if (!d.accepted) {
+      loadKline();
+      loadIndicators();
+    }
   }).finally(() => {
     syncLoading.value = false;
   });
@@ -393,12 +419,16 @@ function handleAiAnalyze() {
     const data = res.data || {};
     // 兼容扁平字段与 result 嵌套
     aiResult.value = {
-      trend: data.trend || data.result?.trend,
-      advice: data.advice || data.operationAdvice || data.result?.operation_advice,
-      support: data.support || data.result?.support,
-      resistance: data.resistance || data.result?.resistance,
-      summary: data.summary || data.trendSummary || data.result?.trend_summary,
-      reason: data.indicatorReview || data.result?.indicator_review
+      recommendation: data.recommendation || data.finalDecision,
+      stance: data.stance || data.trend,
+      confidence: data.confidence ?? data.finalConfidence,
+      pickScore: data.pickScore,
+      factorScore: data.factorScore,
+      summary: data.summary,
+      indicatorReview: data.indicatorReview || data.result?.indicator_review,
+      sentimentReview: data.sentimentReview || data.result?.sentiment_review,
+      operationAdvice: data.operationAdvice || data.advice || data.result?.operation_advice,
+      riskWarning: data.riskWarning || data.result?.risk_warning
     };
   }).finally(() => {
     aiLoading.value = false;

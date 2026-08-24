@@ -17,8 +17,8 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, ResponseBaseModel
 from module_admin.entity.do.dept_do import SysDept
-from module_admin.entity.vo.dept_vo import DeleteDeptModel, DeptModel, DeptQueryModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.dept_vo import DeleteDeptModel, DeptModel, DeptQueryModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.dept_service import DeptService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil

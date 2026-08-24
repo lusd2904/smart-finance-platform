@@ -7,12 +7,12 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.market_service import MarketService
+from module_market.service.tradingview_service import TradingViewDatafeedService
 from module_quant.service.longbridge_service import LongbridgeService
 from module_quant.service.readmodel_service import ReadModelService
 from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
-from module_market.service.finance_news_service import FinanceNewsService
-from module_market.service.tradingview_service import TradingViewDatafeedService
 
 
 def test_quote_from_two_real_bars() -> None:
@@ -37,29 +37,51 @@ def test_flatten_account_unconfigured_is_null_not_zero() -> None:
 
 
 @pytest.mark.asyncio
-async def test_board_quotes_never_calls_longbridge() -> None:
-    fake_bars = {
-        'AAPL': [
-            {'date': '2024-06-03', 'open': 190, 'high': 192, 'low': 189, 'close': 191, 'volume': 1000},
-            {'date': '2024-06-04', 'open': 191, 'high': 193, 'low': 190, 'close': 192, 'volume': 1100},
-        ]
+async def test_board_quotes_reads_cache_not_influx() -> None:
+    cached = {
+        'quotes': [
+            {
+                'symbol': 'AAPL',
+                'name': 'Apple',
+                'market': 'US',
+                'category': 'stock',
+                'price': 192,
+                'changeRate': 0.5,
+                'up': True,
+                'source': 'cache',
+            }
+        ],
+        'indices': [],
+        'rows': [{'symbol': 'AAPL', 'price': 192, 'market': 'US'}],
+        'source': 'cache',
+        'count': 1,
     }
-
     with (
-        patch.object(
-            MarketService,
-            'get_instrument_list_services',
-            new=AsyncMock(
-                return_value=[{'symbol': 'AAPL', 'name': 'Apple', 'market': 'US', 'category': 'stock'}]
-            ),
-        ),
-        patch('module_market.service.market_service.InfluxUtil.query_latest_klines', return_value=fake_bars),
+        patch('module_market.service.market_service.cache_get_json', new=AsyncMock(return_value=cached)),
+        patch('module_market.service.market_service.InfluxUtil.query_latest_klines') as influx,
     ):
         payload = await MarketService.get_board_quotes_services(AsyncMock(), category=None, market='US')
 
-    assert payload['source'] == 'influx'
-    assert payload['quotes'][0]['source'] == 'influx'
+    influx.assert_not_called()
+    assert payload['source'] == 'cache'
     assert payload['quotes'][0]['price'] == 192
+
+
+@pytest.mark.asyncio
+async def test_board_quotes_empty_without_scan() -> None:
+    with (
+        patch('module_market.service.market_service.cache_get_json', new=AsyncMock(return_value=None)),
+        patch(
+            'module_quant.service.readmodel_service.ReadModelService.get_scheduled',
+            new=AsyncMock(return_value=None),
+        ),
+        patch('module_market.service.market_service.InfluxUtil.query_latest_klines') as influx,
+    ):
+        payload = await MarketService.get_board_quotes_services(AsyncMock())
+
+    influx.assert_not_called()
+    assert payload['source'] == 'empty'
+    assert payload['quotes'] == []
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,73 @@
 from copy import deepcopy
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from dateutil.parser import parse
+
+BEIJING_TZ = ZoneInfo('Asia/Shanghai')
+BEIJING_FMT = '%Y-%m-%d %H:%M:%S'
+_TIME_KEYS = {
+    'createTime',
+    'create_time',
+    'pubTime',
+    'pub_time',
+    'updateTime',
+    'update_time',
+    'analysisTime',
+    'analysis_time',
+}
+
+
+def now_beijing() -> datetime:
+    """当前北京墙上时钟（朴素 datetime，写入舆情 create_time 等）。"""
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None)
+
+
+def format_beijing_datetime(value: datetime | str | None, fmt: str = BEIJING_FMT) -> str | None:
+    """
+    将 datetime / ISO 字符串格式化为北京时间（Asia/Shanghai），不含 Z / 偏移。
+
+    假设：舆情采集东财/新浪等中国源的朴素 pub_time 已是北京墙上时钟，不得再当 UTC +8。
+    带 Z / 偏移的值按绝对时刻转到上海。
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return ''
+        try:
+            parsed = parse(raw)
+        except Exception:
+            return raw.replace('T', ' ').replace('Z', '').split('+')[0][:19]
+        return format_beijing_datetime(parsed, fmt)
+    if not isinstance(value, datetime):
+        return str(value)
+    stamp = value if value.tzinfo is None else value.astimezone(BEIJING_TZ)
+    if stamp.tzinfo is not None:
+        stamp = stamp.replace(tzinfo=None)
+    return stamp.strftime(fmt)
+
+
+def apply_beijing_times(obj: Any) -> Any:
+    """递归把 payload 里的 datetime / 时间字段格式化为北京时间字符串。"""
+    if isinstance(obj, datetime):
+        return format_beijing_datetime(obj)
+    if isinstance(obj, dict):
+        out: dict[Any, Any] = {}
+        for key, value in obj.items():
+            if key in _TIME_KEYS or isinstance(value, datetime):
+                out[key] = format_beijing_datetime(value) if value not in (None, '') else value
+            else:
+                out[key] = apply_beijing_times(value)
+        return out
+    if isinstance(obj, list):
+        return [apply_beijing_times(item) for item in obj]
+    if hasattr(obj, 'rows'):
+        obj.rows = apply_beijing_times(obj.rows)
+        return obj
+    return obj
 
 
 def object_format_datetime(obj: Any) -> Any:

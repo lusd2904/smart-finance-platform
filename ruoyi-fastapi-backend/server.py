@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -10,6 +11,7 @@ from config.env import AppConfig
 from config.get_db import close_async_engine, init_create_table
 from config.get_redis import RedisUtil
 from config.get_scheduler import SchedulerUtil
+from config.providers import install_module_admin_provider
 from exceptions.handle import handle_exception
 from middlewares.handle import handle_middleware
 from module_admin.service.log_service import LogAggregatorService
@@ -18,6 +20,9 @@ from utils.common_util import worship
 from utils.log_util import logger
 from utils.server_util import APIDocsUtil, IPUtil, StartupUtil
 from utils.transport_crypto_util import TransportKeyProvider
+
+# 公共层不直接依赖业务模块：进程入口装配字典/参数缓存的真实实现
+install_module_admin_provider()
 
 
 async def _start_background_tasks(app: FastAPI) -> None:
@@ -29,10 +34,27 @@ async def _start_background_tasks(app: FastAPI) -> None:
     """
     from utils.job_queue import JobQueue
 
-    await SchedulerUtil.init_system_scheduler(app.state.redis)
+    SchedulerUtil.bind_redis(app.state.redis)
+    try:
+        from utils.longbridge_breaker import LongbridgeBreaker
+
+        await LongbridgeBreaker.hydrate_from_redis()
+    except Exception:
+        pass
+    if AppConfig.runs_scheduler():
+        await SchedulerUtil.init_system_scheduler(app.state.redis)
+    else:
+        logger.info(f'⏸️ APP_ROLE={AppConfig.app_role}，跳过 APScheduler，定时任务由 sentiment-jobs 执行')
     app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
-    app.state.job_queue_stop = asyncio.Event()
-    app.state.job_queue_task = asyncio.create_task(JobQueue.consume_forever(app.state.job_queue_stop))
+    if AppConfig.runs_job_queue_worker():
+        app.state.job_queue_stop = asyncio.Event()
+        app.state.job_queue_task = asyncio.create_task(
+            JobQueue.consume_forever(app.state.job_queue_stop, AppConfig.app_job_group)
+        )
+    else:
+        app.state.job_queue_stop = None
+        app.state.job_queue_task = None
+        logger.info(f'⏸️ APP_ROLE={AppConfig.app_role} group={AppConfig.app_job_group}，跳过 Redis 队列消费')
 
 
 async def _stop_background_tasks(app: FastAPI) -> None:
@@ -99,7 +121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             worker_id=SchedulerUtil._worker_id,
             lock_expire_seconds=LockConstant.LOCK_EXPIRE_SECONDS,
             interval_seconds=LockConstant.LOCK_RENEWAL_INTERVAL,
-            on_lock_lost=SchedulerUtil.on_lock_lost,
+            on_lock_lost=SchedulerUtil.on_lock_lost if AppConfig.app_role == 'all' else None,
         )
 
     with logger.contextualize(startup_phase=True, startup_log_enabled=startup_log_enabled):
@@ -181,8 +203,20 @@ def create_app() -> FastAPI:
     # 自动注册路由
     auto_register_routers(app)
 
+    @app.get('/health', summary='健康检查', include_in_schema=False)
+    async def health() -> dict[str, Any]:
+        from utils.longbridge_breaker import LongbridgeBreaker
+
+        return {
+            'status': 'up',
+            'role': AppConfig.app_role,
+            'module': AppConfig.app_module,
+            'jobGroup': AppConfig.app_job_group,
+            'longbridge': LongbridgeBreaker.snapshot(),
+        }
+
     @app.get('/metrics', summary='Prometheus 监控指标', include_in_schema=False)
-    async def metrics():
+    async def metrics() -> Any:
         from middlewares.metrics_middleware import render_metrics
 
         return render_metrics()

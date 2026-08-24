@@ -10,7 +10,7 @@ async def test_dashboard_page() -> None:
     """测试仪表盘页面"""
     # 首先登录获取token
     helper = LoginHelper()
-    token = helper.login(username='admin', password='admin123')
+    token = helper.login(username='admin')
     assert token is not None, '登录应该成功'
 
     async with async_playwright() as p:
@@ -48,7 +48,7 @@ async def test_druid_page() -> None:
     """测试数据监控页面"""
     # 首先登录获取token
     helper = LoginHelper()
-    token = helper.login(username='admin', password='admin123')
+    token = helper.login(username='admin')
     assert token is not None, '登录应该成功'
 
     async with async_playwright() as p:
@@ -86,7 +86,7 @@ async def test_build_page() -> None:
     """测试表单构建页面"""
     # 首先登录获取token
     helper = LoginHelper()
-    token = helper.login(username='admin', password='admin123')
+    token = helper.login(username='admin')
     assert token is not None, '登录应该成功'
 
     async with async_playwright() as p:

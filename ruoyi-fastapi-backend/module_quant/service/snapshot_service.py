@@ -10,10 +10,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
@@ -27,6 +26,11 @@ from module_quant.service.readmodel_service import (
 )
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 STOP_LOSS_PCT = -8.0
 
@@ -169,7 +173,7 @@ class SnapshotService:
         board: list[dict[str, Any]] = []
         by_market: dict[str, list[str]] = {}
         names: dict[tuple[str, str], str] = {}
-        for symbol, name, market, category in TARGET_INSTRUMENTS:
+        for symbol, name, market, _category in TARGET_INSTRUMENTS:
             by_market.setdefault(market, []).append(symbol)
             names[(symbol, market)] = name
         for market, symbols in by_market.items():
@@ -206,6 +210,13 @@ class SnapshotService:
         await QuantSnapshotDao.add_readmodel_snapshot(db, 'board', _json(payload))
         await db.commit()
         await ReadModelService.put_scheduled('board', payload, BOARD_TTL)
+        try:
+            from module_market.service.market_service import MarketService
+
+            quotes = await MarketService.refresh_board_quotes_cache(db)
+            payload['quotesCache'] = quotes
+        except Exception as exc:
+            logger.warning(f'[指标快照] 写入看板报价缓存失败: {exc}')
         return {'count': len(board), 'asOf': payload['asOf']}
 
     @classmethod
@@ -295,10 +306,8 @@ class SnapshotService:
 
     @classmethod
     async def build_overview_payload(cls, db: AsyncSession) -> dict[str, Any]:
-        from module_quant.service.readmodel_service import ReadModelService as RMS
-
-        asset = await RMS.get_account_asset_snapshot(use_scheduled=False)
-        pos = await RMS.get_position_snapshot(use_scheduled=False)
+        asset = await ReadModelService.get_account_asset_snapshot(use_scheduled=False)
+        pos = await ReadModelService.get_position_snapshot(use_scheduled=False)
         factors = await QuantSnapshotDao.get_latest_readmodel(db, 'factors')
         board = await QuantSnapshotDao.get_latest_readmodel(db, 'board')
         factor_payload = _loads(factors.payload_json) if factors else {}
@@ -405,12 +414,12 @@ def _to_float(value: Any) -> float | None:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    if result != result or result in (float('inf'), float('-inf')):
+    if math.isnan(result) or result in (float('inf'), float('-inf')):
         return None
     return result
 
 
-async def _to_thread(func, *args):
+async def _to_thread(func: Callable[..., Any], *args: Any) -> Any:
     import asyncio
 
     return await asyncio.get_running_loop().run_in_executor(None, func, *args)

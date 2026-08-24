@@ -13,7 +13,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -172,3 +172,27 @@ ruoyi-fastapi-backend/.env*
 ruoyi-fastapi-frontend/.env*
 !ruoyi-fastapi-frontend/.env.*.example
 *.log
+
+# 本地分析备忘，不入库
+自动分析任务优化清单.md
+
+# 本地生产数据备份/迁移 dump，禁止入库
+_mac_*
+_sfp-*.sql
+*.tgz
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# 日志与临时输出
+logs/
+output/

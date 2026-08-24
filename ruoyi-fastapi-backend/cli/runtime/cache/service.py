@@ -189,6 +189,10 @@ class CacheRuntimeService:
                     await redis.delete(*target_keys)
 
                 if clear_all:
+                    # CLI 进程不经过 server 启动装配，这里按需装配真实实现
+                    from config.providers import install_module_admin_provider
+
+                    install_module_admin_provider()
                     await redis_util.init_sys_dict(redis)
                     await redis_util.init_sys_config(redis)
 
@@ -206,6 +210,10 @@ class CacheRuntimeService:
         redis_error = self.infrastructure_gateway.get_redis_error_class()
         try:
             async with self.redis_support.redis_session() as (redis, redis_util):
+                # CLI 进程不经过 server 启动装配，这里按需装配真实实现
+                from config.providers import install_module_admin_provider
+
+                install_module_admin_provider()
                 await redis_util.init_sys_dict(redis)
                 await redis_util.init_sys_config(redis)
                 return {'ok': True, 'message': '缓存预热完成'}

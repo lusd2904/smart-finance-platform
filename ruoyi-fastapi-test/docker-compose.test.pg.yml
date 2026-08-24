@@ -7,7 +7,7 @@ services:
     image: ruoyi-frontend:latest
     container_name: ruoyi-frontend-test
     ports:
-      - "80:80"
+      - "80:8080"
     volumes:
       - ../ruoyi-fastapi-frontend/bin/nginx.dockerpg.conf:/etc/nginx/conf.d/default.conf
     depends_on:

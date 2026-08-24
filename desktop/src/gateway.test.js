@@ -2,7 +2,8 @@ const assert = require('assert')
 const { normalizeGateway, probeGateway } = require('./gateway')
 const { mustConfigureGateway } = require('./main-boot')
 
-assert.equal(normalizeGateway('127.0.0.1:12580'), 'http://127.0.0.1:12580')
+// 无协议地址默认按 https 处理（不再静默降级 http）；显式 http:// 保留
+assert.equal(normalizeGateway('127.0.0.1:12580'), 'https://127.0.0.1:12580')
 assert.equal(normalizeGateway('http://127.0.0.1:12580/'), 'http://127.0.0.1:12580')
 assert.equal(normalizeGateway('https://fin.example.com/login'), 'https://fin.example.com')
 assert.throws(() => normalizeGateway('file:///tmp'), /仅支持/)

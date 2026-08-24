@@ -13,9 +13,9 @@ from redis import asyncio as aioredis
 from typing_extensions import ParamSpec
 
 from common.context import RequestContext
+from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import HttpMethod, RedisInitKeyConfig
 from exceptions.exception import LoginException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from utils.api_annotation_util import ApiAnnotationUtil
 from utils.api_response_header_util import ApiResponseHeaderUtil
 from utils.client_ip_util import ClientIPUtil

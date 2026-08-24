@@ -15,8 +15,8 @@ delete from sys_job where job_id in (103, 104);
 -- ----------------------------
 -- A. 行情扩展页面
 -- ----------------------------
-insert into sys_menu values('2110', '财经资讯', '2100', '3', 'finance-news', 'market/finance-news/index', '', 'MarketFinanceNewsIndex', 1, 0, 'C', '0', '0', 'market:finance:list', 'documentation', 'admin', sysdate(), '', null, '财经资讯简报流');
-insert into sys_menu values('2111', '标的详情', '2100', '4', 'symbol', 'market/symbol/index', '', 'MarketSymbolIndex', 1, 0, 'C', '0', '0', 'market:symbol:overview', 'list', 'admin', sysdate(), '', null, '标的详情页');
+insert into sys_menu values('2110', '财经资讯', '2100', '4', 'finance-news', 'market/finance-news/index', '', 'MarketFinanceNewsIndex', 1, 0, 'C', '0', '0', 'market:finance:list', 'documentation', 'admin', sysdate(), '', null, '财经资讯简报流');
+insert into sys_menu values('2111', '标的详情', '2100', '23', 'symbol', 'market/symbol/index', '', 'MarketSymbolIndex', 1, 0, 'C', '1', '0', 'market:symbol:overview', 'list', 'admin', sysdate(), '', null, '标的详情，从列表点入');
 
 -- 按钮权限
 insert into sys_menu values('2112', '简报查询', '2110', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'market:finance:list', '#', 'admin', sysdate(), '', null, '');

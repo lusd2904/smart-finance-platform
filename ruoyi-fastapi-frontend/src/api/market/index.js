@@ -12,13 +12,22 @@ export function listInstrument(categoryOrQuery) {
   })
 }
 
+// 全市场标的分页（含 listed，强制分页）
+export function listInstrumentUniverse(query) {
+  return request({
+    url: '/market/instrument/universe',
+    method: 'get',
+    params: query
+  })
+}
+
 // 行情台批量报价（最近两根日K，单次请求）
 export function getBoardQuotes(query) {
   return request({
     url: '/market/board/quotes',
     method: 'get',
     params: query,
-    timeout: 60000,
+    timeout: 8000,
     loadingText: '加载中…'
   })
 }
@@ -171,5 +180,92 @@ export function getMarketWatchlistBacktest(query) {
     url: '/market/watchlist/backtest',
     method: 'get',
     params: query
+  })
+}
+
+export function getMarketHeatDaily(query) {
+  return request({
+    url: '/market/heat/daily',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatTrend(query) {
+  return request({
+    url: '/market/heat/trend',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatDates(query) {
+  return request({
+    url: '/market/heat/dates',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getMarketHeatConfig() {
+  return request({
+    url: '/market/heat/config',
+    method: 'get'
+  })
+}
+
+export function getStockPickMood() {
+  return request({
+    url: '/market/picks/mood',
+    method: 'get'
+  })
+}
+
+export function refreshStockPickMood() {
+  return request({
+    url: '/market/picks/mood/refresh',
+    method: 'post'
+  })
+}
+
+export function getStockPickLatest(query) {
+  return request({
+    url: '/market/picks/latest',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getStockPickDates(query) {
+  return request({
+    url: '/market/picks/dates',
+    method: 'get',
+    params: query
+  })
+}
+
+export function runStockPick() {
+  return request({
+    url: '/market/picks/run',
+    method: 'post',
+    timeout: 180000,
+    loadingText: '生成选股单…'
+  })
+}
+
+export function collectMarketHeat(query) {
+  return request({
+    url: '/market/heat/collect',
+    method: 'post',
+    params: query
+  })
+}
+
+// 盘中大盘指数实时行情（舆情大盘指数条数据源，非交易时段返回空列表）
+export function getMarketIndexQuotes() {
+  return request({
+    url: '/market/index/quotes',
+    method: 'get',
+    timeout: 8000
   })
 }

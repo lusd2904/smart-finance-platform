@@ -15,7 +15,7 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
 from module_admin.entity.vo.notice_vo import DeleteNoticeModel, NoticeModel, NoticePageQueryModel
-from module_admin.entity.vo.user_vo import CurrentUserModel
+from common.entity.vo.user_vo import CurrentUserModel
 from module_admin.service.notice_service import NoticeService
 from utils.log_util import logger
 from utils.response_util import ResponseUtil

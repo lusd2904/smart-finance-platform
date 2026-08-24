@@ -11,10 +11,10 @@ from sqlglot import parse as sqlglot_parse
 from sqlglot.expressions import Add, Alter, Create, Delete, Drop, Expression, Insert, Table, TruncateTable, Update
 
 from common.constant import GenConstant
+from common.entity.vo.user_vo import CurrentUserModel
 from common.vo import CrudResponseModel, PageModel
 from config.env import DataBaseConfig, GenConfig
 from exceptions.exception import ServiceException
-from module_admin.entity.vo.user_vo import CurrentUserModel
 from module_generator.dao.gen_dao import GenTableColumnDao, GenTableDao
 from module_generator.entity.vo.gen_vo import (
     DeleteGenTableModel,
@@ -23,9 +23,9 @@ from module_generator.entity.vo.gen_vo import (
     GenTableModel,
     GenTablePageQueryModel,
 )
+from module_generator.utils.gen_util import GenUtils
+from module_generator.utils.template_util import TemplateInitializer, TemplateUtils
 from utils.common_util import CamelCaseUtil
-from utils.gen_util import GenUtils
-from utils.template_util import TemplateInitializer, TemplateUtils
 
 
 class GenTableService:

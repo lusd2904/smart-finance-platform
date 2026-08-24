@@ -8,9 +8,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
@@ -27,11 +25,13 @@ from module_quant.entity.vo.quant_vo import (
     RunStrategyModel,
 )
 from module_quant.service.factor_service import FactorService
-from module_quant.service.longbridge_service import LongbridgeService
+from module_quant.service.longbridge_service import LongbridgeService, resolve_longbridge_user_id
 from module_quant.service.strategy_service import StrategyService
-from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 VALID_PROFILES = {'conservative', 'balanced', 'aggressive'}
 
@@ -117,27 +117,34 @@ class QuantService:
 
     @classmethod
     async def get_watchlist_services(
-        cls, query_db: AsyncSession, query_object: QuantWatchlistPageQueryModel, is_page: bool = True
+        cls,
+        query_db: AsyncSession,
+        query_object: QuantWatchlistPageQueryModel,
+        is_page: bool = True,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        """获取自选池分页列表"""
-        return await QuantWatchlistDao.get_watchlist(query_db, query_object, is_page)
+        """获取自选池分页列表（user_id 非空时按账号隔离）"""
+        return await QuantWatchlistDao.get_watchlist(query_db, query_object, is_page, user_id=user_id)
 
     @classmethod
     async def add_watchlist_services(
-        cls, query_db: AsyncSession, add_model: AddQuantWatchlistModel
+        cls, query_db: AsyncSession, add_model: AddQuantWatchlistModel, user_id: int | None = None
     ) -> CrudResponseModel:
-        """新增自选标的（去重）"""
+        """新增自选标的（账号内去重）"""
         symbol = (add_model.symbol or '').strip().upper()
         market = (add_model.market or 'US').strip().upper()
         if not symbol:
             raise ServiceException(message='标的代码不能为空')
-        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market)
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
+        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
         if existing:
             raise ServiceException(message=f'{symbol}({market}) 已在自选池中')
         try:
             await QuantWatchlistDao.add_watchlist(
                 query_db,
                 {
+                    'user_id': user_id,
                     'symbol': symbol,
                     'market': market,
                     'note': add_model.note,
@@ -152,16 +159,18 @@ class QuantService:
             raise e
 
     @classmethod
-    async def delete_watchlist_services(cls, query_db: AsyncSession, ids: str) -> CrudResponseModel:
-        """删除自选标的"""
+    async def delete_watchlist_services(
+        cls, query_db: AsyncSession, ids: str, user_id: int | None = None
+    ) -> CrudResponseModel:
+        """删除自选标的（user_id 非空时只能删自己的）"""
         if not ids:
             raise ServiceException(message='传入ID为空')
         try:
             id_list = [int(i) for i in ids.split(',') if i.strip()]
         except ValueError:
-            raise ServiceException(message='ID格式非法，应为逗号分隔的数字')
+            raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
         try:
-            await QuantWatchlistDao.delete_watchlist(query_db, id_list)
+            await QuantWatchlistDao.delete_watchlist(query_db, id_list, user_id=user_id)
             await query_db.commit()
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception as e:
@@ -172,10 +181,10 @@ class QuantService:
 
     @classmethod
     async def run_strategy_services(
-        cls, query_db: AsyncSession, run_model: RunStrategyModel
+        cls, query_db: AsyncSession, run_model: RunStrategyModel, user_id: int | None = None
     ) -> dict[str, Any]:
         """
-        跑一次策略并入库。symbols 不传则用自选池。
+        跑一次策略并入库。symbols 不传则用当前用户自选池（未识别用户时退回全池）。
         """
         profile = run_model.profile if run_model.profile in VALID_PROFILES else 'balanced'
         profile_cfg = await cls.load_profile_config(query_db, profile)
@@ -184,9 +193,9 @@ class QuantService:
         if run_model.symbols:
             targets = [{'symbol': s.strip().upper(), 'market': 'US'} for s in run_model.symbols if s and s.strip()]
         else:
-            watchlist = await QuantWatchlistDao.get_enabled_symbols(query_db)
+            watchlist = await QuantWatchlistDao.get_enabled_symbols(query_db, user_id=user_id)
             targets = [{'symbol': w.symbol, 'market': w.market} for w in watchlist]
-            # 自选池为空则退回全市场（前端提示“留空则全市场”）
+            # 自选池为空则退回精选池（前端提示“留空则全市场”）
             if not targets:
                 from module_market.constant.instruments import TARGET_INSTRUMENTS
                 targets = [{'symbol': it[0], 'market': it[2]} for it in TARGET_INSTRUMENTS]
@@ -207,6 +216,7 @@ class QuantService:
                 query_db,
                 {
                     'cycle_id': cycle_id,
+                    'user_id': user_id or 1,
                     'strategy_profile': profile,
                     'symbols_count': cycle_result['symbolsCount'],
                     'signal_count': cycle_result['signalCount'],
@@ -214,20 +224,20 @@ class QuantService:
                 },
             )
             run_id = run.run_id  # commit 后 ORM 属性会过期，提前取出主键
-            signal_rows = []
-            for s in cycle_result['signals']:
-                signal_rows.append(
-                    {
-                        'run_id': run_id,
-                        'symbol': s['symbol'],
-                        'signal': s['signal'],
-                        'score': s.get('score'),
-                        'confidence': s.get('confidence'),
-                        'reason': (s.get('reason') or '')[:500],
-                        'factor_json': json.dumps(s.get('factor_json') or {}, ensure_ascii=False)[:60000],
-                        'create_time': datetime.now(),
-                    }
-                )
+            signal_rows = [
+                {
+                    'run_id': run_id,
+                    'user_id': user_id or 1,
+                    'symbol': s['symbol'],
+                    'signal': s['signal'],
+                    'score': s.get('score'),
+                    'confidence': s.get('confidence'),
+                    'reason': (s.get('reason') or '')[:500],
+                    'factor_json': json.dumps(s.get('factor_json') or {}, ensure_ascii=False)[:60000],
+                    'create_time': datetime.now(),
+                }
+                for s in cycle_result['signals']
+            ]
             if signal_rows:
                 await QuantStrategyDao.add_signals(query_db, signal_rows)
             await query_db.commit()
@@ -272,10 +282,11 @@ class QuantService:
     async def get_scan_runs_services(cls, query_db: AsyncSession, limit: int = 20) -> dict[str, Any]:
         """只读扫描运行列表（最近 N 条）"""
         runs = await QuantStrategyDao.get_scan_runs(query_db, limit=limit)
+        signals_by_run = await QuantStrategyDao.get_signals_by_runs(query_db, [r.run_id for r in runs])
         items = []
         opportunity_total = 0
         for run in runs:
-            signals = await QuantStrategyDao.get_signals_by_run(query_db, run.run_id)
+            signals = signals_by_run.get(run.run_id, [])
             opportunities = [s for s in signals if s.signal == 'BUY']
             skipped = [s for s in signals if s.signal == 'HOLD']
             opportunity_total += len(opportunities)
@@ -384,14 +395,14 @@ class QuantService:
 
     @classmethod
     async def get_symbol_latest_scan_services(
-        cls, query_db: AsyncSession, symbol: str, market: str = 'US'
+        cls, query_db: AsyncSession, symbol: str, market: str = 'US', user_id: int | None = None
     ) -> dict[str, Any]:
-        """单标的：最近趋势扫描 + 最近 AI 研判"""
+        """单标的：最近趋势扫描 + 最近 AI 研判（趋势信号按账号隔离）"""
         from module_market.service.market_service import MarketService
 
         symbol = (symbol or '').strip().upper()
         market = (market or 'US').strip().upper()
-        signal = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol)
+        signal = await QuantStrategyDao.get_latest_signal_for_symbol(query_db, symbol, user_id=user_id)
         latest_trend = MarketService._map_signal_to_trend(signal)
         latest_ai = await MarketService.get_latest_ai_analysis(query_db, symbol, market)
         return {
@@ -404,58 +415,55 @@ class QuantService:
     # ------------------------------------------------------------ 长桥 ---
 
     @classmethod
-    async def _sync_longbridge_credentials(cls, query_db: AsyncSession) -> None:
-        """从DB读取长桥凭据注入到 LongbridgeService（DB优先于env）。"""
-        config = await QuantLongbridgeConfigDao.get_config(query_db)
-        if config and (config.app_key or config.app_secret or config.access_token):
-            LongbridgeService.set_credentials(
-                {
-                    'app_key': config.app_key,
-                    'app_secret': cls._decrypt_or_raw(config.app_secret),
-                    'access_token': cls._decrypt_or_raw(config.access_token),
-                    'region': config.region,
-                }
-            )
-        else:
-            LongbridgeService.set_credentials(None)
+    async def _sync_longbridge_credentials(cls, query_db: AsyncSession, user_id: int | None = None) -> None:
+        """从DB读取当前用户长桥凭据注入到 LongbridgeService（DB优先于env）。"""
+        await LongbridgeService.ensure_credentials_from_db(query_db, user_id)
 
     @classmethod
-    async def test_longbridge_services(cls, query_db: AsyncSession) -> dict[str, Any]:
-        """长桥连通性测试"""
-        await cls._sync_longbridge_credentials(query_db)
+    async def test_longbridge_services(cls, query_db: AsyncSession, user_id: int | None = None) -> dict[str, Any]:
+        """长桥连通性测试，只使用当前用户自己的凭据行。"""
+        target_id = resolve_longbridge_user_id(user_id)
+        config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
+        if not config or not (config.app_key or config.app_secret or config.access_token):
+            return {'configured': False, 'connected': False, 'message': '长桥凭据未配置'}
+        await cls._sync_longbridge_credentials(query_db, target_id)
         return LongbridgeService.test_connection()
 
     @classmethod
-    async def get_longbridge_config_services(cls, query_db: AsyncSession) -> QuantLongbridgeConfigModel:
+    async def get_longbridge_config_services(
+        cls, query_db: AsyncSession, user_id: int | None = None
+    ) -> QuantLongbridgeConfigModel:
         """
-        获取长桥凭据配置（app_secret/access_token 脱敏，仅回显是否已设置）。
+        获取当前用户长桥凭据配置（app_secret/access_token 脱敏）。
+        无本行时返回空配置，不读取其他用户或 env 以免串号。
         """
-        config = await QuantLongbridgeConfigDao.get_config(query_db)
+        target_id = resolve_longbridge_user_id(user_id)
+        config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
         if config:
             return QuantLongbridgeConfigModel(
                 id=config.id,
+                userId=getattr(config, 'user_id', None) or target_id,
                 appKey=config.app_key or '',
                 appSecret=cls._mask(cls._decrypt_or_raw(config.app_secret)),
                 accessToken=cls._mask(cls._decrypt_or_raw(config.access_token)),
                 region=config.region or 'cn',
                 updateTime=config.update_time,
             )
-        # 回退展示 env 是否配置
-        creds = LongbridgeService.resolve_credentials()
         return QuantLongbridgeConfigModel(
-            appKey=creds['app_key'],
-            appSecret=cls._mask(creds['app_secret']),
-            accessToken=cls._mask(creds['access_token']),
-            region=creds['region'],
+            userId=target_id,
+            appKey='',
+            appSecret='',
+            accessToken='',
+            region='cn',
         )
 
     @classmethod
     async def save_longbridge_config_services(
-        cls, query_db: AsyncSession, config: QuantLongbridgeConfigModel
+        cls, query_db: AsyncSession, config: QuantLongbridgeConfigModel, user_id: int | None = None
     ) -> CrudResponseModel:
-        """保存长桥凭据配置，保存后即时生效（DB覆盖env）。"""
-        # 前端回显的是 ****xxxx 脱敏值：用户未改动直接保存时必须保留库中原值，否则会用掩码覆盖毁掉真实密钥
-        existing = await QuantLongbridgeConfigDao.get_config(query_db)
+        """保存当前用户长桥凭据；忽略请求体中的 user_id，以登录用户为准。"""
+        target_id = resolve_longbridge_user_id(user_id)
+        existing = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
         app_secret = config.app_secret
         access_token = config.access_token
         if cls._is_masked(app_secret):
@@ -467,6 +475,7 @@ class QuantService:
         else:
             access_token = CryptoUtil.encrypt(access_token) if access_token else ''
         config_dict = {
+            'user_id': target_id,
             'app_key': config.app_key,
             'app_secret': app_secret,
             'access_token': access_token,
@@ -474,9 +483,9 @@ class QuantService:
             'update_time': datetime.now(),
         }
         try:
-            await QuantLongbridgeConfigDao.save_config(query_db, config_dict)
+            await QuantLongbridgeConfigDao.save_config(query_db, config_dict, target_id)
             await query_db.commit()
-            await cls._sync_longbridge_credentials(query_db)
+            await cls._sync_longbridge_credentials(query_db, target_id)
             return CrudResponseModel(is_success=True, message='保存成功')
         except Exception as e:
             await query_db.rollback()

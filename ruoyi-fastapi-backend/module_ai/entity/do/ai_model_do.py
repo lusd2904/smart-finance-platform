@@ -29,7 +29,7 @@ class AiModels(Base):
         String(32),
         nullable=False,
         server_default='chat',
-        comment='适用范围(chat=AI助手/sentiment=舆情模块/quant=量化模块预留/global=全局复用)',
+        comment='适用范围(chat=AI助手/sentiment=舆情/quant=量化/global=全局/market=行情中心)',
     )
     api_key = Column(
         String(255),

@@ -101,6 +101,11 @@
       <el-table-column type="selection" width="55" align="center" />
       <el-table-column label="模型ID" align="center" prop="modelId" />
       <el-table-column label="模型编码" align="center" prop="modelCode" />
+      <el-table-column label="适用范围" align="center" prop="scope" width="120">
+        <template #default="scope">
+          <span>{{ scopeLabel(scope.row.scope) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="提供商" align="center" prop="provider">
         <template #default="scope">
           <dict-tag :options="ai_provider_type" :value="scope.row.provider" />
@@ -218,8 +223,12 @@
                 <el-option label="全局复用 (global)" value="global" />
                 <el-option label="舆情模块 (sentiment)" value="sentiment" />
                 <el-option label="AI助手 (chat)" value="chat" />
+                <el-option label="行情中心 (market)" value="market" />
                 <el-option label="量化模块 (quant)" value="quant" />
               </el-select>
+              <div class="form-hint">
+                智能选股 / 自选分析读「行情中心」。未配则回退全局或助手。默认 Grok 4.6（OpenRouter 编码 x-ai/grok-4.6，直连 xAI 填 grok-4.6）。
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -373,6 +382,18 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data);
 
+const SCOPE_LABELS = {
+  global: "全局",
+  sentiment: "舆情",
+  chat: "AI助手",
+  market: "行情中心",
+  quant: "量化",
+};
+
+function scopeLabel(value) {
+  return SCOPE_LABELS[value] || value || "--";
+}
+
 /** 查询列表 */
 function getList() {
   loading.value = true;
@@ -486,3 +507,12 @@ function handleDelete(row) {
 
 getList();
 </script>
+
+<style scoped>
+.form-hint {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+</style>
