@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 # 聚合结果缓存：工作台是高频首屏，30s 足够新且能扛住多人同时刷新
 SUMMARY_CACHE_KEY = 'dashboard:summary'
 SUMMARY_CACHE_TTL = 30
+# 单块超时必须低于前端 axios 10s，避免一块拖垮整页（nginx 499）
+SECTION_TIMEOUT_SEC = 5
 
 # 交易时段近似边界（各市场本地时间，含午休简化处理）
 _SESSION_START_HOUR = 9
@@ -118,22 +120,46 @@ class DashboardService:
         return has
 
     @classmethod
+    async def _run_section(cls, section: str, coro: Any) -> dict[str, Any]:
+        """单块限时执行：超时或异常都降级为空态，不拖垮整页。"""
+        try:
+            return await asyncio.wait_for(coro, timeout=SECTION_TIMEOUT_SEC)
+        except TimeoutError:
+            logger.warning(f'[工作台] 数据块 {section} 超时降级')
+            return _empty(section, 'timeout')
+        except Exception as exc:
+            logger.warning(f'[工作台] 数据块 {section} 异常降级: {exc}')
+            return _empty(section)
+
+    @classmethod
     async def _collect(cls, query_db: AsyncSession, user_id: int | None, has: Any) -> dict[str, Any]:
-        results = await asyncio.gather(
-            cls._asset_block(query_db) if has(SECTION_PERMS['asset']) else cls._denied('asset'),
-            cls._quotes_block(query_db) if has(SECTION_PERMS['quotes']) else cls._denied('quotes'),
-            cls._heat_block(query_db) if has(SECTION_PERMS['heat']) else cls._denied('heat'),
+        jobs: list[tuple[str, Any]] = [
+            ('asset', cls._asset_block(query_db) if has(SECTION_PERMS['asset']) else cls._denied('asset')),
+            ('quotes', cls._quotes_block(query_db) if has(SECTION_PERMS['quotes']) else cls._denied('quotes')),
+            ('heat', cls._heat_block(query_db) if has(SECTION_PERMS['heat']) else cls._denied('heat')),
             (
-                cls._watch_signals_block(query_db, user_id)
-                if user_id and has(SECTION_PERMS['watchSignals'])
-                else cls._denied('watchSignals')
+                'watchSignals',
+                (
+                    cls._watch_signals_block(query_db, user_id)
+                    if user_id and has(SECTION_PERMS['watchSignals'])
+                    else cls._denied('watchSignals')
+                ),
             ),
-            cls._sentiment_block(query_db) if has(SECTION_PERMS['sentiment']) else cls._denied('sentiment'),
-            cls._briefings_block(query_db) if has(SECTION_PERMS['briefings']) else cls._denied('briefings'),
-            cls._health_block(query_db) if has(SECTION_PERMS['health']) else cls._denied('health'),
+            (
+                'sentiment',
+                cls._sentiment_block(query_db) if has(SECTION_PERMS['sentiment']) else cls._denied('sentiment'),
+            ),
+            (
+                'briefings',
+                cls._briefings_block(query_db) if has(SECTION_PERMS['briefings']) else cls._denied('briefings'),
+            ),
+            ('health', cls._health_block(query_db) if has(SECTION_PERMS['health']) else cls._denied('health')),
+        ]
+        results = await asyncio.gather(
+            *(cls._run_section(key, coro) for key, coro in jobs),
             return_exceptions=True,
         )
-        keys = [*SECTION_PERMS.keys()]
+        keys = [key for key, _ in jobs]
         out: dict[str, Any] = {}
         for key, value in zip(keys, results, strict=True):
             if isinstance(value, BaseException):
@@ -151,26 +177,39 @@ class DashboardService:
 
     @staticmethod
     async def _asset_block(query_db: AsyncSession) -> dict[str, Any]:
-        """账户资产：走读模型定时快照（Redis），不直连长桥。"""
+        """账户资产：只读 scheduled overview，缺失时空态返回，绝不打长桥 live。"""
         from module_quant.service.readmodel_service import ReadModelService
 
         scheduled = await ReadModelService.get_scheduled('overview')
         asset = (scheduled or {}).get('asset') if isinstance(scheduled, dict) else None
-        if not asset:
-            asset = await ReadModelService.get_account_asset_snapshot(use_scheduled=False)
         positions = (scheduled or {}).get('position') if isinstance(scheduled, dict) else None
+        if not isinstance(asset, dict):
+            return {
+                'ok': True,
+                'reason': None,
+                'data': {
+                    'configured': False,
+                    'netAssets': None,
+                    'availableCash': None,
+                    'totalCash': None,
+                    'currency': None,
+                    'positionCount': positions.get('count') if isinstance(positions, dict) else 0,
+                    'totalUnrealizedPnl': positions.get('totalUnrealizedPnl') if isinstance(positions, dict) else None,
+                    'message': '读模型快照尚未生成',
+                },
+            }
         return {
             'ok': True,
             'reason': None,
             'data': {
-                'configured': bool(asset.get('configured')) if asset else False,
-                'netAssets': asset.get('netAssets') if asset else None,
-                'availableCash': asset.get('availableCash') if asset else None,
-                'totalCash': asset.get('totalCash') if asset else None,
-                'currency': asset.get('currency') if asset else None,
-                'positionCount': positions.get('count') if positions else 0,
-                'totalUnrealizedPnl': positions.get('totalUnrealizedPnl') if positions else None,
-                'message': asset.get('message') if asset else '读模型快照尚未生成',
+                'configured': bool(asset.get('configured')),
+                'netAssets': asset.get('netAssets'),
+                'availableCash': asset.get('availableCash'),
+                'totalCash': asset.get('totalCash'),
+                'currency': asset.get('currency'),
+                'positionCount': positions.get('count') if isinstance(positions, dict) else 0,
+                'totalUnrealizedPnl': positions.get('totalUnrealizedPnl') if isinstance(positions, dict) else None,
+                'message': asset.get('message') or None,
             },
         }
 
@@ -279,11 +318,14 @@ class DashboardService:
         )
         from module_sentiment.entity.vo.sentiment_vo import SentimentAnalysisModel
         from utils.common_util import CamelCaseUtil
+        from utils.time_format_util import apply_beijing_times
 
         stats = await SentimentNewsDao.count_news(query_db)
         latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
         latest_data = (
-            SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
+            apply_beijing_times(
+                SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
+            )
             if latest
             else None
         )

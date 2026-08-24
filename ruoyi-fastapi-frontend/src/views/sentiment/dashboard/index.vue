@@ -121,6 +121,7 @@
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
+import { formatBeijingTime, formatBeijingTimeShort } from '@/utils/beijingTime';
 
 const { proxy } = getCurrentInstance();
 
@@ -144,7 +145,7 @@ const latestAnalysisTime = computed(() => {
   const fromStats = la && typeof la === 'object' ? la.createTime : (typeof la === 'string' ? la : '');
   const raw = fromLatest || fromStats;
   if (!raw) return '';
-  return proxy.parseTime ? proxy.parseTime(raw) : String(raw).replace('T', ' ').slice(0, 19);
+  return formatBeijingTime(raw);
 });
 
 const markets = computed(() => [
@@ -228,7 +229,7 @@ function getTrendData() {
 
 function renderTrend(list) {
   if (!trendRef.value) return;
-  const times = list.map(item => item.createTime);
+  const times = list.map(item => formatBeijingTimeShort(item.createTime));
   const option = {
     tooltip: { trigger: 'axis' },
     legend: { data: ['美股', '港股', 'A股'], top: 0 },
