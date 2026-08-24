@@ -1,4 +1,4 @@
-agno==2.4.8
+agno==2.9.0
 aiofiles==25.1.0
 alembic==1.18.3
 anthropic==0.78.0
@@ -11,7 +11,7 @@ cohere==5.20.4
 fastapi[all]==0.141.1
 google-genai==1.62.0
 groq==1.0.0
-litellm==1.81.8
+litellm==1.84.0
 llama-api-client==0.6.0
 loguru==0.7.3
 mistralai==1.12.0
@@ -35,4 +35,3 @@ SQLAlchemy[asyncio]==2.0.46
 sqlglot[rs]==28.10.0
 textual==8.2.5
 user-agents==2.2.0
-.

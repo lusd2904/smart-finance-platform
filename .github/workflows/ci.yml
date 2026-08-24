@@ -138,9 +138,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # 仓库按约定不提交 package-lock.json，故用 npm install 而非 npm ci
+      # package-lock.json 已入库；CI 与 Docker 前端镜像均依赖可复现安装
       - name: Install dependencies
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: npm ci --no-audit --no-fund --ignore-scripts
       # 棘轮式 lint：存量 137 个历史错误（no-unused-vars 等待逐步清理）记录在
       # LINT_ERROR_BUDGET，本次改动不允许新增；低于预算同样失败提示清理。
       - name: Lint (error budget ratchet)
