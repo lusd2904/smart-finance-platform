@@ -134,6 +134,19 @@ jobs:
         working-directory: flutter_client/build/windows/x64/runner/Release
         shell: pwsh
         run: Compress-Archive -Path * -DestinationPath "$GITHUB_WORKSPACE\sff-windows.zip"
+      - name: Build NSIS installer
+        working-directory: flutter_client
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          $srcdir = "$PWD\build\windows\x64\runner\Release"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "/DVERSION=$version" "/DSRCDIR=$srcdir" windows\packaging\installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sff-windows-setup
+          path: sff-windows-setup.exe
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: sff-windows-zip
@@ -162,3 +175,4 @@ jobs:
             dist/sff-macos.dmg
             dist/sff-macos.zip
             dist/sff-windows.zip
+            dist/sff-windows-setup.exe
