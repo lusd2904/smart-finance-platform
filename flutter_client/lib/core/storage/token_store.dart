@@ -11,7 +11,8 @@ class TokenStore {
 
   Future<String?> read() => _storage.read(key: _tokenKey);
 
-  Future<void> write(String token) => _storage.write(key: _tokenKey, value: token);
+  Future<void> write(String token) =>
+      _storage.write(key: _tokenKey, value: token);
 
   Future<void> clear() => _storage.delete(key: _tokenKey);
 }
@@ -21,7 +22,9 @@ final tokenStoreProvider = Provider<TokenStore>((ref) {
   // macOS：数据保护钥匙串（插件默认）要求正式分发签名（Team 前缀），
   // 开发/直装构建为 ad-hoc 签会报 errSecMissingEntitlement(-34018)；
   // 故 macOS 走传统钥匙串，M5 发布工程切换正式签名后再评估。
-  return TokenStore(const FlutterSecureStorage(
-    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-  ));
+  return TokenStore(
+    const FlutterSecureStorage(
+      mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+    ),
+  );
 });

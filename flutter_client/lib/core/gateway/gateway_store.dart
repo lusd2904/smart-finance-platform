@@ -33,5 +33,6 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('main() 中 override');
 });
 
-final gatewayStoreProvider =
-    Provider<GatewayStore>((ref) => GatewayStore(ref.watch(sharedPreferencesProvider)));
+final gatewayStoreProvider = Provider<GatewayStore>(
+  (ref) => GatewayStore(ref.watch(sharedPreferencesProvider)),
+);

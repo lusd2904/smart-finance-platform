@@ -19,17 +19,20 @@ class GatewayController extends Notifier<GatewayConfig> {
     final result = await probeGateway(rawUrl);
     if (!result.ok) return result;
     final origin = result.origin ?? normalizeGateway(rawUrl);
-    await _persist(GatewayConfig(
-      url: origin,
-      confirmOnLaunch: state.confirmOnLaunch,
-      lastGoodUrl: origin,
-      lastGoodAt: DateTime.now(),
-    ));
+    await _persist(
+      GatewayConfig(
+        url: origin,
+        confirmOnLaunch: state.confirmOnLaunch,
+        lastGoodUrl: origin,
+        lastGoodAt: DateTime.now(),
+      ),
+    );
     return result;
   }
 
   Future<void> reset() => _persist(const GatewayConfig());
 }
 
-final gatewayController =
-    NotifierProvider<GatewayController, GatewayConfig>(GatewayController.new);
+final gatewayController = NotifierProvider<GatewayController, GatewayConfig>(
+  GatewayController.new,
+);

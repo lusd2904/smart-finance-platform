@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_client/core/api/api_client.dart';
+import 'package:flutter_client/shared/widgets/auth_scaffold.dart';
 import 'package:flutter_client/features/auth/data/auth_api.dart';
 
 /// 注册页：仅在服务端开启 registerEnabled 时从登录页可达。
@@ -62,7 +63,9 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
       _error = null;
     });
     try {
-      await ref.read(authApiProvider).register(
+      await ref
+          .read(authApiProvider)
+          .register(
             username: username,
             password: password,
             confirmPassword: _confirm.text,
@@ -84,39 +87,48 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('注册')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            shrinkWrap: true,
-            children: [
-              TextField(controller: _username, decoration: const InputDecoration(labelText: '用户名')),
-              const SizedBox(height: 16),
-              TextField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: '密码')),
-              const SizedBox(height: 16),
-              TextField(
-                  controller: _confirm,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: '确认密码')),
-              if (_captcha?.captchaEnabled ?? false) ...[
-                const SizedBox(height: 16),
-                TextField(controller: _code, decoration: const InputDecoration(labelText: '验证码')),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              ],
-              const SizedBox(height: 20),
-              FilledButton(
-                onPressed: _submitting ? null : _submit,
-                child: Text(_submitting ? '提交中…' : '注 册'),
-              ),
-            ],
+    return AuthScaffold(
+      title: '创建账号',
+      subtitle: '注册后即可同步使用四端功能',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _username,
+            decoration: const InputDecoration(labelText: '用户名'),
           ),
-        ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _password,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: '密码'),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _confirm,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: '确认密码'),
+          ),
+          if (_captcha?.captchaEnabled ?? false) ...[
+            const SizedBox(height: 16),
+            TextField(
+              controller: _code,
+              decoration: const InputDecoration(labelText: '验证码'),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 14),
+            FormErrorText(_error!),
+          ],
+          const SizedBox(height: 22),
+          FilledButton(
+            onPressed: _submitting ? null : _submit,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(46),
+            ),
+            child: Text(_submitting ? '提交中…' : '注 册'),
+          ),
+        ],
       ),
     );
   }

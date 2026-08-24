@@ -42,8 +42,9 @@ class PriceText extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       formatPrice(value),
-      style: (style ?? const TextStyle())
-          .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+      style: (style ?? const TextStyle()).copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
     );
   }
 }

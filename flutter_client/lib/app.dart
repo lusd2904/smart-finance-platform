@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/gateway/gateway_controller.dart';
+import 'core/dev/design_gallery.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/logic/session_controller.dart';
 import 'features/auth/presentation/login_page.dart';
+
 import 'features/auth/presentation/register_page.dart';
 import 'features/gateway/presentation/gateway_page.dart';
 import 'features/home/home_shell.dart';
+
+/// 调试/集成测试用：--dart-define=SFF_ROUTE=/gallery 直跳指定路由；发布构建固定 '/'。
+const appInitialRoute = String.fromEnvironment('SFF_ROUTE', defaultValue: '/');
 
 /// 路由守卫语义：
 /// 1. 网关未配置 → 强制 /gateway（复刻 desktop「先配网关再登录」）。
@@ -19,10 +26,13 @@ final routerProvider = Provider<GoRouter>((ref) {
   final session = ref.watch(sessionController);
 
   bool protected_(String loc) =>
-      loc != '/gateway' && loc != '/login' && loc != '/register';
+      !((kDebugMode && loc == '/gallery')) &&
+      loc != '/gateway' &&
+      loc != '/login' &&
+      loc != '/register';
 
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: kDebugMode ? appInitialRoute : '/',
     redirect: (context, state) {
       final loc = state.matchedLocation;
       if (gateway.url.isEmpty && loc != '/gateway') return '/gateway';
@@ -40,6 +50,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginPage()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterPage()),
       GoRoute(path: '/home', builder: (_, _) => const HomeShell()),
+      if (kDebugMode)
+        GoRoute(path: '/gallery', builder: (_, _) => const DesignGalleryPage()),
     ],
   );
 });

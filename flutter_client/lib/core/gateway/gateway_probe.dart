@@ -50,10 +50,14 @@ class ProbeResult {
   final String? fallbackUrl;
 }
 
-final _apiBodyPattern =
-    RegExp(r'swagger-ui|redoc|openapi|FastAPI', caseSensitive: false);
-final _frontendBrandPattern =
-    RegExp(r'智慧金融|NEXUS|id="app"', caseSensitive: false);
+final _apiBodyPattern = RegExp(
+  r'swagger-ui|redoc|openapi|FastAPI',
+  caseSensitive: false,
+);
+final _frontendBrandPattern = RegExp(
+  r'智慧金融|NEXUS|id="app"',
+  caseSensitive: false,
+);
 final _jsonDetailPattern = RegExp(r'"detail"|"code"');
 
 bool _isApi(ProbePage page) =>
@@ -64,7 +68,9 @@ bool _isApi(ProbePage page) =>
 bool _isFrontend(ProbePage page) {
   if (_apiBodyPattern.hasMatch(page.body)) return false;
   if (_frontendBrandPattern.hasMatch(page.body)) return true;
-  return page.contentType.contains('text/html') && page.status == 200 && !_isApi(page);
+  return page.contentType.contains('text/html') &&
+      page.status == 200 &&
+      !_isApi(page);
 }
 
 /// 无协议地址默认按 https 处理（不静默降级 http）；显式 http:// 保留；返回 origin。
@@ -97,21 +103,24 @@ String normalizeGateway(String raw) {
 ProbeResult classifyProbe(List<ProbePage> pages, String origin) {
   if (pages.isNotEmpty && pages.every((p) => p.error != null)) {
     final aborted = pages.any((p) => p.error == ProbePage.timeoutMark);
-    final detail =
-        pages.firstWhere((p) => p.error != null).error ?? '未知网络错误';
+    final detail = pages.firstWhere((p) => p.error != null).error ?? '未知网络错误';
     var message = aborted ? '连接超时，请检查地址、端口和防火墙' : '无法连接：$detail';
     String? code;
     String? fallbackUrl;
     if (origin.startsWith('https://')) {
       code = 'https_unreachable';
       fallbackUrl = 'http://${origin.substring('https://'.length)}';
-      message +=
-          '。不会自动降级为明文 HTTP；如你确认该环境没有 TLS，请手动把地址改为以 http:// 开头后再试。';
+      message += '。不会自动降级为明文 HTTP；如你确认该环境没有 TLS，请手动把地址改为以 http:// 开头后再试。';
     } else {
       code = 'unreachable';
     }
     return ProbeResult(
-        ok: false, origin: origin, code: code, message: message, fallbackUrl: fallbackUrl);
+      ok: false,
+      origin: origin,
+      code: code,
+      message: message,
+      fallbackUrl: fallbackUrl,
+    );
   }
 
   final htmlPages = pages.where(_isFrontend).toList();
@@ -128,58 +137,74 @@ ProbeResult classifyProbe(List<ProbePage> pages, String origin) {
     return const ProbeResult(
       ok: false,
       code: 'api_only',
-      message: '这是后端 API 地址。请填写前端网关（本机默认 http://127.0.0.1:12580），不要填 19099/9099。',
+      message:
+          '这是后端 API 地址。请填写前端网关（本机默认 http://127.0.0.1:12580），不要填 19099/9099。',
     );
   }
 
   for (final page in pages) {
     final s = page.status;
     if (s != null && s >= 500) {
-      return ProbeResult(ok: false, origin: origin, message: '网关返回 $s，请确认服务已启动');
+      return ProbeResult(
+        ok: false,
+        origin: origin,
+        message: '网关返回 $s，请确认服务已启动',
+      );
     }
   }
 
   return ProbeResult(
-      ok: false, origin: origin, message: '该地址没有平台前端，请改填 Nginx/前端网关');
+    ok: false,
+    origin: origin,
+    message: '该地址没有平台前端，请改填 Nginx/前端网关',
+  );
 }
 
 /// 并发抓取 /、/login、/docs 三个路径（desktop probeGateway 同款探测面）。
-Future<List<ProbePage>> fetchProbePages(Dio dio, String origin,
-    {Duration timeout = const Duration(seconds: 6)}) async {
-  return Future.wait(['/', '/login', '/docs'].map((pathname) async {
-    try {
-      final res = await dio.get<String>(
-        '$origin$pathname',
-        options: Options(
-          responseType: ResponseType.plain,
-          validateStatus: (_) => true,
-          headers: {'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8'},
-        ),
-      );
-      final raw = res.data ?? '';
-      return ProbePage(
-        pathname: pathname,
-        status: res.statusCode ?? 0,
-        contentType: res.headers.value(Headers.contentTypeHeader) ?? '',
-        body: raw.substring(0, min(raw.length, 32000)),
-      );
-    } on DioException catch (e) {
-      final timedOut = e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout;
-      return ProbePage(
-        pathname: pathname,
-        error: timedOut ? ProbePage.timeoutMark : (e.message ?? e.toString()),
-      );
-    } catch (e) {
-      return ProbePage(pathname: pathname, error: e.toString());
-    }
-  }));
+Future<List<ProbePage>> fetchProbePages(
+  Dio dio,
+  String origin, {
+  Duration timeout = const Duration(seconds: 6),
+}) async {
+  return Future.wait(
+    ['/', '/login', '/docs'].map((pathname) async {
+      try {
+        final res = await dio.get<String>(
+          '$origin$pathname',
+          options: Options(
+            responseType: ResponseType.plain,
+            validateStatus: (_) => true,
+            headers: {'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8'},
+          ),
+        );
+        final raw = res.data ?? '';
+        return ProbePage(
+          pathname: pathname,
+          status: res.statusCode ?? 0,
+          contentType: res.headers.value(Headers.contentTypeHeader) ?? '',
+          body: raw.substring(0, min(raw.length, 32000)),
+        );
+      } on DioException catch (e) {
+        final timedOut =
+            e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout;
+        return ProbePage(
+          pathname: pathname,
+          error: timedOut ? ProbePage.timeoutMark : (e.message ?? e.toString()),
+        );
+      } catch (e) {
+        return ProbePage(pathname: pathname, error: e.toString());
+      }
+    }),
+  );
 }
 
 /// 探测网关是否为平台前端入口。语义与 desktop/src/gateway.js#probeGateway 一致：
 /// HTTPS 绝不自动降级 HTTP，仅在结果里附 fallbackUrl 供用户手动选择。
-Future<ProbeResult> probeGateway(String rawUrl,
-    {Duration timeout = const Duration(seconds: 6)}) async {
+Future<ProbeResult> probeGateway(
+  String rawUrl, {
+  Duration timeout = const Duration(seconds: 6),
+}) async {
   String origin;
   try {
     origin = normalizeGateway(rawUrl);

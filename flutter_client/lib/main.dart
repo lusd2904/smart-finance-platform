@@ -14,5 +14,7 @@ Future<void> main() async {
   );
   // 首帧前完成会话引导，路由守卫不依赖 unknown 态。
   await container.read(sessionController.notifier).bootstrap();
-  runApp(UncontrolledProviderScope(container: container, child: const SffApp()));
+  runApp(
+    UncontrolledProviderScope(container: container, child: const SffApp()),
+  );
 }

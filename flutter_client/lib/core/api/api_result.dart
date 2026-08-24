@@ -32,7 +32,9 @@ class ApiResult {
       total: (body['total'] as num?)?.toInt(),
     );
     if (result.code != 200) {
-      throw ApiException(result.msg.isEmpty ? '操作失败（code=${result.code}）' : result.msg);
+      throw ApiException(
+        result.msg.isEmpty ? '操作失败（code=${result.code}）' : result.msg,
+      );
     }
     return result;
   }

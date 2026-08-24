@@ -6,6 +6,8 @@ import 'package:flutter_client/core/theme/app_theme.dart';
 import 'package:flutter_client/features/market/data/market_api.dart';
 import 'package:flutter_client/features/market/data/market_models.dart';
 import 'package:flutter_client/features/watchlist/logic/watchlist_providers.dart';
+import 'package:flutter_client/shared/widgets/page_header.dart';
+import 'package:flutter_client/shared/widgets/stat_grid.dart';
 import 'package:flutter_client/shared/widgets/quote_text.dart';
 
 /// 自选清单 tab：概览卡 + 分组筛选 + 标的列表，宽屏左侧固定分组栏、窄屏顶部 chip 行。
@@ -34,47 +36,60 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
         final items = _selectedGroup == null
             ? overview.items
             : overview.items
-                .where((it) => it.groups.contains(_selectedGroup))
-                .toList();
+                  .where((it) => it.groups.contains(_selectedGroup))
+                  .toList();
         // 宽屏：左 220px 分组栏 + 右列表；窄屏：概览卡下横向 chip 行。
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth > 1000;
-            final content = wide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(width: 220, child: _buildGroupPanel(overview)),
-                      const VerticalDivider(width: 1),
-                      Expanded(
-                        child: items.isEmpty
-                            ? _buildEmpty(items.isEmpty && overview.items.isEmpty)
-                            : _buildItemList(items),
-                      ),
-                    ],
-                  )
-                : Column(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const PageHeader(title: '自选', subtitle: '分组跟踪与倾向概览'),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth > 1000;
+                  final content = wide
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 220,
+                              child: _buildGroupPanel(overview),
+                            ),
+                            const VerticalDivider(width: 1),
+                            Expanded(
+                              child: items.isEmpty
+                                  ? _buildEmpty(
+                                      items.isEmpty && overview.items.isEmpty,
+                                    )
+                                  : _buildItemList(items),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildOverviewCards(overview),
+                            _buildGroupChipBar(overview),
+                            Expanded(
+                              child: items.isEmpty
+                                  ? _buildEmpty(overview.items.isEmpty)
+                                  : _buildItemList(items),
+                            ),
+                          ],
+                        );
+                  if (!wide) return content;
+                  // 宽屏时概览卡横跨顶部，下方左右分栏。
+                  return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildOverviewCards(overview),
-                      _buildGroupChipBar(overview),
-                      Expanded(
-                        child: items.isEmpty
-                            ? _buildEmpty(overview.items.isEmpty)
-                            : _buildItemList(items),
-                      ),
+                      Expanded(child: content),
                     ],
                   );
-            if (!wide) return content;
-            // 宽屏时概览卡横跨顶部，下方左右分栏。
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildOverviewCards(overview),
-                Expanded(child: content),
-              ],
-            );
-          },
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -110,9 +125,7 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
           Icon(Icons.star_border, size: 48, color: Theme.of(context).hintColor),
           const SizedBox(height: 8),
           Text(
-            overall
-                ? '暂无自选标的，去行情页点击「加自选」开始跟踪吧'
-                : '该分组下暂无自选标的',
+            overall ? '暂无自选标的，去行情页点击「加自选」开始跟踪吧' : '该分组下暂无自选标的',
             style: TextStyle(color: Theme.of(context).hintColor),
           ),
         ],
@@ -129,38 +142,13 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
       (label: '中性', value: overview.neutral, color: AppColors.flat),
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: Row(
-        children: [
+      padding: const EdgeInsets.symmetric(horizontal: AppDimens.pagePadding),
+      child: StatGrid(
+        cells: [
           for (final c in cards)
-            Expanded(
-              child: Card(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${c.value}',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: c.color,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        c.label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).hintColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            StatCellData(
+              label: c.label,
+              value: Text('${c.value}', style: TextStyle(color: c.color)),
             ),
         ],
       ),
@@ -188,8 +176,7 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
               child: ChoiceChip(
                 label: Text('${g.name} ${g.count}'),
                 selected: _selectedGroup == g.name,
-                onSelected: (_) =>
-                    setState(() => _selectedGroup = g.name),
+                onSelected: (_) => setState(() => _selectedGroup = g.name),
               ),
             ),
         ],
@@ -214,24 +201,41 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
               ),
             ),
           ),
-          _buildGroupTile('全部', overview.count, _selectedGroup == null,
-              () => setState(() => _selectedGroup = null)),
+          _buildGroupTile(
+            '全部',
+            overview.count,
+            _selectedGroup == null,
+            () => setState(() => _selectedGroup = null),
+          ),
           for (final g in overview.groups)
-            _buildGroupTile(g.name, g.count, _selectedGroup == g.name,
-                () => setState(() => _selectedGroup = g.name)),
+            _buildGroupTile(
+              g.name,
+              g.count,
+              _selectedGroup == g.name,
+              () => setState(() => _selectedGroup = g.name),
+            ),
         ],
       ),
     );
   }
 
   /// 分组栏单行选项。
-  Widget _buildGroupTile(String name, int count, bool selected, VoidCallback onTap) {
+  Widget _buildGroupTile(
+    String name,
+    int count,
+    bool selected,
+    VoidCallback onTap,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
       child: Container(
-        color: selected ? scheme.primary.withValues(alpha: 0.12) : null,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary.withValues(alpha: 0.12) : null,
+          borderRadius: BorderRadius.circular(AppDimens.radiusControl),
+        ),
         child: Row(
           children: [
             Expanded(
@@ -245,9 +249,13 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
                 ),
               ),
             ),
-            Text('$count',
-                style: TextStyle(
-                    fontSize: 12, color: Theme.of(context).hintColor)),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).hintColor,
+              ),
+            ),
           ],
         ),
       ),
@@ -273,8 +281,7 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
         borderRadius: BorderRadius.circular(12),
         onTap: widget.onOpenSymbol == null || item.symbol.isEmpty
             ? null
-            : () =>
-                widget.onOpenSymbol!(item.symbol, item.market, item.name),
+            : () => widget.onOpenSymbol!(item.symbol, item.market, item.name),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
           child: Row(
@@ -308,7 +315,9 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
                             for (final g in item.groups.take(3))
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Theme.of(context)
                                       .colorScheme
@@ -318,7 +327,9 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
                                 child: Text(
                                   g,
                                   style: TextStyle(
-                                      fontSize: 10, color: hintColor),
+                                    fontSize: 10,
+                                    color: hintColor,
+                                  ),
                                 ),
                               ),
                           ],
@@ -386,7 +397,9 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除自选'),
-        content: Text('确定将「${item.name.isEmpty ? item.symbol : item.name}」移出自选吗？'),
+        content: Text(
+          '确定将「${item.name.isEmpty ? item.symbol : item.name}」移出自选吗？',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -407,13 +420,14 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
       ref.invalidate(watchlistOverviewProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已移除自选：${item.name.isEmpty ? item.symbol : item.name}')),
+        SnackBar(
+          content: Text('已移除自选：${item.name.isEmpty ? item.symbol : item.name}'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(describeApiError(e))),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(describeApiError(e))));
     }
   }
 }
