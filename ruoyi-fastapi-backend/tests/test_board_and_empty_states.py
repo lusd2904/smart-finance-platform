@@ -15,6 +15,22 @@ from module_quant.service.readmodel_service import ReadModelService
 from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
 
 
+def test_realtime_quote_caps_batch_at_100() -> None:
+    seen: dict[str, int] = {}
+
+    class DummyCtx:
+        def quote(self, symbols):
+            seen['n'] = len(symbols)
+            return []
+
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, '_build_quote_context', return_value=DummyCtx()),
+    ):
+        LongbridgeService.get_realtime_quote([f'S{i}.US' for i in range(250)])
+    assert seen['n'] == 100
+
+
 def test_quote_from_two_real_bars() -> None:
     quote = MarketService._build_quote_from_klines(
         [

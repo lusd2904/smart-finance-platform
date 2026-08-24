@@ -9,6 +9,7 @@ from module_quant.service.longbridge.auth import (
     DEPTH_CACHE_TTL,
     QUOTE_CACHE_TTL,
     QUOTE_NEGATIVE_CACHE_TTL,
+    QUOTE_SYMBOL_LIMIT,
     TRADES_CACHE_TTL,
 )
 from module_quant.service.longbridge_quote import (
@@ -140,6 +141,11 @@ class QuoteClientMixin:
         symbols = [s for s in (str(x).strip() for x in (symbols or [])) if s]
         if not symbols:
             return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
+        if len(symbols) > QUOTE_SYMBOL_LIMIT:
+            logger.warning(
+                f'[长桥] quote 请求 {len(symbols)} 个标的，超过上限 {QUOTE_SYMBOL_LIMIT}，已截断'
+            )
+            symbols = symbols[:QUOTE_SYMBOL_LIMIT]
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'quotes': []}
         if cls._blocked():

@@ -79,7 +79,8 @@ class TradeService:
         limit: int = 200,
     ) -> dict[str, Any]:
         """
-        交易台 K 线：Influx/DB 序列；长桥仅用于分钟/分时最后一笔实时价（/trade/quote/*），失败则回退历史价。
+        交易台 K 线：Influx/DB 序列；长桥仅用于分钟/分时最后一笔实时价。
+        Influx 已有 K 时不再额外打长桥实时报价；失败则回退历史价，不新增、不补空。
         """
         code, mkt = parse_symbol_market(symbol, market)
         period_key = normalize_kline_period(period)
@@ -104,8 +105,10 @@ class TradeService:
         quote = cls._quote_from_klines(klines)
         price_source = 'history'
         lb_configured = LongbridgeService.is_configured()
+        # Skip extra QuoteContext.quote when Influx already returned bars (~4s).
         if (
-            lb_configured
+            not influx_klines
+            and lb_configured
             and is_minute_period(period_key)
             and mkt in {'US', 'HK'}
             and not str(code).startswith('^')

@@ -569,12 +569,15 @@ async function refreshAll() {
   liveBlocked.value = false
   loading.value = true
   try {
-    const [a, p] = await Promise.all([getTradeAccount(), getTradePositions()])
+    const [a, p] = await Promise.all([
+      getTradeAccount(),
+      getTradePositions(),
+      loadOrders(),
+      loadQuoteBoard()
+    ])
     account.value = a.data || { balances: [] }
     configured.value = account.value.configured !== false
     positions.value = (p.data && p.data.positions) || []
-    await loadOrders()
-    await loadQuoteBoard()
     restartLive()
   } finally {
     loading.value = false

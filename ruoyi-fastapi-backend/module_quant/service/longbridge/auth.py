@@ -32,6 +32,8 @@ TRADES_CACHE_TTL = 3
 
 # 全局最小调用间隔（限频）
 LB_MIN_INTERVAL = 0.12
+# Longbridge QuoteContext.quote returns 301607 when the batch is too large.
+QUOTE_SYMBOL_LIMIT = 100
 _lb_lock = asyncio.Lock()
 _lb_last_call = 0.0
 
