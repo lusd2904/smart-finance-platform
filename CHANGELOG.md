@@ -11,9 +11,7 @@
 - M4：交易台只读终端——账户资产、长桥绑定态与连通性测试、持仓委托、盘口十档+逐笔、纸面护栏用量、风控事件；
   后端暂无 paper 订单簿端点，客户端不接下单写端点并常驻「纸面保护态」徽标（偏差见四端规划 M4 记录，待后端补端点）
 - M5 发布工程：启动版本检查+强制更新弹窗、Android release 签名 APK、CI v* tag 三平台产物自动发 GitHub Release、
-  macOS dmg 打包、macOS 真窗口集成测试闭环
-- 行情 WS 实时通道接入：断线指数退避重连，指数条实时流优先、轮询回退带实时标记
-- 共享图表组件（舆情仪表/走势/雷达）登记调试 gallery；工作台入口全部解锁
+  macOS dmg 打包、macOS 真窗口集成测试闭环、Windows NSIS 安装包（CI 内 choco 装 NSIS 构建 setup.exe）
 
 ### 📡 后端配套
 - `WS /ws/market/quotes`：JWT 鉴权行情推送，nginx 升级头透传
@@ -25,9 +23,12 @@
 - 中间件兼容核查关闭：Dart UA / 无 Referer 登录实测正常，审计与限流按 IP 维度正常
 
 ### ⏳ 遗留待办
-- iOS TestFlight 上传与 macOS 公证（账号已具备，待 App Store Connect API 凭据配置）
-- Windows NSIS 安装包（走 CI runner）；官网直装页（待分发域名）；sys_config android.url 占位替换
+- iOS TestFlight 上传与 macOS 公证（账号已具备，待 App Store Connect API 凭据配置，暂缓）
+- 官网直装页（待分发域名）；sys_config android.url 占位替换
 
+### 🧪 质量线
+- 壳层 golden 基线仅在 macOS 强制（跨平台字体光栅差 1~3%），Linux/Windows 显式跳过；
+  四平台 CI 构建矩阵首次全绿（含 Windows 安装包）
 ---
 
 ## [v1.5.0] - 2026-08-24 - 四端 Flutter、全量优化与舆情 Widget (0824 V8)
