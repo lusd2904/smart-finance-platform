@@ -15,6 +15,7 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentAnalysisPageQueryModel,
     SentimentNewsPageQueryModel,
 )
+from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_sentiment.service.analyzer_service import SentimentAiAnalyzer
 from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
@@ -334,6 +335,18 @@ class SentimentService:
             if key in latest_row
         }
 
+        sessions = list_session_status()
+        indexes: list[dict[str, Any]] = []
+        indexes_as_of = format_beijing_datetime(now_beijing())
+        indexes_cached = False
+        try:
+            quotes_data = await MarketIndexService.get_in_session_quotes()
+            indexes = quotes_data.get('items') or []
+            indexes_as_of = quotes_data.get('asOf') or indexes_as_of
+            indexes_cached = bool(quotes_data.get('cached'))
+        except Exception as exc:
+            logger.warning(f'[widget-dashboard] 大盘指数拉取失败，已降级为空: {exc}')
+
         return apply_beijing_times(
             {
                 'updatedAt': updated_at,
@@ -347,6 +360,10 @@ class SentimentService:
                 'riskEvents': risk_events,
                 'latest': widget_latest,
                 'trend': trend,
+                'indexes': indexes,
+                'indexesAsOf': indexes_as_of,
+                'indexesCached': indexes_cached,
+                'sessions': sessions,
             }
         )
 

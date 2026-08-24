@@ -87,6 +87,22 @@ async def test_widget_dashboard_aggregates_mocked_services() -> None:
         (),
         {'create_time': None, 'us_score': 70, 'hk_score': 51, 'a_score': 40},
     )()
+    index_items = [
+        {
+            'market': 'US',
+            'symbol': 'usINX',
+            'name': '标普500',
+            'last': 5500.12,
+            'prevClose': 5480.0,
+            'changePct': 0.37,
+            'quoteTime': '2026-08-24 10:30:00',
+        }
+    ]
+    sessions = {
+        'US': {'market': 'US', 'open': True, 'localTime': '2026-08-24 10:30:00', 'timezone': 'America/New_York'},
+        'HK': {'market': 'HK', 'open': False, 'localTime': '2026-08-24 22:30:00', 'timezone': 'Asia/Hong_Kong'},
+        'CN': {'market': 'CN', 'open': False, 'localTime': '2026-08-24 22:30:00', 'timezone': 'Asia/Shanghai'},
+    }
 
     with (
         patch.object(SentimentService, 'get_stats_services', new=AsyncMock(return_value=stats)),
@@ -96,6 +112,11 @@ async def test_widget_dashboard_aggregates_mocked_services() -> None:
             new=AsyncMock(return_value=[trend_row]),
         ),
         patch('module_sentiment.service.sentiment_service.format_beijing_datetime', return_value='2026-08-24 11:00:00'),
+        patch(
+            'module_sentiment.service.sentiment_service.MarketIndexService.get_in_session_quotes',
+            new=AsyncMock(return_value={'items': index_items, 'asOf': '2026-08-24 10:30:00', 'cached': False}),
+        ),
+        patch('module_sentiment.service.sentiment_service.list_session_status', return_value=sessions),
     ):
         payload = await SentimentService.get_widget_dashboard_services(AsyncMock(), trend_limit=24)
 
@@ -107,3 +128,73 @@ async def test_widget_dashboard_aggregates_mocked_services() -> None:
     assert payload['latest']['analysisId'] == 9
     assert len(payload['trend']) == 1
     assert payload['trend'][0]['usScore'] == 70
+    assert payload['indexes'] == index_items
+    assert payload['indexesAsOf'] == '2026-08-24 10:30:00'
+    assert payload['indexesCached'] is False
+    assert payload['sessions'] == sessions
+
+
+@pytest.mark.asyncio
+async def test_widget_dashboard_indexes_empty_when_no_session() -> None:
+    sessions = {
+        'US': {'market': 'US', 'open': False, 'localTime': '2026-08-24 02:00:00', 'timezone': 'America/New_York'},
+        'HK': {'market': 'HK', 'open': False, 'localTime': '2026-08-24 14:00:00', 'timezone': 'Asia/Hong_Kong'},
+        'CN': {'market': 'CN', 'open': False, 'localTime': '2026-08-24 14:00:00', 'timezone': 'Asia/Shanghai'},
+    }
+
+    with (
+        patch.object(SentimentService, 'get_stats_services', new=AsyncMock(return_value={'total': 0, 'today': 0, 'unanalyzed': 0})),
+        patch.object(
+            SentimentService,
+            'get_analysis_list_services',
+            new=AsyncMock(return_value=type('Page', (), {'rows': []})()),
+        ),
+        patch(
+            'module_sentiment.service.sentiment_service.SentimentAnalysisDao.get_recent_analysis',
+            new=AsyncMock(return_value=[]),
+        ),
+        patch('module_sentiment.service.sentiment_service.format_beijing_datetime', return_value='2026-08-24 11:00:00'),
+        patch(
+            'module_sentiment.service.sentiment_service.MarketIndexService.get_in_session_quotes',
+            new=AsyncMock(return_value={'items': [], 'asOf': '2026-08-24 11:00:00', 'cached': True}),
+        ),
+        patch('module_sentiment.service.sentiment_service.list_session_status', return_value=sessions),
+    ):
+        payload = await SentimentService.get_widget_dashboard_services(AsyncMock(), trend_limit=24)
+
+    assert payload['indexes'] == []
+    assert payload['indexesCached'] is True
+    assert payload['sessions'] == sessions
+
+
+@pytest.mark.asyncio
+async def test_widget_dashboard_indexes_degrade_on_fetch_failure() -> None:
+    sessions = {
+        'US': {'market': 'US', 'open': True, 'localTime': '2026-08-24 10:30:00', 'timezone': 'America/New_York'},
+        'HK': {'market': 'HK', 'open': False, 'localTime': '2026-08-24 22:30:00', 'timezone': 'Asia/Hong_Kong'},
+        'CN': {'market': 'CN', 'open': False, 'localTime': '2026-08-24 22:30:00', 'timezone': 'Asia/Shanghai'},
+    }
+
+    with (
+        patch.object(SentimentService, 'get_stats_services', new=AsyncMock(return_value={'total': 0, 'today': 0, 'unanalyzed': 0})),
+        patch.object(
+            SentimentService,
+            'get_analysis_list_services',
+            new=AsyncMock(return_value=type('Page', (), {'rows': []})()),
+        ),
+        patch(
+            'module_sentiment.service.sentiment_service.SentimentAnalysisDao.get_recent_analysis',
+            new=AsyncMock(return_value=[]),
+        ),
+        patch('module_sentiment.service.sentiment_service.format_beijing_datetime', return_value='2026-08-24 11:00:00'),
+        patch(
+            'module_sentiment.service.sentiment_service.MarketIndexService.get_in_session_quotes',
+            new=AsyncMock(side_effect=RuntimeError('upstream timeout')),
+        ),
+        patch('module_sentiment.service.sentiment_service.list_session_status', return_value=sessions),
+    ):
+        payload = await SentimentService.get_widget_dashboard_services(AsyncMock(), trend_limit=24)
+
+    assert payload['indexes'] == []
+    assert payload['indexesCached'] is False
+    assert payload['sessions'] == sessions
