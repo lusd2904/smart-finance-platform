@@ -19,18 +19,18 @@ class HeatSummary {
   });
 
   factory HeatSummary.fromJson(Map<String, dynamic> json) => HeatSummary(
-        asOfTime: (json['asOfTime'] as String?) ?? '',
-        indexName: (json['indexName'] as String?) ?? '',
-        indexChangePct: (json['indexChangePct'] as num?)?.toDouble(),
-        totalTurnover: (json['totalTurnover'] as num?)?.toDouble(),
-        advanceCount: (json['advanceCount'] as num?)?.toInt() ?? 0,
-        declineCount: (json['declineCount'] as num?)?.toInt() ?? 0,
-        flatCount: (json['flatCount'] as num?)?.toInt() ?? 0,
-        heatScore: (json['heatScore'] as num?)?.toDouble(),
-        heatSummary: (json['heatSummary'] as String?) ?? '',
-        filterRule: (json['filterRule'] as String?) ?? '',
-        staleHint: (json['staleHint'] as String?) ?? '',
-      );
+    asOfTime: (json['asOfTime'] as String?) ?? '',
+    indexName: (json['indexName'] as String?) ?? '',
+    indexChangePct: (json['indexChangePct'] as num?)?.toDouble(),
+    totalTurnover: (json['totalTurnover'] as num?)?.toDouble(),
+    advanceCount: (json['advanceCount'] as num?)?.toInt() ?? 0,
+    declineCount: (json['declineCount'] as num?)?.toInt() ?? 0,
+    flatCount: (json['flatCount'] as num?)?.toInt() ?? 0,
+    heatScore: (json['heatScore'] as num?)?.toDouble(),
+    heatSummary: (json['heatSummary'] as String?) ?? '',
+    filterRule: (json['filterRule'] as String?) ?? '',
+    staleHint: (json['staleHint'] as String?) ?? '',
+  );
 
   final String asOfTime;
   final String indexName;
@@ -58,14 +58,14 @@ class TopPickRow {
   });
 
   factory TopPickRow.fromJson(Map<String, dynamic> json) => TopPickRow(
-        rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
-        symbol: (json['symbol'] as String?) ?? '',
-        name: (json['name'] as String?) ?? '',
-        marketCap: (json['marketCap'] as num?)?.toDouble(),
-        turnover: (json['turnover'] as num?)?.toDouble(),
-        changePct: (json['changePct'] as num?)?.toDouble(),
-        inWatchlist: (json['inWatchlist'] as bool?) ?? false,
-      );
+    rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
+    symbol: (json['symbol'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    marketCap: (json['marketCap'] as num?)?.toDouble(),
+    turnover: (json['turnover'] as num?)?.toDouble(),
+    changePct: (json['changePct'] as num?)?.toDouble(),
+    inWatchlist: (json['inWatchlist'] as bool?) ?? false,
+  );
 
   final int rankNo;
   final String symbol;
@@ -81,14 +81,14 @@ class HeatDailyData {
   const HeatDailyData({this.heat, this.top50 = const []});
 
   factory HeatDailyData.fromJson(Map<String, dynamic> json) => HeatDailyData(
-        heat: json['heat'] is Map<String, dynamic>
-            ? HeatSummary.fromJson(json['heat'] as Map<String, dynamic>)
-            : null,
-        top50: ((json['top50'] as List<dynamic>?) ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(TopPickRow.fromJson)
-            .toList(),
-      );
+    heat: json['heat'] is Map<String, dynamic>
+        ? HeatSummary.fromJson(json['heat'] as Map<String, dynamic>)
+        : null,
+    top50: ((json['top50'] as List<dynamic>?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(TopPickRow.fromJson)
+        .toList(),
+  );
 
   final HeatSummary? heat;
   final List<TopPickRow> top50;
@@ -104,11 +104,11 @@ class HeatTrendPoint {
   });
 
   factory HeatTrendPoint.fromJson(Map<String, dynamic> json) => HeatTrendPoint(
-        tradeDate: (json['tradeDate'] as String?) ?? '',
-        indexChangePct: (json['indexChangePct'] as num?)?.toDouble(),
-        heatScore: (json['heatScore'] as num?)?.toDouble(),
-        totalTurnover: (json['totalTurnover'] as num?)?.toDouble(),
-      );
+    tradeDate: (json['tradeDate'] as String?) ?? '',
+    indexChangePct: (json['indexChangePct'] as num?)?.toDouble(),
+    heatScore: (json['heatScore'] as num?)?.toDouble(),
+    totalTurnover: (json['totalTurnover'] as num?)?.toDouble(),
+  );
 
   final String tradeDate;
   final double? indexChangePct;
@@ -128,13 +128,13 @@ class IndexQuote {
   });
 
   factory IndexQuote.fromJson(Map<String, dynamic> json) => IndexQuote(
-        symbol: (json['symbol'] as String?) ?? '',
-        name: (json['name'] as String?) ?? '',
-        market: (json['market'] as String?) ?? '',
-        last: (json['last'] as num?)?.toDouble(),
-        changePct: (json['changePct'] as num?)?.toDouble(),
-        quoteTime: (json['quoteTime'] as String?) ?? '',
-      );
+    symbol: (json['symbol'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    market: (json['market'] as String?) ?? '',
+    last: (json['last'] as num?)?.toDouble(),
+    changePct: (json['changePct'] as num?)?.toDouble(),
+    quoteTime: (json['quoteTime'] as String?) ?? '',
+  );
 
   final String symbol;
   final String name;
@@ -156,13 +156,13 @@ class BoardQuote {
   });
 
   factory BoardQuote.fromJson(Map<String, dynamic> json) => BoardQuote(
-        market: (json['market'] as String?) ?? '',
-        symbol: (json['symbol'] as String?) ?? '',
-        name: (json['name'] as String?) ?? '',
-        price: (json['price'] as num?)?.toDouble(),
-        changeRate: (json['changeRate'] as num?)?.toDouble(),
-        tradeDate: (json['tradeDate'] as String?) ?? '',
-      );
+    market: (json['market'] as String?) ?? '',
+    symbol: (json['symbol'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    price: (json['price'] as num?)?.toDouble(),
+    changeRate: (json['changeRate'] as num?)?.toDouble(),
+    tradeDate: (json['tradeDate'] as String?) ?? '',
+  );
 
   /// 兼容 rows / quotes / 裸数组三种载荷形态。
   static List<BoardQuote> listFrom(dynamic payload) {
@@ -197,12 +197,12 @@ class UniverseRow {
   });
 
   factory UniverseRow.fromJson(Map<String, dynamic> json) => UniverseRow(
-        instrumentId: (json['instrumentId'] as num?)?.toInt(),
-        symbol: (json['symbol'] as String?) ?? '',
-        name: (json['name'] as String?) ?? '',
-        market: (json['market'] as String?) ?? '',
-        category: (json['category'] as String?) ?? '',
-      );
+    instrumentId: (json['instrumentId'] as num?)?.toInt(),
+    symbol: (json['symbol'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    market: (json['market'] as String?) ?? '',
+    category: (json['category'] as String?) ?? '',
+  );
 
   final int? instrumentId;
   final String symbol;
@@ -220,14 +220,15 @@ class UniversePage {
   });
 
   factory UniversePage.fromJson(Map<String, dynamic> json) => UniversePage(
-        rows: ((json['rows'] as List<dynamic>?) ?? const [])
-            .whereType<Map<String, dynamic>>()
-            .map(UniverseRow.fromJson)
-            .toList(),
-        total: (json['total'] as num?)?.toInt() ?? 0,
-        counts: ((json['counts'] as Map<String, dynamic>?) ?? const {})
-            .map((k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0)),
-      );
+    rows: ((json['rows'] as List<dynamic>?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(UniverseRow.fromJson)
+        .toList(),
+    total: (json['total'] as num?)?.toInt() ?? 0,
+    counts: ((json['counts'] as Map<String, dynamic>?) ?? const {}).map(
+      (k, v) => MapEntry(k, (v as num?)?.toInt() ?? 0),
+    ),
+  );
 
   final List<UniverseRow> rows;
   final int total;
@@ -251,20 +252,20 @@ class WatchlistItem {
   });
 
   factory WatchlistItem.fromJson(Map<String, dynamic> json) => WatchlistItem(
-        id: (json['id'] as num?)?.toInt(),
-        symbol: (json['symbol'] as String?) ?? '',
-        name: (json['name'] as String?) ?? '',
-        market: (json['market'] as String?) ?? '',
-        last: (json['last'] as num?)?.toDouble(),
-        changeRate: (json['changeRate'] as num?)?.toDouble(),
-        groups: ((json['groups'] as List<dynamic>?) ?? const [])
-            .whereType<String>()
-            .toList(),
-        note: (json['note'] as String?) ?? '',
-        recommendation: (json['recommendation'] as String?) ?? '',
-        summary: (json['summary'] as String?) ?? '',
-        analysisTime: (json['analysisTime'] as String?) ?? '',
-      );
+    id: (json['id'] as num?)?.toInt(),
+    symbol: (json['symbol'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    market: (json['market'] as String?) ?? '',
+    last: (json['last'] as num?)?.toDouble(),
+    changeRate: (json['changeRate'] as num?)?.toDouble(),
+    groups: ((json['groups'] as List<dynamic>?) ?? const [])
+        .whereType<String>()
+        .toList(),
+    note: (json['note'] as String?) ?? '',
+    recommendation: (json['recommendation'] as String?) ?? '',
+    summary: (json['summary'] as String?) ?? '',
+    analysisTime: (json['analysisTime'] as String?) ?? '',
+  );
 
   final int? id;
   final String symbol;
@@ -302,10 +303,12 @@ class WatchlistOverview {
         neutral: (json['neutral'] as num?)?.toInt() ?? 0,
         groups: ((json['groups'] as List<dynamic>?) ?? const [])
             .whereType<Map<String, dynamic>>()
-            .map((g) => (
-                  name: (g['name'] as String?) ?? '',
-                  count: (g['count'] as num?)?.toInt() ?? 0,
-                ))
+            .map(
+              (g) => (
+                name: (g['name'] as String?) ?? '',
+                count: (g['count'] as num?)?.toInt() ?? 0,
+              ),
+            )
             .toList(),
       );
 
@@ -329,13 +332,13 @@ class KlineBar {
   });
 
   factory KlineBar.fromJson(Map<String, dynamic> json) => KlineBar(
-        date: (json['date'] ?? json['time'])?.toString() ?? '',
-        open: (json['open'] as num?)?.toDouble() ?? 0,
-        high: (json['high'] as num?)?.toDouble() ?? 0,
-        low: (json['low'] as num?)?.toDouble() ?? 0,
-        close: (json['close'] as num?)?.toDouble() ?? 0,
-        volume: (json['volume'] as num?)?.toDouble() ?? 0,
-      );
+    date: (json['date'] ?? json['time'])?.toString() ?? '',
+    open: (json['open'] as num?)?.toDouble() ?? 0,
+    high: (json['high'] as num?)?.toDouble() ?? 0,
+    low: (json['low'] as num?)?.toDouble() ?? 0,
+    close: (json['close'] as num?)?.toDouble() ?? 0,
+    volume: (json['volume'] as num?)?.toDouble() ?? 0,
+  );
 
   static List<KlineBar> listFrom(dynamic payload) {
     final List<dynamic> raw = switch (payload) {

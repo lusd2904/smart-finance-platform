@@ -9,6 +9,7 @@ import '../../../shared/widgets/page_header.dart';
 import '../../../shared/widgets/quote_text.dart';
 import '../data/market_api.dart';
 import '../data/market_models.dart';
+import '../data/market_quotes_ws.dart';
 import 'universe_page.dart';
 
 /// 行情 tab 首页：市场热度看板。
@@ -361,65 +362,93 @@ class _MarketTabState extends ConsumerState<MarketTab> {
   }
 }
 
-/// 盘中指数条：横向滚动卡片；加载中或空列表（非交易时段）整条隐藏。
-class _IndexStrip extends StatelessWidget {
+/// 盘中指数条：WS 实时流优先；未连接/无数据时回退一次性轮询。
+/// 加载中或空列表（非交易时段）整条隐藏。
+class _IndexStrip extends ConsumerWidget {
   const _IndexStrip({required this.future});
 
   final Future<List<IndexQuote>> future;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final live = ref.watch(marketQuotesStreamProvider);
+    if (live.hasValue && live.requireValue.items.isNotEmpty) {
+      final snapshot = live.requireValue;
+      return _cards(context, snapshot.items, live: true);
+    }
     return FutureBuilder<List<IndexQuote>>(
       future: future,
       builder: (context, snap) {
         final items = snap.data;
         if (items == null || items.isEmpty) return const SizedBox.shrink();
-        return SizedBox(
-          height: 84,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final q = items[i];
-              return Container(
-                width: 136,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(AppDimens.radiusCard),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return _cards(context, items, live: false);
+      },
+    );
+  }
+
+  Widget _cards(
+    BuildContext context,
+    List<IndexQuote> items, {
+    required bool live,
+  }) {
+    return SizedBox(
+      height: 84,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final q = items[i];
+          return Container(
+            width: 136,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppDimens.radiusCard),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      q.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        q.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                    PriceText(
-                      q.last,
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    PctText(q.changePct, bold: true),
+                    if (live && i == 0) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: AppColors.down,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-              );
-            },
-          ),
-        );
-      },
+                PriceText(
+                  q.last,
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                PctText(q.changePct, bold: true),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

@@ -13,20 +13,33 @@ class MarketApi {
   final Dio _dio;
 
   /// 热度日数据（含 Top50 快照）。market: US/HK/CN
-  Future<HeatDailyData> heatDaily({required String market, String? tradeDate}) async {
-    final result = ApiResult.from(await _dio.get<void>('/market/heat/daily', queryParameters: {
-      'market': market,
-      if (tradeDate != null && tradeDate.isNotEmpty) 'tradeDate': tradeDate,
-    }));
+  Future<HeatDailyData> heatDaily({
+    required String market,
+    String? tradeDate,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/heat/daily',
+        queryParameters: {
+          'market': market,
+          if (tradeDate != null && tradeDate.isNotEmpty) 'tradeDate': tradeDate,
+        },
+      ),
+    );
     return HeatDailyData.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 
   /// 近 N 日热度趋势：data.points[i]
-  Future<List<HeatTrendPoint>> heatTrend({required String market, int days = 5}) async {
-    final result = ApiResult.from(await _dio.get<void>('/market/heat/trend', queryParameters: {
-      'market': market,
-      'days': days,
-    }));
+  Future<List<HeatTrendPoint>> heatTrend({
+    required String market,
+    int days = 5,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/heat/trend',
+        queryParameters: {'market': market, 'days': days},
+      ),
+    );
     final points = result.dataAsMap?['points'];
     return ((points as List<dynamic>?) ?? const [])
         .whereType<Map<String, dynamic>>()
@@ -46,9 +59,12 @@ class MarketApi {
 
   /// 报价板批量报价（兼容 rows/quotes/裸数组载荷）
   Future<List<BoardQuote>> boardQuotes({String? market}) async {
-    final response = await _dio.get<dynamic>('/market/board/quotes', queryParameters: {
-      if (market != null && market.isNotEmpty) 'market': market,
-    });
+    final response = await _dio.get<dynamic>(
+      '/market/board/quotes',
+      queryParameters: {
+        if (market != null && market.isNotEmpty) 'market': market,
+      },
+    );
     // 报价板直接返回数组型载荷（可能无信封），逐层探测。
     final body = response.data;
     if (body is Map<String, dynamic>) {
@@ -68,13 +84,18 @@ class MarketApi {
     int pageNum = 1,
     int pageSize = 50,
   }) async {
-    final result = ApiResult.from(await _dio.get<void>('/market/instrument/universe', queryParameters: {
-      if (market != null && market.isNotEmpty) 'market': market,
-      if (keyword != null && keyword.isNotEmpty) 'keyword': keyword,
-      'enabled': '1',
-      'pageNum': pageNum,
-      'pageSize': pageSize,
-    }));
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/instrument/universe',
+        queryParameters: {
+          if (market != null && market.isNotEmpty) 'market': market,
+          if (keyword != null && keyword.isNotEmpty) 'keyword': keyword,
+          'enabled': '1',
+          'pageNum': pageNum,
+          'pageSize': pageSize,
+        },
+      ),
+    );
     return UniversePage.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 
@@ -85,19 +106,26 @@ class MarketApi {
     String period = 'daily',
     int limit = 250,
   }) async {
-    final result = ApiResult.from(await _dio.get<void>('/market/kline', queryParameters: {
-      'symbol': symbol,
-      'market': market,
-      'period': period,
-      'start': '-$limit d',
-      'stop': 'now()',
-    }));
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/kline',
+        queryParameters: {
+          'symbol': symbol,
+          'market': market,
+          'period': period,
+          'start': '-$limit d',
+          'stop': 'now()',
+        },
+      ),
+    );
     return KlineBar.listFrom(result.dataAsMap);
   }
 
   /// 自选概览（含分组与最新报价）
   Future<WatchlistOverview> watchlistOverview() async {
-    final result = ApiResult.from(await _dio.get<void>('/market/watchlist/overview'));
+    final result = ApiResult.from(
+      await _dio.get<void>('/market/watchlist/overview'),
+    );
     return WatchlistOverview.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 
@@ -107,11 +135,14 @@ class MarketApi {
     required String market,
     String? note,
   }) async {
-    await _dio.post<void>('/market/watchlist', data: <String, dynamic>{
-      'symbol': symbol,
-      'market': market,
-      if (note != null && note.isNotEmpty) 'note': note,
-    });
+    await _dio.post<void>(
+      '/market/watchlist',
+      data: <String, dynamic>{
+        'symbol': symbol,
+        'market': market,
+        if (note != null && note.isNotEmpty) 'note': note,
+      },
+    );
   }
 
   /// 删自选（ids 逗号分隔）
@@ -120,4 +151,6 @@ class MarketApi {
   }
 }
 
-final marketApiProvider = Provider<MarketApi>((ref) => MarketApi(ref.watch(dioProvider)));
+final marketApiProvider = Provider<MarketApi>(
+  (ref) => MarketApi(ref.watch(dioProvider)),
+);

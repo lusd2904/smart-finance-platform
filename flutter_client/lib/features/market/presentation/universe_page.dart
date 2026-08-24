@@ -84,7 +84,9 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
       _error = null;
     });
     try {
-      final page = await ref.read(marketApiProvider).universe(
+      final page = await ref
+          .read(marketApiProvider)
+          .universe(
             market: _market.isEmpty ? null : _market,
             keyword: _keywordCtrl.text.trim().isEmpty
                 ? null
@@ -114,7 +116,9 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
     setState(() => _loadingMore = true);
     try {
       final next = _pageNum + 1;
-      final page = await ref.read(marketApiProvider).universe(
+      final page = await ref
+          .read(marketApiProvider)
+          .universe(
             market: _market.isEmpty ? null : _market,
             keyword: _keywordCtrl.text.trim().isEmpty
                 ? null
@@ -140,7 +144,9 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
       setState(() => _loadingMore = false);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('加载更多失败：${describeApiError(e)}')));
+        ..showSnackBar(
+          SnackBar(content: Text('加载更多失败：${describeApiError(e)}')),
+        );
     }
   }
 
@@ -159,10 +165,9 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
     if (_addingSymbol) return;
     setState(() => _addingSymbol = true);
     try {
-      await ref.read(marketApiProvider).addWatchlist(
-            symbol: row.symbol,
-            market: row.market,
-          );
+      await ref
+          .read(marketApiProvider)
+          .addWatchlist(symbol: row.symbol, market: row.market);
       ref.invalidate(watchlistOverviewProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -250,16 +255,15 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
         ),
         child: Column(
           children: [
-            Text(label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    )),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
             const SizedBox(height: 2),
             Text(
               '$count',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
+              style: Theme.of(context).textTheme.titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
           ],
@@ -298,8 +302,12 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 16),
         itemCount: _rows.length + (_hasMore ? 1 : 0),
-        separatorBuilder: (_, _) =>
-            Divider(height: 1, indent: 12, endIndent: 12, color: Colors.grey.shade300),
+        separatorBuilder: (_, _) => Divider(
+          height: 1,
+          indent: 12,
+          endIndent: 12,
+          color: Colors.grey.shade300,
+        ),
         itemBuilder: (context, index) {
           // 列表末尾放「加载更多」，total 用尽即隐藏。
           if (index == _rows.length) {
@@ -362,14 +370,16 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text.rich(
-                    TextSpan(children: [
-                      TextSpan(
-                        text: row.symbol,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const TextSpan(text: '  '),
-                      TextSpan(text: row.name),
-                    ]),
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: row.symbol,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const TextSpan(text: '  '),
+                        TextSpan(text: row.name),
+                      ],
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -378,9 +388,8 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
                       row.category,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                 ],
               ),

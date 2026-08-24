@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/auth_scaffold.dart';
+import '../../shared/charts/radar_chart.dart';
+import '../../shared/charts/sentiment_gauge.dart';
+import '../../shared/charts/trend_line.dart';
 import '../../shared/widgets/page_header.dart';
 import '../../shared/widgets/stat_grid.dart';
 import '../../shared/widgets/status_dot.dart';
@@ -156,6 +159,47 @@ class DesignGalleryPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const FormErrorText('探测失败：地址不可达或非本平台网关。'),
+          ]),
+          _gap,
+          const PageHeader(title: 'M2 图表组件'),
+          _wrap([
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SentimentGauge(score: 78, size: 180),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 90,
+                        width: double.infinity,
+                        child: TrendLine(
+                          values: [42, 48, 45, 58, 61, 57, 66, 72, 69, 78],
+                          color: AppColors.brand,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 90,
+                        width: double.infinity,
+                        child: TrendLine(
+                          values: [3.2, -1.4, -2.8, 0.9, 2.2, 1.1, -0.6, 1.8],
+                          baselineAtZero: true,
+                          color: AppColors.up,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            RadarChart(
+              axes: const ['基本面', '技术面', '情绪面', '估值面', '资金面'],
+              values: const [0.72, 0.85, 0.6, 0.44, 0.68],
+              size: 200,
+            ),
           ]),
         ],
       ),

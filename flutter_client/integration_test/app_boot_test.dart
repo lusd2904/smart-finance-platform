@@ -36,8 +36,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 首启未配网关：路由守卫强制落在网关设置页
-    expect(find.text('网关设置'), findsOneWidget);
+    // 首启未配网关：路由守卫强制落在网关配置页
+    expect(find.text('网关配置'), findsOneWidget);
 
     // 填入网关地址并探测（打真实本地栈）
     await tester.enterText(find.byType(TextField).first, gateway);

@@ -46,3 +46,11 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 安卓发布签名（本地凭据，禁止入库）
+android/key.properties
+*.keystore
+*.jks
+
+# Gradle 在 android/ 下的局部输出（reports 等）
+android/build/

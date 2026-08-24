@@ -1,7 +1,7 @@
 name: flutter_client
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ^3.13.1
@@ -11,8 +11,13 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_riverpod: ^2.6.1
-  flutter_secure_storage: ^11.0.0
+  # v11 走 native assets（objective_c 构建钩子在 Xcode-beta 下取 SDK 路径失败），
+  # 暂锁 v10 平台通道实现；API 兼容本项目用到的 read/write/delete/MacOsOptions。
+  flutter_secure_storage: ^10.3.1
   go_router: ^17.5.0
+  package_info_plus: ^10.2.1
+  url_launcher: ^6.3.1
+  web_socket_channel: ^3.0.1
   shared_preferences: ^2.5.5
   integration_test:
     sdk: flutter

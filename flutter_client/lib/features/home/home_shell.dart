@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,9 +6,17 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_client/core/gateway/gateway_controller.dart';
 import 'package:flutter_client/core/theme/app_theme.dart';
 import 'package:flutter_client/features/auth/logic/session_controller.dart';
+import 'package:flutter_client/features/update/data/update_api.dart';
+import 'package:flutter_client/features/update/presentation/update_dialog.dart';
+import 'package:flutter_client/features/ai/presentation/ai_page.dart';
 import 'package:flutter_client/features/kline/presentation/symbol_detail_page.dart';
 import 'package:flutter_client/features/market/presentation/market_tab.dart';
 import 'package:flutter_client/features/market/presentation/universe_page.dart';
+import 'package:flutter_client/features/quant/presentation/quant_page.dart';
+import 'package:flutter_client/features/sentiment/presentation/sentiment_page.dart';
+import 'package:flutter_client/features/news/presentation/news_page.dart';
+import 'package:flutter_client/features/notice/presentation/notice_page.dart';
+import 'package:flutter_client/features/trade/presentation/trade_page.dart';
 import 'package:flutter_client/features/watchlist/presentation/watchlist_tab.dart';
 import 'package:flutter_client/shared/widgets/status_dot.dart';
 import 'package:flutter_client/shared/widgets/brand_logo.dart';
@@ -27,6 +36,22 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // M5：启动检查新版本。仅 release/profile 生效——debug/测试环境零网络依赖。
+    if (!kDebugMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpdateOnce());
+    }
+  }
+
+  Future<void> _checkUpdateOnce() async {
+    final check = await checkOnce(ref);
+    if (!mounted || check?.updateAvailable != true) return;
+    await showUpdateDialog(context, check: check!);
+  }
+
   static const _destinations = [
     (
       icon: Icons.dashboard_outlined,
@@ -374,30 +399,36 @@ class WorkspaceTab extends ConsumerWidget {
                             label: '我的自选',
                             onTap: () => onGoTab(2),
                           ),
-                          const _EntryTile(
+                          _EntryTile(
                             icon: Icons.feed_outlined,
                             label: '财经资讯',
-                            locked: true,
+                            onTap: () => _pushPage(context, const NewsPage()),
                           ),
-                          const _EntryTile(
+                          _EntryTile(
+                            icon: Icons.monitor_heart_outlined,
+                            label: '舆情大盘',
+                            onTap: () =>
+                                _pushPage(context, const SentimentPage()),
+                          ),
+                          _EntryTile(
                             icon: Icons.psychology_outlined,
                             label: 'AI 研判',
-                            locked: true,
+                            onTap: () => _pushPage(context, const AiPage()),
                           ),
-                          const _EntryTile(
+                          _EntryTile(
                             icon: Icons.notifications_outlined,
                             label: '通知中心',
-                            locked: true,
+                            onTap: () => _pushPage(context, const NoticePage()),
                           ),
-                          const _EntryTile(
+                          _EntryTile(
                             icon: Icons.insights,
                             label: '量化研究',
-                            locked: true,
+                            onTap: () => _pushPage(context, const QuantPage()),
                           ),
-                          const _EntryTile(
+                          _EntryTile(
                             icon: Icons.swap_horiz_rounded,
                             label: '交易台',
-                            locked: true,
+                            onTap: () => _pushPage(context, const TradePage()),
                           ),
                         ],
                       );
@@ -418,6 +449,11 @@ class WorkspaceTab extends ConsumerWidget {
         builder: (_) => UniverseBrowsePage(onOpenSymbol: onOpenSymbol),
       ),
     );
+  }
+
+  /// 二级页面统一推入：M2 资讯/舆情/AI/通知共用。
+  void _pushPage(BuildContext context, Widget page) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 }
 
@@ -505,106 +541,55 @@ class _ConnectionCard extends StatelessWidget {
   }
 }
 
-/// 快捷入口块：locked 为真表示后续里程碑功能，置灰并提示规划节点。
+/// 快捷入口块：全部里程碑功能已解锁。
 class _EntryTile extends StatelessWidget {
-  const _EntryTile({
-    required this.icon,
-    required this.label,
-    this.locked = false,
-    this.onTap,
-  });
+  const _EntryTile({required this.icon, required this.label, this.onTap});
 
   final IconData icon;
   final String label;
-  final bool locked;
   final VoidCallback? onTap;
-
-  static const _milestoneHint = 'M2 资讯·AI·通知 / M3 量化 / M4 交易';
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final fg = locked
-        ? scheme.onSurfaceVariant.withValues(alpha: 0.55)
-        : scheme.onSurface;
-    return Tooltip(
-      message: locked ? _milestoneHint : '',
-      triggerMode: TooltipTriggerMode.tap,
-      excludeFromSemantics: !locked,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppDimens.radiusCard),
-        onTap: locked
-            ? () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$label 规划中（$_milestoneHint）')),
-              )
-            : onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: locked
-                ? scheme.surfaceContainerHighest.withValues(alpha: 0.4)
-                : scheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(AppDimens.radiusCard),
-            border: Border.all(color: scheme.outlineVariant),
-          ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      locked ? Icons.lock_outline_rounded : icon,
-                      size: 19,
-                      color: locked ? fg : scheme.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    if (!locked)
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 12,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                  ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppDimens.radiusCard),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppDimens.radiusCard),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 19, color: scheme.primary),
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                maxLines: 1,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: fg,
-                      ),
-                    ),
-                    if (locked) ...[
-                      const SizedBox(width: 5),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(5),
-                          color: scheme.surfaceContainerHighest,
-                        ),
-                        child: Text(
-                          '规划中',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 9.5,
-                            color: fg,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
