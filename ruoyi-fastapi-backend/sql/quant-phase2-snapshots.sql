@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS quant_readmodel_snapshot (
 
 DELETE FROM sys_job WHERE job_id IN (105, 106, 107);
 INSERT INTO sys_job VALUES
-(105, '全市场因子日扫', 'default', 'default', 'module_task.quant_task.run_daily_factor_scan_job', NULL, NULL, '0 10 6 * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '每日收盘后计算 Alpha101/158 与 8 大因子族并写入读模型快照'),
+(105, '全市场因子日扫', 'default', 'default', 'module_task.quant_task.run_daily_factor_scan_job', NULL, NULL, '0 10 6 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '每日收盘后计算 Alpha101/158 与 8 大因子族并写入读模型快照'),
 (106, '持仓止损监控', 'default', 'default', 'module_task.quant_task.run_position_monitor_job', NULL, NULL, '0 0/10 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '每 10 分钟检查持仓浮亏，超阈值写入风控事件'),
 (107, '行情指标快照刷新', 'default', 'default', 'module_task.quant_task.run_indicator_refresh_job', NULL, NULL, '0 0/15 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '每 15 分钟刷新目标池最新价与涨跌快照');
+
+-- 已有库若曾以暂停状态写入 Job 105，恢复为正常以便 06:10 cron 执行
+UPDATE sys_job SET status = '0' WHERE job_id = 105 AND status = '1';

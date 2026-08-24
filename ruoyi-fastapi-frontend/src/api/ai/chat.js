@@ -52,12 +52,14 @@ export function cancelChatRun(runId) {
   });
 }
 
-export function analyzeOneshot(data) {
+export function analyzeOneshot(data, options = {}) {
   return request({
     url: "/ai/chat/oneshot",
     method: "post",
     data,
     timeout: 120000,
+    loadingText: "研判中…",
+    ...options,
   });
 }
 

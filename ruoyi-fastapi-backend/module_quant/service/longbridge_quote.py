@@ -44,6 +44,20 @@ def fmt_ts(value: Any, with_time: bool = False) -> str:
         return text[:19] if with_time and len(text) >= 19 else text
 
 
+def is_auth_denied(exc: BaseException | str | None) -> bool:
+    text = str(exc or '')
+    lowered = text.lower()
+    if '401004' in text or '401003' in text:
+        return True
+    if '401' in text and ('unauth' in lowered or 'token' in lowered or 'access' in lowered):
+        return True
+    if 'unauthorized' in lowered or 'unauth' in lowered or 'token invalid' in lowered:
+        return True
+    if 'token' in lowered and any(word in lowered for word in ('invalid', 'expired', '失效', '过期')):
+        return True
+    return bool('凭证失效' in text or '令牌无效' in text)
+
+
 def quote_error_reason(exc: Exception) -> str:
     text = str(exc or '')
     lowered = text.lower()

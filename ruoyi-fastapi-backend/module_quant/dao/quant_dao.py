@@ -242,6 +242,9 @@ class QuantStrategyDao:
         return list(rows)
 
 
+ADMIN_LONGBRIDGE_USER_ID = 1
+
+
 class QuantLongbridgeConfigDao:
     """
     长桥凭据配置数据库操作层（按 user_id 一行）

@@ -123,6 +123,10 @@ class ReadModelService:
         asset = await cls.get_account_asset_snapshot(use_scheduled=False)
         pos = await cls.get_position_snapshot(use_scheduled=False)
         factor_scan = await cls.get_scheduled('factors') or {}
+        if factor_scan and not factor_scan.get('items') and factor_scan.get('top'):
+            factor_scan = dict(factor_scan)
+            factor_scan['items'] = factor_scan.get('top') or []
+            factor_scan.pop('top', None)
         board = await cls.get_scheduled('board') or {}
         configured = bool(asset.get('configured'))
         snapshot = {

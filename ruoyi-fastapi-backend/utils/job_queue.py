@@ -91,6 +91,7 @@ JOB_GROUPS = {
     'feishu_push': 'llm',
     'stock_pick_run': 'llm',
     'eod_kline_sync': 'market',
+    'market_review': 'llm',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -657,6 +658,15 @@ async def _feishu_push(_payload: dict[str, Any]) -> dict[str, Any]:
         return await FeishuPushService.run_due(db)
 
 
+async def _market_review(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_market.service.market_review_service import MarketReviewService
+
+    markets = payload.get('markets')
+    async with AsyncSessionLocal() as db:
+        return await MarketReviewService.analyze_markets(db, markets)
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'finance_briefings': _finance_briefings,
@@ -679,4 +689,5 @@ HANDLERS = {
     'feishu_push': _feishu_push,
     'stock_pick_run': _stock_pick_run,
     'eod_kline_sync': _eod_kline_sync,
+    'market_review': _market_review,
 }

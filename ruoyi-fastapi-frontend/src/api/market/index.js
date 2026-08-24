@@ -27,7 +27,7 @@ export function getBoardQuotes(query) {
     url: '/market/board/quotes',
     method: 'get',
     params: query,
-    timeout: 8000,
+    timeout: 60000,
     loadingText: '加载中…'
   })
 }
@@ -267,5 +267,29 @@ export function getMarketIndexQuotes() {
     url: '/market/index/quotes',
     method: 'get',
     timeout: 8000
+  })
+}
+
+export function getMarketReviewLatest() {
+  return request({
+    url: '/market/review/latest',
+    method: 'get'
+  })
+}
+
+export function getMarketReviewHistory(query) {
+  return request({
+    url: '/market/review/history',
+    method: 'get',
+    params: query
+  })
+}
+
+export function analyzeMarketReview(market) {
+  return request({
+    url: '/market/review/analyze',
+    method: 'post',
+    params: market ? { market } : {},
+    timeout: 180000
   })
 }

@@ -15,6 +15,7 @@ from module_market.constant.instruments import (
 )
 from module_market.entity.do.market_do import (
     FinanceBriefing,
+    MarketDailyReview,
     MarketInstrument,
     MarketPriceHistoryDaily,
     MarketWatchlist,
@@ -558,3 +559,66 @@ class MarketWatchlistAnalysisDao:
     async def prune_older_than(cls, db: AsyncSession, before: datetime) -> None:
         await db.execute(delete(MarketWatchlistAnalysis).where(MarketWatchlistAnalysis.analysis_time < before))
         await db.flush()
+
+
+class MarketDailyReviewDao:
+    """三市场收盘日报 DAO"""
+
+    @classmethod
+    async def upsert(cls, db: AsyncSession, item: dict[str, Any]) -> MarketDailyReview:
+        existing = (
+            (
+                await db.execute(
+                    select(MarketDailyReview).where(
+                        MarketDailyReview.market == item['market'],
+                        MarketDailyReview.trade_date == item['trade_date'],
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing:
+            for key, value in item.items():
+                setattr(existing, key, value)
+            await db.flush()
+            return existing
+        row = MarketDailyReview(**item)
+        db.add(row)
+        await db.flush()
+        return row
+
+    @classmethod
+    async def get_latest_by_market(cls, db: AsyncSession, market: str) -> MarketDailyReview | None:
+        return (
+            (
+                await db.execute(
+                    select(MarketDailyReview)
+                    .where(MarketDailyReview.market == market.upper())
+                    .order_by(desc(MarketDailyReview.trade_date), desc(MarketDailyReview.review_id))
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def list_latest(cls, db: AsyncSession) -> list[MarketDailyReview]:
+        rows = []
+        for market in ('US', 'HK', 'CN'):
+            row = await cls.get_latest_by_market(db, market)
+            if row:
+                rows.append(row)
+        return rows
+
+    @classmethod
+    async def list_history(
+        cls, db: AsyncSession, market: str | None = None, limit: int = 60
+    ) -> list[MarketDailyReview]:
+        limit = max(1, min(int(limit or 60), 180))
+        query = select(MarketDailyReview)
+        if market:
+            query = query.where(MarketDailyReview.market == market.upper())
+        query = query.order_by(desc(MarketDailyReview.trade_date), desc(MarketDailyReview.review_id)).limit(limit)
+        return list((await db.execute(query)).scalars().all())

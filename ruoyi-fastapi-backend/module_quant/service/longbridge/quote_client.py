@@ -9,6 +9,7 @@ from module_quant.service.longbridge.auth import (
     DEPTH_CACHE_TTL,
     QUOTE_CACHE_TTL,
     QUOTE_NEGATIVE_CACHE_TTL,
+    QUOTE_SYMBOL_LIMIT,
     TRADES_CACHE_TTL,
 )
 from module_quant.service.longbridge_quote import (
@@ -140,6 +141,11 @@ class QuoteClientMixin:
         symbols = [s for s in (str(x).strip() for x in (symbols or [])) if s]
         if not symbols:
             return {'configured': cls.is_configured(), 'quotes': [], 'message': '标的列表为空'}
+        if len(symbols) > QUOTE_SYMBOL_LIMIT:
+            logger.warning(
+                f'[长桥] quote 请求 {len(symbols)} 个标的，超过上限 {QUOTE_SYMBOL_LIMIT}，已截断'
+            )
+            symbols = symbols[:QUOTE_SYMBOL_LIMIT]
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'quotes': []}
         if cls._blocked():
@@ -249,6 +255,9 @@ class QuoteClientMixin:
             return empty_depth(symbol, market, configured=cls.is_configured(), reason='cn_no_depth', message=CN_NO_DEPTH_MSG)
         if not cls.is_configured():
             return empty_depth(symbol, market, configured=False, reason='unconfigured', message='长桥凭据未配置，盘口暂不可用')
+        blocked = cls._auth_blocked()
+        if blocked:
+            return empty_depth(symbol, market, configured=True, reason='auth_tripped', message=blocked)
         if cls._blocked():
             return empty_depth(
                 symbol, market, configured=True, reason='circuit_open',
@@ -266,6 +275,7 @@ class QuoteClientMixin:
             LongbridgeBreaker.record_success()
             return data
         except Exception as exc:
+            cls._trip_auth(exc)
             cls._note_sdk_error(exc)
             logger.warning(f'[长桥] 获取盘口失败 {lb_symbol}: {exc}')
             return empty_depth(

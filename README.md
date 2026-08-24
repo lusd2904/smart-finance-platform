@@ -110,6 +110,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ### 4. 📥 全市场代码与慢速日 K 回填
 - `scripts/sync_market_listings.py` / `scripts/sync_klines_slow.py`，限流慢拉，`logs/kline_sync.stop` 优雅退出。
+- 舆情/全局模型 Base URL 在「AI 管理」配置（占位 `https://your-openai-compatible-endpoint/v1`），不要写死临时隧道主机。
 
 ### 5. ⚙️ 性能、安全与工具链
 - 前端按需 echarts、manual chunks、请求去重。

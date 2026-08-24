@@ -19,6 +19,7 @@ const navItems = [
   { title: '量化策略', path: '/quant/strategy', icon: 'Cpu' },
   { title: '自选池', path: '/quant/watchlist', icon: 'Star' },
   { title: '行情自选', path: '/market/watchlist', icon: 'Aim' },
+  { title: '市场分析', path: '/market/review', icon: 'Notebook' },
   { title: '交易终端', path: '/trade/trading', icon: 'SwitchButton' },
   { title: '自动分析', path: '/analysis/jobs', icon: 'Clock' }
 ]

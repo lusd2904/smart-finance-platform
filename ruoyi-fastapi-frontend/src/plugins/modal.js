@@ -1,6 +1,7 @@
 import { ElMessage, ElMessageBox, ElNotification, ElLoading } from 'element-plus'
 
 let loadingInstance;
+let loadingCount = 0;
 
 export default {
   // 消息提示
@@ -67,16 +68,32 @@ export default {
       type: "warning",
     })
   },
-  // 打开遮罩层
+  // 打开全屏遮罩层（支持嵌套，需成对 closeLoading）
   loading(content) {
+    loadingCount += 1
     loadingInstance = ElLoading.service({
       lock: true,
-      text: content,
+      text: content || '加载中…',
       background: "rgba(0, 0, 0, 0.7)",
     })
   },
   // 关闭遮罩层
   closeLoading() {
-    loadingInstance.close();
+    if (loadingCount > 0) {
+      loadingCount -= 1
+    }
+    if (loadingCount === 0 && loadingInstance) {
+      loadingInstance.close();
+      loadingInstance = null
+    }
+  },
+  // 在异步操作期间保持遮罩，结束或出错后关闭
+  async withLoading(content, task) {
+    this.loading(content)
+    try {
+      return await task()
+    } finally {
+      this.closeLoading()
+    }
   }
 }
