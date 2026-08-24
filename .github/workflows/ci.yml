@@ -239,7 +239,7 @@ jobs:
             -c "import fastapi, sqlalchemy, uvicorn; print('backend deps ok')"
       - name: Smoke test frontend image
         run: |
-          docker run -d --name smoke-frontend -p 8080:80 smart-finance-frontend:ci
+          docker run -d --name smoke-frontend -p 8080:8080 smart-finance-frontend:ci
           for i in $(seq 1 15); do
             if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
             sleep 1
