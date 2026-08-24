@@ -15,8 +15,8 @@
 
 <script setup>
 import { useWindowSize } from '@vueuse/core'
-import { AppMain, Navbar, Settings } from './components'
-import { Sidebar, TagsView } from '@/components/shared'
+import Sidebar from './components/Sidebar/index.vue'
+import { AppMain, Navbar, Settings, TagsView } from './components'
 import useAppStore from '@/store/modules/app'
 import useSettingsStore from '@/store/modules/settings'
 
