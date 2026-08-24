@@ -290,3 +290,31 @@ class MarketStockPickItem(Base):
     source = Column(String(16), nullable=True, server_default="'rule'", comment='ai/rule')
     factor_json = Column(Text, nullable=True, comment='因子快照 JSON')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+
+
+class MarketDailyReview(Base):
+    """三市场收盘复盘（美股 / 港股 / A股），每天每市场一条。"""
+
+    __tablename__ = 'market_daily_review'
+    __table_args__ = (
+        UniqueConstraint('market', 'trade_date', name='uk_market_daily_review'),
+        {'comment': '市场收盘分析日报'},
+    )
+
+    review_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='报告ID')
+    market = Column(String(10), nullable=False, index=True, comment='市场 US/HK/CN')
+    trade_date = Column(String(10), nullable=False, index=True, comment='交易日 YYYY-MM-DD')
+    title = Column(String(200), nullable=True, comment='标题')
+    stance = Column(String(16), nullable=True, comment='立场 偏多/偏空/中性')
+    score = Column(Integer, nullable=True, comment='市场温度 0-100')
+    summary = Column(Text, nullable=True, comment='当日复盘摘要')
+    index_review = Column(Text, nullable=True, comment='指数与代表股解读')
+    news_review = Column(Text, nullable=True, comment='资讯解读')
+    sentiment_review = Column(Text, nullable=True, comment='舆情解读')
+    outlook = Column(Text, nullable=True, comment='次日关注')
+    risk_warning = Column(Text, nullable=True, comment='风险提示')
+    source = Column(String(16), nullable=True, server_default="'ai'", comment='来源 ai/rule')
+    model_name = Column(String(100), nullable=True, comment='模型名')
+    context_json = Column(Text, nullable=True, comment='分析上下文 JSON')
+    raw_json = Column(Text, nullable=True, comment='模型原始 JSON')
+    analysis_time = Column(DateTime, nullable=True, default=datetime.now, index=True, comment='分析时间')

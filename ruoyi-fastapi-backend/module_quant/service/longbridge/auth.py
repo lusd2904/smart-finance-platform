@@ -18,6 +18,7 @@ from typing import Any
 
 from module_quant.service.longbridge.errors import note_sdk_error
 from module_quant.service.longbridge.region import endpoints, resolve_region
+from module_quant.service.longbridge_quote import is_auth_denied
 from utils.log_util import logger
 from utils.longbridge_breaker import LongbridgeBreaker
 
@@ -86,6 +87,59 @@ def decrypt_or_raw(value: str | None) -> str:
 class CredentialsMixin:
     """凭据解析/注入相关方法，由 LongbridgeService 组合继承。"""
 
+    _auth_fail_until: float = 0.0
+    _AUTH_FAIL_COOLDOWN = 180.0
+    _AUTH_CUTOFF_AFTER = 3
+    _auth_fail_count: int = 0
+    _auth_cut_off: bool = False
+    _auth_cut_off_sig: str | None = None
+
+    @classmethod
+    def _reset_auth_breaker(cls) -> None:
+        cls._auth_fail_until = 0.0
+        cls._auth_fail_count = 0
+        cls._auth_cut_off = False
+        cls._auth_cut_off_sig = None
+
+    @classmethod
+    def _auth_blocked(cls) -> str | None:
+        """401004 后短路；连续失败则切断，直到 token 更换。"""
+        if getattr(cls, '_auth_cut_off', False):
+            return '长桥 token 连续失败，已切断远程调用，更换有效 token 后恢复'
+        until = float(getattr(cls, '_auth_fail_until', 0) or 0)
+        if time.time() < until:
+            remain = max(1, int(until - time.time()))
+            return f'长桥 token 失效，已短路 {remain}s'
+        return None
+
+    @classmethod
+    def _trip_auth(cls, exc: Exception) -> None:
+        msg = str(exc)
+        auth = (
+            is_auth_denied(exc)
+            or '401004' in msg
+            or '401003' in msg
+            or 'token invalid' in msg.lower()
+        )
+        if not auth:
+            return
+        cls._auth_fail_count = int(getattr(cls, '_auth_fail_count', 0) or 0) + 1
+        n = cls._auth_fail_count
+        try:
+            sig = cls._get_creds_signature(cls.resolve_credentials())
+        except Exception:
+            sig = None
+        if n >= int(getattr(cls, '_AUTH_CUTOFF_AFTER', 3) or 3):
+            cls._auth_cut_off = True
+            cls._auth_cut_off_sig = sig
+            cls._auth_fail_until = time.time() + 86400 * 7
+            cls._clear_cached_contexts()
+            logger.warning(f'[长桥] token 连续失败 {n} 次，已切断远程调用，更换 token 后恢复: {exc}')
+            return
+        cooldown = cls._AUTH_FAIL_COOLDOWN if n == 1 else cls._AUTH_FAIL_COOLDOWN * 3
+        cls._auth_fail_until = time.time() + cooldown
+        logger.warning(f'[长桥] token 失效第 {n} 次，短路 {int(cooldown)}s: {exc}')
+
     @classmethod
     def set_credentials(cls, credentials: dict[str, str] | None) -> None:
         """
@@ -98,6 +152,15 @@ class CredentialsMixin:
             _request_credentials.set(credentials)
         else:
             _request_credentials.set(None)
+        cls._clear_cached_contexts()
+        if getattr(cls, '_auth_cut_off', False):
+            try:
+                sig = cls._get_creds_signature(cls.resolve_credentials())
+            except Exception:
+                sig = None
+            if sig and sig != getattr(cls, '_auth_cut_off_sig', None):
+                logger.info('[长桥] 检测到新 token，解除切断')
+                cls._reset_auth_breaker()
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
@@ -207,6 +270,8 @@ class CredentialsMixin:
 
     @classmethod
     def _blocked(cls) -> bool:
+        if cls._auth_blocked():
+            return True
         return not LongbridgeBreaker.allow()
 
     @classmethod

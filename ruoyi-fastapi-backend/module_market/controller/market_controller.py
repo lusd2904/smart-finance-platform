@@ -31,6 +31,7 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService
 from module_market.service.market_service import MarketService
+from module_market.service.market_review_service import MarketReviewService
 from module_market.service.stock_pick_service import StockPickService
 from module_market.service.tradingview_service import TradingViewDatafeedService
 from module_market.service.watchlist_service import MarketWatchlistService
@@ -685,3 +686,49 @@ async def collect_market_heat(
 async def get_market_index_quotes(request: Request) -> Response:
     data = await MarketIndexService.get_in_session_quotes()
     return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/review/latest',
+    summary='最新三市场收盘分析',
+    dependencies=[UserInterfaceAuthDependency('market:review:list')],
+)
+async def get_market_review_latest(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    data = await MarketReviewService.latest_services(query_db)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/review/history',
+    summary='市场收盘分析历史',
+    dependencies=[UserInterfaceAuthDependency('market:review:list')],
+)
+async def get_market_review_history(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query()] = 60,
+) -> Response:
+    data = await MarketReviewService.history_services(query_db, market=market, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.post(
+    '/review/analyze',
+    summary='立即生成市场收盘分析',
+    description='不传 market 则分析美股、港股、A股',
+    dependencies=[UserInterfaceAuthDependency('market:review:analyze')],
+)
+@Log(title='市场收盘分析', business_type=BusinessType.OTHER)
+async def analyze_market_review(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    market: Annotated[str | None, Query()] = None,
+) -> Response:
+    markets = [market] if market else None
+    data = await MarketReviewService.analyze_markets(query_db, markets)
+    logger.info(f'市场收盘分析: {data.get("message")}')
+    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')

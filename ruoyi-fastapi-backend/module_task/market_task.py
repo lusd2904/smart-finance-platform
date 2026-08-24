@@ -158,6 +158,33 @@ async def refresh_symbol_content_job(*args, **kwargs) -> None:
     await refresh_symbol_content_now()
 
 
+async def analyze_market_review_job(*args, **kwargs) -> None:
+    """
+    收盘后三市场复盘。kwargs['markets'] 或第一个位置参数为 US/HK/CN，逗号分隔；默认三个市场。
+    invoke_target: module_task.market_task.analyze_market_review_job
+    """
+    from module_market.service.market_review_service import MarketReviewService
+
+    raw = kwargs.get('markets') or kwargs.get('market')
+    if isinstance(raw, (list, tuple)):
+        markets = [str(p).strip().upper() for p in raw if str(p).strip()]
+    elif args:
+        markets = [str(p).strip().upper() for p in args if str(p).strip()]
+    else:
+        markets = [p.strip().upper() for p in str(raw or '').split(',') if p.strip()]
+    markets = markets or None
+    if await JobQueue.enqueue('market_review', {'markets': markets}):
+        logger.info(f'[市场复盘任务] 已入队 markets={markets or "ALL"}')
+        return
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await MarketReviewService.analyze_markets(db, markets)
+            logger.info(f'[市场复盘任务] {result.get("message")}')
+        except Exception as e:
+            logger.error(f'[市场复盘任务] 失败: {e}')
+            raise
+
+
 async def analyze_watchlist_job(*args, **kwargs) -> None:
     """
     每小时对行情自选清单做综合分析（指标 + 长桥资讯 + 舆情）。

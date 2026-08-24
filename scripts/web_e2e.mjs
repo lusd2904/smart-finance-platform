@@ -28,6 +28,7 @@ const pages = [
   { path: '/market/stocks', text: '全部股票' },
   { path: '/sentiment/dashboard', text: '舆情' },
   { path: '/analysis/jobs', text: '自动分析任务' },
+  { path: '/market/review', text: '市场分析' },
   { path: '/ai/req-chat', text: '需求沟通' },
   { path: '/ai/req-list', text: '需求清单' },
 ]
