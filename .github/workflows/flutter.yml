@@ -133,7 +133,7 @@ jobs:
       - name: Zip bundle
         working-directory: flutter_client/build/windows/x64/runner/Release
         shell: pwsh
-        run: Compress-Archive -Path * -DestinationPath "$GITHUB_WORKSPACE\sff-windows.zip"
+        run: Compress-Archive -Path * -DestinationPath "$env:GITHUB_WORKSPACE\sff-windows.zip"
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis -y --no-progress
