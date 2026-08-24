@@ -1,4 +1,159 @@
-# 更新日志
+# 更新日志 (Changelog)
+
+所有项目的重要更改都将记录在此文件中。
+
+---
+
+## [v1.5.0] - 2026-08-24 - 四端 Flutter、全量优化与舆情 Widget (0824 V8)
+
+### 📱 Flutter 四端客户端
+- 新增 `flutter_client/`：iOS / Android / macOS / Windows 单工程
+- M0：网关探测、登录/注册/会话、CI 四平台构建矩阵
+- M1 先行：行情热度 Top50、自选分组、全部股票、标的 K 线详情
+- 「墨蓝金融终端」设计令牌与共享组件；调试 `/gallery`；壳层 golden
+- 修复 macOS 钥匙串 `errSecMissingEntitlement`；补齐被根 `.gitignore` 误吞的 Dart 源码
+
+### 🔒 安全与容器
+- 清除误提交的真实 admin 初始密码（代码 + git 历史已重写）
+- 监控栈与 jobs/backend 管理端口改绑 `127.0.0.1`
+- compose 显式透传 `DB_PASSWORD` / `REDIS_PASSWORD`
+- fastapi / starlette / Pillow / PyJWT 升级；CI pip-audit + 双镜像冒烟
+- 后端多阶段构建（体积约 -23%）；前端 nginx-unprivileged
+
+### 🛠️ 可靠性与架构
+- Redis 队列认领-确认（可见性超时、重试、死信）
+- Influx `latest_date` 渐进窗口；SQL `schema_version` 登记制
+- scheduler / longbridge / transport_crypto 拆分子包；公共层依赖倒置
+- 生产构建后左侧菜单消失已修复
+
+### 📰 舆情与工作台
+- `GET /sentiment/widget/dashboard` Token 门禁只读聚合（macOS Widget）
+- 舆情时间统一北京时间展示与落库
+- `GET /dashboard/summary` 分段 5 秒超时，读模型缺失不再回退长桥实时
+
+### ⚠️ 破坏性变更 (Breaking Changes)
+- 历史误提交的 admin 初始密码已从 git 历史清除；此前部署环境必须立即改密
+- 管理端口仅本机回环，云上需走网关反代
+- Flutter 客户端替代 Electron / uni-app 原生职责（Electron 与 H5 双轨保留至对齐后下线）
+
+---
+
+## [v1.4.0] - 2026-08-23 - 智能选股、全市场分页与收盘 K 线 (0823 V7)
+
+### ✨ 智能选股
+- 候选：各市场 Top50 + 精选池，日 K 因子打分叠加三市场舆情
+- 仅开盘市场带实时指数；默认 Grok 4.6，在 AI 模型管理配置适用范围「行情中心」
+- 入选标的全部走 AI 研判；单标的研判统一到 `StockPickService.analyze_symbol`
+- 按日期浏览历史选股单；限流重试避免 ORM 过期写库失败
+- 增量 SQL：`sql/market-stock-pick.sql`
+
+### 📚 全部股票
+- `GET /market/instrument/universe` 强制分页（默认 50、最大 200）
+- 增量 SQL：`sql/market-universe-menu.sql`
+
+### ⏰ 收盘同步
+- A 股 15:25、港股 16:25、美股约 05:25 北京时间拉日 K + 分时
+- 分时写入 Influx `minute_kline`（精选 + Top50）
+
+### 💹 交易与沟通
+- 自动交易按用户隔离 + rebalance 卖出护栏
+- 需求沟通多 AI、次日模拟清单、飞书推送
+
+### 🧪 CI
+- ruff ratchet 路径修正；新增文件 lint 债务归零
+
+---
+
+## [v1.3.0] - 2026-08-22 - 自选隔离、行情综合化与全市场回填 (0822 V6)
+
+### ⭐ 自选与菜单
+- 行情自选全面带 `user_id`，与量化 `quant_watchlist` 分离
+- 自选三栏（分组 / K 线 / 综合）；侧栏压平为五个入口
+- 增量 SQL：`sql/market-menu-unify.sql`、`sql/quant-longbridge-user.sql`
+
+### 🔑 长桥按账户
+- 凭据按登录用户读写；请求级 `ContextVar`；jobs 回退 admin
+- 保存掩码不覆盖原密钥
+
+### 📈 体验与数据
+- 行情中心综合化视觉；舆情大盘叠加大盘指数条
+- 工作台聚合 summary；资产四卡按券商凭据隐藏
+- `sync_market_listings.py` / `sync_klines_slow.py` 全市场回填
+
+### ⚙️ 性能与安全
+- 前端按需 echarts、manual chunks、请求去重
+- 后端批量 roundtrip、同步 IO 卸载
+- 密钥 / CORS / 传输错误 / 容器默认值加固
+
+---
+
+## [v1.2.0] - 2026-08-21 - 热度看板、任务拆分与长桥熔断 (0821 V5)
+
+### 🔥 市场热度
+- 三市场收盘采集写入 `market_heat_daily` / `market_top50_snapshot`
+- 市值过滤与权重走 `sys_config`
+
+### 🧵 进程拆分
+- APScheduler 只在 `sentiment-jobs`；market / quant / llm 三消费组
+- 交易实时单独进程；需求沟通入 `llm` 队列，Grok 不堵 API
+
+### 📚 浏览行情只走库
+- 列表报价不再 overlay 长桥实时价；无效 Token 不再打挂列表页
+- 长桥 401004 / 超时共享熔断器
+
+### 🧮 量化与风控
+- Alphalens 风格 IC / IR / 五分位收益
+- 风险事件审批；Alpha101 / 158 快照与 ReadModel
+
+---
+
+## [v1.1.0] - 2026-08-20 - 交易台、门户与纸面自动交易 (0820 V4)
+
+### 💹 交易台
+- 深度、逐笔、周期 K 线叠在盘口与成交明细上方
+- 空 K 线不再留白块；持仓跳转跟路由 query
+
+### 🚪 门户与登录
+- 门户入口收成六组卡片，去掉「若依官网」
+- 登录浅色 / 深色与系统 chrome 持久化同一套键
+
+### 🤖 自动交易
+- 默认纸面、服务端拦截实盘
+- 真源 K 线 seeder（新浪 / 腾讯 + 熔断），禁止合成 OHLCV
+- Prometheus / Grafana 监控栈
+
+---
+
+## [v1.0.0] - 2026-07-23 - 初始公开发布
+
+### ✨ 核心功能
+- 行情 / 舆情 / 量化 / 交易 / AI 工作台一体化
+- 配置只留 `.env.*.example`，贡献要求 PR 进 `main`
+
+### 🛠 技术栈
+- 前端：Vue 3, Element Plus, Vite, ECharts, Pinia
+- 后端：Python FastAPI, SQLAlchemy async, JWT
+- 数据：MySQL 8, Redis, InfluxDB 2.x
+
+---
+
+## 版本规范
+
+遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范：
+
+- **主版本号**：不兼容的 API 修改
+- **次版本号**：向后兼容的功能性新增
+- **修订号**：向后兼容的问题修正
+
+---
+
+_最后更新：2026-08-24_
+
+---
+
+## 上游 RuoYi-Vue3-FastAPI 历史
+
+下列为上游框架发布记录，供对照依赖与底座能力；本仓库业务迭代见上方版本。
 
 ## RuoYi-Vue3-FastAPI v1.9.0
 
