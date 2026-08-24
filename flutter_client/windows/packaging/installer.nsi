@@ -26,7 +26,8 @@ Page instfiles
 
 Section "install"
   SetOutPath "$INSTDIR"
-  File /r "${SRCDIR}/*"
+  ; 绝对路径须用反斜杠；仅 * 在 NSIS 编译期通配下会匹配不到文件
+  File /r "${SRCDIR}\*.*"
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\flutter_client.exe"
