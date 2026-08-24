@@ -19,6 +19,7 @@ from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+from utils.time_format_util import apply_beijing_times, format_beijing_datetime
 
 
 class SentimentService:
@@ -35,7 +36,7 @@ class SentimentService:
         """
         获取舆情资讯分页列表service
         """
-        return await SentimentNewsDao.get_news_list(query_db, query_object, is_page)
+        return apply_beijing_times(await SentimentNewsDao.get_news_list(query_db, query_object, is_page))
 
     @classmethod
     async def delete_news_services(
@@ -67,7 +68,7 @@ class SentimentService:
             if latest
             else None
         )
-        return stats
+        return apply_beijing_times(stats)
 
     # ---------- 采集 ----------
 
@@ -199,7 +200,7 @@ class SentimentService:
         """
         获取分析结果分页列表service
         """
-        return await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page)
+        return apply_beijing_times(await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page))
 
     @classmethod
     async def get_analysis_detail_services(cls, query_db: AsyncSession, analysis_id: int) -> SentimentAnalysisModel:
@@ -219,7 +220,7 @@ class SentimentService:
         return [
             {
                 'analysisId': r.analysis_id,
-                'createTime': r.create_time.strftime('%m-%d %H:%M') if r.create_time else '',
+                'createTime': format_beijing_datetime(r.create_time, '%m-%d %H:%M') if r.create_time else '',
                 'usScore': r.us_score,
                 'hkScore': r.hk_score,
                 'aScore': r.a_score,
