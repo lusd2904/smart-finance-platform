@@ -2,6 +2,32 @@
 
 所有项目的重要更改都将记录在此文件中。
 
+
+## [v1.6.0] - 2026-08-24 - 四端客户端 M2–M5 全量落地与行情实时通道 (0824 V9)
+
+### 📱 Flutter 四端客户端（功能全量对齐 Web）
+- M2：财经资讯简报流、舆情只读仪表盘、AI 研判查看（单标的+批次明细）、通知中心轮询已读
+- M3：量化研究只读链路——策略信号、8 族权重雷达、因子 IC·IR·五分位、扫描台账；严格避开一切触发计算/写库端点
+- M4：交易台只读终端——账户资产、长桥绑定态与连通性测试、持仓委托、盘口十档+逐笔、纸面护栏用量、风控事件；
+  后端暂无 paper 订单簿端点，客户端不接下单写端点并常驻「纸面保护态」徽标（偏差见四端规划 M4 记录，待后端补端点）
+- M5 发布工程：启动版本检查+强制更新弹窗、Android release 签名 APK、CI v* tag 三平台产物自动发 GitHub Release、
+  macOS dmg 打包、macOS 真窗口集成测试闭环
+- 行情 WS 实时通道接入：断线指数退避重连，指数条实时流优先、轮询回退带实时标记
+- 共享图表组件（舆情仪表/走势/雷达）登记调试 gallery；工作台入口全部解锁
+
+### 📡 后端配套
+- `WS /ws/market/quotes`：JWT 鉴权行情推送，nginx 升级头透传
+- `GET /app/version` 版本检查服务：基线存 sys_config，管理员改参数即生效（种子 `sql/app-version-config.sql`）
+- 残缺 `Bearer` 头归一返回 401（此前 IndexError 兜底成 code:500）
+
+### 🔧 部署与运维
+- Redis 密码改为可选（留空=无密码，设置则 requirepass），与运行栈现状一致
+- 中间件兼容核查关闭：Dart UA / 无 Referer 登录实测正常，审计与限流按 IP 维度正常
+
+### ⏳ 遗留待办
+- iOS TestFlight 上传与 macOS 公证（账号已具备，待 App Store Connect API 凭据配置）
+- Windows NSIS 安装包（走 CI runner）；官网直装页（待分发域名）；sys_config android.url 占位替换
+
 ---
 
 ## [v1.5.0] - 2026-08-24 - 四端 Flutter、全量优化与舆情 Widget (0824 V8)
