@@ -431,8 +431,10 @@ function applyQuote(q) {
     if (Number.isFinite(n) && n > 0) form.value.price = n
   }
 }
-async function loadKline() {
+async function loadKline(options = {}) {
   if (!form.value.symbol) return
+  const showOverlay = !options.skipPageLoading
+  if (showOverlay) proxy.$modal.loading('行情加载中…')
   klineLoading.value = true
   try {
     const res = await getTradeQuoteKline({
@@ -455,6 +457,7 @@ async function loadKline() {
     renderChart()
   } finally {
     klineLoading.value = false
+    if (showOverlay) proxy.$modal.closeLoading()
   }
 }
 async function loadDepth() {
@@ -487,7 +490,13 @@ async function loadTrades() {
   }
 }
 async function loadQuoteBoard() {
-  await Promise.all([loadKline(), loadDepth(), loadTrades()])
+  await proxy.$modal.withLoading('行情加载中…', async () => {
+    await Promise.all([
+      loadKline({ skipPageLoading: true }),
+      loadDepth(),
+      loadTrades()
+    ])
+  })
 }
 function renderChart() {
   if (!chartRef.value) return

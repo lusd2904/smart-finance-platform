@@ -52,12 +52,13 @@ export function getTrend(limit) {
   })
 }
 
-// 手动触发AI分析（模型调用较慢，单独加长超时，避免前端 10s 误报超时）
+// 手动触发AI分析（模型调用约 47–90s，单独加长超时，避免前端误报超时）
 export function runAnalysis() {
   return request({
     url: '/sentiment/analysis/run',
     method: 'post',
-    timeout: 320000
+    timeout: 320000,
+    loadingText: '分析中…'
   })
 }
 

@@ -27,7 +27,7 @@ export function getBoardQuotes(query) {
     url: '/market/board/quotes',
     method: 'get',
     params: query,
-    timeout: 8000,
+    timeout: 60000,
     loadingText: '加载中…'
   })
 }
