@@ -38,3 +38,16 @@ def test_apply_beijing_times_on_payload() -> None:
     assert out['nested']['pubTime'] == '2026-08-24 12:55:00'
     assert 'Z' not in out['createTime']
     assert 'T' not in out['createTime']
+
+
+def test_eastmoney_style_naive_pub_time_not_shifted() -> None:
+    """东财 showTime 是北京本地朴素值；序列化不得再 +8。"""
+    row = {
+        'source': 'eastmoney',
+        'title': '快讯',
+        'pubTime': datetime(2026, 8, 24, 20, 15, 0),
+        'createTime': datetime(2026, 8, 24, 12, 15, 0, tzinfo=timezone.utc),
+    }
+    out = apply_beijing_times(row)
+    assert out['pubTime'] == '2026-08-24 20:15:00'
+    assert out['createTime'] == '2026-08-24 20:15:00'

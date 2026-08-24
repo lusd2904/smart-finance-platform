@@ -1,4 +1,7 @@
-/** 舆情等页面统一按北京时间（Asia/Shanghai）展示，不混排 UTC / Z 后缀。 */
+/**
+ * 舆情页统一按北京时间（Asia/Shanghai）展示，不混排 UTC / Z。
+ * 朴素 `YYYY-MM-DD HH:mm:ss` / 无 Z 的 ISO 按北京墙上时钟（东财/新浪 pub_time），不当 UTC。
+ */
 export const BEIJING_TIMEZONE = 'Asia/Shanghai'
 
 function pad(value) {

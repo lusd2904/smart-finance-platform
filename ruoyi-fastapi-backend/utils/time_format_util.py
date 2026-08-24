@@ -19,11 +19,17 @@ _TIME_KEYS = {
 }
 
 
+def now_beijing() -> datetime:
+    """当前北京墙上时钟（朴素 datetime，写入舆情 create_time 等）。"""
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None)
+
+
 def format_beijing_datetime(value: datetime | str | None, fmt: str = BEIJING_FMT) -> str | None:
     """
     将 datetime / ISO 字符串格式化为北京时间（Asia/Shanghai），不含 Z / 偏移。
 
-    带时区的值转换到上海；朴素值视为已是北京墙上时钟，不位移。
+    假设：舆情采集东财/新浪等中国源的朴素 pub_time 已是北京墙上时钟，不得再当 UTC +8。
+    带 Z / 偏移的值按绝对时刻转到上海。
     """
     if value is None:
         return None

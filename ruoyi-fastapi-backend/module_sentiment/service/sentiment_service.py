@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +18,7 @@ from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
-from utils.time_format_util import apply_beijing_times, format_beijing_datetime
+from utils.time_format_util import apply_beijing_times, format_beijing_datetime, now_beijing
 
 
 class SentimentService:
@@ -101,7 +100,7 @@ class SentimentService:
         fresh = [n for n in news_list if n['uniq_hash'] not in existing]
         for n in fresh:
             n['analyzed'] = '0'
-            n['create_time'] = datetime.now()
+            n['create_time'] = now_beijing()
         try:
             if fresh:
                 await SentimentNewsDao.add_news_batch(query_db, fresh)
@@ -178,7 +177,7 @@ class SentimentService:
             exclude_unset=True,
             exclude={'config_id', 'base_url', 'api_key', 'model_name', 'temperature', 'model_scope', 'model_id'},
         )
-        now = datetime.now()
+        now = now_beijing()
         ext_values = config_dict
         ext_values['update_by'] = update_by
         ext_values['update_time'] = now
@@ -273,7 +272,7 @@ class SentimentService:
             'news_ids': ','.join(str(i) for i in news_ids),
             'model_name': config.model_name,
             'raw_response': (ai_result.get('raw') or '')[:60000],
-            'create_time': datetime.now(),
+            'create_time': now_beijing(),
         }
         if ai_result['ok']:
             result = ai_result['result']
