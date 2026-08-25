@@ -18,11 +18,15 @@ class AppPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return ColoredBox(
       color: Theme.of(context).brightness == Brightness.dark
           ? WebTokens.contentBg
           : WebTokens.contentBgLight,
-      child: Padding(padding: padding, child: child),
+      child: Padding(
+        padding: compact ? const EdgeInsets.all(12) : padding,
+        child: child,
+      ),
     );
   }
 }
@@ -94,35 +98,44 @@ class PageHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final stack = MediaQuery.sizeOf(context).width < 600;
+    final titles = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ],
+    );
+    final buttons = Wrap(spacing: 8, runSpacing: 8, children: actions);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: stack
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ],
+                titles,
+                if (actions.isNotEmpty) ...[const SizedBox(height: 8), buttons],
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: titles),
+                buttons,
               ],
             ),
-          ),
-          Wrap(spacing: 8, children: actions),
-        ],
-      ),
     );
   }
 }

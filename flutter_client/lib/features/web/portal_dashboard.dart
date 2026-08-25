@@ -85,12 +85,15 @@ class PortalPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final w = MediaQuery.sizeOf(context).width;
+    final pad = w < 600 ? 16.0 : 32.0;
+    final cardW = w < 720 ? w - pad * 2 : 360.0;
     return ColoredBox(
       color: dark ? WebTokens.loginDark : const Color(0xFFE2E8F0),
       child: CustomPaint(
         painter: _PortalGlow(dark: dark),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 24),
+          padding: EdgeInsets.fromLTRB(pad, w < 600 ? 16 : 28, pad, 24),
           children: [
             ShaderMask(
               shaderCallback: (r) => const LinearGradient(
@@ -110,7 +113,7 @@ class PortalPage extends StatelessWidget {
             Text(
               '量化交易与 AI 研判综合指挥中心',
               style: TextStyle(
-                fontSize: 28,
+                fontSize: w < 600 ? 22 : 28,
                 fontWeight: FontWeight.w800,
                 color: dark ? Colors.white : const Color(0xFF0F172A),
               ),
@@ -131,7 +134,7 @@ class PortalPage extends StatelessWidget {
               children: [
                 for (final g in _groups)
                   SizedBox(
-                    width: 360,
+                    width: cardW,
                     child: _ModuleCard(
                       title: g.$1,
                       desc: g.$2,

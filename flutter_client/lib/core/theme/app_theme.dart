@@ -47,8 +47,11 @@ abstract final class AppDimens {
   static const sideRailWidth = 76.0;
   static const sideNavWidth = 216.0;
 
-  /// 自适应断点：≥900 走桌面壳
+  /// 自适应断点：≥900 走桌面壳（侧栏 + 页签）；更窄走手机壳（抽屉菜单）。
   static const wideBreakpoint = 900.0;
+
+  static bool isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= wideBreakpoint;
 }
 
 /// 数字排版工具：报价、金额等数值文本统一套用，保证纵向对齐。

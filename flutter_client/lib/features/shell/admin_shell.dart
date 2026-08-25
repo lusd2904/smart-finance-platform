@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/gateway/gateway_config.dart';
 import '../../core/gateway/gateway_controller.dart';
 import '../../core/menu/menu_api.dart';
 import '../../core/menu/router_models.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/ruoyi_tokens.dart';
 import '../../features/auth/logic/session_controller.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
@@ -43,6 +45,7 @@ class AdminShell extends ConsumerStatefulWidget {
 
 class _AdminShellState extends ConsumerState<AdminShell> {
   bool _sidebarOpen = true;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   final List<TagTab> _tags = [
     const TagTab(path: '/portal', title: '子系统门户'),
   ];
@@ -98,11 +101,33 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final gateway = ref.watch(gatewayController);
     final dark = ref.watch(themeModeController) != ThemeMode.light;
     final current = _tags[_active];
+    final wide = AppDimens.isWide(context);
+    final menu = routers.asData?.value ?? const <RouterNode>[];
+    final stack = ColoredBox(
+      color: Theme.of(context).brightness == Brightness.dark
+          ? WebTokens.contentBg
+          : WebTokens.contentBgLight,
+      child: IndexedStack(
+        index: _active,
+        children: [for (final t in _tags) _pageOf(t)],
+      ),
+    );
+
+    Future<void> logout() async {
+      final ok = await confirm(context, '确定退出登录吗？');
+      if (!ok) return;
+      await ref.read(sessionController.notifier).logout();
+      if (context.mounted) context.go('/login');
+    }
 
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.backslash, meta: true): () {
-          setState(() => _sidebarOpen = !_sidebarOpen);
+          if (wide) {
+            setState(() => _sidebarOpen = !_sidebarOpen);
+          } else {
+            _scaffoldKey.currentState?.openDrawer();
+          }
         },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () {},
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () {
@@ -111,62 +136,167 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
-      body: Row(
-        children: [
-          _Sidebar(
-            open: _sidebarOpen,
-            routers: routers.asData?.value ?? const [],
-            loading: routers.isLoading,
-            currentPath: current.path,
-            onSelect: (path, title) => _open(path, title: title),
-            onLogo: () => _open('/portal', title: '子系统门户'),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                _Navbar(
-                  title: current.title,
-                  nickName: session.user?.displayName ?? '',
-                  gateway: gateway.url,
-                  dark: dark,
-                  sidebarOpen: _sidebarOpen,
-                  onToggleSide: () => setState(() => _sidebarOpen = !_sidebarOpen),
-                  onPortal: () => _open('/portal', title: '子系统门户'),
-                  onIndex: () => _open('/index', title: '工作台首页'),
-                  onProfile: () => _open('/user/profile', title: '个人中心'),
-                  onGateway: () => context.go('/gateway'),
-                  onTheme: () => ref.read(themeModeController.notifier).toggle(),
-                  onLogout: () async {
-                    final ok = await confirm(context, '确定退出登录吗？');
-                    if (!ok) return;
-                    await ref.read(sessionController.notifier).logout();
-                    if (context.mounted) context.go('/login');
-                  },
-                ),
-                _TagsBar(
-                  tags: _tags,
-                  active: _active,
-                  onSelect: (i) => setState(() => _active = i),
-                  onClose: _close,
-                ),
-                Expanded(
-                  child: ColoredBox(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? WebTokens.contentBg
-                        : WebTokens.contentBgLight,
-                    child: IndexedStack(
-                      index: _active,
-                      children: [for (final t in _tags) _pageOf(t)],
-                    ),
-                  ),
-                ),
-              ],
+        child: wide
+            ? _desktopScaffold(
+                menu: menu,
+                loading: routers.isLoading,
+                current: current,
+                session: session,
+                gateway: gateway,
+                dark: dark,
+                stack: stack,
+                logout: logout,
+              )
+            : _phoneScaffold(
+                menu: menu,
+                loading: routers.isLoading,
+                current: current,
+                dark: dark,
+                stack: stack,
+                logout: logout,
+              ),
+      ),
+    );
+  }
+
+  Widget _desktopScaffold({
+    required List<RouterNode> menu,
+    required bool loading,
+    required TagTab current,
+    required SessionState session,
+    required GatewayConfig gateway,
+    required bool dark,
+    required Widget stack,
+    required Future<void> Function() logout,
+  }) {
+    final isMac = Theme.of(context).platform == TargetPlatform.macOS;
+    return Scaffold(
+      body: SafeArea(
+        top: !isMac,
+        child: Row(
+          children: [
+            _Sidebar(
+              open: _sidebarOpen,
+              routers: menu,
+              loading: loading,
+              currentPath: current.path,
+              onSelect: (path, title) => _open(path, title: title),
+              onLogo: () => _open('/portal', title: '子系统门户'),
             ),
+            Expanded(
+              child: Column(
+                children: [
+                  _Navbar(
+                    title: current.title,
+                    nickName: session.user?.displayName ?? '',
+                    gateway: gateway.url,
+                    dark: dark,
+                    sidebarOpen: _sidebarOpen,
+                    onToggleSide: () => setState(() => _sidebarOpen = !_sidebarOpen),
+                    onPortal: () => _open('/portal', title: '子系统门户'),
+                    onIndex: () => _open('/index', title: '工作台首页'),
+                    onProfile: () => _open('/user/profile', title: '个人中心'),
+                    onGateway: () => context.go('/gateway'),
+                    onTheme: () => ref.read(themeModeController.notifier).toggle(),
+                    onLogout: logout,
+                  ),
+                  _TagsBar(
+                    tags: _tags,
+                    active: _active,
+                    onSelect: (i) => setState(() => _active = i),
+                    onClose: _close,
+                  ),
+                  Expanded(child: stack),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _phoneScaffold({
+    required List<RouterNode> menu,
+    required bool loading,
+    required TagTab current,
+    required bool dark,
+    required Widget stack,
+    required Future<void> Function() logout,
+  }) {
+    void pick(String path, String title) {
+      _open(path, title: title);
+      _scaffoldKey.currentState?.closeDrawer();
+    }
+
+    return Scaffold(
+      key: _scaffoldKey,
+      drawer: Drawer(
+        backgroundColor: WebTokens.sidebarBg,
+        width: 300,
+        child: SafeArea(
+          child: _Sidebar(
+            open: true,
+            fill: true,
+            routers: menu,
+            loading: loading,
+            currentPath: current.path,
+            onSelect: pick,
+            onLogo: () => pick('/portal', '子系统门户'),
+          ),
+        ),
+      ),
+      appBar: AppBar(
+        backgroundColor: WebTokens.sidebarBg,
+        foregroundColor: Colors.white,
+        title: Text(
+          current.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          IconButton(
+            tooltip: dark ? '浅色' : '深色',
+            onPressed: () => ref.read(themeModeController.notifier).toggle(),
+            icon: Icon(dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (v) {
+              switch (v) {
+                case 'portal':
+                  _open('/portal', title: '子系统门户');
+                case 'index':
+                  _open('/index', title: '工作台首页');
+                case 'gateway':
+                  context.go('/gateway');
+                case 'profile':
+                  _open('/user/profile', title: '个人中心');
+                case 'logout':
+                  logout();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'portal', child: Text('子系统门户')),
+              PopupMenuItem(value: 'index', child: Text('工作台首页')),
+              PopupMenuItem(value: 'gateway', child: Text('网关')),
+              PopupMenuItem(value: 'profile', child: Text('个人中心')),
+              PopupMenuItem(value: 'logout', child: Text('退出登录')),
+            ],
           ),
         ],
       ),
-        ),
+      body: Column(
+        children: [
+          if (_tags.length > 1)
+            _TagsBar(
+              tags: _tags,
+              active: _active,
+              onSelect: (i) => setState(() => _active = i),
+              onClose: _close,
+            ),
+          Expanded(child: stack),
+        ],
       ),
     );
   }
@@ -180,9 +310,11 @@ class _Sidebar extends StatelessWidget {
     required this.currentPath,
     required this.onSelect,
     required this.onLogo,
+    this.fill = false,
   });
 
   final bool open;
+  final bool fill;
   final List<RouterNode> routers;
   final bool loading;
   final String currentPath;
@@ -193,7 +325,7 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
-      width: open ? WebTokens.sidebarWidth : WebTokens.sidebarCollapsed,
+      width: fill ? double.infinity : (open ? WebTokens.sidebarWidth : WebTokens.sidebarCollapsed),
       color: WebTokens.sidebarBg,
       child: Material(
         color: Colors.transparent,
@@ -429,8 +561,14 @@ class _Navbar extends StatelessWidget {
             onPressed: onToggleSide,
             icon: Icon(sidebarOpen ? Icons.menu_open : Icons.menu),
           ),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const Spacer(),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
           IconButton(tooltip: '子系统门户', onPressed: onPortal, icon: const Icon(Icons.grid_view_outlined)),
           IconButton(tooltip: '工作台', onPressed: onIndex, icon: const Icon(Icons.home_outlined)),
           IconButton(
@@ -462,7 +600,14 @@ class _Navbar extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text(nickName),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 96),
+                    child: Text(
+                      nickName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                   const Icon(Icons.expand_more, size: 16),
                 ],
               ),

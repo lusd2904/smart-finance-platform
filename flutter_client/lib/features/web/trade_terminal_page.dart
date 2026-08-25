@@ -97,6 +97,7 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
   String _side = 'buy';
   String _orderType = 'LO';
   String _group = kTerminalAllGroup;
+  int _mobilePane = 1;
   final _qty = TextEditingController(text: '1');
   final _price = TextEditingController();
   bool _busy = false;
@@ -445,19 +446,41 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(width: 240, child: _watchPane()),
-                  const SizedBox(width: 8),
-                  Expanded(child: _chartPane()),
-                  const SizedBox(width: 8),
-                  SizedBox(width: 300, child: _orderPane(scheme)),
-                ],
-              ),
+              child: AppDimens.isWide(context)
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: 240, child: _watchPane()),
+                        const SizedBox(width: 8),
+                        Expanded(child: _chartPane()),
+                        const SizedBox(width: 8),
+                        SizedBox(width: 300, child: _orderPane(scheme)),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        SegmentedButton<int>(
+                          segments: const [
+                            ButtonSegment(value: 0, label: Text('自选')),
+                            ButtonSegment(value: 1, label: Text('K线')),
+                            ButtonSegment(value: 2, label: Text('交易')),
+                          ],
+                          selected: {_mobilePane},
+                          onSelectionChanged: (s) => setState(() => _mobilePane = s.first),
+                        ),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: switch (_mobilePane) {
+                            0 => _watchPane(),
+                            2 => _orderPane(scheme),
+                            _ => _chartPane(),
+                          },
+                        ),
+                      ],
+                    ),
             ),
           ),
-          SizedBox(height: 150, child: _bottomPane()),
+          SizedBox(height: AppDimens.isWide(context) ? 150 : 120, child: _bottomPane()),
         ],
       ),
     );

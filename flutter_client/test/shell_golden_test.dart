@@ -87,7 +87,14 @@ Future<void> _pumpShell(WidgetTester tester, Size size) async {
         menuApiProvider.overrideWith((ref) => _FakeMenuApi()),
         ruoyiClientProvider.overrideWith((ref) => _FakeRuoyi()),
       ],
-      child: MaterialApp(theme: AppTheme.light(), home: const HomeShell()),
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(size: size),
+          child: child ?? const SizedBox.shrink(),
+        ),
+        home: const HomeShell(),
+      ),
     ),
   );
   await tester.pump();
@@ -110,4 +117,11 @@ void main() {
       matchesGoldenFile('goldens/shell_mobile.png'),
     );
   }, skip: !Platform.isMacOS);
+
+  testWidgets('phone shell uses drawer instead of persistent sidebar', (tester) async {
+    await _pumpShell(tester, const Size(390, 844));
+    expect(find.byType(AppBar), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    expect(scaffold.drawer, isNotNull);
+  });
 }
