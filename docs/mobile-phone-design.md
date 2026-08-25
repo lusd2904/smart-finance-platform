@@ -60,12 +60,11 @@
 
 ---
 
-## CLI 调用情况
+## CLI 调用情况（节点切换后已通）
 
 | 工具 | 结果 |
 |---|---|
-| 反重力 `agy -p` | 已登录，但 API 返回 `User location is not supported`，print 模式无法出稿 |
-| Gemini CLI | 提示个体 Code Assist 已下线，要求迁到 Antigravity |
-| NotebookLM `nlm` | `login --check` 显示凭据仍在；`notebook create` 报过期。已 `nlm login --force` 拉起 Chrome，300s 内未完成浏览器登录 |
+| 反重力 `agy -p` | 已出完整逐页规范：`docs/mobile-phone-design-agy.md` |
+| NotebookLM | 笔记本 https://notebooklm.google.com/notebook/e4eb812d-7d22-4b6b-b9d0-def1c9092ed8 ；已上传设计稿/现状/落地稿；Studio 生成了 `iphone_390_mobile_design.md`（CLI 下载 report 失败，正文在笔记本右侧面板） |
 
-下一步：你在弹出的 Chrome 里登完 NotebookLM 后说一声，我再把设计稿喂进笔记本逐页问。当前 Flutter 已按上表加上 4 Tab。
+落地顺序：4 Tab 已上。接着按反重力稿改门户金刚区、行情 Top50 单列、点行进 K 线。

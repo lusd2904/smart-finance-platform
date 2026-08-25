@@ -140,6 +140,79 @@ class PageHero extends StatelessWidget {
   }
 }
 
+/// 手机端行情行：左名称代码，右价格涨跌，避免宽表横向滚动。
+class QuoteListTile extends StatelessWidget {
+  const QuoteListTile({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.rank,
+    this.changePct,
+    this.trailingLabel,
+    this.onTap,
+  });
+
+  final String title;
+  final String? subtitle;
+  final int? rank;
+  final double? changePct;
+  final String? trailingLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final chg = changePct;
+    final color = chg == null
+        ? Theme.of(context).colorScheme.onSurface
+        : (chg >= 0 ? AppColors.up : AppColors.down);
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      leading: rank == null
+          ? null
+          : SizedBox(
+              width: 28,
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontFeatures: AppNum.fontFeatures,
+                ),
+              ),
+            ),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (chg != null)
+            Text(
+              '${chg >= 0 ? '+' : ''}${chg.toStringAsFixed(2)}%',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontFeatures: AppNum.fontFeatures,
+              ),
+            ),
+          if (trailingLabel != null)
+            Text(
+              trailingLabel!,
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
 class ElTag extends StatelessWidget {
   const ElTag(
     this.text, {

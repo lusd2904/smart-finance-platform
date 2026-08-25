@@ -127,7 +127,28 @@ class PortalPage extends StatelessWidget {
                 color: dark ? const Color(0x99E2E8F0) : const Color(0xFF64748B),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            if (w < 720) ...[
+              GridView.count(
+                crossAxisCount: 4,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 0.9,
+                children: [
+                  _Shortcut('行情', Icons.candlestick_chart_outlined, () => open?.call('/market/heat', title: '行情')),
+                  _Shortcut('自选', Icons.star_outline, () => open?.call('/market/watchlist', title: '自选')),
+                  _Shortcut('选股', Icons.auto_awesome, () => open?.call('/market/recommendations', title: '智能选股')),
+                  _Shortcut('交易', Icons.payments_outlined, () => open?.call('/trade/terminal', title: '交易')),
+                  _Shortcut('持仓', Icons.account_balance_wallet_outlined, () => open?.call('/trade/positions', title: '持仓')),
+                  _Shortcut('量化', Icons.auto_graph, () => open?.call('/quant/strategy', title: '量化')),
+                  _Shortcut('舆情', Icons.analytics_outlined, () => open?.call('/sentiment/dashboard', title: '舆情')),
+                  _Shortcut('AI', Icons.psychology_outlined, () => open?.call('/market/ai-workbench', title: 'AI 研判')),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
             Wrap(
               spacing: 16,
               runSpacing: 16,
@@ -148,6 +169,37 @@ class PortalPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Shortcut extends StatelessWidget {
+  const _Shortcut(this.label, this.icon, this.onTap);
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0x33409EFF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: const Color(0xFF38BDF8), size: 22),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFFE2E8F0))),
+        ],
       ),
     );
   }

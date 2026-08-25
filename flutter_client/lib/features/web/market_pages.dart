@@ -138,30 +138,46 @@ class _MarketHeatPageState extends ConsumerState<MarketHeatPage> {
           ElCard(
             header: const Text('Top50'),
             padding: EdgeInsets.zero,
-            child: SimpleTable(
-              columns: const [
-                TableCol('排名', 'rankNo'),
-                TableCol('代码', 'symbol'),
-                TableCol('名称', 'name'),
-                TableCol('涨跌%', 'changePct'),
-                TableCol('成交额', 'turnover'),
-              ],
-              rows: [
-                for (final r in _data?.top50 ?? const <TopPickRow>[])
-                  {
-                    'rankNo': r.rankNo,
-                    'symbol': r.symbol,
-                    'name': r.name,
-                    'changePct': r.changePct,
-                    'turnover': r.turnover,
-                    'market': _market,
-                  },
-              ],
-              onRowTap: (row) => widget.open?.call(
-                '/market/symbol?symbol=${row['symbol']}&market=$_market',
-                title: '${row['symbol']}',
-              ),
-            ),
+            child: AppDimens.isWide(context)
+                ? SimpleTable(
+                    columns: const [
+                      TableCol('排名', 'rankNo'),
+                      TableCol('代码', 'symbol'),
+                      TableCol('名称', 'name'),
+                      TableCol('涨跌%', 'changePct'),
+                      TableCol('成交额', 'turnover'),
+                    ],
+                    rows: [
+                      for (final r in _data?.top50 ?? const <TopPickRow>[])
+                        {
+                          'rankNo': r.rankNo,
+                          'symbol': r.symbol,
+                          'name': r.name,
+                          'changePct': r.changePct,
+                          'turnover': r.turnover,
+                          'market': _market,
+                        },
+                    ],
+                    onRowTap: (row) => widget.open?.call(
+                      '/market/kline?symbol=${row['symbol']}&market=$_market',
+                      title: '${row['symbol']}',
+                    ),
+                  )
+                : Column(
+                    children: [
+                      for (final r in _data?.top50 ?? const <TopPickRow>[])
+                        QuoteListTile(
+                          rank: r.rankNo,
+                          title: r.name.isEmpty ? r.symbol : r.name,
+                          subtitle: r.symbol,
+                          changePct: r.changePct,
+                          onTap: () => widget.open?.call(
+                            '/market/kline?symbol=${r.symbol}&market=$_market',
+                            title: r.symbol,
+                          ),
+                        ),
+                    ],
+                  ),
           ),
         ],
       ),
