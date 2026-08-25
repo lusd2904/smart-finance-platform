@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/ruoyi_client.dart';
+import '../../core/menu/menu_api.dart';
+import '../../core/menu/router_models.dart';
 import '../../core/theme/ruoyi_tokens.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 
-class PortalPage extends StatelessWidget {
+class PortalPage extends ConsumerWidget {
   const PortalPage({super.key, this.open});
   final OpenRoute? open;
 
@@ -83,9 +85,11 @@ class PortalPage extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final w = MediaQuery.sizeOf(context).width;
+    final allowed = visibleMenuPaths(ref.watch(routersProvider).asData?.value ?? const []);
+    bool can(String path) => menuAllows(allowed, path);
     final pad = w < 600 ? 16.0 : 32.0;
     final cardW = w < 720 ? w - pad * 2 : 360.0;
     return ColoredBox(
@@ -139,15 +143,19 @@ class PortalPage extends StatelessWidget {
                 crossAxisSpacing: 8,
                 childAspectRatio: 0.86,
                 children: [
-                  _Shortcut('行情', Icons.candlestick_chart_outlined, () => open?.call('/market/heat', title: '行情')),
-                  _Shortcut('全部', Icons.list_alt, () => open?.call('/market/stocks', title: '全部股票')),
-                  _Shortcut('选股', Icons.auto_awesome, () => open?.call('/market/recommendations', title: '智能选股')),
-                  _Shortcut('自选', Icons.star_outline, () => open?.call('/market/watchlist', title: '自选')),
-                  _Shortcut('舆情', Icons.analytics_outlined, () => open?.call('/sentiment/dashboard', title: '舆情')),
-                  _Shortcut('量化', Icons.auto_graph, () => open?.call('/quant/strategy', title: '量化')),
-                  _Shortcut('交易', Icons.payments_outlined, () => open?.call('/trade/terminal', title: '交易')),
-                  _Shortcut('AI', Icons.psychology_outlined, () => open?.call('/market/ai-workbench', title: 'AI 研判')),
-                  _Shortcut('通知', Icons.notifications_outlined, () => open?.call('/trade/notifications', title: '通知中心')),
+                  for (final s in [
+                    ('行情', Icons.candlestick_chart_outlined, '/market/heat', '行情'),
+                    ('全部', Icons.list_alt, '/market/stocks', '全部股票'),
+                    ('选股', Icons.auto_awesome, '/market/recommendations', '智能选股'),
+                    ('自选', Icons.star_outline, '/market/watchlist', '自选'),
+                    ('舆情', Icons.analytics_outlined, '/sentiment/dashboard', '舆情'),
+                    ('量化', Icons.auto_graph, '/quant/strategy', '量化'),
+                    ('交易', Icons.payments_outlined, '/trade/terminal', '交易'),
+                    ('AI', Icons.psychology_outlined, '/market/ai-workbench', 'AI 研判'),
+                    ('通知', Icons.notifications_outlined, '/trade/notifications', '通知中心'),
+                  ])
+                    if (can(s.$3))
+                      _Shortcut(s.$1, s.$2, () => open?.call(s.$3, title: s.$4)),
                 ],
               ),
               const SizedBox(height: 16),
@@ -157,17 +165,18 @@ class PortalPage extends StatelessWidget {
               runSpacing: 16,
               children: [
                 for (final g in _groups)
-                  SizedBox(
-                    width: cardW,
-                    child: _ModuleCard(
-                      title: g.$1,
-                      desc: g.$2,
-                      icon: g.$4,
-                      links: g.$5,
-                      onEnter: () => open?.call(g.$3, title: g.$1),
-                      onLink: (p, t) => open?.call(p, title: t),
+                  if (can(g.$3) || g.$5.any((l) => can(l.$2)))
+                    SizedBox(
+                      width: cardW,
+                      child: _ModuleCard(
+                        title: g.$1,
+                        desc: g.$2,
+                        icon: g.$4,
+                        links: [for (final l in g.$5) if (can(l.$2)) l],
+                        onEnter: () => open?.call(g.$3, title: g.$1),
+                        onLink: (p, t) => open?.call(p, title: t),
+                      ),
                     ),
-                  ),
               ],
             ),
           ],

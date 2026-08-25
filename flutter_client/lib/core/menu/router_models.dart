@@ -88,6 +88,42 @@ String joinRoute(String parent, String child) {
   return '$base/$child'.replaceAll('//', '/');
 }
 
+/// 系统管理 / 监控 / 代码生成 / 自动分析任务：仅当 getRouters 明确下发才展示。
+const restrictedMenuPrefixes = <String>[
+  '/system',
+  '/monitor',
+  '/tool',
+  '/analysis',
+];
+
+Set<String> visibleMenuPaths(List<RouterNode> nodes) => {
+      for (final leaf in flattenLeaves(nodes)) leaf.path,
+    };
+
+bool menuAllows(Set<String> allowed, String rawPath) {
+  final path = rawPath.split('?').first;
+  if (path.isEmpty || path == '/portal' || path == '/user/profile' || path == '/gateway') {
+    return true;
+  }
+  if (allowed.contains(path)) return true;
+
+  bool under(String prefix) => path == prefix || path.startsWith('$prefix/');
+
+  for (final prefix in restrictedMenuPrefixes) {
+    if (under(prefix)) {
+      return allowed.any((a) => a == prefix || a.startsWith('$prefix/'));
+    }
+  }
+
+  // 菜单尚未返回时，不误拦业务页；系统类已在上面拦截。
+  if (allowed.isEmpty) return true;
+
+  final segs = path.split('/').where((s) => s.isNotEmpty).toList();
+  if (segs.isEmpty) return false;
+  final module = '/${segs.first}';
+  return allowed.any((a) => a == module || a.startsWith('$module/'));
+}
+
 List<MenuLeaf> flattenLeaves(List<RouterNode> nodes, {String parent = ''}) {
   final out = <MenuLeaf>[];
   for (final node in nodes) {

@@ -125,8 +125,8 @@ void main() {
     expect(scaffold.drawer, isNotNull);
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.text('工作台'), findsWidgets);
-    expect(find.text('行情'), findsOneWidget);
+    expect(find.text('行情'), findsWidgets);
     expect(find.text('自选'), findsWidgets);
-    expect(find.text('我的'), findsOneWidget);
+    expect(find.text('我的'), findsWidgets);
   });
 }

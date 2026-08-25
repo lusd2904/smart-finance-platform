@@ -84,9 +84,10 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   }
 
   Widget _pageOf(TagTab tab) {
+    final allowed = visibleMenuPaths(ref.read(routersProvider).asData?.value ?? const []);
     return _cache.putIfAbsent(
       tab.key,
-      () => buildNativePage(tab.path, tab.query, _open),
+      () => buildNativePage(tab.path, tab.query, _open, allowed: allowed),
     );
   }
 
@@ -366,16 +367,17 @@ class _Sidebar extends StatelessWidget {
                     children: [
                       _leaf(
                         icon: Icons.grid_view_outlined,
-                        title: '子系统门户',
+                        title: '工作台',
                         path: '/portal',
                         selected: currentPath == '/portal',
                       ),
-                      _leaf(
-                        icon: Icons.dashboard_outlined,
-                        title: '工作台首页',
-                        path: '/index',
-                        selected: currentPath == '/index',
-                      ),
+                      if (menuAllows(visibleMenuPaths(routers), '/index'))
+                        _leaf(
+                          icon: Icons.dashboard_outlined,
+                          title: '工作台首页',
+                          path: '/index',
+                          selected: currentPath == '/index',
+                        ),
                       for (final node in routers.where((n) => !n.hidden))
                         _Node(
                           node: node,

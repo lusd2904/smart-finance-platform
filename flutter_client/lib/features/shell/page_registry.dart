@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/menu/router_models.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 import '../web/admin_pages.dart';
 import '../web/intel_pages.dart';
@@ -11,7 +12,15 @@ import '../web/trade_pages.dart';
 import '../web/trade_terminal_page.dart';
 
 /// 网页端每一个路由都对应一个原生 Flutter 页面，不嵌 HTML / WebView。
-Widget buildNativePage(String path, Map<String, String> query, OpenRoute open) {
+Widget buildNativePage(
+  String path,
+  Map<String, String> query,
+  OpenRoute open, {
+  Set<String> allowed = const {},
+}) {
+  if (!menuAllows(allowed, path)) {
+    return const AccessDeniedPage();
+  }
   switch (path) {
     case '/index':
     case '/dashboard':

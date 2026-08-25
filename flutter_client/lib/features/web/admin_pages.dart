@@ -470,6 +470,20 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
+class AccessDeniedPage extends StatelessWidget {
+  const AccessDeniedPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const AppPage(
+      child: ElCard(
+        header: Text('无权访问'),
+        child: Text('当前账号没有该页面权限。'),
+      ),
+    );
+  }
+}
+
 class UnknownRoutePage extends StatelessWidget {
   const UnknownRoutePage(this.path, {super.key});
   final String path;
