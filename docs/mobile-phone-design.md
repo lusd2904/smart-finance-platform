@@ -67,4 +67,4 @@
 | 反重力 `agy -p` | 已出完整逐页规范：`docs/mobile-phone-design-agy.md` |
 | NotebookLM | 笔记本 https://notebooklm.google.com/notebook/e4eb812d-7d22-4b6b-b9d0-def1c9092ed8 ；已上传设计稿/现状/落地稿；Studio 生成了 `iphone_390_mobile_design.md`（CLI 下载 report 失败，正文在笔记本右侧面板） |
 
-落地顺序：4 Tab 已上。接着按反重力稿改门户金刚区、行情 Top50 单列、点行进 K 线。
+落地顺序：4 Tab 已上。NotebookLM 下载稿在仓库根目录 `iphone_390_mobile_design.md`。已按该稿：门户去掉长标题、九宫格对齐、行情涨跌条、自选单列、K 线大字报价+买卖栏。

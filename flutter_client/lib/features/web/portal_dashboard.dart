@@ -109,24 +109,26 @@ class PortalPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            Text(
-              '量化交易与 AI 研判综合指挥中心',
-              style: TextStyle(
-                fontSize: w < 600 ? 22 : 28,
-                fontWeight: FontWeight.w800,
-                color: dark ? Colors.white : const Color(0xFF0F172A),
+            if (w >= 600) ...[
+              const SizedBox(height: 18),
+              Text(
+                '量化交易与 AI 研判综合指挥中心',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: dark ? Colors.white : const Color(0xFF0F172A),
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'QUANTITATIVE TRADING & AI ANALYSIS COMMAND CENTER',
-              style: TextStyle(
-                letterSpacing: 2,
-                fontSize: 12,
-                color: dark ? const Color(0x99E2E8F0) : const Color(0xFF64748B),
+              const SizedBox(height: 6),
+              Text(
+                'QUANTITATIVE TRADING & AI ANALYSIS COMMAND CENTER',
+                style: TextStyle(
+                  letterSpacing: 2,
+                  fontSize: 12,
+                  color: dark ? const Color(0x99E2E8F0) : const Color(0xFF64748B),
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 16),
             if (w < 720) ...[
               GridView.count(
@@ -135,16 +137,17 @@ class PortalPage extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: 0.9,
+                childAspectRatio: 0.86,
                 children: [
                   _Shortcut('行情', Icons.candlestick_chart_outlined, () => open?.call('/market/heat', title: '行情')),
-                  _Shortcut('自选', Icons.star_outline, () => open?.call('/market/watchlist', title: '自选')),
+                  _Shortcut('全部', Icons.list_alt, () => open?.call('/market/stocks', title: '全部股票')),
                   _Shortcut('选股', Icons.auto_awesome, () => open?.call('/market/recommendations', title: '智能选股')),
-                  _Shortcut('交易', Icons.payments_outlined, () => open?.call('/trade/terminal', title: '交易')),
-                  _Shortcut('持仓', Icons.account_balance_wallet_outlined, () => open?.call('/trade/positions', title: '持仓')),
-                  _Shortcut('量化', Icons.auto_graph, () => open?.call('/quant/strategy', title: '量化')),
+                  _Shortcut('自选', Icons.star_outline, () => open?.call('/market/watchlist', title: '自选')),
                   _Shortcut('舆情', Icons.analytics_outlined, () => open?.call('/sentiment/dashboard', title: '舆情')),
+                  _Shortcut('量化', Icons.auto_graph, () => open?.call('/quant/strategy', title: '量化')),
+                  _Shortcut('交易', Icons.payments_outlined, () => open?.call('/trade/terminal', title: '交易')),
                   _Shortcut('AI', Icons.psychology_outlined, () => open?.call('/market/ai-workbench', title: 'AI 研判')),
+                  _Shortcut('通知', Icons.notifications_outlined, () => open?.call('/trade/notifications', title: '通知中心')),
                 ],
               ),
               const SizedBox(height: 16),

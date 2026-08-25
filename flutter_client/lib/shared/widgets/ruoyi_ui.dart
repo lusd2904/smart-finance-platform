@@ -147,6 +147,7 @@ class QuoteListTile extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.rank,
+    this.price,
     this.changePct,
     this.trailingLabel,
     this.onTap,
@@ -155,6 +156,7 @@ class QuoteListTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final int? rank;
+  final String? price;
   final double? changePct;
   final String? trailingLabel;
   final VoidCallback? onTap;
@@ -189,12 +191,21 @@ class QuoteListTile extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (price != null)
+            Text(
+              price!,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontFeatures: AppNum.fontFeatures,
+              ),
+            ),
           if (chg != null)
             Text(
               '${chg >= 0 ? '+' : ''}${chg.toStringAsFixed(2)}%',
               style: TextStyle(
                 color: color,
                 fontWeight: FontWeight.w700,
+                fontSize: 12,
                 fontFeatures: AppNum.fontFeatures,
               ),
             ),

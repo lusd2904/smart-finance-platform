@@ -82,6 +82,17 @@ class _MarketHeatPageState extends ConsumerState<MarketHeatPage> {
           ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
+          if (heat != null) ...[
+            ElCard(
+              header: const Text('涨跌分布'),
+              child: _BreadthBar(
+                advance: heat.advanceCount,
+                decline: heat.declineCount,
+                flat: heat.flatCount,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           ElCard(
             header: Text(heat?.indexName.isNotEmpty == true ? heat!.indexName : '热度摘要'),
             child: KvGrid({
@@ -181,6 +192,45 @@ class _MarketHeatPageState extends ConsumerState<MarketHeatPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BreadthBar extends StatelessWidget {
+  const _BreadthBar({
+    required this.advance,
+    required this.decline,
+    required this.flat,
+  });
+  final int advance;
+  final int decline;
+  final int flat;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = (advance + decline + flat).clamp(1, 1 << 20);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 10,
+            child: Row(
+              children: [
+                Expanded(flex: advance.clamp(0, total), child: const ColoredBox(color: AppColors.up)),
+                Expanded(flex: decline.clamp(0, total), child: const ColoredBox(color: AppColors.down)),
+                Expanded(flex: flat.clamp(0, total), child: const ColoredBox(color: AppColors.flat)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '涨 $advance · 跌 $decline · 平 $flat',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }
@@ -364,56 +414,104 @@ class _MarketKlinePageState extends ConsumerState<MarketKlinePage> {
 
   @override
   Widget build(BuildContext context) {
+    final last = _bars.isEmpty ? null : _bars.last;
+    final prev = _bars.length < 2 ? null : _bars[_bars.length - 2];
+    final chg = (last == null || prev == null || prev.close == 0)
+        ? null
+        : (last.close - prev.close) / prev.close * 100;
+    final phone = !AppDimens.isWide(context);
+    final periodBar = SegmentedButton<String>(
+      segments: const [
+        ButtonSegment(value: 'intraday', label: Text('分时')),
+        ButtonSegment(value: 'daily', label: Text('日K')),
+        ButtonSegment(value: 'weekly', label: Text('周K')),
+        ButtonSegment(value: 'monthly', label: Text('月K')),
+      ],
+      selected: {_period},
+      onSelectionChanged: (s) {
+        _period = s.first;
+        _load();
+      },
+    );
     return AppPage(
+      padding: phone ? const EdgeInsets.fromLTRB(12, 8, 12, 0) : const EdgeInsets.all(16),
       child: Column(
         children: [
-          PageHero(
-            title: '行情K线',
-            subtitle: '${_symbol.text} · $_market · $_period',
-            actions: [
-              SizedBox(
-                width: 140,
-                child: TextField(
-                  controller: _symbol,
-                  decoration: const InputDecoration(labelText: '代码', isDense: true),
-                  onSubmitted: (_) => _load(),
+          if (phone) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    last == null ? '--' : last.close.toStringAsFixed(2),
+                    style: AppNum.style(
+                      TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: chg == null
+                            ? null
+                            : (chg >= 0 ? AppColors.up : AppColors.down),
+                      ),
+                    ),
+                  ),
+                ),
+                if (chg != null)
+                  Text(
+                    '${chg >= 0 ? '+' : ''}${chg.toStringAsFixed(2)}%',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: chg >= 0 ? AppColors.up : AppColors.down,
+                      fontFeatures: AppNum.fontFeatures,
+                    ),
+                  ),
+              ],
+            ),
+            if (last != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 8),
+                child: Text(
+                  '开 ${last.open.toStringAsFixed(2)}  高 ${last.high.toStringAsFixed(2)}  低 ${last.low.toStringAsFixed(2)}  量 ${last.volume.toStringAsFixed(0)}',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-              DropdownButton<String>(
-                value: _market,
-                items: const [
-                  DropdownMenuItem(value: 'US', child: Text('US')),
-                  DropdownMenuItem(value: 'HK', child: Text('HK')),
-                  DropdownMenuItem(value: 'CN', child: Text('CN')),
-                ],
-                onChanged: (v) {
-                  _market = v ?? 'US';
-                  _load();
-                },
-              ),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'intraday', label: Text('分时')),
-                  ButtonSegment(value: 'daily', label: Text('日K')),
-                  ButtonSegment(value: 'weekly', label: Text('周K')),
-                  ButtonSegment(value: 'monthly', label: Text('月K')),
-                ],
-                selected: {_period},
-                onSelectionChanged: (s) {
-                  _period = s.first;
-                  _load();
-                },
-              ),
-              FilledButton(onPressed: _load, child: const Text('查询')),
-              TextButton(
-                onPressed: () => widget.open?.call(
-                  '/market/symbol?symbol=${_symbol.text}&market=$_market',
-                  title: _symbol.text,
+            periodBar,
+            const SizedBox(height: 8),
+          ] else
+            PageHero(
+              title: '行情K线',
+              subtitle: '${_symbol.text} · $_market · $_period',
+              actions: [
+                SizedBox(
+                  width: 140,
+                  child: TextField(
+                    controller: _symbol,
+                    decoration: const InputDecoration(labelText: '代码', isDense: true),
+                    onSubmitted: (_) => _load(),
+                  ),
                 ),
-                child: const Text('基本信息'),
-              ),
-            ],
-          ),
+                DropdownButton<String>(
+                  value: _market,
+                  items: const [
+                    DropdownMenuItem(value: 'US', child: Text('US')),
+                    DropdownMenuItem(value: 'HK', child: Text('HK')),
+                    DropdownMenuItem(value: 'CN', child: Text('CN')),
+                  ],
+                  onChanged: (v) {
+                    _market = v ?? 'US';
+                    _load();
+                  },
+                ),
+                periodBar,
+                FilledButton(onPressed: _load, child: const Text('查询')),
+                TextButton(
+                  onPressed: () => widget.open?.call(
+                    '/market/symbol?symbol=${_symbol.text}&market=$_market',
+                    title: _symbol.text,
+                  ),
+                  child: const Text('基本信息'),
+                ),
+              ],
+            ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
@@ -425,6 +523,44 @@ class _MarketKlinePageState extends ConsumerState<MarketKlinePage> {
                   : InteractiveKlineChart(bars: _bars),
             ),
           ),
+          if (phone)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.up,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        onPressed: () => widget.open?.call(
+                          '/trade/terminal?symbol=${_symbol.text}&market=$_market',
+                          title: '买入 ${_symbol.text}',
+                        ),
+                        child: const Text('买入'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.down,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        onPressed: () => widget.open?.call(
+                          '/trade/terminal?symbol=${_symbol.text}&market=$_market',
+                          title: '卖出 ${_symbol.text}',
+                        ),
+                        child: const Text('卖出'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -616,6 +752,32 @@ class _MarketWatchlistPageState extends ConsumerState<MarketWatchlistPage> {
             actions: [OutlinedButton(onPressed: _load, child: const Text('刷新'))],
           ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
+          if (!wide)
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text('全部 ${_data?.count ?? 0}'),
+                      selected: _group == '全部',
+                      onSelected: (_) => setState(() => _group = '全部'),
+                    ),
+                  ),
+                  for (final g in _data?.groups ?? const [])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text('${g.name} ${g.count}'),
+                        selected: _group == g.name,
+                        onSelected: (_) => setState(() => _group = g.name),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           Expanded(
             child: wide
                 ? Row(
@@ -684,7 +846,24 @@ class _MarketWatchlistPageState extends ConsumerState<MarketWatchlistPage> {
                       ),
                     ],
                   )
-                : table,
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      children: [
+                        for (final i in items)
+                          QuoteListTile(
+                            title: i.name.isEmpty ? i.symbol : i.name,
+                            subtitle: '${i.symbol}  ${i.market}',
+                            price: i.last?.toStringAsFixed(2),
+                            changePct: i.changeRate,
+                            onTap: () => widget.open?.call(
+                              '/market/kline?symbol=${i.symbol}&market=${i.market}',
+                              title: i.symbol,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),

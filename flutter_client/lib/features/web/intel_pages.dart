@@ -102,20 +102,22 @@ class _SentimentDashboardPageState extends ConsumerState<SentimentDashboardPage>
                     ],
                   ),
           ),
-          const SizedBox(height: 12),
-          ElCard(
-            header: const Text('趋势'),
-            padding: EdgeInsets.zero,
-            child: SimpleTable(
-              columns: const [
-                TableCol('时间', 'createTime'),
-                TableCol('美股', 'usScore'),
-                TableCol('港股', 'hkScore'),
-                TableCol('A股', 'aScore'),
-              ],
-              rows: _trend,
+          if (MediaQuery.sizeOf(context).width >= 900) ...[
+            const SizedBox(height: 12),
+            ElCard(
+              header: const Text('趋势'),
+              padding: EdgeInsets.zero,
+              child: SimpleTable(
+                columns: const [
+                  TableCol('时间', 'createTime'),
+                  TableCol('美股', 'usScore'),
+                  TableCol('港股', 'hkScore'),
+                  TableCol('A股', 'aScore'),
+                ],
+                rows: _trend,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
