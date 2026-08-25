@@ -48,7 +48,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   int _phoneTab = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final List<TagTab> _tags = [
-    const TagTab(path: '/portal', title: '子系统门户'),
+    const TagTab(path: '/portal', title: '工作台'),
   ];
   int _active = 0;
   final Map<String, Widget> _cache = {};
