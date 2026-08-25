@@ -1004,7 +1004,7 @@ function querySearchStocks(queryString, cb) {
         out.push(row)
       })
       cb(out)
-    } catch (_) {
+    } catch {
       if (seq !== searchSeq) return
       cb(watchHits)
     }
@@ -1563,7 +1563,7 @@ async function loadLiveIndices() {
       ...(liveUs.length ? liveUs : fallbackUs),
       ...liveAsia
     ]
-  } catch (_) { /* 保留 mock 指数 */ }
+  } catch { /* 保留 mock 指数 */ }
 }
 
 function applyWatchlistItems(items) {
@@ -1598,12 +1598,12 @@ async function loadLiveWatchlist() {
     const lite = await listMarketWatchlist({ pageNum: 1, pageSize: 200, enabled: '1' })
     const rows = lite.rows || lite.data?.rows || []
     if (Array.isArray(rows) && rows.length) applyWatchlistItems(rows)
-  } catch (_) { /* 无轻量清单时走总览 */ }
+  } catch { /* 无轻量清单时走总览 */ }
   try {
     const res = await getMarketWatchlistOverview({ timeout: 20000 })
     const items = res.data?.items || []
     if (items.length) applyWatchlistItems(items)
-  } catch (_) { /* 保留已有自选 */ }
+  } catch { /* 保留已有自选 */ }
 }
 
 function applyAccountPayload(accData) {
@@ -1627,7 +1627,7 @@ async function loadLiveAccount() {
   try {
     const acc = await getTradeAccount()
     applyAccountPayload(acc.data || {})
-  } catch (_) { /* 未配长桥时保留空资金 */ }
+  } catch { /* 未配长桥时保留空资金 */ }
 }
 
 async function loadAutoTradeStatus() {
@@ -1636,7 +1636,7 @@ async function loadAutoTradeStatus() {
     const data = res.data || {}
     autoTradeConfigured.value = data.configured === true
     autoTradeEnabled.value = !!data.autoTradeEnabled
-  } catch (_) {
+  } catch {
     autoTradeConfigured.value = false
     autoTradeEnabled.value = false
   }
@@ -1654,7 +1654,7 @@ async function onToggleAutoTrade(val) {
         '开启本账户自动交易',
         { type: 'warning', confirmButtonText: '确认打开', cancelButtonText: '取消' }
       )
-    } catch (_) {
+    } catch {
       return
     }
   }
@@ -1716,7 +1716,7 @@ async function loadLiveBook() {
         time: o.submittedAt || o.createTime || ''
       }))
     }
-  } catch (_) { /* 未配长桥时保留空资金 */ }
+  } catch { /* 未配长桥时保留空资金 */ }
 }
 
 function currentStock(symbol, market) {
@@ -1786,7 +1786,7 @@ async function loadLiveKline() {
       }
       liveMode.value = true
     }
-  } catch (_) { /* K 线可空 */ }
+  } catch { /* K 线可空 */ }
 }
 
 async function loadLiveDepth() {
@@ -1813,7 +1813,7 @@ async function loadLiveDepth() {
       const weibi = ((bidVol - askVol) / den) * 100
       s.weibi = `${weibi >= 0 ? '+' : ''}${weibi.toFixed(2)}%`
     }
-  } catch (_) { /* 盘口可空 */ }
+  } catch { /* 盘口可空 */ }
 }
 
 async function loadSymbolOverview() {
@@ -1835,7 +1835,7 @@ async function loadSymbolOverview() {
       fillIfEmpty(s, 'aiSummary', ai.summaryText || ai.summary)
     }
     if (s.price) tradeForm.value.price = Number(s.price.toFixed(2))
-  } catch (_) { /* 概览可空 */ }
+  } catch { /* 概览可空 */ }
 }
 
 async function loadBrokerSnapshot() {
@@ -1848,7 +1848,7 @@ async function loadBrokerSnapshot() {
     const s = currentStock(symbol, market)
     applyBrokerSnapshot(s, res.data || res)
     stockUniverse.value = stockUniverse.value.slice()
-  } catch (_) { /* 长桥快照可空 */ }
+  } catch { /* 长桥快照可空 */ }
 }
 
 async function loadRangeStats() {
@@ -1873,7 +1873,7 @@ async function loadRangeStats() {
     if (lows.length) fillIfEmpty(s, 'low52', Math.min(...lows))
     if (highs.length) fillIfEmpty(s, 'historyHigh', Math.max(...highs))
     if (lows.length) fillIfEmpty(s, 'historyLow', Math.min(...lows))
-  } catch (_) { /* 52周可由长桥快照补 */ }
+  } catch { /* 52周可由长桥快照补 */ }
 }
 
 function guessNewsSentiment(title) {
@@ -1901,10 +1901,10 @@ async function loadSymbolNews() {
       time: toBeijingDisplay(n.publishedAt || n.fetchedAt, '{m}-{d} {h}:{i}') || toBeijingDisplay(n.publishedAt || n.fetchedAt),
       sentiment: guessNewsSentiment(n.title)
     }))
-  } catch (_) { /* 资讯可空 */ }
+  } catch { /* 资讯可空 */ }
 }
 
-async function loadLiveTape() {
+async function _loadLiveTape() {
   await loadLiveKline()
   loadLiveDepth()
   loadSymbolOverview()

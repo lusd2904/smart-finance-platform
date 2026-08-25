@@ -171,7 +171,7 @@ class TradeApi {
           'side': side,
           'orderType': orderType,
           'quantity': quantity,
-          if (price != null) 'price': price,
+          'price': ?price,
         },
         options: Options(receiveTimeout: const Duration(seconds: 60)),
       ),
