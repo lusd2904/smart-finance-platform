@@ -11,6 +11,7 @@
 const router = useRouter()
 
 const navItems = [
+  { title: '专业终端 (Pro)', path: '/market/terminal', icon: 'Monitor' },
   { title: '舆情大盘', path: '/sentiment/dashboard', icon: 'DataAnalysis' },
   { title: '资讯列表', path: '/sentiment/news', icon: 'Reading' },
   { title: '行情中心', path: '/market/heat', icon: 'TrendCharts' },

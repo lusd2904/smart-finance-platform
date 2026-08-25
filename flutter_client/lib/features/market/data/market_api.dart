@@ -47,7 +47,7 @@ class MarketApi {
         .toList();
   }
 
-  /// 盘中指数条（非交易时段返回空列表）
+  /// 盘中指数条（美股全时段返回；港股/A 股仅当地盘中）
   Future<List<IndexQuote>> indexQuotes() async {
     final result = ApiResult.from(await _dio.get<void>('/market/index/quotes'));
     final items = result.dataAsMap?['items'];
@@ -104,7 +104,7 @@ class MarketApi {
     required String symbol,
     required String market,
     String period = 'daily',
-    int limit = 250,
+    int limit = 80,
   }) async {
     final result = ApiResult.from(
       await _dio.get<void>(
@@ -113,18 +113,69 @@ class MarketApi {
           'symbol': symbol,
           'market': market,
           'period': period,
-          'start': '-$limit d',
+          'start': _klineStart(period, limit),
           'stop': 'now()',
         },
+        options: Options(receiveTimeout: const Duration(seconds: 12)),
       ),
     );
     return KlineBar.listFrom(result.dataAsMap);
   }
 
+  static String _klineStart(String period, int limit) {
+    final p = period.toLowerCase();
+    if (p == 'intraday' || p == '1min') return '-1d';
+    if (p == '5min' || p == 'm5') return '-5d';
+    if (p == 'weekly') return '-2y';
+    if (p == 'monthly') return '-5y';
+    return '-${limit}d';
+  }
+
+  /// 标的详情概览。
+  Future<Map<String, dynamic>> symbolOverview({
+    required String symbol,
+    required String market,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/symbols/${Uri.encodeComponent(symbol)}/overview',
+        queryParameters: {'market': market},
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{};
+  }
+
+  /// 自选分页（无报价，用于终端首屏）
+  Future<List<WatchlistItem>> watchlistRows({int pageSize = 200}) async {
+    final response = await _dio.get<dynamic>(
+      '/market/watchlist/list',
+      queryParameters: {
+        'pageNum': 1,
+        'pageSize': pageSize,
+        'enabled': '1',
+      },
+      options: Options(receiveTimeout: const Duration(seconds: 8)),
+    );
+    final body = response.data;
+    List<dynamic> raw = const [];
+    if (body is Map<String, dynamic>) {
+      if (body['rows'] is List) {
+        raw = body['rows'] as List<dynamic>;
+      } else if (body['data'] is Map<String, dynamic>) {
+        raw = ((body['data'] as Map<String, dynamic>)['rows'] as List?) ?? const [];
+      }
+    }
+    return raw.whereType<Map<String, dynamic>>().map(WatchlistItem.fromJson).toList();
+  }
+
   /// 自选概览（含分组与最新报价）
   Future<WatchlistOverview> watchlistOverview() async {
     final result = ApiResult.from(
-      await _dio.get<void>('/market/watchlist/overview'),
+      await _dio.get<void>(
+        '/market/watchlist/overview',
+        options: Options(receiveTimeout: const Duration(seconds: 25)),
+      ),
     );
     return WatchlistOverview.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }

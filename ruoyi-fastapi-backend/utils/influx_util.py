@@ -5,7 +5,7 @@ measurement: daily_kline  tag: symbol,market  field: open,high,low,close,volume
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
@@ -13,6 +13,7 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 
 from config.env import InfluxConfig
 from utils.log_util import logger
+from utils.time_format_util import format_utc_as_beijing
 
 _client: InfluxDBClient | None = None
 
@@ -21,6 +22,15 @@ _MAX_QUERY_LIMIT = 5000
 _LATEST_KLINES_CHUNK = 80
 _TS_LEN_FULL = 19  # 'YYYY-MM-DD HH:MM:SS' 长度
 _TS_LEN_MIN = 16  # 'YYYY-MM-DD HH:MM' 长度
+
+
+def _fmt_influx_minute(ts: datetime | None) -> str:
+    """分钟 K 的 Influx _time 是 UTC，展示为北京时间。"""
+    if ts is None:
+        return ''
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return format_utc_as_beijing(ts, '%Y-%m-%d %H:%M') or ''
 
 
 class InfluxQueryError(RuntimeError):
@@ -315,7 +325,7 @@ from(bucket: "{bucket}")
             tables = get_client().query_api().query(flux)
             return [
                 {
-                    'date': record.get_time().strftime('%Y-%m-%d %H:%M') if record.get_time() else '',
+                    'date': _fmt_influx_minute(record.get_time()),
                     'open': record.values.get('open'),
                     'high': record.values.get('high'),
                     'low': record.values.get('low'),

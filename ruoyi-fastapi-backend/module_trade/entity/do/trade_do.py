@@ -65,6 +65,19 @@ class PlatStrategyProfile(Base):
     update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
+class PlatStrategyProfileUser(Base):
+    """登录账户自己的策略档位覆盖，不影响其他账户。"""
+
+    __tablename__ = 'plat_strategy_profile_user'
+    __table_args__ = {'comment': '用户策略档位覆盖'}
+
+    user_id = Column(BigInteger, primary_key=True, nullable=False, comment='用户ID')
+    profile_code = Column(String(32), primary_key=True, nullable=False, comment='策略编码')
+    profile_name = Column(String(64), nullable=False, comment='策略名称')
+    config_json = Column(Text, nullable=False, comment='配置JSON')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+
 class PlatFeishuSubscription(Base):
     """飞书策略摘要订阅。"""
 

@@ -3,6 +3,32 @@
 所有项目的重要更改都将记录在此文件中。
 
 
+## [v1.7.0] - 2026-08-25 - 交易台时段 K 线、北京时间、macOS 客户端；三端壳占位 (0825 V10)
+
+### 💹 交易台 / 行情台
+- 自选分组下拉，打开默认第一只标的；顶栏全市场代码搜索
+- 盘中 K 线走长桥 `TradeSessions.All`（美股 4:00 ET 盘前可见 1 分钟线）；日/周/月走 Influx；港/A 休市回当天日 K
+- 长桥 LV1 无美股隔夜（20:00–04:00 ET）分钟线，不捏造
+- 交易台量化自动交易开关（无密钥灰显）；单票仓位占净值上限；同日买单去重
+
+### ⏰ 时间
+- 长桥 / Influx UTC → 北京时间展示
+- 舆情 naive `pub_time` 仍按北京墙钟，**不二次 +8**
+- 信封响应 `time` 按北京编码
+
+### 🔄 同步与量化
+- 生产→本地：加密用户名密码换 `/open/sync` 短期令牌（`scripts/sync_from_prod.py`）
+- `max_symbol_position_pct` 默认 0.10；增量 SQL `sql/quant-symbol-position-pct.sql`
+
+### 🖥️ Flutter / CI
+- **仅保留 macOS 原生壳**；`android/` `ios/` `windows/` 清空为占位目录，当晚再继续
+- `flutter.yml` 只构建 macOS；push 触发收窄到 `main` + tag + PR，减轻邮件风暴
+- 舆情 ruff：429 命名常量、isort、过长分支 noqa，避免 ratchet 在 PR 上失败
+
+### ⏳ 当晚待办
+- 重新生成 Android / iOS / Windows 平台壳并对齐今日 macOS 改动
+---
+
 ## [v1.6.0] - 2026-08-24 - 四端客户端 M2–M5 全量落地与行情实时通道 (0824 V9)
 
 ### 📱 Flutter 四端客户端（功能全量对齐 Web）

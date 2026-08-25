@@ -57,6 +57,9 @@
             <el-option label="海外 (overseas)" value="overseas" />
           </el-select>
         </el-form-item>
+        <el-form-item label="自动交易">
+          <div class="switch-hint">本账户自动交易开关在「量化交易 / 策略配置」。未配置 Key 时默认关闭。</div>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saveLoading" @click="submitForm" v-hasPermi="['quant:longbridge:config']">保 存</el-button>
           <el-button type="success" plain :loading="testLoading" @click="handleTest" v-hasPermi="['quant:longbridge:test']">测试连接</el-button>
@@ -174,6 +177,11 @@ getConfigData();
     cursor: pointer;
     color: #909399;
     &:hover { color: #409eff; }
+  }
+  .switch-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
   }
   .test-result {
     margin-top: 16px;

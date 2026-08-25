@@ -17,16 +17,19 @@ if TYPE_CHECKING:
 
 
 async def _scan_one_user(db: AsyncSession, uid: int, profile: str) -> None:
-    """单用户自动交易扫描；失败只记日志不中断其他用户。"""
+    """单用户自动交易扫描。该账户开关打开则真实下单，否则只评估。"""
     try:
+        settings = await AutoTradeService.load_user_trade_settings(db, uid)
         result = await AutoTradeService.run_watchlist_strategy_cycle(
             db,
             source='scheduler',
-            execute=False,
+            execute=bool(settings.get('auto_trade_enabled')),
             strategy_profile=profile,
             user_id=uid,
         )
-        logger.info(f'[自动交易定时扫描] user={uid} {result.get("message")}')
+        logger.info(
+            f'[自动交易定时扫描] user={uid} auto={settings.get("auto_trade_enabled")} {result.get("message")}'
+        )
     except Exception as exc:
         logger.error(f'[自动交易定时扫描] user={uid} 执行失败: {exc}')
 

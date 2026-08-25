@@ -54,3 +54,6 @@ android/key.properties
 
 # Gradle 在 android/ 下的局部输出（reports 等）
 android/build/
+
+# golden 失败截图，本机对照用，不入库
+test/failures/

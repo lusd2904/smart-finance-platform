@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 
 from module_market.config.heat_config import MARKET_META
 from module_market.dao.heat_dao import MarketHeatDao
+from utils.time_format_util import now_beijing
 from module_market.service.heat_service import (
     MarketHeatService,
     _heat_summary,
@@ -410,7 +411,7 @@ async def collect_market(db: AsyncSession, market: str, trade_date: str | None =
         weights, index_change, total_turnover, advance, decline, baseline
     )
     summary = _heat_summary(heat_score, market, index_change, advance, decline)
-    as_of = datetime.now()
+    as_of = now_beijing()
     await MarketHeatDao.upsert_heat(
         db,
         {

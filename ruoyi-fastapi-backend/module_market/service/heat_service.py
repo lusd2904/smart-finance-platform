@@ -23,6 +23,7 @@ from module_quant.service.longbridge_service import LongbridgeService
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 from utils.longbridge_breaker import LongbridgeBreaker
+from utils.time_format_util import format_beijing_datetime, now_beijing
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -214,7 +215,8 @@ class MarketHeatService:
         filtered = [
             item
             for item in candidates
-            if item.get('turnover') and item['turnover'] > 0
+            if item.get('turnover')
+            and item['turnover'] > 0
             and item.get('market_cap') is not None
             and cap_min <= float(item['market_cap']) <= cap_max
         ]
@@ -335,7 +337,7 @@ class MarketHeatService:
         )
         heat_score = cls.compute_heat_score(weights, index_change, total_turnover, advance, decline, baseline)
         summary = _heat_summary(heat_score, market, index_change, advance, decline)
-        as_of = datetime.now()
+        as_of = now_beijing()
         status = 'ok' if top50 else 'empty'
         message = None if top50 else '样本池内无符合市值区间的成交额数据'
 
@@ -391,15 +393,17 @@ class MarketHeatService:
             'heatScore': heat_score,
             'top50Count': len(top50),
             'status': status,
-            'asOfTime': as_of.strftime('%Y-%m-%d %H:%M:%S'),
+            'asOfTime': format_beijing_datetime(as_of),
         }
 
     @classmethod
     def _serialize_heat(cls, row: Any, stale_hours: int = 36) -> dict[str, Any]:
         as_of = row.as_of_time
         stale = False
-        if as_of and datetime.now() - as_of > timedelta(hours=stale_hours):
-            stale = True
+        if as_of:
+            stamp = as_of if as_of.tzinfo is None else as_of.astimezone(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
+            if now_beijing() - stamp > timedelta(hours=stale_hours):
+                stale = True
         return {
             'market': row.market,
             'tradeDate': row.trade_date,
@@ -415,7 +419,7 @@ class MarketHeatService:
             'currency': row.currency,
             'filterRule': row.filter_rule,
             'weights': json.loads(row.weights_json or '{}') if row.weights_json else {},
-            'asOfTime': row.as_of_time.strftime('%Y-%m-%d %H:%M:%S') if row.as_of_time else None,
+            'asOfTime': format_beijing_datetime(row.as_of_time) if row.as_of_time else None,
             'status': 'stale' if stale and row.status == 'ok' else row.status,
             'message': row.message,
             'staleHint': '数据可能不是最新收盘快照，请选择其他交易日或等待任务刷新。' if stale else None,
@@ -432,7 +436,7 @@ class MarketHeatService:
                 'turnover': row.turnover,
                 'changePct': row.change_pct,
                 'currency': row.currency,
-                'asOfTime': row.as_of_time.strftime('%Y-%m-%d %H:%M:%S') if row.as_of_time else None,
+                'asOfTime': format_beijing_datetime(row.as_of_time) if row.as_of_time else None,
             }
             for row in rows
         ]

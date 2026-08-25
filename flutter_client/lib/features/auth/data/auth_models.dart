@@ -39,15 +39,22 @@ class UserInfo {
 }
 
 class CurrentUser {
-  const CurrentUser({this.user, this.roles = const []});
+  const CurrentUser({
+    this.user,
+    this.roles = const [],
+    this.permissions = const [],
+  });
 
   factory CurrentUser.fromJson(Map<String, dynamic> json) => CurrentUser(
         user: json['user'] is Map<String, dynamic>
             ? UserInfo.fromJson(json['user'] as Map<String, dynamic>)
             : null,
         roles: (json['roles'] as List<dynamic>?)?.cast<String>() ?? const [],
+        permissions:
+            (json['permissions'] as List<dynamic>?)?.cast<String>() ?? const [],
       );
 
   final UserInfo? user;
   final List<String> roles;
+  final List<String> permissions;
 }

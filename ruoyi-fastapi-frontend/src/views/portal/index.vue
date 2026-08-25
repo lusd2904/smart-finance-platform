@@ -125,6 +125,7 @@ const subsystemGroups = [
     path: '/market/heat',
     icon: Histogram,
     links: [
+      { name: '专业交易终端 (Pro)', path: '/market/terminal' },
       { name: '市场热度', path: '/market/heat' },
       { name: '行情台', path: '/market/board' },
       { name: '自选清单', path: '/market/watchlist' }
@@ -137,10 +138,10 @@ const subsystemGroups = [
     path: '/trade/trading',
     icon: Money,
     links: [
+      { name: '专业交易终端 (Pro)', path: '/market/terminal' },
       { name: '核心交易台', path: '/trade/trading' },
       { name: '持仓与订单', path: '/trade/positions' },
-      { name: '券商账户', path: '/trade/broker' },
-      { name: '通知中心', path: '/trade/notifications' }
+      { name: '券商账户', path: '/trade/broker' }
     ]
   },
   {

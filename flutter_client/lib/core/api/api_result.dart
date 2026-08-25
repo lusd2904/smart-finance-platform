@@ -19,8 +19,19 @@ class ApiResult {
     this.total,
   });
 
+  factory ApiResult.ok({
+    dynamic data,
+    List<dynamic>? rows,
+    int? total,
+    String msg = '',
+  }) =>
+      ApiResult._(code: 200, msg: msg, data: data, rows: rows, total: total);
+
   factory ApiResult.from(Response<dynamic> response) {
     final body = response.data;
+    if (body is List) {
+      return ApiResult._(code: 200, msg: '', data: body, rows: body, total: body.length);
+    }
     if (body is! Map<String, dynamic>) {
       throw ApiException('接口返回格式异常（${response.statusCode}）');
     }

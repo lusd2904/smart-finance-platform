@@ -10,17 +10,23 @@ from module_quant.service.longbridge.auth import (
     QUOTE_CACHE_TTL,
     QUOTE_NEGATIVE_CACHE_TTL,
     QUOTE_SYMBOL_LIMIT,
+    SNAPSHOT_CACHE_TTL,
     TRADES_CACHE_TTL,
 )
 from module_quant.service.longbridge_quote import (
     CN_NO_DEPTH_MSG,
     assemble_depth,
+    assemble_quote_snapshot,
     assemble_trades,
     empty_depth,
     empty_trades,
     is_cn_market,
+    map_calc_index,
     map_candlestick,
+    map_capital_distribution,
     map_intraday_point,
+    map_security_quote,
+    map_static_info,
     overlay_last_bar,
     quote_error_message,
     quote_error_reason,
@@ -241,6 +247,87 @@ class QuoteClientMixin:
             logger.warning(f'[长桥] 获取静态信息失败: {exc}')
             return {'configured': True, 'message': f'获取静态信息失败: {exc}', 'items': []}
 
+    _SNAPSHOT_CALC_NAMES = (
+        'PeTtmRatio',
+        'PbRatio',
+        'TotalMarketValue',
+        'TurnoverRate',
+        'VolumeRatio',
+        'Amplitude',
+        'Turnover',
+        'Volume',
+        'LastDone',
+        'ChangeRate',
+        'ChangeValue',
+        'DividendRatioTtm',
+        'CapitalFlow',
+    )
+
+    @classmethod
+    def get_quote_snapshot(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        """终端基本面快照：quote + static_info + calc_indexes + 资金分布。低频缓存。"""
+        mkt = str(market or 'US').upper()
+        lb_symbol = cls.to_longbridge_symbol(symbol, mkt)
+        base = {
+            'configured': cls.is_configured(),
+            'available': False,
+            'symbol': symbol,
+            'market': mkt,
+            'lbSymbol': lb_symbol,
+        }
+        if is_cn_market(mkt, symbol):
+            return {**base, 'reason': 'cn_no_depth', 'message': 'A股基本面请使用时序库/标的库'}
+        if not cls.is_configured():
+            return {**base, 'reason': 'unconfigured', 'message': '长桥凭据未配置'}
+        if cls._blocked():
+            return {**base, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message()}
+        ctx = cls._build_quote_context()
+        if ctx is None:
+            return {**base, 'reason': 'unavailable', 'message': '长桥 QuoteContext 不可用'}
+        quote = static = calc = capital = {}
+        try:
+            raw_q = ctx.quote([lb_symbol]) if hasattr(ctx, 'quote') else []
+            quote = map_security_quote((raw_q or [None])[0] if raw_q else None)
+        except Exception as exc:
+            cls._note_sdk_error(exc)
+            logger.warning(f'[长桥] snapshot quote 失败 {lb_symbol}: {exc}')
+        try:
+            raw_s = ctx.static_info([lb_symbol]) if hasattr(ctx, 'static_info') else []
+            static = map_static_info((raw_s or [None])[0] if raw_s else None)
+        except Exception as exc:
+            cls._note_sdk_error(exc)
+            logger.warning(f'[长桥] snapshot static 失败 {lb_symbol}: {exc}')
+        try:
+            from longport.openapi import CalcIndex  # 延迟导入
+
+            indexes = [getattr(CalcIndex, name) for name in cls._SNAPSHOT_CALC_NAMES if hasattr(CalcIndex, name)]
+            raw_c = ctx.calc_indexes([lb_symbol], indexes) if indexes and hasattr(ctx, 'calc_indexes') else []
+            calc = map_calc_index((raw_c or [None])[0] if raw_c else None)
+        except Exception as exc:
+            cls._note_sdk_error(exc)
+            logger.warning(f'[长桥] snapshot calc_indexes 失败 {lb_symbol}: {exc}')
+        try:
+            if hasattr(ctx, 'capital_distribution'):
+                capital = map_capital_distribution(ctx.capital_distribution(lb_symbol))
+        except Exception as exc:
+            logger.info(f'[长桥] snapshot capital_distribution 跳过 {lb_symbol}: {exc}')
+        LongbridgeBreaker.record_success()
+        # 52 周 / 历史高低走日K库；资讯走 /market/symbols/{id}/content。这里只拉 quote+static+calc。
+        payload = assemble_quote_snapshot(
+            symbol=symbol,
+            market=mkt,
+            lb_symbol=lb_symbol,
+            quote=quote,
+            static=static,
+            calc=calc,
+            capital=capital,
+            high52=None,
+            low52=None,
+        )
+        payload['configured'] = True
+        payload['news'] = []
+        return payload
+
     @classmethod
     def is_cn_market(cls, market: str | None, symbol: str | None = None) -> bool:
         return is_cn_market(market, symbol)
@@ -370,9 +457,14 @@ class QuoteClientMixin:
                     'klines': [],
                 }
             adjust = getattr(AdjustType, 'NoAdjust', None) or getattr(AdjustType, 'NO_ADJUST', None)
-            raw = ctx.candlesticks(lb_symbol, period_enum, count, adjust)
+            sessions = cls._resolve_lb_trade_sessions()
+            if sessions is not None:
+                raw = ctx.candlesticks(lb_symbol, period_enum, count, adjust, trade_sessions=sessions)
+            else:
+                raw = ctx.candlesticks(lb_symbol, period_enum, count, adjust)
             with_time = str(period).lower() not in {'daily', 'day', 'd', '1d', 'weekly', 'week', 'w', 'monthly', 'month'}
-            klines = [map_candlestick(x, with_time=with_time) for x in (raw or [])]
+            tz_name = cls._kline_tz_name(market) if with_time else None
+            klines = [map_candlestick(x, with_time=with_time, tz_name=tz_name) for x in (raw or [])]
             klines = [x for x in klines if x.get('close') is not None]
             klines.sort(key=lambda x: str(x.get('date') or ''))
             LongbridgeBreaker.record_success()
@@ -449,8 +541,10 @@ class QuoteClientMixin:
                     'period': 'intraday',
                     'klines': [],
                 }
-            raw = ctx.intraday(lb_symbol)
-            klines = [map_intraday_point(x) for x in (raw or [])]
+            sessions = cls._resolve_lb_trade_sessions()
+            raw = ctx.intraday(lb_symbol, trade_sessions=sessions) if sessions is not None else ctx.intraday(lb_symbol)
+            tz_name = cls._kline_tz_name(market)
+            klines = [map_intraday_point(x, tz_name=tz_name) for x in (raw or [])]
             klines = [x for x in klines if x.get('close') is not None]
             klines.sort(key=lambda x: str(x.get('date') or ''))
             LongbridgeBreaker.record_success()
@@ -476,6 +570,19 @@ class QuoteClientMixin:
                 'period': 'intraday',
                 'klines': [],
             }
+
+    @classmethod
+    def _resolve_lb_trade_sessions(cls) -> Any:
+        """美股盘前/盘后/夜盘必须传 All；默认 Intraday 只有常规盘。"""
+        try:
+            from longport.openapi import TradeSessions
+        except Exception:
+            return None
+        return getattr(TradeSessions, 'All', None)
+
+    @staticmethod
+    def _kline_tz_name(_market: str) -> str | None:
+        return 'Asia/Shanghai'
 
     @classmethod
     def _resolve_lb_period(cls, period: str) -> Any:
@@ -689,3 +796,26 @@ class QuoteClientMixin:
     @classmethod
     async def get_intraday_async(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
         return await asyncio.to_thread(cls.get_intraday, symbol, market)
+
+    @classmethod
+    async def get_quote_snapshot_async(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
+        lb_symbol = cls.to_longbridge_symbol(symbol, market)
+        cache_key = f'lb:snapshot:{cls._creds_cache_tag()}:{lb_symbol}'
+        cached = await cache_get_json(cache_key)
+        if isinstance(cached, dict):
+            return {**cached, 'cached': True}
+        if cls._blocked():
+            return {
+                'configured': True,
+                'available': False,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'symbol': symbol,
+                'market': str(market or 'US').upper(),
+                'lbSymbol': lb_symbol,
+            }
+        await cls._throttle()
+        data = await asyncio.to_thread(cls.get_quote_snapshot, symbol, market)
+        if data.get('available') or data.get('reason') in {'unconfigured', 'cn_no_depth'}:
+            await cache_set_json(cache_key, data, SNAPSHOT_CACHE_TTL)
+        return data

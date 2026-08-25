@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div>
         <h2>自动分析任务</h2>
-        <p>行情同步、自选研判、舆情 AI、因子日扫等定时任务由独立 sentiment-jobs 执行，不占用平台 API 进程。</p>
+        <p>管理员全局 Job 开关：控制调度是否跑。各账户是否真实下单在「量化交易 / 策略配置」，与 Job 启停分开。</p>
       </div>
       <div class="hero-actions">
         <el-tag :type="alive ? 'success' : 'danger'" effect="dark" class="alive-tag">

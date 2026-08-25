@@ -4,9 +4,9 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'core/gateway/gateway_controller.dart';
 import 'core/dev/design_gallery.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/ruoyi_tokens.dart';
 import 'features/auth/logic/session_controller.dart';
 import 'features/auth/presentation/login_page.dart';
 
@@ -17,12 +17,8 @@ import 'features/home/home_shell.dart';
 /// 调试/集成测试用：--dart-define=SFF_ROUTE=/gallery 直跳指定路由；发布构建固定 '/'。
 const appInitialRoute = String.fromEnvironment('SFF_ROUTE', defaultValue: '/');
 
-/// 路由守卫语义：
-/// 1. 网关未配置 → 强制 /gateway（复刻 desktop「先配网关再登录」）。
-/// 2. 未登录 → 除 /gateway、/login、/register 外全部回 /login。
-/// 3. 已登录访问登录/注册页 → 回 /home；/gateway 任何状态都可达（对应桌面端菜单随时可改地址）。
+/// 打开就是登录页（比网页多网关地址）。/gateway 仍可从顶栏进入。
 final routerProvider = Provider<GoRouter>((ref) {
-  final gateway = ref.watch(gatewayController);
   final session = ref.watch(sessionController);
 
   bool protected_(String loc) =>
@@ -35,8 +31,6 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: kDebugMode ? appInitialRoute : '/',
     redirect: (context, state) {
       final loc = state.matchedLocation;
-      if (gateway.url.isEmpty && loc != '/gateway') return '/gateway';
-      if (gateway.url.isEmpty) return null;
       if (session.isAnonymous && protected_(loc)) return '/login';
       if (session.isAuthenticated && (loc == '/login' || loc == '/register')) {
         return '/home';
@@ -62,12 +56,13 @@ class SffApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final mode = ref.watch(themeModeController);
     return MaterialApp.router(
-      title: '智慧金融',
+      title: '智慧金融分析平台',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: mode,
       routerConfig: router,
     );
   }

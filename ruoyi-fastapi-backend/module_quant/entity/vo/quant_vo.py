@@ -94,6 +94,9 @@ class QuantLongbridgeConfigModel(BaseModel):
     app_secret: str | None = Field(default=None, description='长桥App Secret')
     access_token: str | None = Field(default=None, description='长桥Access Token')
     region: str | None = Field(default=None, description='区域')
+    auto_trade_enabled: bool | None = Field(default=False, description='本账户自动交易开关')
+    daily_buy_ratio: float | None = Field(default=0.20, description='日内买入占净资产比例')
+    max_symbol_position_pct: float | None = Field(default=0.10, description='单标的持仓市值占净资产上限')
     update_time: datetime | None = Field(default=None, description='更新时间')
 
 

@@ -14,6 +14,26 @@ class AiApi {
 
   final Dio _dio;
 
+  /// 触发单标的 AI 研判（交易工作台用）。
+  Future<Map<String, dynamic>> analyze({
+    required String symbol,
+    required String market,
+    int days = 90,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.post<void>(
+        '/market/ai/analyze',
+        data: <String, dynamic>{
+          'symbol': symbol,
+          'market': market,
+          'days': days,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 120)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{'message': result.msg};
+  }
+
   /// 单标的最新研判；无记录返回 null。
   Future<AiLatestAnalysis?> latest({required String symbol, required String market}) async {
     final result = ApiResult.from(await _dio.get<void>(

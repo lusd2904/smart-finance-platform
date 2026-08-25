@@ -14,6 +14,7 @@ from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
 from module_quant.dao.quant_dao import (
     QuantLongbridgeConfigDao,
+    QuantSnapshotDao,
     QuantStrategyDao,
     QuantWatchlistDao,
 )
@@ -36,6 +37,21 @@ if TYPE_CHECKING:
 VALID_PROFILES = {'conservative', 'balanced', 'aggressive'}
 
 
+def _factor_summary(factor_json: Any) -> dict[str, Any]:
+    """信号表只留打分摘要；Alpha 明细走 quant_alpha101/158_value。"""
+    if not isinstance(factor_json, dict):
+        return {}
+    metrics = factor_json.get('metrics') if isinstance(factor_json.get('metrics'), dict) else {}
+    score = factor_json.get('score') if isinstance(factor_json.get('score'), dict) else {}
+    return {
+        'score': score,
+        'latestClose': metrics.get('latestClose'),
+        'tradeDate': metrics.get('tradeDate'),
+        'alpha101Count': metrics.get('alpha101Count') or 0,
+        'alpha158Count': metrics.get('alpha158Count') or 0,
+    }
+
+
 class QuantService:
     """量化模块服务层"""
 
@@ -47,19 +63,16 @@ class QuantService:
         return FactorService.get_factor_schema()
 
     @classmethod
-    async def load_profile_config(cls, query_db: AsyncSession, profile: str) -> dict[str, Any]:
-        """读取落库策略档位（权重/买卖阈值），失败则空 dict。"""
+    async def load_profile_config(
+        cls, query_db: AsyncSession, profile: str, user_id: int | None = None
+    ) -> dict[str, Any]:
+        """读取当前账户策略档位（有覆盖用覆盖，否则用系统默认）。"""
         try:
-            from module_trade.dao.trade_dao import TradeDao
             from module_trade.service.platform_ext_service import PlatformExtService
 
-            await PlatformExtService.ensure_seed_data(query_db)
-            rows = await TradeDao.list_strategy_profiles(query_db)
-            for row in rows:
-                if row.profile_code == profile:
-                    return json.loads(row.config_json or '{}') or {}
+            return await PlatformExtService.get_profile_config(query_db, profile, user_id=user_id)
         except Exception as exc:
-            logger.warning(f'[量化] 读取策略配置失败 profile={profile}: {exc}')
+            logger.warning(f'[量化] 读取策略配置失败 profile={profile} user={user_id}: {exc}')
         return {}
 
     @classmethod
@@ -187,7 +200,7 @@ class QuantService:
         跑一次策略并入库。symbols 不传则用当前用户自选池（未识别用户时退回全池）。
         """
         profile = run_model.profile if run_model.profile in VALID_PROFILES else 'balanced'
-        profile_cfg = await cls.load_profile_config(query_db, profile)
+        profile_cfg = await cls.load_profile_config(query_db, profile, user_id=user_id)
 
         # 确定标的列表
         if run_model.symbols:
@@ -233,13 +246,26 @@ class QuantService:
                     'score': s.get('score'),
                     'confidence': s.get('confidence'),
                     'reason': (s.get('reason') or '')[:500],
-                    'factor_json': json.dumps(s.get('factor_json') or {}, ensure_ascii=False)[:60000],
+                    'factor_json': json.dumps(_factor_summary(s.get('factor_json')), ensure_ascii=False),
                     'create_time': datetime.now(),
                 }
                 for s in cycle_result['signals']
             ]
             if signal_rows:
                 await QuantStrategyDao.add_signals(query_db, signal_rows)
+            for s in cycle_result['signals']:
+                fj = s.get('factor_json') or {}
+                metrics = fj.get('metrics') if isinstance(fj, dict) else {}
+                if not isinstance(metrics, dict):
+                    continue
+                await QuantSnapshotDao.replace_alpha_values(
+                    query_db,
+                    symbol=s.get('symbol') or '',
+                    market=s.get('market') or 'US',
+                    as_of=str(metrics.get('tradeDate') or '')[:16],
+                    alpha101=metrics.get('alpha101') or {},
+                    alpha158=metrics.get('alpha158') or {},
+                )
             await query_db.commit()
         except Exception as e:
             await query_db.rollback()
@@ -447,6 +473,9 @@ class QuantService:
                 appSecret=cls._mask(cls._decrypt_or_raw(config.app_secret)),
                 accessToken=cls._mask(cls._decrypt_or_raw(config.access_token)),
                 region=config.region or 'cn',
+                autoTradeEnabled=str(getattr(config, 'auto_trade_enabled', '0') or '0') == '1',
+                dailyBuyRatio=float(getattr(config, 'daily_buy_ratio', None) or 0.20),
+                maxSymbolPositionPct=float(getattr(config, 'max_symbol_position_pct', None) or 0.10),
                 updateTime=config.update_time,
             )
         return QuantLongbridgeConfigModel(
@@ -455,6 +484,9 @@ class QuantService:
             appSecret='',
             accessToken='',
             region='cn',
+            autoTradeEnabled=False,
+            dailyBuyRatio=0.20,
+            maxSymbolPositionPct=0.10,
         )
 
     @classmethod

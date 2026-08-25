@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import status
@@ -9,6 +9,11 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from common.constant import HttpStatusConstant
+from utils.time_format_util import encode_api_datetime
+
+
+def _json_content(result: dict[str, Any]) -> Any:
+    return jsonable_encoder(result, custom_encoder={datetime: encode_api_datetime})
 
 
 class ResponseUtil:
@@ -52,11 +57,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': True, 'time': datetime.now()})
+        result.update({'success': True, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,
@@ -98,11 +103,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': False, 'time': datetime.now()})
+        result.update({'success': False, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,
@@ -144,11 +149,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': False, 'time': datetime.now()})
+        result.update({'success': False, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,
@@ -190,11 +195,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': False, 'time': datetime.now()})
+        result.update({'success': False, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,
@@ -236,11 +241,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': False, 'time': datetime.now()})
+        result.update({'success': False, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,
@@ -282,11 +287,11 @@ class ResponseUtil:
         if model_content is not None:
             result.update(model_content.model_dump(by_alias=True))
 
-        result.update({'success': False, 'time': datetime.now()})
+        result.update({'success': False, 'time': datetime.now(timezone.utc)})
 
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            content=jsonable_encoder(result),
+            content=_json_content(result),
             headers=headers,
             media_type=media_type,
             background=background,

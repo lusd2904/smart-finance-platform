@@ -30,6 +30,22 @@ class GatewayController extends Notifier<GatewayConfig> {
     return result;
   }
 
+  /// 登录页填写网关后直接生效，不强制探测（避免卡在探测页）。
+  Future<void> applyUrl(String rawUrl) async {
+    final origin = normalizeGateway(rawUrl);
+    if (origin.isEmpty) {
+      throw const GatewayFormatException('请填写网关地址');
+    }
+    await _persist(
+      GatewayConfig(
+        url: origin,
+        confirmOnLaunch: state.confirmOnLaunch,
+        lastGoodUrl: state.lastGoodUrl,
+        lastGoodAt: state.lastGoodAt,
+      ),
+    );
+  }
+
   Future<void> reset() => _persist(const GatewayConfig());
 }
 

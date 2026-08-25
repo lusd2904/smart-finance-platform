@@ -343,6 +343,8 @@ class KlineBar {
   static List<KlineBar> listFrom(dynamic payload) {
     final List<dynamic> raw = switch (payload) {
       {'klines': List l} => l,
+      {'items': List l} => l,
+      {'bars': List l} => l,
       {'list': List l} => l,
       List l => l,
       _ => const [],

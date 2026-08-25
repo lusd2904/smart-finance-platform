@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, delete, desc, func, or_, select, update
@@ -135,6 +135,49 @@ class MarketInstrumentDao:
         return (
             (await db.execute(select(MarketInstrument).where(MarketInstrument.symbol == symbol))).scalars().first()
         )
+
+    @classmethod
+    async def price_extremes(cls, db: AsyncSession, symbol: str) -> dict[str, float | None]:
+        """日K表极值：历史最高/最低 + 近 52 周高低。无行则全 None。"""
+        code = (symbol or '').strip().upper()
+        if not code:
+            return {'historyHigh': None, 'historyLow': None, 'high52': None, 'low52': None}
+        year_ago = (datetime.now() - timedelta(days=370)).strftime('%Y-%m-%d')
+        all_row = (
+            await db.execute(
+                select(
+                    func.max(MarketPriceHistoryDaily.high_price),
+                    func.min(MarketPriceHistoryDaily.low_price),
+                ).where(MarketPriceHistoryDaily.symbol == code)
+            )
+        ).first()
+        yr_row = (
+            await db.execute(
+                select(
+                    func.max(MarketPriceHistoryDaily.high_price),
+                    func.min(MarketPriceHistoryDaily.low_price),
+                ).where(
+                    MarketPriceHistoryDaily.symbol == code,
+                    MarketPriceHistoryDaily.trade_date >= year_ago,
+                )
+            )
+        ).first()
+
+        def _f(value: Any) -> float | None:
+            if value is None:
+                return None
+            try:
+                n = float(value)
+            except (TypeError, ValueError):
+                return None
+            return n if n > 0 else None
+
+        return {
+            'historyHigh': _f(all_row[0] if all_row else None),
+            'historyLow': _f(all_row[1] if all_row else None),
+            'high52': _f(yr_row[0] if yr_row else None),
+            'low52': _f(yr_row[1] if yr_row else None),
+        }
 
     @classmethod
     async def get_all_symbols(cls, db: AsyncSession) -> set[str]:

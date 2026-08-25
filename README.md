@@ -17,8 +17,32 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
 - 🖥️ **桌面端（过渡）**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
-- 📱 **四端 Flutter 客户端**：iOS / Android / macOS / Windows 单工程；M0 网关探测 + 登录会话已通，M1 行情热度 / 自选 / K 线详情已落地设计系统。
+- 📱 **Flutter 客户端**：`lib/` 四端共用；**当前仓库只维护 macOS 原生壳**（今日交易台/盘前 K 线/北京时间已跟上 Web）。`android/` `ios/` `windows/` 仅留目录占位，当晚再补回。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
+
+## 🚀 0825 V10 迭代更新日志（交易台、北京时间、macOS 客户端；三端壳占位）
+
+### 1. 💹 Web 交易台 / 行情台
+- 自选下拉按分组；打开默认第一只标的。
+- K 线按市场时段：盘中长桥实时（`TradeSessions.All`，美股含 4:00 ET 盘前）；日/周/月走 Influx；港/A 休市回当天日 K。
+- 顶栏全市场代码搜索；交易台旁量化自动交易开关（无长桥密钥时灰显）。
+- 单票仓位上限按净值百分比（默认 10%，夹 5%–30%）；同日已提交/成交的买单跳过。
+
+### 2. ⏰ 北京时间
+- 长桥 / Influx 的 UTC 时间戳展示转北京时间（`format_utc_as_beijing`）。
+- **舆情 naive `pub_time` 仍按北京墙钟，不再 +8**（既有契约未改）。
+- 会话判定继续用各市场本地时区（美股 ET / 港股 HKT / A 股 CST）。
+
+### 3. 🔄 生产 → 本地同步
+- `POST /open/sync/token` + `POST /open/sync/pull`：RSA-OAEP + AES-GCM 加密用户名密码换短期令牌，不再写死固定 token。
+- 传输加密仅挂在 `/open/sync/*`。脚本：`scripts/sync_from_prod.py`。
+
+### 4. 🖥️ Flutter
+- 今日只改 **macOS**（交易台、盘前/夜盘时段、北京时间轴）；已打本机 `智慧金融.app`。
+- **清空** `android/` `ios/` `windows/` 工程文件，**只留目录**（各有占位 README），晚上再 `flutter create` 补回。
+- CI：`flutter.yml` 只打 macOS；push 仅 `main` / tag / PR，避免功能分支狂跑发邮件。
+
+---
 
 ## 🚀 0824 V8 迭代更新日志（四端 Flutter 客户端、墨蓝设计系统、全量优化）
 
@@ -217,13 +241,13 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
   ```
   先填前端网关再登录：本机 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。
 
-- **方案 3：Flutter 四端客户端**
+- **方案 3：Flutter 客户端（当前仅 macOS）**
   ```bash
   cd flutter_client
   flutter pub get
-  flutter run -d macos     # 或 windows / ios / android
+  flutter run -d macos
   ```
-  首启：网关配置 → 探测通过 → 登录。详细说明见 `flutter_client/README.md`。
+  首启：网关配置 → 探测通过 → 登录。`android/` `ios/` `windows/` 目录是空占位，当晚补回。详见 `flutter_client/README.md`。
 
 - **方案 4：检查与监控（可选）**
   ```bash
@@ -246,7 +270,7 @@ smart-finance-platform/
 │   └── sql/
 ├── ruoyi-fastapi-frontend/        # Vue3 管理端
 ├── ruoyi-fastapi-app/             # 移动端 H5 / 小程序基线（双轨保留）
-├── flutter_client/                # 四端 Flutter（iOS / Android / macOS / Windows）
+├── flutter_client/                # Flutter：lib 共用；原生壳目前仅 macos/（android/ios/windows 占位）
 └── desktop/                       # Electron（过渡）
 ```
 

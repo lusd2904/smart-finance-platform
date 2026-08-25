@@ -15,6 +15,7 @@ from module_trade.entity.do.trade_do import (
     PlatRiskEvent,
     PlatRiskRule,
     PlatStrategyProfile,
+    PlatStrategyProfileUser,
 )
 
 
@@ -344,6 +345,50 @@ class TradeDao:
             await db.flush()
             return existing
         db_item = PlatStrategyProfile(
+            profile_code=code,
+            profile_name=name,
+            config_json=config_json,
+            update_time=now,
+        )
+        db.add(db_item)
+        await db.flush()
+        return db_item
+
+    @classmethod
+    async def list_user_strategy_profiles(cls, db: AsyncSession, user_id: int) -> list[PlatStrategyProfileUser]:
+        stmt = (
+            select(PlatStrategyProfileUser)
+            .where(PlatStrategyProfileUser.user_id == int(user_id))
+            .order_by(PlatStrategyProfileUser.profile_code)
+        )
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @classmethod
+    async def get_user_strategy_profile(
+        cls, db: AsyncSession, user_id: int, code: str
+    ) -> PlatStrategyProfileUser | None:
+        stmt = select(PlatStrategyProfileUser).where(
+            PlatStrategyProfileUser.user_id == int(user_id),
+            PlatStrategyProfileUser.profile_code == code,
+        )
+        res = await db.execute(stmt)
+        return res.scalar_one_or_none()
+
+    @classmethod
+    async def upsert_user_strategy_profile(
+        cls, db: AsyncSession, user_id: int, code: str, name: str, config_json: str
+    ) -> PlatStrategyProfileUser:
+        existing = await cls.get_user_strategy_profile(db, user_id, code)
+        now = datetime.now()
+        if existing:
+            existing.profile_name = name
+            existing.config_json = config_json
+            existing.update_time = now
+            await db.flush()
+            return existing
+        db_item = PlatStrategyProfileUser(
+            user_id=int(user_id),
             profile_code=code,
             profile_name=name,
             config_json=config_json,

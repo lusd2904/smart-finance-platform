@@ -18,6 +18,7 @@ from module_market.dao.stock_pick_dao import StockPickDao
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_market.service.stock_pick_analyzer import StockPickAnalyzer
+from utils.time_format_util import now_beijing
 from module_market.service.stock_pick_scoring import (
     AI_CONCURRENCY,
     CANDIDATE_CAP,
@@ -99,7 +100,7 @@ class StockPickService:
                 heats[market] = MarketHeatService._serialize_heat(heat)
         open_markets = [m for m, info in sessions.items() if info.get('open')]
         return {
-            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'sessions': sessions,
             'openMarkets': open_markets,
             'indices': quotes.get('items') or [],

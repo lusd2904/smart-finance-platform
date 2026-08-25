@@ -11,6 +11,7 @@
         </el-select>
         <el-input v-model="keyword" clearable placeholder="代码/名称" style="width:160px" />
         <el-button type="primary" :loading="loading" icon="Refresh" @click="() => loadAll(false)">刷新</el-button>
+        <el-button type="success" icon="Monitor" @click="router.push('/market/terminal')">专业交易终端 (Pro)</el-button>
       </div>
     </div>
     <el-row :gutter="12" class="mb16">

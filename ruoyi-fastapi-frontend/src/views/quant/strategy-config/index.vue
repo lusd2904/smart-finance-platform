@@ -1,17 +1,86 @@
 <template>
-  <div class="app-container">
-    <div class="page-hero"><div><h2>策略配置</h2><p>档位阈值与因子权重持久化</p></div>
-      <el-button type="primary" :loading="loading" @click="load">刷新</el-button></div>
+  <div class="app-container strategy-config-page">
+    <div class="page-hero">
+      <div>
+        <h2>策略配置</h2>
+        <p>本登录账户的交易开关与策略档位。开关和档位互不影响其他账号；未配置长桥 Key 时默认关闭。</p>
+      </div>
+      <el-button :loading="loading" @click="reloadAll">刷新</el-button>
+    </div>
+
+    <el-card shadow="never" class="account-card mb16" v-loading="tradeLoading">
+      <template #header>
+        <div class="hdr">
+          <span>本账户自动交易</span>
+          <el-tag :type="tradeStatus.configured ? 'success' : 'warning'" effect="plain">
+            {{ tradeStatus.configured ? '长桥 Key 已配置' : '未配置长桥 Key' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-alert
+        class="mb16"
+        :type="tradeStatus.configured ? 'info' : 'warning'"
+        show-icon
+        :closable="false"
+        :title="tradeStatus.configured
+          ? '打开后，本账户的定时扫描与止损会向长桥真实下单，不会只写预警。'
+          : '未配置长桥账户 Key，无法打开自动交易。请先到「量化交易 / 长桥配置」填写凭据。'"
+      />
+      <el-form label-width="140px">
+        <el-form-item label="自动交易">
+          <el-switch
+            :model-value="!!tradeStatus.autoTradeEnabled"
+            :disabled="savingSwitch || !tradeStatus.configured"
+            :loading="savingSwitch"
+            active-text="开"
+            inactive-text="关"
+            @change="onToggleAutoTrade"
+          />
+        </el-form-item>
+        <el-form-item label="日内买入仓位">
+          <el-slider
+            v-model="buyRatioPct"
+            :min="5"
+            :max="50"
+            :step="5"
+            show-input
+            @change="onRatioChange"
+          />
+          <div class="hint">按当前账户净资产的百分比作为日内买入上限，默认 20%。</div>
+        </el-form-item>
+        <el-form-item label="单标的仓位上限">
+          <el-slider
+            v-model="symbolCapPct"
+            :min="5"
+            :max="30"
+            :step="5"
+            show-input
+            @change="onRatioChange"
+          />
+          <div class="hint">同一只股票持仓市值不超过净资产的该比例；当日已买入的标的不会因再次扫描重复下单。</div>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-row :gutter="16">
       <el-col :md="8" :xs="24" v-for="p in profiles" :key="p.profileCode">
         <el-card shadow="never" class="mb12">
-          <template #header><div class="hdr"><span>{{ p.profileName }} ({{ p.profileCode }})</span>
-            <el-button size="small" type="primary" @click="save(p)">保存</el-button></div></template>
+          <template #header>
+            <div class="hdr">
+              <span class="hdr-title">
+                {{ p.profileName }} ({{ p.profileCode }})
+                <el-tag size="small" :type="p.accountOwned ? 'success' : 'info'" effect="plain">
+                  {{ p.accountOwned ? '本账户' : '系统默认' }}
+                </el-tag>
+              </span>
+              <el-button size="small" type="primary" @click="save(p)">保存档位</el-button>
+            </div>
+          </template>
           <el-form label-width="90px" size="small">
-            <el-form-item label="买入阈值"><el-input-number v-model="p.config.buyThreshold" :min="0" :max="100"/></el-form-item>
-            <el-form-item label="卖出阈值"><el-input-number v-model="p.config.sellThreshold" :min="0" :max="100"/></el-form-item>
+            <el-form-item label="买入阈值"><el-input-number v-model="p.config.buyThreshold" :min="0" :max="100" /></el-form-item>
+            <el-form-item label="卖出阈值"><el-input-number v-model="p.config.sellThreshold" :min="0" :max="100" /></el-form-item>
             <el-form-item v-for="fam in families" :key="fam.key" :label="fam.label">
-              <el-slider v-model="p.config.weights[fam.key]" :min="0" :max="1" :step="0.05" show-input/>
+              <el-slider v-model="p.config.weights[fam.key]" :min="0" :max="1" :step="0.05" show-input />
             </el-form-item>
           </el-form>
           <div class="muted">更新：{{ p.updateTime || '--' }}</div>
@@ -20,9 +89,19 @@
     </el-row>
   </div>
 </template>
+
 <script setup name="QuantStrategyConfig">
-import { listStrategyProfiles, saveStrategyProfile } from '@/api/trade'
-const {proxy}=getCurrentInstance(); const loading=ref(false); const profiles=ref([])
+import { ElMessageBox } from 'element-plus'
+import { listStrategyProfiles, saveStrategyProfile, getAutoTradeStatus, saveAutoTradeSettings } from '@/api/trade'
+
+const { proxy } = getCurrentInstance()
+const loading = ref(false)
+const tradeLoading = ref(false)
+const savingSwitch = ref(false)
+const profiles = ref([])
+const tradeStatus = ref({})
+const buyRatioPct = ref(20)
+const symbolCapPct = ref(10)
 const families = [
   { key: 'trend', label: '趋势' },
   { key: 'priceAction', label: '价型' },
@@ -33,6 +112,7 @@ const families = [
   { key: 'volatility', label: '波动' },
   { key: 'liquidity', label: '流动性' }
 ]
+
 function normalizeConfig(cfg) {
   const config = { buyThreshold: 64, sellThreshold: 38, weights: {}, ...(cfg || {}) }
   const weights = { ...(config.weights || {}) }
@@ -43,12 +123,103 @@ function normalizeConfig(cfg) {
   config.weights = weights
   return config
 }
-async function load(){ loading.value=true; try{ const res=await listStrategyProfiles(); profiles.value=(res.data||[]).map(p=>({...p, config: normalizeConfig(p.config)})) } finally{ loading.value=false } }
-async function save(p){ await saveStrategyProfile(p.profileCode,{profileName:p.profileName, config:p.config}); proxy.$modal.msgSuccess('已保存'); load() }
-onMounted(load)
+
+async function loadProfiles() {
+  loading.value = true
+  try {
+    const res = await listStrategyProfiles()
+    profiles.value = (res.data || []).map(p => ({ ...p, config: normalizeConfig(p.config) }))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadTrade() {
+  tradeLoading.value = true
+  try {
+    const res = await getAutoTradeStatus()
+    tradeStatus.value = res.data || {}
+    const ratio = Number(tradeStatus.value.guardrails?.dailyBuyRatio || 0.2)
+    buyRatioPct.value = Math.round(ratio * 100)
+    const symbolPct = Number(tradeStatus.value.guardrails?.maxSymbolPositionPct || 0.1)
+    symbolCapPct.value = Math.round(symbolPct * 100)
+  } catch {
+    tradeStatus.value = { configured: false, autoTradeEnabled: false }
+  } finally {
+    tradeLoading.value = false
+  }
+}
+
+function reloadAll() {
+  loadProfiles()
+  loadTrade()
+}
+
+function settingsPayload(enabled) {
+  return {
+    autoTradeEnabled: Boolean(enabled),
+    dailyBuyRatio: Number(buyRatioPct.value) / 100,
+    maxSymbolPositionPct: Number(symbolCapPct.value) / 100
+  }
+}
+
+async function onToggleAutoTrade(val) {
+  if (val && !tradeStatus.value.configured) {
+    proxy.$modal.msgWarning('未配置长桥账户 Key，无法打开自动交易')
+    return
+  }
+  if (val) {
+    try {
+      await ElMessageBox.confirm(
+        '打开后，本登录账户的定时扫描和止损将向长桥真实下单。确认打开？',
+        '开启本账户自动交易',
+        { type: 'warning', confirmButtonText: '确认打开', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+  savingSwitch.value = true
+  try {
+    const res = await saveAutoTradeSettings(settingsPayload(val))
+    tradeStatus.value = res.data || tradeStatus.value
+    proxy.$modal.msgSuccess(res.msg || '已保存本账户自动交易设置')
+  } catch (err) {
+    proxy.$modal.msgWarning(err.message || '未配置长桥账户 Key，无法打开自动交易')
+  } finally {
+    savingSwitch.value = false
+    loadTrade()
+  }
+}
+
+async function onRatioChange() {
+  if (!tradeStatus.value.autoTradeEnabled && !tradeStatus.value.configured) return
+  try {
+    const res = await saveAutoTradeSettings(settingsPayload(!!tradeStatus.value.autoTradeEnabled))
+    tradeStatus.value = res.data || tradeStatus.value
+  } catch (err) {
+    proxy.$modal.msgWarning(err.message || '仓位比例保存失败')
+  }
+}
+
+async function save(p) {
+  await saveStrategyProfile(p.profileCode, { profileName: p.profileName, config: p.config })
+  proxy.$modal.msgSuccess('已保存本账户策略档位')
+  loadProfiles()
+}
+
+onMounted(reloadAll)
 </script>
+
 <style scoped>
-.page-hero{display:flex;justify-content:space-between;margin-bottom:16px}
-.page-hero h2{margin:0 0 4px;color:var(--text-emphasis)} .page-hero p{margin:0;color:var(--text-muted);font-size:13px}
-.hdr{display:flex;justify-content:space-between;align-items:center} .mb12{margin-bottom:12px} .muted{font-size:12px;color:var(--text-muted)}
+.page-hero { display: flex; justify-content: space-between; margin-bottom: 16px; }
+.page-hero h2 { margin: 0 0 4px; color: var(--text-emphasis); }
+.page-hero p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.hdr { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hdr-title { display: inline-flex; align-items: center; gap: 8px; }
+.mb12 { margin-bottom: 12px; }
+.mb16 { margin-bottom: 16px; }
+.muted { font-size: 12px; color: var(--text-muted); }
+.hint { margin-top: 6px; font-size: 12px; color: var(--el-text-color-secondary); }
+.account-card { max-width: 760px; }
 </style>

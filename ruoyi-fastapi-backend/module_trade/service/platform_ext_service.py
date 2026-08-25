@@ -136,36 +136,59 @@ class PlatformExtService:
         }
 
     # ---------- 策略配置 ----------
+    @staticmethod
+    def _parse_profile_config(raw: str | None) -> dict[str, Any]:
+        try:
+            cfg = json.loads(raw or '{}')
+        except Exception:
+            return {}
+        return cfg if isinstance(cfg, dict) else {}
+
     @classmethod
-    async def list_strategy_profiles(cls, db: AsyncSession) -> list[dict[str, Any]]:
+    async def list_strategy_profiles(cls, db: AsyncSession, user_id: int | None = None) -> list[dict[str, Any]]:
         await cls.ensure_seed_data(db)
         rows = await TradeDao.list_strategy_profiles(db)
+        overlays: dict[str, Any] = {}
+        if user_id:
+            for item in await TradeDao.list_user_strategy_profiles(db, int(user_id)):
+                overlays[item.profile_code] = item
         out = []
         for r in rows:
-            cfg = {}
-            try:
-                cfg = json.loads(r.config_json or '{}')
-            except Exception:
-                cfg = {}
+            overlay = overlays.get(r.profile_code)
+            src = overlay or r
             out.append(
                 {
                     'profileCode': r.profile_code,
-                    'profileName': r.profile_name,
-                    'config': cfg,
-                    'updateTime': r.update_time.strftime('%Y-%m-%d %H:%M:%S') if r.update_time else None,
+                    'profileName': src.profile_name,
+                    'config': cls._parse_profile_config(src.config_json),
+                    'updateTime': src.update_time.strftime('%Y-%m-%d %H:%M:%S') if src.update_time else None,
+                    'accountOwned': overlay is not None,
                 }
             )
         return out
 
     @classmethod
-    async def save_strategy_profile(cls, db: AsyncSession, code: str, name: str, config: dict) -> None:
+    async def get_profile_config(cls, db: AsyncSession, code: str, user_id: int | None = None) -> dict[str, Any]:
         await cls.ensure_seed_data(db)
-        await TradeDao.upsert_strategy_profile(
-            db,
-            code=code,
-            name=name or code,
-            config_json=json.dumps(config or {}, ensure_ascii=False),
-        )
+        if user_id:
+            overlay = await TradeDao.get_user_strategy_profile(db, int(user_id), code)
+            if overlay:
+                return cls._parse_profile_config(overlay.config_json)
+        row = await TradeDao.get_strategy_profile(db, code)
+        return cls._parse_profile_config(row.config_json if row else None)
+
+    @classmethod
+    async def save_strategy_profile(
+        cls, db: AsyncSession, code: str, name: str, config: dict, user_id: int | None = None
+    ) -> None:
+        await cls.ensure_seed_data(db)
+        payload = json.dumps(config or {}, ensure_ascii=False)
+        if user_id:
+            await TradeDao.upsert_user_strategy_profile(
+                db, int(user_id), code=code, name=name or code, config_json=payload
+            )
+        else:
+            await TradeDao.upsert_strategy_profile(db, code=code, name=name or code, config_json=payload)
         await db.commit()
 
     # ---------- 风控 ----------

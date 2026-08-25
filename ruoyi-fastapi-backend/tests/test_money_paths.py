@@ -219,6 +219,7 @@ def test_rebalance_only_sells_auto_bought_symbols() -> None:
                 AsyncMock(return_value={'ok': True, 'orderId': 'S1'}),
             ) as submit,
             patch.object(DailyListService, '_place_or_queue', AsyncMock(return_value={'itemId': 1, 'ok': True})),
+            patch.object(DailyListService, '_account_trade_ready', AsyncMock(return_value=(True, ''))),
             patch('module_quant.service.daily_list_service.LongbridgeService.ensure_credentials_from_db', AsyncMock()),
         ):
             db.commit = AsyncMock()
@@ -253,6 +254,7 @@ def test_rebalance_never_sells_current_wanted_positions() -> None:
                 AsyncMock(),
             ) as submit,
             patch.object(DailyListService, '_place_or_queue', AsyncMock(return_value={'itemId': 1, 'ok': True})),
+            patch.object(DailyListService, '_account_trade_ready', AsyncMock(return_value=(True, ''))),
             patch('module_quant.service.daily_list_service.LongbridgeService.ensure_credentials_from_db', AsyncMock()),
         ):
             db.commit = AsyncMock()
@@ -274,6 +276,28 @@ def test_rebalance_skips_when_auto_disabled() -> None:
         ):
             res = await DailyListService.rebalance_auto(db, 101)
         assert res == {'skipped': True, 'reason': 'auto_disabled'}
+
+    asyncio.run(_run())
+
+
+def test_rebalance_skips_when_account_switch_off() -> None:
+
+    async def _run() -> None:
+        db = SimpleNamespace()
+        with (
+            patch(
+                'module_quant.service.daily_list_service.QuantDailyListDao.latest_for_user',
+                AsyncMock(return_value=SimpleNamespace(list_id=10, auto_enabled='1')),
+            ),
+            patch.object(
+                DailyListService,
+                '_account_trade_ready',
+                AsyncMock(return_value=(False, '请先在「量化交易 / 策略配置」打开本账户自动交易')),
+            ),
+        ):
+            res = await DailyListService.rebalance_auto(db, 101)
+        assert res['skipped'] is True
+        assert res['reason'] == 'account_auto_disabled'
 
     asyncio.run(_run())
 
@@ -315,6 +339,11 @@ def test_run_cycle_passes_user_id_to_targets_credentials_and_log() -> None:
         db.commit = AsyncMock()
         with (
             patch.object(AutoTradeService, '_resolve_targets', AsyncMock(return_value=[])) as resolve,
+            patch.object(
+                AutoTradeService,
+                'load_user_trade_settings',
+                AsyncMock(return_value={'user_id': 77, 'auto_trade_enabled': False, 'daily_buy_ratio': 0.20}),
+            ),
             patch.object(LongbridgeService, 'ensure_credentials_from_db', AsyncMock()) as ensure,
             patch.object(TradeDao, 'add_ai_trade_run_log', AsyncMock()) as add_log,
         ):

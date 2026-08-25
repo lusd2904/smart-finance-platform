@@ -280,14 +280,20 @@ class MarketWatchlistService:
             if row.symbol not in quotes or quotes[row.symbol].get('last') is None:
                 by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
         influx_hits = 0
-        for market, symbols in by_market.items():
-            if not symbols:
-                continue
+
+        async def _influx_market(market: str, symbols: list[str]) -> dict[str, list]:
             try:
-                grouped = await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d')
+                return await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d') or {}
             except Exception as exc:
                 logger.error(f'[自选] 行情批量查询失败 market={market}: {exc}')
-                grouped = {}
+                return {}
+
+        influx_jobs = [
+            _influx_market(market, symbols) for market, symbols in by_market.items() if symbols
+        ]
+        influx_groups = await asyncio.gather(*influx_jobs) if influx_jobs else []
+        missing = [symbols for symbols in by_market.values() if symbols]
+        for symbols, grouped in zip(missing, influx_groups, strict=False):
             for symbol in symbols:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
@@ -343,7 +349,8 @@ class MarketWatchlistService:
             for name in row.get('groups') or []:
                 group_counts[name] = group_counts.get(name, 0) + 1
         groups = [{'name': name, 'count': count} for name, count in sorted(group_counts.items(), key=lambda x: (-x[1], x[0]))]
-        ai_conf = await StockPickService._resolve_ai(query_db)
+        # 打开终端不解密模型密钥；AI 是否可用由分析记录本身表达。
+        ai_conf = {'available': True, 'modelName': None}
         return {
             'count': len(rows),
             'bullish': stance_count['偏多'],

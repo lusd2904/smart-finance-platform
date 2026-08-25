@@ -7,9 +7,12 @@ import json
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from module_market.dao.market_dao import MarketInstrumentDao
 from module_market.entity.vo.market_vo import KlineQueryModel
+from module_market.service.index_session import is_live_kline_session, kline_session_tag
 from module_market.service.kline_period import is_minute_period, normalize_kline_period
 from module_market.service.market_service import MarketService
+from module_quant.service.longbridge_quote import is_cn_market, kline_high_low, merge_snapshot_with_db
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.auto_trade_service import parse_symbol_market
@@ -24,6 +27,7 @@ _BACKTEST_MIN_BARS = 30
 _BACKTEST_MIN_DAYS = 30
 # 计算胜率所需的最少成交记录数（一买一卖记 2）
 _MIN_TRADES_FOR_WINRATE = 2
+_CLOSED_DAILY_KLINE_MSG = '已收盘，显示当日日K'
 
 
 class TradeService:
@@ -70,6 +74,119 @@ class TradeService:
         return await LongbridgeService.get_trades_async(code, mkt, count)
 
     @classmethod
+    async def get_quote_snapshot_services(
+        cls, query_db: AsyncSession, symbol: str, market: str = 'US'
+    ) -> dict[str, Any]:
+        """终端低频快照：库字段补空缺，估值/换手/量比/市值走长桥 calc_indexes。"""
+        code, mkt = parse_symbol_market(symbol, market)
+        await cls._ensure(query_db)
+        if is_cn_market(mkt, code):
+            snap: dict[str, Any] = {
+                'configured': LongbridgeService.is_configured(),
+                'available': False,
+                'symbol': code,
+                'market': 'CN',
+                'reason': 'cn_no_depth',
+                'message': 'A股基本面使用时序库与日K',
+            }
+        else:
+            snap = await LongbridgeService.get_quote_snapshot_async(code, mkt)
+        db_fields = await cls._db_snapshot_fields(query_db, code, mkt)
+        return merge_snapshot_with_db(snap, db_fields)
+
+    @classmethod
+    async def _db_snapshot_fields(
+        cls, query_db: AsyncSession, symbol: str, market: str
+    ) -> dict[str, Any]:
+        """名称/分类/历史高低来自 MySQL；A 股 OHLC 来自时序库。"""
+        out: dict[str, Any] = {}
+        try:
+            inst = await MarketInstrumentDao.get_by_symbol(query_db, symbol)
+            if inst is not None:
+                if inst.name:
+                    out['name'] = inst.name
+                if inst.category:
+                    out['category'] = inst.category
+        except Exception as exc:
+            logger.info(f'[snapshot] 标的元数据跳过 {symbol}: {exc}')
+        try:
+            extremes = await MarketInstrumentDao.price_extremes(query_db, symbol)
+            out.update({k: v for k, v in extremes.items() if v is not None})
+        except Exception as exc:
+            logger.info(f'[snapshot] 日K极值跳过 {symbol}: {exc}')
+        if not is_cn_market(market, symbol):
+            return out
+        try:
+            klines = await MarketService.get_kline_services(
+                KlineQueryModel(symbol=symbol, market='CN', period='daily')
+            )
+            quote = build_quote_from_klines(klines or [])
+            out.update({key: val for key, val in quote.items() if val is not None})
+            if klines:
+                high52, low52 = kline_high_low(list(klines)[-260:])
+                if high52 is not None:
+                    out.setdefault('high52', high52)
+                if low52 is not None:
+                    out.setdefault('low52', low52)
+                hist_high, hist_low = kline_high_low(list(klines))
+                if hist_high is not None:
+                    out.setdefault('historyHigh', hist_high)
+                if hist_low is not None:
+                    out.setdefault('historyLow', hist_low)
+        except Exception as exc:
+            logger.info(f'[snapshot] A股时序库跳过 {symbol}: {exc}')
+        return out
+
+    @classmethod
+    async def _influx_klines(cls, code: str, mkt: str, period_key: str) -> list[dict[str, Any]]:
+        rows = await MarketService.get_kline_services(KlineQueryModel(symbol=code, market=mkt, period=period_key))
+        return list(rows or [])
+
+    @classmethod
+    async def _longbridge_minute_klines(cls, code: str, mkt: str, period_key: str, limit: int) -> list[dict[str, Any]]:
+        try:
+            market = str(mkt or '').upper()
+            if market == 'US':
+                # 美股 intraday 只有当前盘前；夜盘/昨盘后必须用 1 分钟 candlesticks（TradeSessions.All）
+                fetch_period = '1min' if period_key == 'intraday' else period_key
+                fetch_limit = min(1000, max(int(limit or 200), 500))
+                cs = await LongbridgeService.get_candlesticks_async(code, mkt, fetch_period, fetch_limit)
+                bars = list(cs.get('klines') or [])
+                if bars:
+                    return bars
+                intra = await LongbridgeService.get_intraday_async(code, mkt)
+                return list(intra.get('klines') or [])
+            if period_key == 'intraday':
+                intra = await LongbridgeService.get_intraday_async(code, mkt)
+                return list(intra.get('klines') or [])
+            cs = await LongbridgeService.get_candlesticks_async(code, mkt, period_key, limit)
+            return list(cs.get('klines') or [])
+        except Exception as exc:
+            logger.info(f'[交易台K线] 长桥分钟/分时跳过: {exc}')
+            return []
+
+    @classmethod
+    async def _resolve_quote_klines(
+        cls,
+        code: str,
+        mkt: str,
+        period_key: str,
+        limit: int,
+        lb_configured: bool,
+    ) -> tuple[list[dict[str, Any]], str, str | None, str | None]:
+        """日/周/月只用时序库；分钟盘中长桥优先，收盘回退当日日K。不补造。"""
+        if not is_minute_period(period_key):
+            return await cls._influx_klines(code, mkt, period_key), 'influx', None, None
+        if not is_live_kline_session(mkt):
+            bars = await cls._influx_klines(code, mkt, 'daily')
+            return bars, 'influx', 'daily', _CLOSED_DAILY_KLINE_MSG
+        if lb_configured and not str(code).startswith('^'):
+            lb_bars = await cls._longbridge_minute_klines(code, mkt, period_key, limit)
+            if lb_bars:
+                return lb_bars, 'longbridge', None, None
+        return await cls._influx_klines(code, mkt, period_key), 'influx', None, None
+
+    @classmethod
     async def get_quote_kline_services(
         cls,
         query_db: AsyncSession,
@@ -79,22 +196,18 @@ class TradeService:
         limit: int = 200,
     ) -> dict[str, Any]:
         """
-        交易台 K 线：Influx/DB 序列；长桥仅用于分钟/分时最后一笔实时价。
-        Influx 已有 K 时不再额外打长桥实时报价；失败则回退历史价，不新增、不补空。
+        交易台 K 线：日/周/月只用时序库；分时/分钟盘中优先长桥真实序列，收盘显示当日日K。
         """
         code, mkt = parse_symbol_market(symbol, market)
         period_key = normalize_kline_period(period)
         limit = max(20, min(int(limit or 200), 500))
+        if mkt == 'US' and is_minute_period(period_key):
+            limit = max(limit, 500)
         await cls._ensure(query_db)
 
-        influx_klines = await MarketService.get_kline_services(
-            KlineQueryModel(symbol=code, market=mkt, period=period_key)
-        )
-        source = 'influx'
-        klines = list(influx_klines or [])
-        message = None
-
-        # K-line series: Influx/DB only — do not fall back to Longbridge candlesticks on daily/history/minute paths.
+        lb_configured = LongbridgeService.is_configured()
+        session = kline_session_tag(mkt)
+        klines, source, fallback, message = await cls._resolve_quote_klines(code, mkt, period_key, limit, lb_configured)
 
         if not klines and not message:
             message = '暂无K线'
@@ -103,13 +216,14 @@ class TradeService:
             klines = klines[-limit:]
 
         quote = cls._quote_from_klines(klines)
-        price_source = 'history'
-        lb_configured = LongbridgeService.is_configured()
-        # Skip extra QuoteContext.quote when Influx already returned bars (~4s).
+        price_source = 'history' if source == 'influx' else source
+        # 日/周/月与已有 K 均跳过 QuoteContext.quote（~4s）；仅盘中分钟且库空时补最新价。
         if (
-            not influx_klines
+            not klines
+            and source != 'longbridge'
             and lb_configured
             and is_minute_period(period_key)
+            and is_live_kline_session(mkt)
             and mkt in {'US', 'HK'}
             and not str(code).startswith('^')
         ):
@@ -131,12 +245,10 @@ class TradeService:
                         'prevClose': q0.get('prevClose'),
                     }
                     price_source = 'longbridge'
-                    if klines and last is not None:
-                        LongbridgeService.overlay_last_bar(klines[-1], float(last))
             except Exception as exc:
                 logger.info(f'[交易台K线] 长桥实时价跳过: {exc}')
 
-        return {
+        out: dict[str, Any] = {
             'symbol': code,
             'market': mkt,
             'period': period_key,
@@ -144,9 +256,13 @@ class TradeService:
             'priceSource': price_source,
             'configured': lb_configured,
             'message': message,
+            'session': session,
             'klines': klines,
             'quote': {**quote, 'source': price_source} if quote else {},
         }
+        if fallback:
+            out['fallback'] = fallback
+        return out
 
     @staticmethod
     def _quote_from_klines(klines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -172,6 +288,7 @@ class TradeService:
             order_type=order_type,
             price=price,
             market=market,
+            allow_sim=True,
         )
         await cls.push_notification_db(
             query_db,
@@ -185,7 +302,7 @@ class TradeService:
     @classmethod
     async def cancel_order_services(cls, query_db: AsyncSession, order_id: str) -> dict[str, Any]:
         await cls._ensure(query_db)
-        result = await LongbridgeService.cancel_order_async(order_id)
+        result = await LongbridgeService.cancel_order_async(order_id, allow_sim=True)
         await cls.push_notification_db(
             query_db,
             title=f'撤单{"成功" if result.get("ok") else "失败"}',

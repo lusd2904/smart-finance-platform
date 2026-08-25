@@ -23,6 +23,7 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.content_cache_service import SymbolContentService
 from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
+from utils.time_format_util import now_beijing
 from module_market.service.kline_period import (
     default_range_start,
     is_minute_period,
@@ -300,7 +301,7 @@ class MarketService:
             'rows': rows,
             'source': 'cache',
             'count': len(quotes),
-            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'stale': False,
         }
         await cache_set_json(BOARD_QUOTES_CACHE_KEY, payload, BOARD_QUOTES_TTL_SECONDS)
@@ -675,7 +676,7 @@ class MarketService:
             'meta': {
                 'include': 'core',
                 'priceSource': price_source,
-                'snapshotAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'snapshotAt': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             },
         }
         if include != 'all':
@@ -721,7 +722,7 @@ class MarketService:
                 'meta': {
                     'include': 'all',
                     'priceSource': price_source,
-                    'snapshotAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'snapshotAt': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
                 },
             }
         )

@@ -16,7 +16,12 @@ class TradeApi {
 
   /// 账户资产。
   Future<AccountInfo> account() async {
-    final result = ApiResult.from(await _dio.get<void>('/trade/account'));
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/trade/account',
+        options: Options(receiveTimeout: const Duration(seconds: 15)),
+      ),
+    );
     return AccountInfo.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 
@@ -51,6 +56,7 @@ class TradeApi {
       await _dio.get<void>(
         '/trade/quote/depth',
         queryParameters: {'symbol': symbol, 'market': market},
+        options: Options(receiveTimeout: const Duration(seconds: 15)),
       ),
     );
     return DepthData.fromJson(result.dataAsMap ?? <String, dynamic>{});
@@ -66,6 +72,7 @@ class TradeApi {
       await _dio.get<void>(
         '/trade/quote/trades',
         queryParameters: {'symbol': symbol, 'market': market, 'count': count},
+        options: Options(receiveTimeout: const Duration(seconds: 15)),
       ),
     );
     final items = result.dataAsMap?['trades'];
@@ -81,6 +88,25 @@ class TradeApi {
     return AutoTradeStatus.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 
+  Future<AutoTradeStatus> getAutoTradeStatus() => autoStatus();
+
+  /// 保存本账户自动交易开关。PUT /trade/auto/settings
+  Future<AutoTradeStatus> saveAutoTradeSettings({
+    required bool autoTradeEnabled,
+    double? dailyBuyRatio,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.put<void>(
+        '/trade/auto/settings',
+        data: <String, dynamic>{
+          'autoTradeEnabled': autoTradeEnabled,
+          'dailyBuyRatio': ?dailyBuyRatio,
+        },
+      ),
+    );
+    return AutoTradeStatus.fromJson(result.dataAsMap ?? <String, dynamic>{});
+  }
+
   /// 风控规则列表。
   Future<List<RiskRule>> riskRules() async {
     final result = ApiResult.from(await _dio.get<void>('/trade/risk/rules'));
@@ -88,6 +114,77 @@ class TradeApi {
         .whereType<Map<String, dynamic>>()
         .map(RiskRule.fromJson)
         .toList();
+  }
+
+  /// 交易侧 K 线（长桥/时序库，含 quote）。
+  Future<Map<String, dynamic>> quoteKline({
+    required String symbol,
+    required String market,
+    String period = 'daily',
+    int limit = 200,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/trade/quote/kline',
+        queryParameters: {
+          'symbol': symbol,
+          'market': market,
+          'period': period,
+          'limit': limit,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{};
+  }
+
+  /// 长桥补缺快照：估值/换手/量比/市值。库里已有字段由页面保留。
+  Future<Map<String, dynamic>> quoteSnapshot({
+    required String symbol,
+    required String market,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/trade/quote/snapshot',
+        queryParameters: {'symbol': symbol, 'market': market},
+        options: Options(receiveTimeout: const Duration(seconds: 20)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{};
+  }
+
+  /// 快捷下单。服务端按本账户自动交易开关与长桥凭据决定是否真实提交。
+  Future<Map<String, dynamic>> submitOrder({
+    required String symbol,
+    required String market,
+    required String side,
+    required String orderType,
+    required int quantity,
+    double? price,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.post<void>(
+        '/trade/order',
+        data: <String, dynamic>{
+          'symbol': symbol,
+          'market': market,
+          'side': side,
+          'orderType': orderType,
+          'quantity': quantity,
+          if (price != null) 'price': price,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{'message': result.msg};
+  }
+
+  /// 撤单。
+  Future<Map<String, dynamic>> cancelOrder(String orderId) async {
+    final result = ApiResult.from(
+      await _dio.post<void>('/trade/order/${Uri.encodeComponent(orderId)}/cancel'),
+    );
+    return result.dataAsMap ?? <String, dynamic>{'message': result.msg};
   }
 
   /// 风控事件历史。

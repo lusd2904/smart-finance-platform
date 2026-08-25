@@ -12,6 +12,8 @@ from module_sentiment.entity.vo.sentiment_vo import (
 )
 from utils.page_util import PageUtil
 
+_MIN_KEYWORD_LEN = 2
+
 
 class SentimentNewsDao:
     """
@@ -71,7 +73,7 @@ class SentimentNewsDao:
         seen: set[str] = set()
         for raw in keywords:
             kw = str(raw or '').strip()
-            if len(kw) < 2 or kw.upper() in seen:
+            if len(kw) < _MIN_KEYWORD_LEN or kw.upper() in seen:
                 continue
             seen.add(kw.upper())
             like = f'%{kw}%'

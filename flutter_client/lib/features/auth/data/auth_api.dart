@@ -65,7 +65,14 @@ class AuthApi {
   }
 
   Future<CurrentUser> getInfo() async {
-    final result = ApiResult.from(await _dio.get<void>('/getInfo'));
+    final response = await _dio.get<dynamic>('/getInfo');
+    final result = ApiResult.from(response);
+    final body = response.data;
+    // RuoYi 现网为平铺 {code,msg,user,roles,permissions}，data 可能为空。
+    if (body is Map<String, dynamic> &&
+        (body['user'] is Map || body['roles'] is List)) {
+      return CurrentUser.fromJson(body);
+    }
     return CurrentUser.fromJson(result.dataAsMap ?? <String, dynamic>{});
   }
 

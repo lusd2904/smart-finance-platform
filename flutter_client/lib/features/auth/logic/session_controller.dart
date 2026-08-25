@@ -13,11 +13,13 @@ class SessionState {
     this.status = SessionStatus.unknown,
     this.user,
     this.roles = const [],
+    this.permissions = const [],
   });
 
   final SessionStatus status;
   final UserInfo? user;
   final List<String> roles;
+  final List<String> permissions;
 
   bool get isAnonymous => status == SessionStatus.anonymous;
   bool get isAuthenticated => status == SessionStatus.authenticated;
@@ -26,11 +28,13 @@ class SessionState {
     SessionStatus? status,
     UserInfo? user,
     List<String>? roles,
+    List<String>? permissions,
   }) =>
       SessionState(
         status: status ?? this.status,
         user: user ?? this.user,
         roles: roles ?? this.roles,
+        permissions: permissions ?? this.permissions,
       );
 }
 
@@ -71,6 +75,7 @@ class SessionController extends Notifier<SessionState> {
         status: SessionStatus.authenticated,
         user: current.user,
         roles: current.roles,
+        permissions: current.permissions,
       );
     } on ApiException {
       // token 失效/被拒：清除并回登录页。
@@ -102,6 +107,7 @@ class SessionController extends Notifier<SessionState> {
         status: SessionStatus.authenticated,
         user: current.user,
         roles: current.roles,
+        permissions: current.permissions,
       );
       return null;
     } catch (e) {

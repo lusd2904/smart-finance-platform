@@ -37,7 +37,8 @@ export function getKline(query) {
   return request({
     url: '/market/kline',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 12000
   })
 }
 
@@ -77,7 +78,7 @@ export function getSymbolOverview(symbol, query) {
     url: '/market/symbols/' + encodeURIComponent(symbol) + '/overview',
     method: 'get',
     params: query,
-    timeout: 120000
+    timeout: (query && query.include === 'all') ? 120000 : 15000
   })
 }
 
@@ -129,11 +130,11 @@ export function getFinanceBriefings(query) {
   })
 }
 
-export function getMarketWatchlistOverview() {
+export function getMarketWatchlistOverview(options = {}) {
   return request({
     url: '/market/watchlist/overview',
     method: 'get',
-    timeout: 120000
+    timeout: options.timeout ?? 15000
   })
 }
 
@@ -263,7 +264,7 @@ export function collectMarketHeat(query) {
   })
 }
 
-// 盘中大盘指数实时行情（舆情大盘指数条数据源，非交易时段返回空列表）
+// 盘中大盘指数：美股全时段返回；港股/A股仅当地盘中
 export function getMarketIndexQuotes() {
   return request({
     url: '/market/index/quotes',

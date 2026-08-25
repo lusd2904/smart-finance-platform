@@ -10,6 +10,7 @@ from exceptions.exception import ServiceException
 from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, select_ai_model_row
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_ai.entity.do.ai_model_do import AiModels
+from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
 from module_sentiment.entity.vo.sentiment_vo import (
     DeleteSentimentNewsModel,
@@ -18,8 +19,11 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentAnalysisPageQueryModel,
     SentimentNewsPageQueryModel,
 )
-from module_market.service.index_quotes_service import MarketIndexService, list_session_status
-from module_sentiment.service.analyzer_service import GATEWAY_FAILOVER_CODES, SentimentAiAnalyzer
+from module_sentiment.service.analyzer_service import (
+    GATEWAY_FAILOVER_CODES,
+    HTTP_TOO_MANY_REQUESTS,
+    SentimentAiAnalyzer,
+)
 from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
@@ -424,7 +428,7 @@ class SentimentService:
         )
 
     @classmethod
-    async def run_analysis_services(cls, query_db: AsyncSession) -> dict[str, Any]:
+    async def run_analysis_services(cls, query_db: AsyncSession) -> dict[str, Any]:  # noqa: PLR0912
         """
         对未分析的资讯执行一次AI大盘影响分析service
 
@@ -470,7 +474,7 @@ class SentimentService:
             used_model_name = runtime['modelName']
             if ai_result.get('ok'):
                 break
-            if ai_result.get('code') == 429:
+            if ai_result.get('code') == HTTP_TOO_MANY_REQUESTS:
                 break
             if not cls._is_gateway_failover_code(ai_result.get('code')):
                 break
@@ -479,7 +483,7 @@ class SentimentService:
             )
         if ai_result is None:
             raise ServiceException(message='未找到可用的 AI 模型配置')
-        if ai_result.get('code') == 429:
+        if ai_result.get('code') == HTTP_TOO_MANY_REQUESTS:
             return {
                 'analyzed': 0,
                 'analysisId': None,

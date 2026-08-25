@@ -1,27 +1,31 @@
 import request from '@/utils/request'
 
 export function getTradeAccount() {
-  return request({ url: '/trade/account', method: 'get' })
+  return request({ url: '/trade/account', method: 'get', timeout: 30000 })
 }
 
 export function getTradeQuoteDepth(query) {
-  return request({ url: '/trade/quote/depth', method: 'get', params: query })
+  return request({ url: '/trade/quote/depth', method: 'get', params: query, timeout: 30000 })
 }
 
 export function getTradeQuoteTrades(query) {
-  return request({ url: '/trade/quote/trades', method: 'get', params: query })
+  return request({ url: '/trade/quote/trades', method: 'get', params: query, timeout: 30000 })
 }
 
 export function getTradeQuoteKline(query) {
-  return request({ url: '/trade/quote/kline', method: 'get', params: query })
+  return request({ url: '/trade/quote/kline', method: 'get', params: query, timeout: 30000 })
+}
+
+export function getTradeQuoteSnapshot(query) {
+  return request({ url: '/trade/quote/snapshot', method: 'get', params: query, timeout: 30000 })
 }
 
 export function getTradePositions() {
-  return request({ url: '/trade/positions', method: 'get' })
+  return request({ url: '/trade/positions', method: 'get', timeout: 30000 })
 }
 
 export function getTradeOrders(scope = 'today') {
-  return request({ url: '/trade/orders', method: 'get', params: { scope } })
+  return request({ url: '/trade/orders', method: 'get', params: { scope }, timeout: 30000 })
 }
 
 export function getTradeOrder(orderId) {
@@ -64,8 +68,12 @@ export function getAutoTradeStatus() {
   return request({ url: '/trade/auto/status', method: 'get' })
 }
 
+export function saveAutoTradeSettings(data) {
+  return request({ url: '/trade/auto/settings', method: 'put', data })
+}
+
 export function runAutoTrade(data) {
-  return request({ url: '/trade/auto/run', method: 'post', data, timeout: 120000 })
+  return request({ url: '/trade/auto/run', method: 'post', data, timeout: 180000 })
 }
 
 export function listAutoTradeDecisions(params) {

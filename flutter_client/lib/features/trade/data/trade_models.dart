@@ -23,23 +23,31 @@ class AccountInfo {
   factory AccountInfo.fromJson(Map<String, dynamic> json) {
     // 实测载荷顶层只有 balances[]（多币种），平铺键可能缺省 → 从首条回退。
     final balances = (json['balances'] as List?) ?? const [];
-    final first = balances.isNotEmpty && balances.first is Map
-        ? (balances.first as Map).cast<String, dynamic>()
-        : const <String, dynamic>{};
+    Map<String, dynamic> pick = const <String, dynamic>{};
+    for (final raw in balances) {
+      if (raw is! Map) continue;
+      final row = raw.cast<String, dynamic>();
+      if (pick.isEmpty) pick = row;
+      if ((row['currency'] as String?)?.toUpperCase() == 'USD') {
+        pick = row;
+        break;
+      }
+    }
     return AccountInfo(
       configured: json['configured'] == true,
       message: (json['message'] as String?) ?? '',
       currency:
-          (json['currency'] as String?) ?? (first['currency'] as String?) ?? '',
+          (json['currency'] as String?) ?? (pick['currency'] as String?) ?? '',
       totalCash:
           (json['totalCash'] as num?)?.toDouble() ??
-          (first['totalCash'] as num?)?.toDouble(),
+          (pick['totalCash'] as num?)?.toDouble(),
       availableCash:
           (json['availableCash'] as num?)?.toDouble() ??
-          (first['availableCash'] as num?)?.toDouble(),
+          (pick['availableCash'] as num?)?.toDouble() ??
+          (pick['totalCash'] as num?)?.toDouble(),
       netAssets:
           (json['netAssets'] as num?)?.toDouble() ??
-          (first['netAssets'] as num?)?.toDouble(),
+          (pick['netAssets'] as num?)?.toDouble(),
     );
   }
 
@@ -215,6 +223,7 @@ class AutoTradeStatus {
     this.configured = false,
     this.message = '',
     this.tradingEnabled = false,
+    this.autoTradeEnabled = false,
     this.submitAllowed = false,
     this.submitBlockReason = '',
     this.strategyProfile = '',
@@ -234,10 +243,13 @@ class AutoTradeStatus {
         (json['config'] as Map?)?.cast<String, dynamic>() ?? const {};
     final guardrails =
         (json['guardrails'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final enabled =
+        json['autoTradeEnabled'] == true || json['tradingEnabled'] == true;
     return AutoTradeStatus(
       configured: json['configured'] == true,
       message: (json['message'] as String?) ?? '',
-      tradingEnabled: json['tradingEnabled'] == true,
+      tradingEnabled: enabled,
+      autoTradeEnabled: enabled,
       submitAllowed: json['submitAllowed'] == true,
       submitBlockReason: (json['submitBlockReason'] as String?) ?? '',
       strategyProfile: (config['strategy_profile'] as String?) ?? '',
@@ -266,6 +278,9 @@ class AutoTradeStatus {
 
   /// 服务端硬开关：false = 纸面保护态（客户端只读的根基）。
   final bool tradingEnabled;
+
+  /// 本账户自动交易开关，与 [tradingEnabled] 同源。
+  final bool autoTradeEnabled;
   final bool submitAllowed;
   final String submitBlockReason;
   final String strategyProfile;
