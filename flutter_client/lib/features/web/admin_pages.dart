@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/gateway/gateway_controller.dart';
@@ -421,15 +422,49 @@ class ProfilePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionController);
     final user = session.user;
+    final gateway = ref.watch(gatewayController);
     return AppPage(
-      child: ElCard(
-        header: const Text('个人中心'),
-        child: KvGrid({
-          '用户名': user?.userName ?? '',
-          '昵称': user?.nickName ?? '',
-          '用户编号': '${user?.userId ?? ''}',
-          '角色': session.roles.join('、'),
-        }),
+      child: ListView(
+        children: [
+          ElCard(
+            header: const Text('账号'),
+            child: KvGrid({
+              '用户名': user?.userName ?? '',
+              '昵称': user?.nickName ?? '',
+              '角色': session.roles.join('、'),
+            }),
+          ),
+          const SizedBox(height: 12),
+          ElCard(
+            header: const Text('设置'),
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.dns_outlined),
+                  title: const Text('网关'),
+                  subtitle: Text(
+                    gateway.url.isEmpty ? '未配置' : gateway.url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.go('/gateway'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('退出登录'),
+                  onTap: () async {
+                    final ok = await confirm(context, '确定退出登录吗？');
+                    if (!ok) return;
+                    await ref.read(sessionController.notifier).logout();
+                    if (context.mounted) context.go('/login');
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

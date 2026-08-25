@@ -123,5 +123,10 @@ void main() {
     expect(find.byType(AppBar), findsOneWidget);
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
     expect(scaffold.drawer, isNotNull);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('工作台'), findsWidgets);
+    expect(find.text('行情'), findsOneWidget);
+    expect(find.text('自选'), findsWidgets);
+    expect(find.text('我的'), findsOneWidget);
   });
 }

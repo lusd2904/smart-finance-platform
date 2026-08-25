@@ -45,6 +45,7 @@ class AdminShell extends ConsumerStatefulWidget {
 
 class _AdminShellState extends ConsumerState<AdminShell> {
   bool _sidebarOpen = true;
+  int _phoneTab = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   final List<TagTab> _tags = [
     const TagTab(path: '/portal', title: '子系统门户'),
@@ -216,6 +217,20 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     );
   }
 
+  static const _phoneTabs = <(String path, String title, IconData icon)>[
+    ('/portal', '工作台', Icons.dashboard_outlined),
+    ('/market/heat', '行情', Icons.candlestick_chart_outlined),
+    ('/market/watchlist', '自选', Icons.star_outline),
+    ('/user/profile', '我的', Icons.person_outline),
+  ];
+
+  bool _isPhoneRoot(String path) =>
+      path == '/portal' ||
+      path == '/index' ||
+      path == '/market/heat' ||
+      path == '/market/watchlist' ||
+      path == '/user/profile';
+
   Widget _phoneScaffold({
     required List<RouterNode> menu,
     required bool loading,
@@ -229,6 +244,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       _scaffoldKey.currentState?.closeDrawer();
     }
 
+    final root = _isPhoneRoot(current.path);
     return Scaffold(
       key: _scaffoldKey,
       drawer: Drawer(
@@ -242,13 +258,22 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             loading: loading,
             currentPath: current.path,
             onSelect: pick,
-            onLogo: () => pick('/portal', '子系统门户'),
+            onLogo: () => pick('/portal', '工作台'),
           ),
         ),
       ),
       appBar: AppBar(
         backgroundColor: WebTokens.sidebarBg,
         foregroundColor: Colors.white,
+        leading: root
+            ? null
+            : IconButton(
+                tooltip: '返回',
+                icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                onPressed: () {
+                  if (_tags.length > 1) _close(_active);
+                },
+              ),
         title: Text(
           current.title,
           maxLines: 1,
@@ -260,42 +285,19 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             onPressed: () => ref.read(themeModeController.notifier).toggle(),
             icon: Icon(dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined),
           ),
-          PopupMenuButton<String>(
-            tooltip: '更多',
-            onSelected: (v) {
-              switch (v) {
-                case 'portal':
-                  _open('/portal', title: '子系统门户');
-                case 'index':
-                  _open('/index', title: '工作台首页');
-                case 'gateway':
-                  context.go('/gateway');
-                case 'profile':
-                  _open('/user/profile', title: '个人中心');
-                case 'logout':
-                  logout();
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'portal', child: Text('子系统门户')),
-              PopupMenuItem(value: 'index', child: Text('工作台首页')),
-              PopupMenuItem(value: 'gateway', child: Text('网关')),
-              PopupMenuItem(value: 'profile', child: Text('个人中心')),
-              PopupMenuItem(value: 'logout', child: Text('退出登录')),
-            ],
-          ),
         ],
       ),
-      body: Column(
-        children: [
-          if (_tags.length > 1)
-            _TagsBar(
-              tags: _tags,
-              active: _active,
-              onSelect: (i) => setState(() => _active = i),
-              onClose: _close,
-            ),
-          Expanded(child: stack),
+      body: stack,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _phoneTab.clamp(0, 3),
+        onDestinationSelected: (i) {
+          final tab = _phoneTabs[i];
+          setState(() => _phoneTab = i);
+          _open(tab.$1, title: tab.$2);
+        },
+        destinations: [
+          for (final t in _phoneTabs)
+            NavigationDestination(icon: Icon(t.$3), label: t.$2),
         ],
       ),
     );
