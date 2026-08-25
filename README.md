@@ -17,10 +17,10 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
 - 🖥️ **桌面端（过渡）**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
-- 📱 **Flutter 客户端**：`lib/` 四端共用；**当前仓库只维护 macOS 原生壳**（今日交易台/盘前 K 线/北京时间已跟上 Web）。`android/` `ios/` `windows/` 仅留目录占位，当晚再补回。
+- 📱 **Flutter 客户端**：`lib/` 四端共用。macOS / Android / iOS / Windows 原生壳均在仓库内；Dart 业务今日已跟上 Web 交易台、盘前 K 线、北京时间。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
-## 🚀 0825 V10 迭代更新日志（交易台、北京时间、macOS 客户端；三端壳占位）
+## 🚀 0825 V10 迭代更新日志（交易台、北京时间、四端 Flutter 原生壳）
 
 ### 1. 💹 Web 交易台 / 行情台
 - 自选下拉按分组；打开默认第一只标的。
@@ -38,9 +38,12 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 传输加密仅挂在 `/open/sync/*`。脚本：`scripts/sync_from_prod.py`。
 
 ### 4. 🖥️ Flutter
-- 今日只改 **macOS**（交易台、盘前/夜盘时段、北京时间轴）；已打本机 `智慧金融.app`。
-- **清空** `android/` `ios/` `windows/` 工程文件，**只留目录**（各有占位 README），晚上再 `flutter create` 补回。
-- CI：`flutter.yml` 只打 macOS；push 仅 `main` / tag / PR，避免功能分支狂跑发邮件。
+- macOS：交易台、盘前/夜盘时段、北京时间轴；本机已打 `智慧金融.app`。窗口 1440×900，最小 1100×700；ATS 允许本机/局域网 HTTP 网关。
+- **当晚补回三端原生壳**（从清空前的工程还原并对齐今日 macOS）：
+  - Android：明文 HTTP 网关（`network_security_config` + `usesCleartextTraffic`）、预测性返回；本机 debug/release APK 已编过。
+  - iOS：ATS `NSAllowsLocalNetworking`、局域网用途说明、`ITSAppUsesNonExemptEncryption=false`；`--no-codesign` 已编出 `Runner.app`。
+  - Windows：默认窗口 1440×900、最小 1100×700、标题「智慧金融分析平台」、主屏居中；NSIS 开始菜单/桌面快捷方式同名。本机不能交叉编译，CI `windows-latest` 出包。
+- CI：`flutter.yml` 恢复 apk / ios / macos / windows 四 job；push 仍只跑 `main` / tag / PR，避免功能分支狂跑发邮件。
 
 ---
 
@@ -241,13 +244,13 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
   ```
   先填前端网关再登录：本机 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。
 
-- **方案 3：Flutter 客户端（当前仅 macOS）**
+- **方案 3：Flutter 四端客户端**
   ```bash
   cd flutter_client
   flutter pub get
-  flutter run -d macos
+  flutter run -d macos     # 或 windows / ios / android
   ```
-  首启：网关配置 → 探测通过 → 登录。`android/` `ios/` `windows/` 目录是空占位，当晚补回。详见 `flutter_client/README.md`。
+  首启：网关配置 → 探测通过 → 登录。详细说明见 `flutter_client/README.md`。
 
 - **方案 4：检查与监控（可选）**
   ```bash
@@ -270,7 +273,7 @@ smart-finance-platform/
 │   └── sql/
 ├── ruoyi-fastapi-frontend/        # Vue3 管理端
 ├── ruoyi-fastapi-app/             # 移动端 H5 / 小程序基线（双轨保留）
-├── flutter_client/                # Flutter：lib 共用；原生壳目前仅 macos/（android/ios/windows 占位）
+├── flutter_client/                # 四端 Flutter（iOS / Android / macOS / Windows）
 └── desktop/                       # Electron（过渡）
 ```
 

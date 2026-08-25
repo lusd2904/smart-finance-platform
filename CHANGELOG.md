@@ -3,7 +3,18 @@
 所有项目的重要更改都将记录在此文件中。
 
 
-## [v1.7.0] - 2026-08-25 - 交易台时段 K 线、北京时间、macOS 客户端；三端壳占位 (0825 V10)
+## [v1.7.1] - 2026-08-25 - Android / iOS / Windows 原生壳补回 (0825 晚)
+
+### 🖥️ Flutter 三端
+- 从清空前的平台工程还原，并对齐今日 macOS：HTTP 网关、显示名「智慧金融」、桌面窗 1440×900 / 最小 1100×700
+- Android：`network_security_config` 明文网关、预测性返回；本机 debug + release APK 已构建（无 keystore 时 debug 签名）
+- iOS：ATS 本地网络、`NSLocalNetworkUsageDescription`、出口合规标记；`flutter build ios --debug --no-codesign` 已通过。`ios/scripts/xcrun` 仅在 `xcode-select` 指向 CommandLineTools 时帮 Dart native-asset 找到完整 Xcode
+- Windows：居中、最小尺寸 `WM_GETMINMAXINFO`、NSIS 快捷方式中文名；本机不交叉编译，CI `windows-latest` 出 zip + setup.exe
+- `flutter.yml` 恢复四平台 job；push 触发仍仅 `main` / tag / PR
+
+---
+
+## [v1.7.0] - 2026-08-25 - 交易台时段 K 线、北京时间、macOS 客户端 (0825 V10)
 
 ### 💹 交易台 / 行情台
 - 自选分组下拉，打开默认第一只标的；顶栏全市场代码搜索
@@ -21,12 +32,9 @@
 - `max_symbol_position_pct` 默认 0.10；增量 SQL `sql/quant-symbol-position-pct.sql`
 
 ### 🖥️ Flutter / CI
-- **仅保留 macOS 原生壳**；`android/` `ios/` `windows/` 清空为占位目录，当晚再继续
-- `flutter.yml` 只构建 macOS；push 触发收窄到 `main` + tag + PR，减轻邮件风暴
+- 当日先只改 macOS 原生壳；三端曾清空为占位（当晚已在 v1.7.1 补回）
+- push 触发收窄到 `main` + tag + PR，减轻邮件风暴
 - 舆情 ruff：429 命名常量、isort、过长分支 noqa，避免 ratchet 在 PR 上失败
-
-### ⏳ 当晚待办
-- 重新生成 Android / iOS / Windows 平台壳并对齐今日 macOS 改动
 ---
 
 ## [v1.6.0] - 2026-08-24 - 四端客户端 M2–M5 全量落地与行情实时通道 (0824 V9)

@@ -1,5 +1,14 @@
-# Windows 平台壳（占位）
+# Windows 宿主
 
-本目录已清空，仅保留路径。2026-08-25 起仓库内 Flutter 原生壳只维护 **macOS**；Android / iOS / Windows 将在后续晚上重新 `flutter create --platforms=windows` 补回。
+本机（macOS）不能交叉编译 Windows。发布 zip 与 NSIS 安装包由 CI `build-windows`（`.github/workflows/flutter.yml`）在 `windows-latest` 上产出：`sff-windows.zip`、`sff-windows-setup.exe`。
 
-Dart 业务代码仍在 `../lib/`，三端复用同一套，不要在此目录提交临时脚手架。
+安装脚本：`packaging/installer.nsi`。CI 以绝对路径 `/DSRCDIR` 指向 `build/windows/x64/runner/Release`，再 `File /r "${SRCDIR}\*.*"`。
+
+在 Windows 机器上本地运行：
+
+```bat
+cd flutter_client
+flutter run -d windows
+```
+
+默认窗口 1440×900，最小 1100×700，标题「智慧金融分析平台」，启动后在主显示器工作区居中。
