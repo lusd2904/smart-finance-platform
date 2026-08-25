@@ -1,3 +1,14 @@
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
+/// 本机未配置时的占位网关。Android 模拟器要把宿主机写成 10.0.2.2。
+String suggestedLocalGateway() {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    return 'http://10.0.2.2:12580';
+  }
+  return 'http://127.0.0.1:12580';
+}
+
 /// 网关配置（与 desktop/src/gateway.js 的 gateway.json 结构对齐）。
 class GatewayConfig {
   const GatewayConfig({
@@ -57,6 +68,12 @@ const gatewayPresets = <GatewayPreset>[
     '本机 Docker',
     'http://127.0.0.1:12580',
     'docker-compose.sentiment.yml 默认前端网关，已代理 /docker-api',
+  ),
+  GatewayPreset(
+    'android-emulator',
+    'Android 模拟器',
+    'http://10.0.2.2:12580',
+    '模拟器访问宿主机环回；真机请改局域网 IP',
   ),
   GatewayPreset(
     'lan',

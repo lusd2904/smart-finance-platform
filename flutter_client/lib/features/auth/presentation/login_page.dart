@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter_client/core/api/api_client.dart';
+import 'package:flutter_client/core/gateway/gateway_config.dart';
 import 'package:flutter_client/core/gateway/gateway_controller.dart';
 import 'package:flutter_client/core/gateway/gateway_probe.dart';
 import 'package:flutter_client/core/gateway/gateway_store.dart';
@@ -42,7 +43,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   void initState() {
     super.initState();
     final gw = ref.read(gatewayController).url;
-    _gateway.text = gw.isEmpty ? 'http://127.0.0.1:12580' : gw;
+    _gateway.text = gw.isEmpty ? suggestedLocalGateway() : gw;
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -175,6 +176,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final dark = _dark;
     final registerEnabled = _captcha?.registerEnabled ?? false;
     final captchaOn = _captcha == null || _captcha!.captchaEnabled;
+    final narrow = MediaQuery.sizeOf(context).width < 760;
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -206,27 +208,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(40, 18, 40, 0),
+                  padding: EdgeInsets.fromLTRB(narrow ? 16 : 40, 18, narrow ? 16 : 40, 0),
                   child: Row(
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _GlowTitle('智慧金融 · NEXUS'),
-                          SizedBox(height: 2),
-                          Text(
-                            'QUANT · SENTIMENT · MARKET',
-                            style: TextStyle(
-                              fontSize: 11,
-                              letterSpacing: 2,
-                              color: Color(0xA6E2E8F0),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: _GlowTitle('智慧金融 · NEXUS'),
                             ),
-                          ),
-                        ],
+                            SizedBox(height: 2),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'QUANT · SENTIMENT · MARKET',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  letterSpacing: 2,
+                                  color: Color(0xA6E2E8F0),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       _SkinSwitch(
                         dark: dark,
+                        compact: narrow,
                         onSelect: (v) => ref.read(themeModeController.notifier).setDark(v),
                       ),
                     ],
@@ -237,38 +250,57 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 920, maxHeight: 560),
                       child: Padding(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.all(narrow ? 12 : 24),
                         child: _GlassPanel(
                           dark: dark,
-                          child: Row(
-                            children: [
-                              if (MediaQuery.sizeOf(context).width >= 760)
-                                SizedBox(
-                                  width: 380,
-                                  child: _BrandPane(dark: dark),
-                                ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(36, 28, 36, 24),
-                                  child: _form(
-                                    captchaOn: captchaOn,
-                                    registerEnabled: registerEnabled,
-                                    dark: dark,
+                          child: LayoutBuilder(
+                            builder: (context, box) {
+                              return SingleChildScrollView(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(minHeight: box.maxHeight),
+                                  child: IntrinsicHeight(
+                                    child: Row(
+                                      children: [
+                                        if (!narrow)
+                                          SizedBox(
+                                            width: 380,
+                                            child: _BrandPane(dark: dark),
+                                          ),
+                                        Expanded(
+                                          child: Padding(
+                                            padding: EdgeInsets.fromLTRB(
+                                              narrow ? 20 : 36,
+                                              28,
+                                              narrow ? 20 : 36,
+                                              24,
+                                            ),
+                                            child: _form(
+                                              captchaOn: captchaOn,
+                                              registerEnabled: registerEnabled,
+                                              dark: dark,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              );
+                            },
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    'Copyright © 2024-2026 insistence.tech All Rights Reserved.',
-                    style: TextStyle(fontSize: 12, color: Color(0x88E2E8F0)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'Copyright © 2024-2026 insistence.tech All Rights Reserved.',
+                      style: const TextStyle(fontSize: 12, color: Color(0x88E2E8F0)),
+                    ),
                   ),
                 ),
               ],
@@ -315,7 +347,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         TextField(
           key: const Key('login-gateway'),
           controller: _gateway,
-          decoration: deco('网关地址 http://127.0.0.1:12580', Icons.dns_outlined),
+          decoration: deco('网关地址 ${suggestedLocalGateway()}', Icons.dns_outlined),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -444,8 +476,13 @@ class _GlowTitle extends StatelessWidget {
 }
 
 class _SkinSwitch extends StatelessWidget {
-  const _SkinSwitch({required this.dark, required this.onSelect});
+  const _SkinSwitch({
+    required this.dark,
+    required this.onSelect,
+    this.compact = false,
+  });
   final bool dark;
+  final bool compact;
   final ValueChanged<bool> onSelect;
 
   @override
@@ -456,16 +493,22 @@ class _SkinSwitch extends StatelessWidget {
         onTap: () => onSelect(value),
         borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 14,
+            vertical: 7,
+          ),
           decoration: BoxDecoration(
             color: active ? const Color(0x2E38BDF8) : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
           ),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 16, color: Colors.white),
-              const SizedBox(width: 6),
-              Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              if (!compact) ...[
+                const SizedBox(width: 6),
+                Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ],
             ],
           ),
         ),
