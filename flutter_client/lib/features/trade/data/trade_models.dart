@@ -347,7 +347,6 @@ class AutoTradeStatus {
     this.maxSymbols = 0,
     this.maxDailyOrders = 0,
     this.minConfidence,
-    this.requirePaper = false,
     this.todayOrdersCount = 0,
     this.maxDailyNotionalAmount = 0,
     this.todayNotionalAmount = 0,
@@ -373,7 +372,6 @@ class AutoTradeStatus {
       maxSymbols: (config['max_symbols'] as num?)?.toInt() ?? 0,
       maxDailyOrders: (config['max_daily_orders'] as num?)?.toInt() ?? 0,
       minConfidence: (config['min_confidence'] as num?)?.toDouble(),
-      requirePaper: config['require_paper'] == true,
       todayOrdersCount: (guardrails['todayOrdersCount'] as num?)?.toInt() ?? 0,
       maxDailyNotionalAmount:
           (guardrails['maxDailyNotionalAmount'] as num?)?.toDouble() ?? 0,
@@ -404,7 +402,6 @@ class AutoTradeStatus {
   final int maxSymbols;
   final int maxDailyOrders;
   final double? minConfidence;
-  final bool requirePaper;
   final int todayOrdersCount;
   final double maxDailyNotionalAmount;
   final double todayNotionalAmount;

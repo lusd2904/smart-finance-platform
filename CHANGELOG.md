@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 💹 去掉平台纸账户层
+- 下单 / 撤单不再看 `longport_trading_enabled` 或 `allow_sim`；配了长桥模拟账户就是模拟，配了真实账户就是真实
+- 删除服务端「只读/模拟模式」拦截和客户端 `requirePaper` / `paperAccount` 标记
+- 自动交易是否委托仍由该账户 `auto_trade_enabled` 决定，不是纸账户开关
+
 ### 💹 美股盘前 / 盘后 / 夜盘下单
 - 长桥**实盘**支持美股延长时段：盘前 04:00–09:30 ET、盘后 16:00–20:00 ET（`OutsideRTH.AnyTime`），夜盘周日～周四 20:00–次日 03:50 ET（`OutsideRTH.Overnight`）
 - 此前 `submit_order` 未传 `outside_rth`，默认只走常规盘；现美股手动/自动/清单下单均按当前时段设置
@@ -52,7 +57,7 @@
 - 研判/复盘/选股 HTTP 只回 ticket，前端轮询 `/market/jobs/{id}`；重试中是 `retrying` 不是 `failed`
 - 调度入队失败本轮跳过、不内联；窗口型任务（收盘 K、开盘送单）失败后要手动补跑
 - 拆分角色跳过 `create_all`，新环境必须跑 `sql_migrate.py`
-- SSE 流式研判仍走市场 API；自动交易默认仍不实盘下单
+- SSE 流式研判仍走市场 API；自动交易是否下单看账户 `auto_trade_enabled`，下单目标就是该账户长桥凭据对应的模拟或真实账户
 - 完整说明见 `docs/DEPLOY.md`「2.1 本次改动注意事项」
 
 ### 🐛 调度与内存

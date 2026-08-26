@@ -207,20 +207,6 @@ class CredentialsMixin:
         return bool(creds['app_key'] and creds['app_secret'] and creds['access_token'])
 
     @classmethod
-    def is_trading_enabled(cls) -> bool:
-        """
-        是否开启了实盘交易（下单/撤单开关）。
-        硬开关由 LongbridgeConfig.longport_trading_enabled 控制，默认 False（模拟/只读）。
-        """
-        try:
-            from config.env import LongbridgeConfig
-
-            return bool(getattr(LongbridgeConfig, 'longport_trading_enabled', False))
-        except Exception as exc:
-            logger.warning(f'[长桥] 读取实盘交易开关失败: {exc}')
-            return False
-
-    @classmethod
     def _get_creds_signature(cls, creds: dict[str, str]) -> str:
         """计算凭证摘要用于缓存失效检测"""
         return (

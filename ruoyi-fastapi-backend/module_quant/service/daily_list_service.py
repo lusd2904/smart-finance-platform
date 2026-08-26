@@ -323,7 +323,7 @@ class DailyListService:
             symbol, market = key
             qty = float(pos.get('quantity') or 0)
             res = await LongbridgeService.submit_order_async(
-                symbol, 'sell', qty, order_type='MO', market=market, allow_sim=True
+                symbol, 'sell', qty, order_type='MO', market=market
             )
             outcomes.append({'symbol': symbol, 'side': 'SELL', **res})
         for item in items:
@@ -374,7 +374,7 @@ class DailyListService:
             row.error = '仓位不足或无法计算数量'
             return {'itemId': row.item_id, 'ok': False, 'message': row.error}
         result = await LongbridgeService.submit_order_async(
-            row.symbol, 'buy', qty, order_type='MO', market=row.market, allow_sim=True
+            row.symbol, 'buy', qty, order_type='MO', market=row.market
         )
         row.quantity = qty
         if result.get('ok'):

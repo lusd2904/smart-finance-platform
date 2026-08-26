@@ -409,7 +409,6 @@ class QuantService:
             },
             'positionControl': {
                 'targetPositionPct': None,
-                'paperAccount': True,
                 'dailyOrderLimit': None,
                 'dailyAmountLimit': None,
             },

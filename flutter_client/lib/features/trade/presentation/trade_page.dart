@@ -116,7 +116,7 @@ class _AccountCardState extends ConsumerState<_AccountCard> {
     final theme = Theme.of(context);
     return SectionCard(
       title: '账户资产',
-      subtitle: '长桥券商 · 只读',
+      subtitle: '长桥券商',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

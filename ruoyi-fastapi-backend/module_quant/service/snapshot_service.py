@@ -295,7 +295,6 @@ class SnapshotService:
                         quantity=int(qty),
                         order_type='MO',
                         market=market,
-                        allow_sim=True,
                     )
                     ok = bool(order_res.get('ok'))
                     await TradeDao.add_auto_trade_decision(

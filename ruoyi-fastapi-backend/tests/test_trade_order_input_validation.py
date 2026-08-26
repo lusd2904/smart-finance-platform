@@ -65,7 +65,7 @@ def test_limit_orders_require_positive_price() -> None:
 
 
 def _patch_ready() -> dict:
-    """凭据齐全 + 实盘开关打开 + 可注入的 TradeContext。"""
+    """凭据齐全 + 可注入的 TradeContext。"""
     ctx = MagicMock()
     return {'ctx': ctx}
 
@@ -74,11 +74,10 @@ def test_submit_order_rejects_bad_side_without_sdk_call() -> None:
     ready = _patch_ready()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
     ):
         result = LongbridgeService.submit_order(
-            symbol='AAPL.US', side='byu', quantity=10, order_type='LO', price=100.0, allow_sim=False
+            symbol='AAPL.US', side='byu', quantity=10, order_type='LO', price=100.0
         )
     assert result['ok'] is False
     assert '方向' in result['message']
@@ -89,11 +88,10 @@ def test_submit_order_rejects_zero_quantity_without_sdk_call() -> None:
     ready = _patch_ready()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
     ):
         result = LongbridgeService.submit_order(
-            symbol='AAPL.US', side='buy', quantity=0, order_type='LO', price=100.0, allow_sim=True
+            symbol='AAPL.US', side='buy', quantity=0, order_type='LO', price=100.0
         )
     assert result['ok'] is False
     assert '数量' in result['message']
@@ -104,12 +102,11 @@ def test_submit_order_rejects_limit_order_without_price() -> None:
     ready = _patch_ready()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
     ):
         result = asyncio.run(
             LongbridgeService.submit_order_async(
-                symbol='AAPL.US', side='buy', quantity=10, order_type='LO', price=None, allow_sim=True
+                symbol='AAPL.US', side='buy', quantity=10, order_type='LO', price=None
             )
         )
     assert result['ok'] is False
@@ -124,7 +121,6 @@ def test_us_submit_order_sets_anytime_outside_rth() -> None:
     ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-1'})()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
         patch(
             'module_market.service.index_session.us_outside_rth_mode',
@@ -138,7 +134,6 @@ def test_us_submit_order_sets_anytime_outside_rth() -> None:
             order_type='LO',
             price=100.0,
             market='US',
-            allow_sim=True,
         )
     assert result['ok'] is True
     assert result['outsideRth'] == 'anytime'
@@ -154,7 +149,6 @@ def test_us_submit_order_sets_overnight_outside_rth() -> None:
     ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-2'})()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
         patch(
             'module_market.service.index_session.us_outside_rth_mode',
@@ -167,7 +161,6 @@ def test_us_submit_order_sets_overnight_outside_rth() -> None:
             quantity=2,
             order_type='MO',
             market='US',
-            allow_sim=True,
         )
     assert result['ok'] is True
     assert result['outsideRth'] == 'overnight'
@@ -181,7 +174,6 @@ def test_cn_submit_order_does_not_set_outside_rth() -> None:
     ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-4'})()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
     ):
         result = LongbridgeService.submit_order(
@@ -191,7 +183,6 @@ def test_cn_submit_order_does_not_set_outside_rth() -> None:
             order_type='LO',
             price=1600.0,
             market='CN',
-            allow_sim=True,
         )
     assert result['ok'] is True
     assert 'outside_rth' not in ready['ctx'].submit_order.call_args.kwargs
@@ -222,7 +213,6 @@ def test_hk_submit_order_does_not_set_outside_rth() -> None:
     ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-3'})()
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
         patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
     ):
         result = LongbridgeService.submit_order(
@@ -232,7 +222,6 @@ def test_hk_submit_order_does_not_set_outside_rth() -> None:
             order_type='LO',
             price=320.0,
             market='HK',
-            allow_sim=True,
         )
     assert result['ok'] is True
     assert result.get('outsideRth') is None
@@ -242,11 +231,29 @@ def test_hk_submit_order_does_not_set_outside_rth() -> None:
 
 
 def test_cancel_order_requires_order_id() -> None:
-    with (
-        patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
-    ):
+    with patch.object(LongbridgeService, 'is_configured', return_value=True):
         for blank in ('', '   ', None):
-            result = LongbridgeService.cancel_order(blank, allow_sim=True)
+            result = LongbridgeService.cancel_order(blank)
             assert result['ok'] is False
             assert '订单号' in result['message']
+
+
+def test_submit_order_uses_configured_account_without_platform_paper_gate() -> None:
+    """平台不再用 longport_trading_enabled / allow_sim 拦截，配了什么长桥账户就下到哪。"""
+    ready = _patch_ready()
+    ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'live-1'})()
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
+        patch(
+            'module_market.service.index_session.us_outside_rth_mode',
+            return_value='anytime',
+        ),
+    ):
+        result = LongbridgeService.submit_order(
+            symbol='AAPL', side='buy', quantity=1, order_type='LO', price=100.0, market='US'
+        )
+    assert result['ok'] is True
+    assert result['orderId'] == 'live-1'
+    ready['ctx'].submit_order.assert_called_once()
+    assert not hasattr(LongbridgeService, 'is_trading_enabled')

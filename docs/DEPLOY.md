@@ -72,7 +72,7 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 
 - **禁止 `docker compose down` 整栈。** 命名卷 `sentiment-influxdb-data` 不能删、不能 `-v`。
 - **不要**把 `ruoyi-redis` / `sentiment-influxdb` / `ruoyi-mysql` 和业务容器绑在一次 `up --build` 里「顺便重建」。数据层单独决策。
-- 自动交易扫描只入 `quant` 队列；是否真下单仍看账户策略开关，这次改动**不会**改成默认实盘。
+- 自动交易扫描只入 `quant` 队列；是否真下单仍看该账户 `auto_trade_enabled`。平台不再做纸账户拦截，委托直接进配置的长桥账户（模拟或真实由凭据决定）。
 
 推荐滚动（先 API，再前端；脚本 `scripts/deploy_and_verify.sh` 已按这个顺序）：
 
@@ -134,7 +134,7 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy no
 | 夜盘 | 周日～周四 20:00–次日 03:50 | `Overnight` |
 
 - 港股 / A 股不传 `outside_rth`。
-- **模拟账户**：长桥官方不撮合美股盘前、盘后、夜盘，只在常规盘模拟成交。纸面账号在延长时段下单可能被拒或挂着不成交，这是券商限制，不是平台开关没开。
+- **长桥模拟账户**：官方不撮合美股盘前、盘后、夜盘，只在常规盘模拟成交。延长时段下单可能被拒或挂着不成交，这是券商限制，平台不再另套纸账户层。
 - 夜盘行情依赖 SDK `enable_overnight=True`（代码已写死，不必再配 `LONGPORT_ENABLE_OVERNIGHT`）。
 - 滚动 `sentiment-trade`（以及会下单的 `sentiment-quant` / `jobs-quant`）后生效。不要 `compose down`。
 

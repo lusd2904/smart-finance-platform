@@ -177,7 +177,6 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None):
         patch.object(AutoTradeService, 'load_user_trade_settings', AsyncMock(return_value=settings or _trade_settings())),
         patch.object(LongbridgeService, 'ensure_credentials_from_db', AsyncMock()),
         patch.object(LongbridgeService, 'is_configured', return_value=True),
-        patch.object(LongbridgeService, 'is_trading_enabled', return_value=False),
         patch.object(
             LongbridgeService,
             'get_positions_async',
@@ -240,7 +239,6 @@ def test_cycle_never_submits_when_execute_false() -> None:
             ),
             patch.object(LongbridgeService, 'ensure_credentials_from_db', AsyncMock()),
             patch.object(LongbridgeService, 'is_configured', return_value=True),
-            patch.object(LongbridgeService, 'is_trading_enabled', return_value=False),
             patch.object(
                 LongbridgeService,
                 'get_account_balance_async',
@@ -261,11 +259,11 @@ def test_cycle_never_submits_when_execute_false() -> None:
     asyncio.run(_run())
 
 
-def test_cycle_submits_sim_order_when_execute_true() -> None:
+def test_cycle_submits_order_when_execute_true() -> None:
     async def _run() -> None:
         result, submit, add_decision = await _run_buy_cycle()
         submit.assert_called_once()
-        assert submit.call_args.kwargs.get('allow_sim') is True
+        assert 'allow_sim' not in submit.call_args.kwargs
         # 10k NAV × 10% 单票上限 = 1000，不是日内 20% 的 2000
         assert submit.call_args.kwargs.get('quantity') == 10
         add_decision.assert_called_once()
