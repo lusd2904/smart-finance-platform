@@ -229,12 +229,48 @@ class TradeClientMixin:
             }
             if ot != 'MO':
                 kwargs['submitted_price'] = price
+            outside_mode = cls._apply_us_outside_rth(kwargs, lb_symbol, market)
             resp = ctx.submit_order(**kwargs)
             order_id = getattr(resp, 'order_id', None) or getattr(resp, 'orderId', None)
-            return {'configured': True, 'ok': True, 'orderId': order_id, 'symbol': lb_symbol, 'message': '下单已提交'}
+            return {
+                'configured': True,
+                'ok': True,
+                'orderId': order_id,
+                'symbol': lb_symbol,
+                'outsideRth': outside_mode,
+                'message': '下单已提交',
+            }
         except Exception as exc:
             logger.warning(f'[长桥] 下单失败: {exc}')
             return {'configured': True, 'ok': False, 'message': f'下单失败: {exc}'}
+
+    @staticmethod
+    def _is_us_listed(lb_symbol: str, market: str) -> bool:
+        raw = str(lb_symbol or '').strip().upper()
+        if raw.endswith(('.HK', '.SH', '.SZ', '.CN')):
+            return False
+        if raw.endswith('.US'):
+            return True
+        return str(market or '').strip().upper() == 'US'
+
+    @classmethod
+    def _apply_us_outside_rth(cls, kwargs: dict[str, Any], lb_symbol: str, market: str) -> str | None:
+        """美股实盘：盘前/盘后 AnyTime，夜盘 Overnight。港/A 不传。模拟账户长桥不撮合延长时段。"""
+        if not cls._is_us_listed(lb_symbol, market):
+            return None
+        try:
+            from longport.openapi import OutsideRTH
+        except Exception:
+            return None
+        from module_market.service.index_session import us_outside_rth_mode
+
+        mode = us_outside_rth_mode()
+        attr = 'Overnight' if mode == 'overnight' else 'AnyTime'
+        enum = getattr(OutsideRTH, attr, None)
+        if enum is None:
+            return None
+        kwargs['outside_rth'] = enum
+        return mode
 
     @classmethod
     def cancel_order(cls, order_id: str, allow_sim: bool = False) -> dict[str, Any]:

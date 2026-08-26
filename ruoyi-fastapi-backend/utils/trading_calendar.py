@@ -125,13 +125,20 @@ def is_weekday(day: date) -> bool:
 
 
 def is_market_session_open(market: str, now: datetime | None = None) -> bool:
-    """盘中可立即送模拟单；否则排队到下一开盘。"""
+    """盘中可立即送单；否则排队到下一开盘。
+
+    美股含盘前 / 盘后 / 夜盘（长桥 `outside_rth`）；港股、A 股仍是当地常规盘。
+    """
     mkt = (market or 'US').upper()
     tz, start, end = SESSION.get(mkt, SESSION['US'])
     stamp = now or datetime.now(tz)
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=tz)
     local = stamp.astimezone(tz)
+    if mkt == 'US':
+        from module_market.service.index_session import is_us_trade_session_open
+
+        return is_us_trade_session_open(local)
     local_day = local.date()
     if mkt == 'CN' and not is_cn_trading_day(local_day):
         return False

@@ -12,6 +12,14 @@ void main() {
     expect(clock.of('US').sessionName, '休市');
   });
 
+  test('美股周日夜盘 20:00 ET 起为 overnight', () {
+    // 2026-08-24 01:00 UTC = 周日 21:00 EDT。
+    final clock = MarketSessionClock(nowUtc: DateTime.utc(2026, 8, 24, 1));
+    expect(clock.of('US').tag, 'overnight');
+    expect(clock.of('US').liveForMinuteKline, isTrue);
+    expect(clock.of('US').sessionName, '夜盘');
+  });
+
   test('北京时间上午 10:00 港股 A 股开盘', () {
     final clock = MarketSessionClock(nowUtc: DateTime.utc(2026, 8, 25, 2, 0));
     expect(clock.of('CN').isOpen, isTrue);

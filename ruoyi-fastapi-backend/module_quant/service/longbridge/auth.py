@@ -259,6 +259,7 @@ class CredentialsMixin:
             quote_ws_url=eps['quote_ws_url'],
             trade_ws_url=eps['trade_ws_url'],
             language=Language.ZH_CN,
+            enable_overnight=True,
         )
 
     @classmethod

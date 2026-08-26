@@ -117,6 +117,130 @@ def test_submit_order_rejects_limit_order_without_price() -> None:
     ready['ctx'].submit_order.assert_not_called()
 
 
+def test_us_submit_order_sets_anytime_outside_rth() -> None:
+    from longport.openapi import OutsideRTH
+
+    ready = _patch_ready()
+    ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-1'})()
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
+        patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
+        patch(
+            'module_market.service.index_session.us_outside_rth_mode',
+            return_value='anytime',
+        ),
+    ):
+        result = LongbridgeService.submit_order(
+            symbol='AAPL',
+            side='buy',
+            quantity=1,
+            order_type='LO',
+            price=100.0,
+            market='US',
+            allow_sim=True,
+        )
+    assert result['ok'] is True
+    assert result['outsideRth'] == 'anytime'
+    kwargs = ready['ctx'].submit_order.call_args.kwargs
+    assert kwargs['outside_rth'] == OutsideRTH.AnyTime
+    assert kwargs['symbol'] == 'AAPL.US'
+
+
+def test_us_submit_order_sets_overnight_outside_rth() -> None:
+    from longport.openapi import OutsideRTH
+
+    ready = _patch_ready()
+    ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-2'})()
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
+        patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
+        patch(
+            'module_market.service.index_session.us_outside_rth_mode',
+            return_value='overnight',
+        ),
+    ):
+        result = LongbridgeService.submit_order(
+            symbol='NVDA.US',
+            side='sell',
+            quantity=2,
+            order_type='MO',
+            market='US',
+            allow_sim=True,
+        )
+    assert result['ok'] is True
+    assert result['outsideRth'] == 'overnight'
+    kwargs = ready['ctx'].submit_order.call_args.kwargs
+    assert kwargs['outside_rth'] == OutsideRTH.Overnight
+    assert 'submitted_price' not in kwargs
+
+
+def test_cn_submit_order_does_not_set_outside_rth() -> None:
+    ready = _patch_ready()
+    ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-4'})()
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
+        patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
+    ):
+        result = LongbridgeService.submit_order(
+            symbol='600519',
+            side='buy',
+            quantity=100,
+            order_type='LO',
+            price=1600.0,
+            market='CN',
+            allow_sim=True,
+        )
+    assert result['ok'] is True
+    assert 'outside_rth' not in ready['ctx'].submit_order.call_args.kwargs
+
+
+def test_build_config_enables_overnight_quotes() -> None:
+    creds = {
+        'app_key': 'k',
+        'app_secret': 's',
+        'access_token': 't',
+        'region': 'hk',
+        'user_id': '1',
+        'source': 'db',
+    }
+    with (
+        patch.object(LongbridgeService, 'resolve_credentials', return_value=creds),
+        patch('longport.openapi.Config') as config_cls,
+        patch('longport.openapi.Language'),
+    ):
+        config_cls.from_apikey.return_value = object()
+        out = LongbridgeService._build_config()
+    assert out is not None
+    assert config_cls.from_apikey.call_args.kwargs.get('enable_overnight') is True
+
+
+def test_hk_submit_order_does_not_set_outside_rth() -> None:
+    ready = _patch_ready()
+    ready['ctx'].submit_order.return_value = type('R', (), {'order_id': 'ord-3'})()
+    with (
+        patch.object(LongbridgeService, 'is_configured', return_value=True),
+        patch.object(LongbridgeService, 'is_trading_enabled', return_value=True),
+        patch.object(LongbridgeService, '_build_trade_context', return_value=ready['ctx']),
+    ):
+        result = LongbridgeService.submit_order(
+            symbol='700',
+            side='buy',
+            quantity=100,
+            order_type='LO',
+            price=320.0,
+            market='HK',
+            allow_sim=True,
+        )
+    assert result['ok'] is True
+    assert result.get('outsideRth') is None
+    kwargs = ready['ctx'].submit_order.call_args.kwargs
+    assert 'outside_rth' not in kwargs
+    assert kwargs['symbol'] == '700.HK'
+
+
 def test_cancel_order_requires_order_id() -> None:
     with (
         patch.object(LongbridgeService, 'is_configured', return_value=True),
