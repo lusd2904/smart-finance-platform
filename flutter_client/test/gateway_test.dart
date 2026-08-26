@@ -1,3 +1,4 @@
+import 'package:flutter_client/core/gateway/gateway_config.dart';
 import 'package:flutter_client/core/gateway/gateway_probe.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,6 +18,14 @@ ProbePage _page({
     );
 
 void main() {
+  test('默认网关为线上地址', () {
+    expect(suggestedLocalGateway(), 'https://sfp.luapi.top');
+    expect(kDefaultGateway, 'https://sfp.luapi.top');
+    expect(resolveStoredGateway(''), kDefaultGateway);
+    expect(resolveStoredGateway('http://10.0.2.2:12580'), kDefaultGateway);
+    expect(resolveStoredGateway('https://sfp.luapi.top'), 'https://sfp.luapi.top');
+  });
+
   group('normalizeGateway（对齐 desktop/src/gateway.test.js 用例）', () {
     test('无协议地址默认按 https 处理，不静默降级 http', () {
       expect(normalizeGateway('127.0.0.1:12580'), 'https://127.0.0.1:12580');

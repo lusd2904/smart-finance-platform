@@ -2,7 +2,11 @@
 
 智慧金融四端统一客户端（macOS / Windows / iOS / Android），Flutter 单工程交付。Dart 业务在 `lib/`。规划基线见 `docs/四端客户端规划.md`。
 
-**2026-08-25**：macOS 已跟上 Web 交易台、盘前/夜盘、北京时间；当晚把 Android / iOS / Windows 原生壳补回并对齐（HTTP 网关、显示名、桌面窗口尺寸）。
+**2026-08-26 (V11)**：
+
+- **桌面宽屏**（macOS / Windows）：登录后 WebView 打开网关 Web 控制台（`/portal`），页面与 Docker Web 同一份。
+- **手机**：原生五栏——舆情 / 选股 / 热度 / 持仓 / 我的。
+- **默认网关**：`https://sfp.luapi.top`。本机 Docker 在网关页改 `http://127.0.0.1:12580`。
 
 ## 开发环境
 
@@ -24,7 +28,7 @@ flutter run -d macos     # 或 windows / ios / android
 
 ## 首启流程（复刻 desktop 语义）
 
-网关配置页 → 探测通过才落盘 → 路由放行进登录页。网关填**前端地址**（本机默认 `http://127.0.0.1:12580`，Android 模拟器常用 `http://10.0.2.2:12580`），业务 API 自动走 `{网关}/docker-api`；后端端口（19099/9099）不能当网关。
+未配置或仍是模拟器环回（`10.0.2.2` / `10.0.3.2`）时，回落到线上 `https://sfp.luapi.top`。本机 Docker 请在网关页改 `http://127.0.0.1:12580`（Android 模拟器 `http://10.0.2.2:12580`）。网关必须是**前端地址**，业务 API 走 `{网关}/docker-api`；后端端口（19099/9099）不能当网关。
 
 ## 测试
 

@@ -362,20 +362,6 @@ class AiModelPage extends StatelessWidget {
   }
 }
 
-class AiReqChatPage extends StatelessWidget {
-  const AiReqChatPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const JsonListPage(
-      title: '需求沟通',
-      path: '/ai/req/messages',
-      paged: false,
-      preferKeys: ['items', 'messages'],
-    );
-  }
-}
-
 class AiReqListPage extends StatelessWidget {
   const AiReqListPage({super.key});
 

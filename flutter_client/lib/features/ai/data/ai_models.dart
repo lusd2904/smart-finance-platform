@@ -3,6 +3,8 @@
 /// module_trade/service/platform_ext_service.py:482-521（批量扫描批次/明细）。
 library;
 
+import '../../../core/api/api_result.dart';
+
 /// 单标的最新 AI 研判：GET /market/symbols/{symbol}/ai/latest → data（可为 null）。
 class AiLatestAnalysis {
   const AiLatestAnalysis({
@@ -26,25 +28,27 @@ class AiLatestAnalysis {
   });
 
   factory AiLatestAnalysis.fromJson(Map<String, dynamic> json) => AiLatestAnalysis(
-        analysisId: (json['analysisId'] as num?)?.toInt(),
-        symbol: (json['symbol'] as String?) ?? '',
-        market: (json['market'] as String?) ?? '',
-        price: (json['price'] as num?)?.toDouble(),
-        recommendation: (json['recommendation'] as String?) ?? '',
-        stance: (json['stance'] as String?) ?? '',
-        confidence: (json['confidence'] as num?)?.toDouble(),
-        summaryText:
-            (json['summaryText'] as String?) ?? (json['summary'] as String?) ?? '',
-        indicatorReview: (json['indicatorReview'] as String?) ?? '',
-        sentimentReview: (json['sentimentReview'] as String?) ?? '',
-        operationAdvice:
-            (json['operationAdvice'] as String?) ?? (json['advice'] as String?) ?? '',
-        riskWarning: (json['riskWarning'] as String?) ?? '',
-        pickScore: (json['pickScore'] as num?)?.toDouble(),
-        factorScore: (json['factorScore'] as num?)?.toDouble(),
-        signal: (json['signal'] as String?) ?? '',
-        modelName: (json['modelName'] as String?) ?? '',
-        analysisTime: (json['analysisTime'] as String?) ?? '',
+        analysisId: asInt(json['analysisId']),
+        symbol: asString(json['symbol']),
+        market: asString(json['market']),
+        price: asDouble(json['price']),
+        recommendation: asString(json['recommendation']),
+        stance: asString(json['stance']),
+        confidence: asDouble(json['confidence']),
+        summaryText: asString(json['summaryText']).isEmpty
+            ? asString(json['summary'])
+            : asString(json['summaryText']),
+        indicatorReview: asString(json['indicatorReview']),
+        sentimentReview: asString(json['sentimentReview']),
+        operationAdvice: asString(json['operationAdvice']).isEmpty
+            ? asString(json['advice'])
+            : asString(json['operationAdvice']),
+        riskWarning: asString(json['riskWarning']),
+        pickScore: asDouble(json['pickScore']),
+        factorScore: asDouble(json['factorScore']),
+        signal: asString(json['signal']),
+        modelName: asString(json['modelName']),
+        analysisTime: asString(json['analysisTime']),
       );
 
   final int? analysisId;
@@ -100,13 +104,13 @@ class AiBatch {
   });
 
   factory AiBatch.fromJson(Map<String, dynamic> json) => AiBatch(
-        batchId: (json['batchId'] as num?)?.toInt(),
-        cycleId: (json['cycleId'] as num?)?.toInt(),
-        symbolsCount: (json['symbolsCount'] as num?)?.toInt() ?? 0,
-        successCount: (json['successCount'] as num?)?.toInt() ?? 0,
-        status: (json['status'] as String?) ?? '',
-        summary: (json['summary'] as String?) ?? '',
-        createTime: (json['createTime'] as String?) ?? '',
+        batchId: asInt(json['batchId']),
+        cycleId: asInt(json['cycleId']),
+        symbolsCount: asInt(json['symbolsCount']) ?? 0,
+        successCount: asInt(json['successCount']) ?? 0,
+        status: asString(json['status']),
+        summary: asString(json['summary']),
+        createTime: asString(json['createTime']),
       );
 
   final int? batchId;
@@ -135,14 +139,14 @@ class AiBatchItem {
   });
 
   factory AiBatchItem.fromJson(Map<String, dynamic> json) => AiBatchItem(
-        itemId: (json['itemId'] as num?)?.toInt(),
-        symbol: (json['symbol'] as String?) ?? '',
-        market: (json['market'] as String?) ?? '',
-        decision: (json['decision'] as String?) ?? '',
-        confidence: (json['confidence'] as num?)?.toDouble(),
-        summary: (json['summary'] as String?) ?? '',
-        status: (json['status'] as String?) ?? '',
-        createTime: (json['createTime'] as String?) ?? '',
+        itemId: asInt(json['itemId']),
+        symbol: asString(json['symbol']),
+        market: asString(json['market']),
+        decision: asString(json['decision']),
+        confidence: asDouble(json['confidence']),
+        summary: asString(json['summary']),
+        status: asString(json['status']),
+        createTime: asString(json['createTime']),
       );
 
   final int? itemId;

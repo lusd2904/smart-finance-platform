@@ -3,6 +3,38 @@
 所有项目的重要更改都将记录在此文件中。
 
 
+## [v1.8.0] - 2026-08-26 - 手机原生五栏、桌面 WebView 壳、实时持仓 (0826 V11)
+
+### 📱 Flutter 手机
+- 底栏改为舆情 / 选股 / 热度 / 持仓 / 我的；量化、需求沟通、网关放到「我的」
+- 智能选股结论优先（评分 / 立场 / 建议 / 摘要），点行进 K 线
+- 持仓用长桥现价自算涨跌幅与浮动盈亏；总资产港元 / 美元切换
+- 个股详情对齐反重力设计稿图 01：大字报价、指标格、周期、十档、AI 研判、买卖栏
+- 底部抽屉极速下单（`showFastTicket`）：限价、25%/50%/75%/全仓
+- 需求沟通改为对话气泡（`AiReqChatPage`），轮询 `jobId`，不再用消息表格
+- 登录页接入 `CyberBackground`；macOS 沉浸式标题栏 + 交通灯避让
+
+### 🖥️ Flutter 桌面
+- 宽屏登录后 `DesktopWebShell` 用 WebView 打开网关 `/portal`，与 Docker Web 同一份前端
+- JWT 写入 `Admin-Token` Cookie；macOS JWT 改存 SharedPreferences（开发签名不再弹钥匙串）
+- 默认网关 `https://sfp.luapi.top`；`10.0.2.2` / `10.0.3.2` 视为未配置并回落线上
+- 依赖 `webview_flutter`；macOS 窗口 `fullSizeContentView`、标题「智慧金融」
+
+### 💹 后端行情 / 交易
+- 指数批量：美股补道琼斯、港股补恒生国企、A 股补创业板/科创板；休市也返回最近报价；缓存 `market:index:quotes:v3`
+- `GET /trade/positions` 叠长桥 realtime `last`/`prevClose`，港股代码去前导零互认
+- 新增 `GET /trade/quote/realtime`（权限 `trade:position:list`）
+
+### 🚪 Web
+- 门户卡片按 `permissionStore.addRoutes` 过滤；无权限不展示系统/监控/工具/分析
+- 去掉 `/trade` 下重复的行情交易直达路由，只保留 `/market/terminal`
+
+### 🧪 测试与设计稿
+- 指数规格、持仓行情合并、默认网关单测；壳层 golden 更新
+- 反重力设计稿与图片入库（根目录中文路径 + `docs/mobile-designs/`）
+
+---
+
 ## [v1.7.1] - 2026-08-25 - Android / iOS / Windows 原生壳补回 (0825 晚)
 
 ### 🖥️ Flutter 三端

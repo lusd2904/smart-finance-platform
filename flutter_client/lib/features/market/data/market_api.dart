@@ -40,8 +40,7 @@ class MarketApi {
         queryParameters: {'market': market, 'days': days},
       ),
     );
-    final points = result.dataAsMap?['points'];
-    return ((points as List<dynamic>?) ?? const [])
+    return asJsonList(result.dataAsMap?['points'])
         .whereType<Map<String, dynamic>>()
         .map(HeatTrendPoint.fromJson)
         .toList();
@@ -50,8 +49,7 @@ class MarketApi {
   /// 盘中指数条（美股全时段返回；港股/A 股仅当地盘中）
   Future<List<IndexQuote>> indexQuotes() async {
     final result = ApiResult.from(await _dio.get<void>('/market/index/quotes'));
-    final items = result.dataAsMap?['items'];
-    return ((items as List<dynamic>?) ?? const [])
+    return asJsonList(result.dataAsMap?['items'])
         .whereType<Map<String, dynamic>>()
         .map(IndexQuote.fromJson)
         .toList();
@@ -200,8 +198,30 @@ class MarketApi {
   Future<void> deleteWatchlist(List<int> ids) async {
     await _dio.delete<void>('/market/watchlist/${ids.join(',')}');
   }
+
+  /// 最新智能选股单：GET /market/picks/latest
+  Future<Map<String, dynamic>> picksLatest({String? market}) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/picks/latest',
+        queryParameters: {
+          if (market != null && market.isNotEmpty) 'market': market,
+        },
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{};
+  }
 }
 
 final marketApiProvider = Provider<MarketApi>(
   (ref) => MarketApi(ref.watch(dioProvider)),
+);
+
+final indexQuotesProvider = FutureProvider.autoDispose<List<IndexQuote>>(
+  (ref) => ref.read(marketApiProvider).indexQuotes(),
+);
+
+/// 最新选股单。market 空字符串表示全市场。
+final picksLatestProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
+  (ref, market) => ref.read(marketApiProvider).picksLatest(market: market.isEmpty ? null : market),
 );

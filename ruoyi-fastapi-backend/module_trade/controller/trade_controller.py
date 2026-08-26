@@ -121,6 +121,23 @@ async def trade_quote_trades(
 
 
 @trade_controller.get(
+    '/quote/realtime',
+    summary='长桥实时行情（批量）',
+    description='QuoteContext.quote，一次返回 lastDone/prevClose。持仓盈亏用这个，不走重量级 snapshot。',
+    dependencies=[UserInterfaceAuthDependency('trade:position:list')],
+)
+async def trade_quote_realtime(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbols: Annotated[str, Query(description='逗号分隔长桥代码，如 AAPL.US,700.HK')] = '',
+    market: Annotated[str, Query(description='无后缀时代码默认市场')] = 'US',
+) -> Response:
+    items = [part.strip() for part in (symbols or '').split(',') if part.strip()]
+    data = await TradeService.get_realtime_quotes_services(query_db, items, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
     '/quote/snapshot',
     summary='标的行情快照（长桥补缺）',
     description='quote + static_info + calc_indexes + 资金分布 + 52周 + 资讯标题。库里已有字段由前端保留，本接口补估值/换手/量比/市值等缺口。缓存约 60 秒。',

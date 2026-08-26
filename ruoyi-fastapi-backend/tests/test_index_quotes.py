@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from pathlib import Path
+
 from module_market.service.index_session import (
     is_in_session,
     is_live_kline_session,
@@ -12,6 +14,16 @@ from module_market.service.index_session import (
     should_include_market,
     us_session_tag,
 )
+
+
+def test_index_specs_three_per_market() -> None:
+    text = (Path(__file__).resolve().parents[1] / 'module_market/service/index_quotes_service.py').read_text(
+        encoding='utf-8'
+    )
+    for code in ('usDJI', 'r_hkHSCEI', 'sz399006', 'sh000688'):
+        assert f"'code': '{code}'" in text
+    assert text.index("'usINX'") < text.index("'usDJI'")
+    assert "CACHE_KEY = 'market:index:quotes:v3'" in text
 
 
 def test_us_always_included_even_when_closed() -> None:

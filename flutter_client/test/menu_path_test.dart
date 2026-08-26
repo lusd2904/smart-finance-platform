@@ -21,6 +21,31 @@ void main() {
     expect(menuAllows(allowed, '/analysis/jobs'), isFalse);
     expect(menuAllows(const {}, '/monitor/job'), isFalse);
     expect(menuAllows(const {}, '/market/heat'), isTrue);
+    expect(menuAllows(const {}, '/index'), isFalse);
+    expect(menuAllows({'/system/user'}, '/system/user'), isFalse);
+  });
+
+  test('clientVisibleRouters 去掉系统管理树', () {
+    final visible = clientVisibleRouters(const [
+      RouterNode(
+        path: '/market',
+        meta: RouterMeta(title: '行情中心'),
+        children: [RouterNode(path: 'heat', meta: RouterMeta(title: '市场热度'))],
+      ),
+      RouterNode(
+        path: 'system',
+        meta: RouterMeta(title: '系统管理'),
+        children: [RouterNode(path: 'user', meta: RouterMeta(title: '用户管理'))],
+      ),
+      RouterNode(
+        path: '/monitor',
+        meta: RouterMeta(title: '系统监控'),
+        children: [RouterNode(path: 'job', meta: RouterMeta(title: '定时任务'))],
+      ),
+    ]);
+    expect(visible.map((n) => n.path), ['/market']);
+    expect(isRestrictedMenuPath('/tool/gen'), isTrue);
+    expect(isRestrictedMenuPath('/market/heat'), isFalse);
   });
 
   test('joinRoute 拼接父子路径', () {

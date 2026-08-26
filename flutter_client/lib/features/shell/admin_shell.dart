@@ -10,8 +10,14 @@ import '../../core/menu/router_models.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/ruoyi_tokens.dart';
 import '../../features/auth/logic/session_controller.dart';
+import '../../features/kline/presentation/symbol_detail_page.dart';
+import '../../features/market/presentation/market_tab.dart';
+import '../../features/sentiment/presentation/sentiment_page.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 import 'page_registry.dart';
+import 'phone_pages.dart';
+import 'phone_picks_page.dart';
+import 'phone_trade_page.dart';
 
 /// 测试/程序化打开路由（不经过侧栏点击）。
 class ShellNavRequest {
@@ -46,17 +52,50 @@ class AdminShell extends ConsumerStatefulWidget {
 class _AdminShellState extends ConsumerState<AdminShell> {
   bool _sidebarOpen = true;
   int _phoneTab = 0;
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _phoneBootstrapped = false;
   final List<TagTab> _tags = [
     const TagTab(path: '/portal', title: '工作台'),
   ];
   int _active = 0;
   final Map<String, Widget> _cache = {};
+  final Map<int, Widget> _phoneRoots = {};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_phoneBootstrapped) return;
+    _phoneBootstrapped = true;
+    if (!AppDimens.isWide(context)) {
+      _tags
+        ..clear()
+        ..add(const TagTab(path: '/sentiment/dashboard', title: '舆情'));
+      _phoneTab = 0;
+      _active = 0;
+      _cache.clear();
+    }
+  }
+
+  void _openSymbol(String symbol, String market, String name) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SymbolDetailPage(symbol: symbol, market: market, name: name),
+      ),
+    );
+  }
 
   void _open(String raw, {String? title}) {
     final uri = Uri.parse(raw);
     final path = uri.path.isEmpty ? raw.split('?').first : uri.path;
     final query = Map<String, String>.from(uri.queryParameters);
+    if (!AppDimens.isWide(context) &&
+        (path == '/market/kline' || path == '/market/symbol' || path == '/market/tradingview')) {
+      _openSymbol(
+        query['symbol'] ?? 'AAPL',
+        query['market'] ?? 'US',
+        title ?? query['symbol'] ?? '',
+      );
+      return;
+    }
     final tab = TagTab(
       path: path,
       title: title ?? defaultTitleFor(path),
@@ -104,7 +143,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final dark = ref.watch(themeModeController) != ThemeMode.light;
     final current = _tags[_active];
     final wide = AppDimens.isWide(context);
-    final menu = routers.asData?.value ?? const <RouterNode>[];
+    final menu = clientVisibleRouters(routers.asData?.value ?? const <RouterNode>[]);
     final stack = ColoredBox(
       color: Theme.of(context).brightness == Brightness.dark
           ? WebTokens.contentBg
@@ -125,11 +164,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.backslash, meta: true): () {
-          if (wide) {
-            setState(() => _sidebarOpen = !_sidebarOpen);
-          } else {
-            _scaffoldKey.currentState?.openDrawer();
-          }
+          if (wide) setState(() => _sidebarOpen = !_sidebarOpen);
         },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () {},
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () {
@@ -171,7 +206,11 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     required Widget stack,
     required Future<void> Function() logout,
   }) {
-    final isMac = Theme.of(context).platform == TargetPlatform.macOS;
+    final isMac = AppDimens.isMac(context);
+    // 对齐网页：/portal 是独立全屏指挥中心，不套侧栏 + 顶栏 + 页签。
+    if (current.path == '/portal') {
+      return Scaffold(body: stack);
+    }
     return Scaffold(
       body: SafeArea(
         top: !isMac,
@@ -196,7 +235,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                     sidebarOpen: _sidebarOpen,
                     onToggleSide: () => setState(() => _sidebarOpen = !_sidebarOpen),
                     onPortal: () => _open('/portal', title: '子系统门户'),
-                    onIndex: () => _open('/index', title: '工作台首页'),
+                    onIndex: menuAllows(visibleMenuPaths(menu), '/index')
+                        ? () => _open('/index', title: '工作台首页')
+                        : null,
                     onProfile: () => _open('/user/profile', title: '个人中心'),
                     onGateway: () => context.go('/gateway'),
                     onTheme: () => ref.read(themeModeController.notifier).toggle(),
@@ -219,18 +260,31 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   }
 
   static const _phoneTabs = <(String path, String title, IconData icon)>[
-    ('/portal', '工作台', Icons.dashboard_outlined),
-    ('/market/heat', '行情', Icons.candlestick_chart_outlined),
-    ('/market/watchlist', '自选', Icons.star_outline),
+    ('/sentiment/dashboard', '舆情', Icons.analytics_outlined),
+    ('/market/recommendations', '选股', Icons.auto_awesome),
+    ('/market/heat', '热度', Icons.candlestick_chart_outlined),
+    ('/trade/positions', '持仓', Icons.account_balance_wallet_outlined),
     ('/user/profile', '我的', Icons.person_outline),
   ];
 
-  bool _isPhoneRoot(String path) =>
-      path == '/portal' ||
-      path == '/index' ||
-      path == '/market/heat' ||
-      path == '/market/watchlist' ||
-      path == '/user/profile';
+  bool _isPhoneRoot(String path) => _phoneTabs.any((t) => t.$1 == path);
+
+  Widget _phoneRootAt(int index) {
+    return _phoneRoots.putIfAbsent(index, () {
+      switch (index) {
+        case 0:
+          return const SentimentPage();
+        case 1:
+          return PhonePicksPage(onOpenSymbol: _openSymbol);
+        case 2:
+          return MarketTab(onOpenSymbol: _openSymbol);
+        case 3:
+          return PhoneTradePage(onOpenSymbol: _openSymbol);
+        default:
+          return PhoneMinePage(open: _open, onOpenSymbol: _openSymbol);
+      }
+    });
+  }
 
   Widget _phoneScaffold({
     required List<RouterNode> menu,
@@ -240,61 +294,49 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     required Widget stack,
     required Future<void> Function() logout,
   }) {
-    void pick(String path, String title) {
-      _open(path, title: title);
-      _scaffoldKey.currentState?.closeDrawer();
-    }
-
     final root = _isPhoneRoot(current.path);
     return Scaffold(
-      key: _scaffoldKey,
-      drawer: Drawer(
-        backgroundColor: WebTokens.sidebarBg,
-        width: 300,
-        child: SafeArea(
-          child: _Sidebar(
-            open: true,
-            fill: true,
-            routers: menu,
-            loading: loading,
-            currentPath: current.path,
-            onSelect: pick,
-            onLogo: () => pick('/portal', '工作台'),
-          ),
-        ),
-      ),
-      appBar: AppBar(
-        backgroundColor: WebTokens.sidebarBg,
-        foregroundColor: Colors.white,
-        leading: root
-            ? null
-            : IconButton(
+      appBar: root
+          ? null
+          : AppBar(
+              leading: IconButton(
                 tooltip: '返回',
                 icon: const Icon(Icons.arrow_back_ios_new, size: 18),
                 onPressed: () {
                   if (_tags.length > 1) _close(_active);
                 },
               ),
-        title: Text(
-          current.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          IconButton(
-            tooltip: dark ? '浅色' : '深色',
-            onPressed: () => ref.read(themeModeController.notifier).toggle(),
-            icon: Icon(dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined),
-          ),
-        ],
+              title: Text(
+                current.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+      body: SafeArea(
+        bottom: false,
+        child: root
+            ? IndexedStack(
+                index: _phoneTab.clamp(0, _phoneTabs.length - 1),
+                children: [
+                  for (var i = 0; i < _phoneTabs.length; i++)
+                    _phoneTab == i || _phoneRoots.containsKey(i)
+                        ? _phoneRootAt(i)
+                        : const SizedBox.shrink(),
+                ],
+              )
+            : stack,
       ),
-      body: stack,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _phoneTab.clamp(0, 3),
+        selectedIndex: _phoneTab.clamp(0, _phoneTabs.length - 1),
         onDestinationSelected: (i) {
           final tab = _phoneTabs[i];
-          setState(() => _phoneTab = i);
-          _open(tab.$1, title: tab.$2);
+          setState(() {
+            _phoneTab = i;
+            _tags
+              ..clear()
+              ..add(TagTab(path: tab.$1, title: tab.$2));
+            _active = 0;
+          });
         },
         destinations: [
           for (final t in _phoneTabs)
@@ -334,20 +376,22 @@ class _Sidebar extends StatelessWidget {
         color: Colors.transparent,
         child: Column(
         children: [
-          SizedBox(height: Theme.of(context).platform == TargetPlatform.macOS ? 28 : 0),
           InkWell(
             onTap: onLogo,
             child: SizedBox(
-              height: WebTokens.navbarHeight,
-              child: Center(
-                child: Text(
-                  open ? '智慧金融分析平台' : '智',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+              height: AppDimens.isMac(context) ? 52 : WebTokens.navbarHeight,
+              child: Padding(
+                padding: EdgeInsets.only(left: AppDimens.isMac(context) && open ? 72 : 0),
+                child: Center(
+                  child: Text(
+                    open ? '智慧金融分析平台' : (AppDimens.isMac(context) ? '' : '智'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ),
@@ -541,7 +585,7 @@ class _Navbar extends StatelessWidget {
   final bool sidebarOpen;
   final VoidCallback onToggleSide;
   final VoidCallback onPortal;
-  final VoidCallback onIndex;
+  final VoidCallback? onIndex;
   final VoidCallback onProfile;
   final VoidCallback onGateway;
   final VoidCallback onTheme;
@@ -550,7 +594,7 @@ class _Navbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: WebTokens.navbarHeight,
+      height: AppDimens.isMac(context) ? 52 : WebTokens.navbarHeight,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
@@ -574,7 +618,8 @@ class _Navbar extends StatelessWidget {
             ),
           ),
           IconButton(tooltip: '子系统门户', onPressed: onPortal, icon: const Icon(Icons.grid_view_outlined)),
-          IconButton(tooltip: '工作台', onPressed: onIndex, icon: const Icon(Icons.home_outlined)),
+          if (onIndex != null)
+            IconButton(tooltip: '工作台首页', onPressed: onIndex, icon: const Icon(Icons.home_outlined)),
           IconButton(
             tooltip: dark ? '浅色' : '深色',
             onPressed: onTheme,

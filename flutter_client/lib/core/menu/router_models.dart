@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_result.dart';
+
 /// 对齐后端 RouterModel / MetaModel（camelCase）。
 class RouterMeta {
   const RouterMeta({this.title, this.icon, this.noCache, this.link, this.activeMenu});
@@ -41,8 +43,8 @@ class RouterNode {
         redirect: json['redirect'] as String?,
         component: json['component'] as String?,
         alwaysShow: json['alwaysShow'] as bool?,
-        meta: RouterMeta.fromJson(json['meta'] as Map<String, dynamic>?),
-        children: ((json['children'] as List<dynamic>?) ?? const [])
+        meta: RouterMeta.fromJson(asJsonMap(json['meta'])),
+        children: asJsonList(json['children'])
             .whereType<Map<String, dynamic>>()
             .map(RouterNode.fromJson)
             .toList(),
@@ -88,7 +90,8 @@ String joinRoute(String parent, String child) {
   return '$base/$child'.replaceAll('//', '/');
 }
 
-/// 系统管理 / 监控 / 代码生成 / 自动分析任务：仅当 getRouters 明确下发才展示。
+/// 若依后台：系统管理 / 监控 / 代码生成 / 自动分析任务。
+/// Flutter 手机端与桌面端按 lustone（biz_operator）信息架构，这些入口不放。
 const restrictedMenuPrefixes = <String>[
   '/system',
   '/monitor',
@@ -96,26 +99,58 @@ const restrictedMenuPrefixes = <String>[
   '/analysis',
 ];
 
+bool isRestrictedMenuPath(String rawPath) {
+  final path = rawPath.split('?').first;
+  for (final prefix in restrictedMenuPrefixes) {
+    if (path == prefix || path.startsWith('$prefix/')) return true;
+  }
+  return false;
+}
+
 Set<String> visibleMenuPaths(List<RouterNode> nodes) => {
       for (final leaf in flattenLeaves(nodes)) leaf.path,
     };
+
+/// 侧栏/抽屉去掉系统管理树，只留业务菜单。
+List<RouterNode> clientVisibleRouters(List<RouterNode> nodes, {String parent = ''}) {
+  final out = <RouterNode>[];
+  for (final node in nodes) {
+    if (node.hidden) continue;
+    final full = joinRoute(parent, node.path);
+    if (isRestrictedMenuPath(full)) continue;
+    final children = clientVisibleRouters(node.children, parent: full);
+    if (node.children.isNotEmpty && children.isEmpty) continue;
+    out.add(
+      RouterNode(
+        name: node.name,
+        path: node.path,
+        hidden: node.hidden,
+        redirect: node.redirect,
+        component: node.component,
+        alwaysShow: node.alwaysShow,
+        meta: node.meta,
+        children: children,
+      ),
+    );
+  }
+  return out;
+}
 
 bool menuAllows(Set<String> allowed, String rawPath) {
   final path = rawPath.split('?').first;
   if (path.isEmpty || path == '/portal' || path == '/user/profile' || path == '/gateway') {
     return true;
   }
+  // 手机/桌面不放若依系统设置，即使用户角色里有这些菜单。
+  if (isRestrictedMenuPath(path)) return false;
   if (allowed.contains(path)) return true;
 
-  bool under(String prefix) => path == prefix || path.startsWith('$prefix/');
-
-  for (final prefix in restrictedMenuPrefixes) {
-    if (under(prefix)) {
-      return allowed.any((a) => a == prefix || a.startsWith('$prefix/'));
-    }
+  // 后台首页 /index 仅当 getRouters 明确下发；加载中不闪出。
+  if (path == '/index' || path == '/dashboard') {
+    return allowed.contains('/index') || allowed.contains('/dashboard');
   }
 
-  // 菜单尚未返回时，不误拦业务页；系统类已在上面拦截。
+  // 菜单尚未返回时，不误拦业务页。
   if (allowed.isEmpty) return true;
 
   final segs = path.split('/').where((s) => s.isNotEmpty).toList();

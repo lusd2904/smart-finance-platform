@@ -24,3 +24,4 @@ SELECT role_id, 2430 FROM sys_role;
 -- 确保交易中心顶级目录（2400）也包含在角色权限中
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
 SELECT role_id, 2400 FROM sys_role;
+

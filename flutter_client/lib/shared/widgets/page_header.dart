@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_theme.dart';
+
 /// 页面统一头部：大标题 + 副题 + 尾部动作区。
-/// 移动端与桌面端共用（置于滚动视图顶部），保证四端信息层级一致。
+/// 手机底栏已标明当前页，不再重复放标题。
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -17,6 +19,18 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final phone = !AppDimens.isWide(context);
+    // 手机底栏已标明当前页，不再重复放标题。
+    if (phone) {
+      if (actions == null || actions!.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: actions!,
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
       child: Row(

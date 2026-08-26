@@ -27,6 +27,54 @@ def to_float(value: Any) -> float | None:
         return None
 
 
+def _symbol_match_keys(symbol: str) -> set[str]:
+    """AAPL.US / 00700.HK / 700 等写法归一成可互相对上的键。"""
+    raw = (symbol or '').strip().upper()
+    if not raw:
+        return set()
+    keys = {raw}
+    if '.' in raw:
+        code, suffix = raw.rsplit('.', 1)
+        keys.add(code)
+        if code.isdigit():
+            stripped = code.lstrip('0') or '0'
+            keys.add(stripped)
+            keys.add(f'{stripped}.{suffix}')
+    elif raw.isdigit():
+        stripped = raw.lstrip('0') or '0'
+        keys.add(stripped)
+    return {k for k in keys if k}
+
+
+def merge_position_quotes(
+    positions: list[dict[str, Any]] | None,
+    quotes: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """把长桥实时行情 last/prevClose 叠到持仓行，供客户端自算涨跌幅和盈亏。"""
+    qmap: dict[str, dict[str, Any]] = {}
+    for quote in quotes or []:
+        for key in _symbol_match_keys(str(quote.get('symbol') or '')):
+            qmap[key] = quote
+    out: list[dict[str, Any]] = []
+    for raw in positions or []:
+        row = dict(raw)
+        hit = None
+        for key in _symbol_match_keys(str(row.get('symbol') or '')):
+            hit = qmap.get(key)
+            if hit is not None:
+                break
+        if hit:
+            last = to_float(hit.get('lastDone') if hit.get('lastDone') not in (None, '') else hit.get('last'))
+            prev = to_float(hit.get('prevClose'))
+            if last is not None:
+                row['last'] = last
+                row['lastDone'] = last
+            if prev is not None:
+                row['prevClose'] = prev
+        out.append(row)
+    return out
+
+
 _MS_EPOCH = 1e12
 _TS_LEN_FULL = 19  # 'YYYY-MM-DD HH:MM:SS'
 _RATIO_AS_FRACTION = 0.05

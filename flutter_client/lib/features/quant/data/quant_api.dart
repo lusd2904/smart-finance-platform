@@ -37,8 +37,7 @@ class QuantApi {
         queryParameters: {'limit': limit},
       ),
     );
-    final items = result.dataAsMap?['items'];
-    return ((items as List<dynamic>?) ?? const [])
+    return asJsonList(result.dataAsMap?['items'])
         .whereType<Map<String, dynamic>>()
         .map(ScanRun.fromJson)
         .toList();
@@ -77,7 +76,7 @@ class QuantApi {
     final result = ApiResult.from(
       await _dio.get<void>('/trade/strategy-profiles'),
     );
-    return ((result.data as List<dynamic>?) ?? const [])
+    return asJsonList(result.data)
         .whereType<Map<String, dynamic>>()
         .map(StrategyProfile.fromJson)
         .toList();

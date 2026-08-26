@@ -619,6 +619,13 @@ class _MarketSymbolPageState extends ConsumerState<MarketSymbolPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!AppDimens.isWide(context)) {
+      return MarketKlinePage(
+        symbol: widget.symbol,
+        market: widget.market,
+        open: widget.open,
+      );
+    }
     final flat = <String, String>{};
     _data.forEach((k, v) {
       if (v is! Map && v is! List) flat[k] = cellText(v);
@@ -893,8 +900,8 @@ class MarketStocksPage extends StatelessWidget {
         TableCol('状态', 'status'),
       ],
       onRowTap: (row) => open?.call(
-        '/market/symbol?symbol=${row['symbol']}&market=${row['market']}',
-        title: cellText(row['symbol']),
+        '/market/kline?symbol=${row['symbol']}&market=${row['market']}',
+        title: cellText(row['name'] ?? row['symbol']),
       ),
     );
   }

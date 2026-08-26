@@ -26,6 +26,7 @@ from module_quant.service.longbridge_quote import (
     map_intraday_point,
     map_trade,
     map_trade_side,
+    merge_position_quotes,
     merge_snapshot_with_db,
     overlay_last_bar,
     quote_error_message,
@@ -484,6 +485,22 @@ async def test_quote_kline_live_minute_falls_back_to_influx_when_lb_empty() -> N
     assert data['priceSource'] == 'history'
     assert data.get('fallback') is None
     assert data['klines'][0]['close'] == 11
+
+
+def test_merge_position_quotes_from_longbridge_realtime() -> None:
+    positions = [
+        {'symbol': 'AAPL.US', 'quantity': 10, 'costPrice': 100, 'currency': 'USD'},
+        {'symbol': '00700.HK', 'quantity': 100, 'costPrice': 300, 'currency': 'HKD'},
+    ]
+    quotes = [
+        {'symbol': 'AAPL.US', 'lastDone': 110.0, 'prevClose': 100.0},
+        {'symbol': '700.HK', 'lastDone': 330.0, 'prevClose': 320.0},
+    ]
+    merged = merge_position_quotes(positions, quotes)
+    assert merged[0]['last'] == 110.0
+    assert merged[0]['prevClose'] == 100.0
+    assert merged[1]['last'] == 330.0
+    assert merged[1]['prevClose'] == 320.0
 
 
 def test_fmt_ts_utc_converts_to_beijing() -> None:

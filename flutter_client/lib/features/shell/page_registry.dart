@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/menu/router_models.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
+import '../ai/presentation/req_chat_page.dart';
 import '../web/admin_pages.dart';
 import '../web/intel_pages.dart';
 import '../web/json_list_page.dart';

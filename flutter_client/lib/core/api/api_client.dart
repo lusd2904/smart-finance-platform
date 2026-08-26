@@ -14,9 +14,9 @@ final dioProvider = Provider<Dio>((ref) {
       baseUrl: gateway.url.isEmpty
           ? 'http://127.0.0.1'
           : '${gateway.url}/docker-api',
-      connectTimeout: const Duration(seconds: 6),
-      receiveTimeout: const Duration(seconds: 30),
-      sendTimeout: const Duration(seconds: 10),
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 45),
+      sendTimeout: const Duration(seconds: 20),
     ),
   );
   dio.interceptors.add(
@@ -31,6 +31,22 @@ final dioProvider = Provider<Dio>((ref) {
           }
         } catch (_) {}
         handler.next(options);
+      },
+      onError: (error, handler) async {
+        final req = error.requestOptions;
+        final n = (req.extra['retry502'] as int?) ?? 0;
+        if (req.method == 'GET' && error.response?.statusCode == 502 && n < 1) {
+          req.extra['retry502'] = n + 1;
+          await Future<void>.delayed(const Duration(milliseconds: 450));
+          try {
+            handler.resolve(await dio.fetch<dynamic>(req));
+            return;
+          } on DioException catch (retryError) {
+            handler.next(retryError);
+            return;
+          }
+        }
+        handler.next(error);
       },
     ),
   );
@@ -50,6 +66,9 @@ String describeApiError(Object error) {
         return '无法连接网关，请确认服务已启动';
       default:
         final code = error.response?.statusCode;
+        if (code == 502 || code == 503 || code == 504) {
+          return '网关暂时不可用（$code），请稍后重试';
+        }
         if (code != null) return '请求失败（HTTP $code）';
         return '网络异常：${error.message ?? error.toString()}';
     }

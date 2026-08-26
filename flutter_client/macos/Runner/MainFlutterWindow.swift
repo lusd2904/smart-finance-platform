@@ -11,6 +11,10 @@ class MainFlutterWindow: NSWindow {
     self.titlebarAppearsTransparent = true
     self.titleVisibility = .hidden
     self.styleMask.insert(.fullSizeContentView)
+    self.isMovableByWindowBackground = true
+    if #available(macOS 11.0, *) {
+      self.titlebarSeparatorStyle = .none
+    }
     self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)

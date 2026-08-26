@@ -45,7 +45,7 @@
 
       <div class="portal-grid">
         <div
-          v-for="group in subsystemGroups"
+          v-for="group in visibleGroups"
           :key="group.id"
           class="module-card glass-panel"
           @click="navigateTo(group.path)"
@@ -88,11 +88,14 @@ import {
 import CyberBackground from '@/components/CyberBackground/index.vue'
 import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
+import usePermissionStore from '@/store/modules/permission'
 import defaultSettings from '@/settings'
+import { getNormalPath } from '@/utils/ruoyi'
 
 const router = useRouter()
 const userStore = useUserStore()
 const settingsStore = useSettingsStore()
+const permissionStore = usePermissionStore()
 const footerContent = defaultSettings.footerContent
 
 const isDark = computed(() => settingsStore.isDark)
@@ -182,8 +185,54 @@ const subsystemGroups = [
   }
 ]
 
+function collectMenuPaths(routes, parent = '') {
+  const out = new Set()
+  for (const r of routes || []) {
+    let full = parent
+    if (r.path) {
+      full = r.path.startsWith('/')
+        ? getNormalPath(r.path)
+        : getNormalPath(`${parent}/${r.path}`)
+    }
+    if (full && full !== '/') out.add(full)
+    if (r.children?.length) {
+      for (const p of collectMenuPaths(r.children, full)) out.add(p)
+    }
+  }
+  return out
+}
+
+function menuAllows(allowed, path) {
+  if (!path || path === '/portal' || path === '/user/profile') return true
+  const restricted = ['/system', '/monitor', '/tool', '/analysis'].some(
+    (p) => path === p || path.startsWith(`${p}/`)
+  )
+  if (allowed.size === 0) {
+    if (restricted || path === '/index' || path === '/dashboard') return false
+    return true
+  }
+  if (allowed.has(path)) return true
+  const segs = path.split('/').filter(Boolean)
+  if (!segs.length) return false
+  const module = `/${segs[0]}`
+  for (const a of allowed) {
+    if (a === module || a.startsWith(`${module}/`)) return true
+  }
+  return false
+}
+
+const visibleGroups = computed(() => {
+  const allowed = collectMenuPaths(permissionStore.addRoutes)
+  return subsystemGroups
+    .map((g) => ({
+      ...g,
+      links: g.links.filter((l) => menuAllows(allowed, l.path))
+    }))
+    .filter((g) => menuAllows(allowed, g.path) || g.links.length)
+})
+
 function navigateTo(path) {
-  router.push(path).catch(() => router.push('/index'))
+  router.push(path).catch(() => router.push('/portal'))
 }
 
 function toggleTheme() {

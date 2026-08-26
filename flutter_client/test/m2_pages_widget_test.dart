@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_client/features/ai/data/ai_api.dart';
-import 'package:flutter_client/features/ai/data/ai_models.dart';
 import 'package:flutter_client/features/ai/presentation/ai_page.dart';
 import 'package:flutter_client/features/news/data/briefing_models.dart';
 import 'package:flutter_client/features/news/presentation/news_page.dart';
@@ -65,33 +63,6 @@ class _FakeSentimentApi extends SentimentApi {
       ];
 }
 
-class _FakeAiApi extends AiApi {
- _FakeAiApi() : super(Dio());
-
- @override
- Future<List<AiBatch>> batches() async => const [
-       AiBatch(
-         batchId: 9,
-         symbolsCount: 8,
-         successCount: 8,
-         status: '1',
-         createTime: '2026-08-24 09:00:00',
-       ),
-     ];
-
- @override
- Future<List<AiBatchItem>> batchItems({required int batchId}) async => const [
-       AiBatchItem(
-         itemId: 1,
-         symbol: 'NVDA',
-         market: 'US',
-         decision: '买入',
-         confidence: 91,
-         status: '1',
-       ),
-     ];
-}
-
 class _FakeNoticeApi extends NoticeApi {
  _FakeNoticeApi() : super(Dio());
 
@@ -141,18 +112,15 @@ void main() {
    expect(find.text('风险事件'), findsOneWidget);
  });
 
- testWidgets('AI 页渲染批量扫描批次并可展开明细', (tester) async {
+ testWidgets('AI 页渲染首页最新舆情研判结果', (tester) async {
    await _pump(tester, const AiPage(), [
-     aiApiProvider.overrideWith((ref) => _FakeAiApi()),
+     sentimentApiProvider.overrideWith((ref) => _FakeSentimentApi()),
    ]);
    await tester.pumpAndSettle();
-   expect(find.text('AI 研判'), findsOneWidget);
-   expect(find.text('批次 #9'), findsOneWidget);
-
-   await tester.tap(find.text('批次 #9'));
-   await tester.pumpAndSettle();
-   expect(find.textContaining('NVDA'), findsOneWidget);
-   expect(find.text('买入'), findsOneWidget);
+   expect(find.text('最新舆情研判'), findsOneWidget);
+   expect(find.text('美股偏多'), findsOneWidget);
+   expect(find.text('78'), findsOneWidget);
+   expect(find.text('风险事件'), findsOneWidget);
  });
 
  testWidgets('通知页渲染通知与全部已读按钮', (tester) async {

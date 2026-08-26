@@ -1,10 +1,8 @@
 """
-大盘指数实时行情：舆情大盘 / 行情交易顶栏的数据源。
+大盘指数实时行情：舆情大盘 / 行情热度 / 交易顶栏的数据源。
 
-腾讯行情批量接口一次抓取五条指数。展示规则：
-- 美股始终返回（盘前 / 盘中 / 盘后 / 夜盘 / 周末，沿用最近一次有效报价）；
-- 港股、A 股仅当地盘中返回（含午休拆分）；节假日在盘但无新行情时隐藏。
-Redis 缓存 30 秒。
+腾讯行情一次批量抓取三市场各三条指数（美股含道琼斯，港股含恒生国企，A 股含创业板/科创板）。
+各市场始终返回最近一次有效报价，由客户端按当前市场筛选；Redis 缓存 30 秒。
 """
 
 from __future__ import annotations
@@ -15,13 +13,13 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from module_market.service.index_session import MARKET_TZ, is_in_session, should_include_market
+from module_market.service.index_session import MARKET_TZ, is_in_session
 from utils.http_fetch import fetch
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.time_format_util import now_beijing
 from utils.log_util import logger
 
-CACHE_KEY = 'market:index:quotes:v2'
+CACHE_KEY = 'market:index:quotes:v3'
 CACHE_TTL = 30
 
 _UA = {
@@ -32,9 +30,13 @@ _UA = {
 _INDEX_SPECS: list[dict[str, str]] = [
     {'code': 'usINX', 'name': '标普500', 'market': 'US'},
     {'code': 'usIXIC', 'name': '纳斯达克', 'market': 'US'},
+    {'code': 'usDJI', 'name': '道琼斯', 'market': 'US'},
     {'code': 'r_hkHSI', 'name': '恒生指数', 'market': 'HK'},
     {'code': 'r_hkHSTECH', 'name': '恒生科技', 'market': 'HK'},
+    {'code': 'r_hkHSCEI', 'name': '恒生国企', 'market': 'HK'},
     {'code': 'sh000001', 'name': '上证指数', 'market': 'CN'},
+    {'code': 'sz399006', 'name': '创业板指数', 'market': 'CN'},
+    {'code': 'sh000688', 'name': '科创板指数', 'market': 'CN'},
 ]
 
 # 腾讯行情字段索引：3=现价 4=昨收 30=时间戳 31=涨跌额 32=涨跌幅
@@ -55,19 +57,6 @@ def list_session_status(now: datetime | None = None) -> dict[str, dict[str, Any]
             'timezone': tz_name,
         }
     return out
-
-
-def _parse_quote_time(raw: str) -> datetime | None:
-    """兼容腾讯三种时间戳格式：美股 2026-08-21、港股 2026/08/21、A股 20260821161402。"""
-    raw = (raw or '').strip()
-
-    def _try(fmt: str) -> datetime | None:
-        try:
-            return datetime.strptime(raw, fmt)
-        except ValueError:
-            return None
-
-    return next((dt for fmt in ('%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S', '%Y%m%d%H%M%S') if (dt := _try(fmt)) is not None), None)
 
 
 def _to_float(value: Any) -> float | None:
@@ -112,32 +101,18 @@ class MarketIndexService:
 
     @classmethod
     def _fetch_items(cls) -> list[dict[str, Any]]:
-        # 第一步：美股始终拉取；港股 / A 股仅当地盘中
-        live_specs: list[tuple[dict[str, str], datetime]] = []
-        for spec in _INDEX_SPECS:
-            now_local = datetime.now(ZoneInfo(MARKET_TZ[spec['market']]))
-            if should_include_market(spec['market'], now_local):
-                live_specs.append((spec, now_local))
-        if not live_specs:
-            return []
-        # 第二步：一次批量请求全部待展示指数
         try:
-            quotes = _fetch_tencent_batch([spec['code'] for spec, _ in live_specs])
+            quotes = _fetch_tencent_batch([spec['code'] for spec in _INDEX_SPECS])
         except Exception as exc:
             logger.warning(f'[index-quotes] 批量行情失败: {exc}')
             return []
-        # 第三步：港股 / A 股要求行情日期=当地今天（节假日隐藏）；美股沿用最近报价
         items: list[dict[str, Any]] = []
-        for spec, now_local in live_specs:
+        for spec in _INDEX_SPECS:
             quote = quotes.get(spec['code'])
             if not quote:
                 continue
             last, prev = quote.get('last'), quote.get('prevClose')
-            quote_dt = _parse_quote_time(str(quote.get('quoteTime') or ''))
-            if spec['market'] != 'US':
-                if quote_dt is None or quote_dt.date() != now_local.date():
-                    continue
-            elif last is None:
+            if last is None:
                 continue
             change_pct = quote.get('changePct')
             if change_pct is None and last and prev:
@@ -146,7 +121,7 @@ class MarketIndexService:
                 {
                     'market': spec['market'],
                     'symbol': spec['code'],
-                    'name': quote.get('name') or spec['name'],
+                    'name': spec['name'],
                     'last': last,
                     'prevClose': prev,
                     'changePct': change_pct,

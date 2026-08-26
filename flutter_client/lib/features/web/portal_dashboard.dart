@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/ruoyi_client.dart';
 import '../../core/menu/menu_api.dart';
 import '../../core/menu/router_models.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/ruoyi_tokens.dart';
+import '../../features/auth/logic/session_controller.dart';
+import '../../shared/widgets/cyber_background.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 
 class PortalPage extends ConsumerWidget {
@@ -30,7 +34,7 @@ class PortalPage extends ConsumerWidget {
       '/market/heat',
       Icons.candlestick_chart_outlined,
       [
-        ('行情交易', '/trade/terminal'),
+        ('专业交易终端 (Pro)', '/trade/terminal'),
         ('市场热度', '/market/heat'),
         ('行情台', '/market/board'),
         ('自选清单', '/market/watchlist'),
@@ -42,11 +46,10 @@ class PortalPage extends ConsumerWidget {
       '/trade/trading',
       Icons.payments_outlined,
       [
-        ('行情交易', '/trade/terminal'),
+        ('专业交易终端 (Pro)', '/trade/terminal'),
         ('核心交易台', '/trade/trading'),
         ('持仓与订单', '/trade/positions'),
         ('券商账户', '/trade/broker'),
-        ('通知中心', '/trade/notifications'),
       ],
     ),
     (
@@ -75,7 +78,7 @@ class PortalPage extends ConsumerWidget {
       '平台工作台',
       '业务总览、行情快照与系统监控',
       '/index',
-      Icons.monitor_heart_outlined,
+      Icons.monitor_outlined,
       [
         ('工作台首页', '/index'),
         ('自动分析任务', '/analysis/jobs'),
@@ -87,138 +90,260 @@ class PortalPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final session = ref.watch(sessionController);
+    final name = session.user?.displayName ?? '用户';
+    final role = session.roles.contains('admin') ? '超级管理员' : '平台用户';
     final w = MediaQuery.sizeOf(context).width;
+    final isMac = AppDimens.isMac(context);
     final allowed = visibleMenuPaths(ref.watch(routersProvider).asData?.value ?? const []);
     bool can(String path) => menuAllows(allowed, path);
-    final pad = w < 600 ? 16.0 : 32.0;
-    final cardW = w < 720 ? w - pad * 2 : 360.0;
+    final groups = [
+      for (final g in _groups)
+        if (can(g.$3) || g.$5.any((l) => can(l.$2)))
+          (
+            g.$1,
+            g.$2,
+            g.$3,
+            g.$4,
+            [for (final l in g.$5) if (can(l.$2)) l],
+          ),
+    ];
+    final fg = dark ? const Color(0xFFE2E8F0) : const Color(0xFF0F172A);
+    final muted = dark ? const Color(0x99E2E8F0) : const Color(0xFF64748B);
+    final cols = w >= 1200 ? 3 : (w >= 720 ? 2 : 1);
+
+    Future<void> logout() async {
+      final ok = await confirm(context, '确定退出登录吗？');
+      if (!ok) return;
+      await ref.read(sessionController.notifier).logout();
+      if (context.mounted) context.go('/login');
+    }
+
     return ColoredBox(
-      color: dark ? WebTokens.loginDark : const Color(0xFFE2E8F0),
-      child: CustomPaint(
-        painter: _PortalGlow(dark: dark),
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(pad, w < 600 ? 16 : 28, pad, 24),
-          children: [
-            ShaderMask(
-              shaderCallback: (r) => const LinearGradient(
-                colors: [Color(0xFF38BDF8), Color(0xFFA78BFA), Color(0xFF34D399)],
-              ).createShader(r),
-              child: const Text(
-                '智慧金融 · NEXUS',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2,
-                  color: Colors.white,
+      color: dark ? const Color(0xFF020617) : const Color(0xFFE2E8F0),
+      child: Stack(
+        children: [
+          Positioned.fill(child: CyberBackground(dark: dark)),
+          Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  isMac ? AppDimens.macTrafficLeft : (w < 600 ? 16 : 40),
+                  isMac ? 6 : 22,
+                  w < 600 ? 16 : 40,
+                  0,
                 ),
-              ),
-            ),
-            if (w >= 600) ...[
-              const SizedBox(height: 18),
-              Text(
-                '量化交易与 AI 研判综合指挥中心',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: dark ? Colors.white : const Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'QUANTITATIVE TRADING & AI ANALYSIS COMMAND CENTER',
-                style: TextStyle(
-                  letterSpacing: 2,
-                  fontSize: 12,
-                  color: dark ? const Color(0x99E2E8F0) : const Color(0xFF64748B),
-                ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            if (w < 720) ...[
-              GridView.count(
-                crossAxisCount: 4,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 0.86,
-                children: [
-                  for (final s in [
-                    ('行情', Icons.candlestick_chart_outlined, '/market/heat', '行情'),
-                    ('全部', Icons.list_alt, '/market/stocks', '全部股票'),
-                    ('选股', Icons.auto_awesome, '/market/recommendations', '智能选股'),
-                    ('自选', Icons.star_outline, '/market/watchlist', '自选'),
-                    ('舆情', Icons.analytics_outlined, '/sentiment/dashboard', '舆情'),
-                    ('量化', Icons.auto_graph, '/quant/strategy', '量化'),
-                    ('交易', Icons.payments_outlined, '/trade/terminal', '交易'),
-                    ('AI', Icons.psychology_outlined, '/market/ai-workbench', 'AI 研判'),
-                    ('通知', Icons.notifications_outlined, '/trade/notifications', '通知中心'),
-                  ])
-                    if (can(s.$3))
-                      _Shortcut(s.$1, s.$2, () => open?.call(s.$3, title: s.$4)),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                for (final g in _groups)
-                  if (can(g.$3) || g.$5.any((l) => can(l.$2)))
-                    SizedBox(
-                      width: cardW,
-                      child: _ModuleCard(
-                        title: g.$1,
-                        desc: g.$2,
-                        icon: g.$4,
-                        links: [for (final l in g.$5) if (can(l.$2)) l],
-                        onEnter: () => open?.call(g.$3, title: g.$1),
-                        onLink: (p, t) => open?.call(p, title: t),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ShaderMask(
+                            shaderCallback: (r) => const LinearGradient(
+                              colors: [Color(0xFF38BDF8), Color(0xFFA78BFA), Color(0xFF34D399)],
+                            ).createShader(r),
+                            child: const Text(
+                              '智慧金融 · NEXUS',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'QUANT · SENTIMENT · MARKET',
+                            style: TextStyle(fontSize: 11, letterSpacing: 2, color: muted),
+                          ),
+                        ],
                       ),
                     ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Shortcut extends StatelessWidget {
-  const _Shortcut(this.label, this.icon, this.onTap);
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0x33409EFF),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: const Color(0xFF38BDF8), size: 22),
+                    _GlassChip(
+                      dark: dark,
+                      onTap: () => ref.read(themeModeController.notifier).toggle(),
+                      child: Row(
+                        children: [
+                          Icon(dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined, size: 16, color: fg),
+                          const SizedBox(width: 8),
+                          Text(dark ? '浅色模式' : '深色模式', style: TextStyle(fontSize: 13, color: fg)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    PopupMenuButton<String>(
+                      tooltip: name,
+                      onSelected: (v) {
+                        if (v == 'profile') open?.call('/user/profile', title: '个人中心');
+                        if (v == 'index') open?.call('/index', title: '工作台首页');
+                        if (v == 'logout') logout();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'profile', child: Text('个人中心')),
+                        PopupMenuItem(value: 'index', child: Text('工作台首页')),
+                        PopupMenuItem(value: 'logout', child: Text('退出登录')),
+                      ],
+                      child: _GlassChip(
+                        dark: dark,
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: const Color(0xFF38BDF8),
+                              child: Text(
+                                name.isEmpty ? 'U' : name.characters.first,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            if (w >= 720) ...[
+                              const SizedBox(width: 10),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+                                  Text(role, style: TextStyle(fontSize: 11, color: muted)),
+                                ],
+                              ),
+                              const SizedBox(width: 6),
+                              Icon(Icons.keyboard_arrow_down, size: 16, color: muted),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1280),
+                    child: ListView(
+                      padding: EdgeInsets.fromLTRB(w < 600 ? 16 : 28, 28, w < 600 ? 16 : 28, 32),
+                      children: [
+                        Column(
+                          children: [
+                            Text(
+                              '量化交易与 AI 研判综合指挥中心',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: w < 720 ? 22 : 32,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 3,
+                                color: fg,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'QUANTITATIVE TRADING & AI ANALYSIS COMMAND CENTER',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 13, letterSpacing: 4, color: muted),
+                            ),
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0x1438BDF8),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: const Color(0x3338BDF8)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF39FF14),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [BoxShadow(color: Color(0xFF39FF14), blurRadius: 8)],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'NEXUS AI Core Active · Influx 时序在线 · 证券级通道',
+                                    style: TextStyle(fontSize: 12, color: muted),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 36),
+                        LayoutBuilder(
+                          builder: (context, c) {
+                            final gap = 22.0;
+                            final cardW = cols == 1 ? c.maxWidth : (c.maxWidth - gap * (cols - 1)) / cols;
+                            return Wrap(
+                              spacing: gap,
+                              runSpacing: gap,
+                              children: [
+                                for (final g in groups)
+                                  SizedBox(
+                                    width: cardW,
+                                    child: _ModuleCard(
+                                      dark: dark,
+                                      title: g.$1,
+                                      desc: g.$2,
+                                      icon: g.$4,
+                                      links: g.$5,
+                                      onEnter: () => open?.call(g.$3, title: g.$1),
+                                      onLink: (p, t) => open?.call(p, title: t),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 40),
+                        Text(
+                          '系统版本 V2.0 · 智慧金融分析平台',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, letterSpacing: 1, color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFFE2E8F0))),
         ],
       ),
     );
   }
 }
 
-class _ModuleCard extends StatelessWidget {
+class _GlassChip extends StatelessWidget {
+  const _GlassChip({required this.dark, required this.child, this.onTap});
+  final bool dark;
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final box = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0x8C0F172A) : const Color(0xADFFFFFF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: dark ? const Color(0x1FFFFFFF) : const Color(0x14000000)),
+      ),
+      child: child,
+    );
+    if (onTap == null) return box;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(999), child: box),
+    );
+  }
+}
+
+class _ModuleCard extends StatefulWidget {
   const _ModuleCard({
+    required this.dark,
     required this.title,
     required this.desc,
     required this.icon,
@@ -227,6 +352,7 @@ class _ModuleCard extends StatelessWidget {
     required this.onLink,
   });
 
+  final bool dark;
   final String title;
   final String desc;
   final IconData icon;
@@ -235,78 +361,109 @@ class _ModuleCard extends StatelessWidget {
   final void Function(String path, String title) onLink;
 
   @override
+  State<_ModuleCard> createState() => _ModuleCardState();
+}
+
+class _ModuleCardState extends State<_ModuleCard> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0x8C0F172A),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onEnter,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
+    final dark = widget.dark;
+    final fg = dark ? const Color(0xFFE2E8F0) : const Color(0xFF0F172A);
+    final muted = dark ? const Color(0xB3E2E8F0) : const Color(0xFF475569);
+    final accent = dark ? const Color(0xFF00C3FF) : const Color(0xFF2563EB);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 220),
+        offset: Offset(0, _hover ? -0.018 : 0),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onEnter,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0x1FFFFFFF)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: const Color(0xFF38BDF8), size: 28),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              constraints: const BoxConstraints(minHeight: 248),
+              padding: const EdgeInsets.fromLTRB(22, 26, 22, 18),
+              decoration: BoxDecoration(
+                color: dark ? const Color(0x8C0F172A) : const Color(0xADFFFFFF),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _hover
+                      ? (dark ? const Color(0x5900F0FF) : const Color(0x732563EB))
+                      : (dark ? const Color(0x1FFFFFFF) : const Color(0x14000000)),
                 ),
+                boxShadow: _hover
+                    ? [BoxShadow(color: accent.withValues(alpha: 0.18), blurRadius: 28, offset: const Offset(0, 12))]
+                    : [BoxShadow(color: Colors.black.withValues(alpha: dark ? 0.28 : 0.06), blurRadius: 18, offset: const Offset(0, 8))],
               ),
-              const SizedBox(height: 6),
-              Text(desc, style: const TextStyle(color: Color(0xB3E2E8F0), fontSize: 13)),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              child: Column(
                 children: [
-                  for (final l in links)
-                    TextButton(
-                      onPressed: () => onLink(l.$2, l.$1),
-                      child: Text(l.$1),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: 64,
+                    height: 64,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: _hover ? null : (dark ? const Color(0x1A00F0FF) : const Color(0x1A2563EB)),
+                      gradient: _hover
+                          ? const LinearGradient(colors: [Color(0xFF00C3FF), Color(0xFF6366F1)])
+                          : null,
                     ),
+                    child: Icon(widget.icon, size: 30, color: _hover ? Colors.white : accent),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    widget.title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: fg, fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: 1),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.desc,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: muted, fontSize: 13.5, height: 1.55),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (final l in widget.links)
+                        InkWell(
+                          onTap: () => widget.onLink(l.$2, l.$1),
+                          borderRadius: BorderRadius.circular(999),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: dark ? const Color(0x1438BDF8) : const Color(0x142563EB),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: dark ? const Color(0x4738BDF8) : const Color(0x332563EB)),
+                            ),
+                            child: Text(l.$1, style: TextStyle(fontSize: 12, color: fg)),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 200),
+                    opacity: _hover ? 1 : 0.55,
+                    child: Text('进入 ${widget.title} →', style: TextStyle(color: accent, fontSize: 12, letterSpacing: 1)),
+                  ),
                 ],
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  '进入 $title →',
-                  style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 13),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-class _PortalGlow extends CustomPainter {
-  _PortalGlow({required this.dark});
-  final bool dark;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = const Color(0x3338BDF8);
-    canvas.drawCircle(Offset(size.width * 0.15, 80), 120, p);
-    canvas.drawCircle(
-      Offset(size.width * 0.85, size.height * 0.7),
-      160,
-      Paint()..color = const Color(0x339333EA),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _PortalGlow oldDelegate) => oldDelegate.dark != dark;
 }
 
 class DashboardPage extends ConsumerStatefulWidget {

@@ -48,19 +48,17 @@ class AiApi {
   /// 批量扫描批次历史。
   Future<List<AiBatch>> batches() async {
     final result = ApiResult.from(await _dio.get<void>('/trade/ai/batches'));
-    return ((result.data as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(AiBatch.fromJson)
-        .toList();
+    var rows = asJsonList(result.data);
+    if (rows.isEmpty) rows = asJsonList(result.dataAsMap?['items']);
+    return rows.map(asJsonMap).whereType<Map<String, dynamic>>().map(AiBatch.fromJson).toList();
   }
 
   /// 指定批次的标的明细。
   Future<List<AiBatchItem>> batchItems({required int batchId}) async {
     final result = ApiResult.from(await _dio.get<void>('/trade/ai/batches/$batchId/items'));
-    return ((result.data as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(AiBatchItem.fromJson)
-        .toList();
+    var rows = asJsonList(result.data);
+    if (rows.isEmpty) rows = asJsonList(result.dataAsMap?['items']);
+    return rows.map(asJsonMap).whereType<Map<String, dynamic>>().map(AiBatchItem.fromJson).toList();
   }
 }
 

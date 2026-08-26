@@ -98,44 +98,44 @@ class PageHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stack = MediaQuery.sizeOf(context).width < 600;
-    final titles = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
-      ],
-    );
+    final compact = MediaQuery.sizeOf(context).width < 600;
     final buttons = Wrap(spacing: 8, runSpacing: 8, children: actions);
+    if (compact) {
+      if (actions.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Align(alignment: Alignment.centerRight, child: buttons),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: stack
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                titles,
-                if (actions.isNotEmpty) ...[const SizedBox(height: 8), buttons],
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(child: titles),
-                buttons,
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
               ],
             ),
+          ),
+          buttons,
+        ],
+      ),
     );
   }
 }
@@ -167,7 +167,9 @@ class QuoteListTile extends StatelessWidget {
     final color = chg == null
         ? Theme.of(context).colorScheme.onSurface
         : (chg >= 0 ? AppColors.up : AppColors.down);
-    return ListTile(
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       leading: rank == null
@@ -220,6 +222,7 @@ class QuoteListTile extends StatelessWidget {
         ],
       ),
       onTap: onTap,
+    ),
     );
   }
 }

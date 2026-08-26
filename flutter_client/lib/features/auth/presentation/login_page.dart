@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,9 +9,11 @@ import 'package:flutter_client/core/gateway/gateway_config.dart';
 import 'package:flutter_client/core/gateway/gateway_controller.dart';
 import 'package:flutter_client/core/gateway/gateway_probe.dart';
 import 'package:flutter_client/core/gateway/gateway_store.dart';
+import 'package:flutter_client/core/theme/app_theme.dart';
 import 'package:flutter_client/core/theme/ruoyi_tokens.dart';
 import 'package:flutter_client/features/auth/data/auth_api.dart';
 import 'package:flutter_client/features/auth/logic/session_controller.dart';
+import 'package:flutter_client/shared/widgets/cyber_background.dart';
 
 /// 对齐网页 login.vue：赛博背景 + 玻璃面板 + 网关地址（客户端多出来的一项）。
 class LoginPage extends ConsumerStatefulWidget {
@@ -43,7 +44,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   void initState() {
     super.initState();
     final gw = ref.read(gatewayController).url;
-    _gateway.text = gw.isEmpty ? suggestedLocalGateway() : gw;
+    _gateway.text = resolveStoredGateway(gw);
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -54,7 +55,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _username.text = prefs.getString(_userKey) ?? '';
       if (mounted) setState(() {});
     }
-    if (ref.read(gatewayController).url.isEmpty) {
+    final stored = ref.read(gatewayController).url;
+    final resolved = resolveStoredGateway(stored);
+    if (stored != resolved) {
+      try {
+        await ref.read(gatewayController.notifier).applyUrl(_ensureScheme(resolved));
+        if (mounted) _gateway.text = resolved;
+      } catch (_) {}
+    } else if (stored.isEmpty) {
       try {
         await ref.read(gatewayController.notifier).applyUrl(_ensureScheme(_gateway.text));
       } catch (_) {}
@@ -177,38 +185,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final registerEnabled = _captcha?.registerEnabled ?? false;
     final captchaOn = _captcha == null || _captcha!.captchaEnabled;
     final narrow = MediaQuery.sizeOf(context).width < 760;
+    final mac = AppDimens.isMac(context);
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: dark ? WebTokens.loginDark : const Color(0xFFE2E8F0),
-              gradient: dark
-                  ? const RadialGradient(
-                      center: Alignment(-0.8, -0.6),
-                      radius: 1.1,
-                      colors: [Color(0x6B3B82F6), Color(0x00020617)],
-                    )
-                  : null,
-            ),
-          ),
-          if (dark)
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(0.85, 0.75),
-                  radius: 0.9,
-                  colors: [Color(0x669333EA), Color(0x00020617)],
-                ),
-              ),
-            ),
-          CustomPaint(painter: _CyberGridPainter(dark: dark)),
+          ColoredBox(color: dark ? WebTokens.loginDark : const Color(0xFFE2E8F0)),
+          CyberBackground(dark: dark),
           SafeArea(
             child: Column(
               children: [
                 Padding(
-                  padding: EdgeInsets.fromLTRB(narrow ? 16 : 40, 18, narrow ? 16 : 40, 0),
+                  padding: EdgeInsets.fromLTRB(
+                    mac ? AppDimens.macTrafficLeft : (narrow ? 16 : 40),
+                    mac ? 6 : 18,
+                    narrow ? 16 : 40,
+                    0,
+                  ),
                   child: Row(
                     children: [
                       const Expanded(
@@ -620,35 +613,4 @@ class _BrandPane extends StatelessWidget {
   }
 }
 
-class _CyberGridPainter extends CustomPainter {
-  _CyberGridPainter({required this.dark});
-  final bool dark;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rnd = math.Random(7);
-    final nodePaint = Paint()
-      ..color = (dark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB)).withValues(alpha: 0.35)
-      ..strokeWidth = 1;
-    final points = <Offset>[];
-    for (var i = 0; i < 28; i++) {
-      points.add(Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height));
-    }
-    for (var i = 0; i < points.length; i++) {
-      for (var j = i + 1; j < points.length; j++) {
-        final d = (points[i] - points[j]).distance;
-        if (d < 180) {
-          canvas.drawLine(
-            points[i],
-            points[j],
-            nodePaint..color = nodePaint.color.withValues(alpha: (1 - d / 180) * 0.25),
-          );
-        }
-      }
-      canvas.drawCircle(points[i], 2.2, nodePaint..color = nodePaint.color.withValues(alpha: 0.7));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CyberGridPainter oldDelegate) => oldDelegate.dark != dark;
-}

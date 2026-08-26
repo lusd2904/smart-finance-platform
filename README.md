@@ -8,17 +8,45 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ## 🌟 核心功能一览
 
-- 📈 **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、智能选股（指标 + 舆情 + 开盘指数）、行情台、自选三栏、财经资讯、AI 研判。
+- 📈 **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、智能选股（指标 + 舆情 + 开盘指数）、行情台、自选三栏、财经资讯、AI 研判。大盘指数每市场三条（美股标普/纳指/道琼斯，港股恒指/恒科/国企，A 股上证/创业板/科创板）。
 - ⭐ **自选按账号隔离**：行情自选只走 `market_watchlist` + `user_id`；量化扫描池继续用 `quant_watchlist`，两套不混。分组先写在 `note`（逗号可多组）。
 - 📰 **舆情分析**：中文资讯采集、大盘影响研判、分析历史；列表页不叠长桥实时价。macOS Widget 可通过 Token 拉取只读大盘聚合。
 - 🧮 **量化研究**：因子、Alphalens 风格 IC/IR/分层收益、策略信号、扫描台账、策略档位与 8 族权重。
-- 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、纸面自动交易（默认不实盘下单）、风控规则与事件、通知中心。
+- 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、持仓叠实时价自算盈亏、纸面自动交易（默认不实盘下单）、风控规则与事件、通知中心。
 - 🔐 **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
 - 🖥️ **桌面端（过渡）**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
-- 📱 **Flutter 客户端**：`lib/` 四端共用。macOS / Android / iOS / Windows 原生壳均在仓库内；Dart 业务今日已跟上 Web 交易台、盘前 K 线、北京时间。
+- 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。默认网关 `https://sfp.luapi.top`，本机 Docker 可在网关页改回。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
+
+## 🚀 0826 V11 迭代更新日志（手机原生五栏、桌面 WebView 壳、实时持仓）
+
+### 1. 📱 Flutter 手机：反重力五栏
+- 底栏：**舆情 / 选股 / 热度 / 持仓 / 我的**。量化研究、需求沟通、网关探测改到「我的」。
+- 智能选股：评分 / 立场 / 建议 / 摘要，点行进 K 线。
+- 持仓：长桥现价自算涨跌与浮动盈亏，总资产港元 / 美元切换；底部抽屉极速下单（限价、仓位比例）。
+- 个股详情对齐设计稿图 01：大字报价、指标格、周期、十档、AI 研判、买卖栏。
+- 登录页复用网页赛博网格；macOS 沉浸式标题栏，控件避开红黄绿灯。
+
+### 2. 🖥️ Flutter 桌面：登录后即 Web 控制台
+- macOS / Windows 宽屏不再走 Flutter 精简页，`WebView` 打开网关 `/portal`，页面、路由、样式与 Docker Web 同一份。
+- JWT 写入 `Admin-Token` Cookie；macOS 开发签名下 JWT 改存 SharedPreferences，避免反复弹钥匙串。
+- 默认网关改为线上 `https://sfp.luapi.top`；模拟器环回（`10.0.2.2` / `10.0.3.2`）视为未配置并回落线上。本机 Docker 仍可在网关页改 `http://127.0.0.1:12580`。
+
+### 3. 💹 行情指数与持仓实时价
+- 大盘指数一次拉三市场各三条，始终返回最近有效报价，由客户端按当前市场筛选。缓存键 `market:index:quotes:v3`。
+- 持仓接口叠长桥 `last` / `prevClose`（`AAPL.US` / `00700.HK` / `700` 等写法归一）。
+- 新增 `GET /trade/quote/realtime`：批量 `QuoteContext.quote`，不走重量级 snapshot。
+
+### 4. 🚪 Web 门户按菜单权限
+- 门户六组卡片按当前用户 `getRouters` 过滤；系统 / 监控 / 工具 / 分析对无权限账号隐藏。
+- 行情交易直达路由收敛，避免 `/trade` 与 `/market` 重复挂载。
+
+### 5. 🎨 设计稿
+- `反重力移动端设计稿.md` + `反重力图片/`；英文路径副本 `docs/mobile-designs/`。
+
+---
 
 ## 🚀 0825 V10 迭代更新日志（交易台、北京时间、四端 Flutter 原生壳）
 
@@ -250,7 +278,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
   flutter pub get
   flutter run -d macos     # 或 windows / ios / android
   ```
-  首启：网关配置 → 探测通过 → 登录。详细说明见 `flutter_client/README.md`。
+  首启默认连线上网关 `https://sfp.luapi.top`。本机 Docker 在网关页改 `http://127.0.0.1:12580`（Android 模拟器 `http://10.0.2.2:12580`）。详细说明见 `flutter_client/README.md`。
 
 - **方案 4：检查与监控（可选）**
   ```bash

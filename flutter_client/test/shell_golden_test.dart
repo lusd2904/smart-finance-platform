@@ -14,7 +14,14 @@ import 'package:flutter_client/core/menu/router_models.dart';
 import 'package:flutter_client/core/theme/app_theme.dart';
 import 'package:flutter_client/features/auth/data/auth_models.dart';
 import 'package:flutter_client/features/auth/logic/session_controller.dart';
-import 'package:flutter_client/features/home/home_shell.dart';
+import 'package:flutter_client/features/shell/admin_shell.dart';
+import 'package:flutter_client/features/market/data/market_api.dart';
+import 'package:flutter_client/features/market/data/market_models.dart';
+import 'package:flutter_client/features/sentiment/data/sentiment_api.dart';
+import 'package:flutter_client/features/sentiment/data/sentiment_models.dart';
+import 'package:flutter_client/features/trade/data/trade_api.dart';
+import 'package:flutter_client/features/trade/data/trade_models.dart';
+import 'package:flutter_client/features/watchlist/logic/watchlist_providers.dart';
 
 class _FakeSession extends SessionController {
   @override
@@ -86,6 +93,37 @@ Future<void> _pumpShell(WidgetTester tester, Size size) async {
         gatewayController.overrideWith(_FakeGateway.new),
         menuApiProvider.overrideWith((ref) => _FakeMenuApi()),
         ruoyiClientProvider.overrideWith((ref) => _FakeRuoyi()),
+        watchlistOverviewProvider.overrideWith(
+          (ref) async => const WatchlistOverview(
+            items: [
+              WatchlistItem(symbol: 'AAPL', name: '苹果', market: 'US', last: 226.4, changeRate: -0.42),
+            ],
+            count: 1,
+          ),
+        ),
+        tradeAccountProvider.overrideWith(
+          (ref) async => const AccountInfo(netAssets: 48915.7, availableCash: 12000, currency: 'USD'),
+        ),
+        indexQuotesProvider.overrideWith(
+          (ref) async => const [
+            IndexQuote(symbol: '^IXIC', name: '纳斯达克', last: 17820, changePct: 1.04),
+            IndexQuote(symbol: '^GSPC', name: '标普500', last: 5620, changePct: 0.58),
+          ],
+        ),
+        sentimentBoardProvider.overrideWith(
+          (ref) async => (
+            latest: const SentimentAnalysis(
+              summary: '科技股情绪偏多，关注财报窗口。',
+              usDirection: '偏多',
+              usScore: 62,
+              hkDirection: '中性',
+              hkScore: 50,
+              aDirection: '偏空',
+              aScore: 41,
+            ),
+            trend: const <SentimentTrendPoint>[],
+          ),
+        ),
       ],
       child: MaterialApp(
         theme: AppTheme.light(),
@@ -93,7 +131,7 @@ Future<void> _pumpShell(WidgetTester tester, Size size) async {
           data: MediaQuery.of(context).copyWith(size: size),
           child: child ?? const SizedBox.shrink(),
         ),
-        home: const HomeShell(),
+        home: const AdminShell(),
       ),
     ),
   );
@@ -105,7 +143,7 @@ void main() {
   testWidgets('desktop shell golden', (tester) async {
     await _pumpShell(tester, const Size(1440, 900));
     await expectLater(
-      find.byType(HomeShell),
+      find.byType(AdminShell),
       matchesGoldenFile('goldens/shell_desktop.png'),
     );
   }, skip: !Platform.isMacOS);
@@ -113,20 +151,20 @@ void main() {
   testWidgets('mobile shell golden', (tester) async {
     await _pumpShell(tester, const Size(390, 844));
     await expectLater(
-      find.byType(HomeShell),
+      find.byType(AdminShell),
       matchesGoldenFile('goldens/shell_mobile.png'),
     );
   }, skip: !Platform.isMacOS);
 
-  testWidgets('phone shell uses drawer instead of persistent sidebar', (tester) async {
+  testWidgets('phone shell uses securities-app tabs without admin drawer', (tester) async {
     await _pumpShell(tester, const Size(390, 844));
-    expect(find.byType(AppBar), findsOneWidget);
-    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
-    expect(scaffold.drawer, isNotNull);
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('工作台'), findsWidgets);
-    expect(find.text('行情'), findsWidgets);
-    expect(find.text('自选'), findsWidgets);
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    expect(scaffold.drawer, isNull);
+    expect(find.text('舆情'), findsWidgets);
+    expect(find.text('选股'), findsWidgets);
+    expect(find.text('热度'), findsWidgets);
+    expect(find.text('持仓'), findsWidgets);
     expect(find.text('我的'), findsWidgets);
   });
 }

@@ -12,7 +12,12 @@ from module_market.entity.vo.market_vo import KlineQueryModel
 from module_market.service.index_session import is_live_kline_session, kline_session_tag
 from module_market.service.kline_period import is_minute_period, normalize_kline_period
 from module_market.service.market_service import MarketService
-from module_quant.service.longbridge_quote import is_cn_market, kline_high_low, merge_snapshot_with_db
+from module_quant.service.longbridge_quote import (
+    is_cn_market,
+    kline_high_low,
+    merge_position_quotes,
+    merge_snapshot_with_db,
+)
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.auto_trade_service import parse_symbol_market
@@ -45,7 +50,31 @@ class TradeService:
     @classmethod
     async def get_positions_services(cls, query_db: AsyncSession) -> dict[str, Any]:
         await cls._ensure(query_db)
-        return await LongbridgeService.get_positions_async()
+        data = await LongbridgeService.get_positions_async()
+        positions = list(data.get('positions') or [])
+        symbols = [str(p.get('symbol') or '').strip() for p in positions if p.get('symbol')]
+        if not symbols:
+            return data
+        try:
+            quotes_res = await LongbridgeService.get_realtime_quote_async(symbols)
+            merged = merge_position_quotes(positions, quotes_res.get('quotes') or [])
+            return {**data, 'positions': merged, 'quotesSource': 'longbridge'}
+        except Exception as exc:
+            logger.warning(f'[trade] 持仓叠加长桥行情失败: {exc}')
+            return data
+
+    @classmethod
+    async def get_realtime_quotes_services(
+        cls,
+        query_db: AsyncSession,
+        symbols: list[str],
+        market: str = 'US',
+    ) -> dict[str, Any]:
+        await cls._ensure(query_db)
+        raw = [str(s).strip() for s in symbols if str(s).strip()]
+        if not raw:
+            return {'configured': True, 'quotes': [], 'message': '标的列表为空'}
+        return await LongbridgeService.get_realtime_quote_async(raw, market)
 
     @classmethod
     async def get_orders_services(cls, query_db: AsyncSession, scope: str = 'today') -> dict[str, Any]:

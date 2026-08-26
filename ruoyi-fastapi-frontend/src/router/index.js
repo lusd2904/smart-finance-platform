@@ -54,19 +54,8 @@ export const constantRoutes = [
   },
   {
     path: '/trade',
-    component: Layout,
     hidden: true,
     children: [
-      {
-        path: 'terminal',
-        component: () => import('@/views/market/terminal/index.vue'),
-        name: 'TradeTerminalDirect',
-        meta: { title: '行情交易', activeMenu: '/trade/terminal' }
-      }
-    ]
-  },
-  {
-    path: '/market',
     component: Layout,
     hidden: true,
     children: [
@@ -94,7 +83,6 @@ export const constantRoutes = [
         name: 'MarketTerminalDirect',
         meta: { title: '行情交易', activeMenu: '/trade/terminal' }
       }
-    ]
   },
   {
     path: "/:pathMatch(.*)*",

@@ -52,6 +52,13 @@ abstract final class AppDimens {
 
   static bool isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= wideBreakpoint;
+
+  static bool isMac(BuildContext context) =>
+      Theme.of(context).platform == TargetPlatform.macOS;
+
+  /// 沉浸式标题栏下，红黄绿交通灯约占左上 78×28。
+  static const macTrafficLeft = 86.0;
+  static const macTitlebarHeight = 28.0;
 }
 
 /// 数字排版工具：报价、金额等数值文本统一套用，保证纵向对齐。
