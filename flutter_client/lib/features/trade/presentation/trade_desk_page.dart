@@ -182,8 +182,17 @@ class _TradeDeskPageState extends ConsumerState<TradeDeskPage> {
               symbol: _symbol,
               market: _market,
             );
-        _ai = (r['content'] ?? r['analysis'] ?? r['summary'] ?? r['message'] ?? r)
-            .toString();
+        final rec = '${r['recommendation'] ?? ''}'.trim();
+        final summary =
+            '${r['summary'] ?? r['summaryText'] ?? r['content'] ?? r['analysis'] ?? ''}'.trim();
+        final advice = '${r['operationAdvice'] ?? ''}'.trim();
+        final msg = '${r['message'] ?? ''}'.trim();
+        final parts = <String>[
+          if (rec.isNotEmpty) rec,
+          if (summary.isNotEmpty) summary,
+          if (advice.isNotEmpty) advice,
+        ];
+        _ai = parts.isNotEmpty ? parts.join('\n') : (msg.isNotEmpty ? msg : r.toString());
       }
     } catch (e) {
       _ai = describeApiError(e);

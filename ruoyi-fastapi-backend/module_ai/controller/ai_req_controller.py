@@ -1,17 +1,20 @@
 from typing import Annotated
 
 from fastapi import Body, Header, Path, Query, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.annotation.log_annotation import Log
+from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPreset
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
+from common.constant import ApiNamespace
 from common.entity.vo.user_vo import CurrentUserModel
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from config.env import AppConfig
 from exceptions.exception import ServiceException
+from module_admin.service.open_access_service import OpenAccessService
 from module_ai.service.ai_req_service import AiReqService
 from utils.job_queue import JobQueue
 from utils.log_util import logger
@@ -182,24 +185,37 @@ async def export_req_items(
     return ResponseUtil.success(data=await AiReqService.export_services(query_db, status=status))
 
 
-def _check_export_token(token: str | None) -> None:
-    expected = (AppConfig.requirements_export_token or '').strip()
-    if not expected:
-        raise ServiceException(message='未配置 REQUIREMENTS_EXPORT_TOKEN，对外导出未开启')
-    if (token or '').strip() != expected:
-        raise ServiceException(message='导出令牌无效')
+class OpenTokenRequest(BaseModel):
+    username: str = Field(min_length=1, description='用户名')
+    password: str = Field(min_length=1, description='密码')
+
+
+@ai_req_open_controller.post(
+    '/token',
+    summary='对外接口登录换令牌',
+    description='RSA-OAEP+AES-GCM 加密用户名密码，签发 60 分钟 JWT。明文密码拒绝。',
+)
+@ApiRateLimit(namespace=ApiNamespace.LOGIN, preset=ApiRateLimitPreset.ANON_AUTH_LOGIN)
+async def open_access_token(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    body: OpenTokenRequest,
+) -> Response:
+    data = await OpenAccessService.issue_token(request, query_db, body.username, body.password)
+    return ResponseUtil.success(data=data)
 
 
 @ai_req_open_controller.get(
     '/requirements',
-    summary='对外需求清单（Token）',
-    description='Header: X-Req-Token。本地拉取后改代码并上传 git。',
+    summary='对外需求清单',
+    description='Header: Authorization: Bearer <token>。先 POST /open/token。',
 )
 async def open_requirements(
+    request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     status: Annotated[str | None, Query()] = None,
-    x_req_token: Annotated[str | None, Header()] = None,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> Response:
-    _check_export_token(x_req_token)
+    await OpenAccessService.verify_bearer(request, authorization)
     data = await AiReqService.export_services(query_db, status=status)
     return ResponseUtil.success(data=data)

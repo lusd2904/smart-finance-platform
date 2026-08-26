@@ -286,6 +286,28 @@ async def test_consume_success_acks_processing(fake_redis, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_first_failure_with_retries_writes_retrying_ticket(fake_redis, monkeypatch):
+    monkeypatch.setenv('JOB_MAX_RETRIES', '2')
+
+    async def bad_handler(payload):
+        raise RuntimeError('boom')
+
+    monkeypatch.setitem(HANDLERS, 'factor_scan', bad_handler)
+    ticket = await JobQueue.submit('factor_scan', {'profile': 'aggressive'})
+    proc_key = processing_key_for(QUEUE_KEY)
+    raw = await fake_redis.rpoplpush(QUEUE_KEY, proc_key)
+
+    await JobQueue._run_one(fake_redis, QUEUE_KEY, raw)
+
+    result = await JobQueue.get_ticket(ticket['jobId'])
+    assert result is not None
+    assert result['status'] == 'retrying'
+    assert result.get('error', '').startswith('boom')
+    assert len(fake_redis.lists[QUEUE_KEY]) == 1
+    assert len(fake_redis.lists[dead_key_for(QUEUE_KEY)]) == 0
+
+
+@pytest.mark.asyncio
 async def test_failure_retries_then_dead_letter(fake_redis, monkeypatch):
     monkeypatch.setenv('JOB_MAX_RETRIES', '2')
     calls = []
@@ -295,7 +317,7 @@ async def test_failure_retries_then_dead_letter(fake_redis, monkeypatch):
         raise RuntimeError('boom')
 
     monkeypatch.setitem(HANDLERS, 'factor_scan', bad_handler)
-    await JobQueue.submit('factor_scan', {'profile': 'aggressive'})
+    ticket = await JobQueue.submit('factor_scan', {'profile': 'aggressive'})
     dead_key = dead_key_for(QUEUE_KEY)
 
     await _run_worker_until(fake_redis, lambda: len(fake_redis.lists[dead_key]) >= 1)
@@ -310,6 +332,10 @@ async def test_failure_retries_then_dead_letter(fake_redis, monkeypatch):
     assert dead['payload'] == {'profile': 'aggressive'}
     assert dead['retries'] == 2
     assert dead['failedAt']
+    result = await JobQueue.get_ticket(ticket['jobId'])
+    assert result is not None
+    assert result['status'] == 'failed'
+    assert result.get('error', '').startswith('boom')
 
 
 @pytest.mark.asyncio
@@ -438,6 +464,54 @@ async def test_watchlist_analyze_handler_honors_symbol_payload(monkeypatch):
     hourly = await HANDLERS['watchlist_analyze']({})
     assert hourly['ok'] is True
     assert captured['mode'] == 'hourly'
+
+
+@pytest.mark.asyncio
+async def test_watchlist_analyze_handler_honors_userid_without_symbol(monkeypatch):
+    captured: dict = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeWatchlistService:
+        @classmethod
+        async def analyze_services(cls, db, body, user_id=None):
+            captured['analyze'] = True
+            captured['symbol'] = body.symbol
+            captured['refresh_content'] = body.refresh_content
+            captured['user_id'] = user_id
+            return {'ok': True}
+
+        @classmethod
+        async def run_hourly_job(cls, db):
+            captured['hourly'] = True
+            return {'ok': True}
+
+    class FakeBreaker:
+        @staticmethod
+        def allow():
+            return True
+
+    monkeypatch.setattr('config.database.AsyncSessionLocal', FakeSession)
+    monkeypatch.setattr(
+        'module_market.service.watchlist_service.MarketWatchlistService',
+        FakeWatchlistService,
+    )
+    monkeypatch.setattr('utils.longbridge_breaker.LongbridgeBreaker', FakeBreaker)
+
+    result = await HANDLERS['watchlist_analyze']({'userId': 9})
+    assert result['ok'] is True
+    assert captured.get('hourly') is not True
+    assert captured == {
+        'analyze': True,
+        'symbol': None,
+        'refresh_content': True,
+        'user_id': 9,
+    }
 
 
 @pytest.mark.asyncio

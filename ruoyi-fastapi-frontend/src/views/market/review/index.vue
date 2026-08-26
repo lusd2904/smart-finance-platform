@@ -84,7 +84,7 @@
 </template>
 
 <script setup name="MarketReview">
-import { getMarketReviewLatest, getMarketReviewHistory, analyzeMarketReview } from '@/api/market'
+import { getMarketReviewLatest, getMarketReviewHistory, analyzeMarketReview, pollMarketJob } from '@/api/market'
 
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
@@ -138,6 +138,19 @@ async function handleAnalyze() {
   analyzing.value = true
   try {
     const res = await analyzeMarketReview(market.value || undefined)
+    const d = res.data || {}
+    if (d.accepted || d.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队')
+      if (d.jobId) {
+        const ticket = await pollMarketJob(d.jobId)
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '分析失败')
+          return
+        }
+      }
+      await loadAll()
+      return
+    }
     proxy.$modal.msgSuccess(res.msg || '分析完成')
     await loadAll()
   } finally {

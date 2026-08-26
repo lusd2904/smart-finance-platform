@@ -975,7 +975,26 @@ class _MarketAiWorkbenchPageState extends ConsumerState<MarketAiWorkbenchPage> {
                   final err = ticket is Map ? ticket['error'] : null;
                   text = (err == null || '$err'.isEmpty) ? '研判失败' : '$err';
                 } else {
-                  text = '研判完成，请刷新最新结果';
+                  try {
+                    final latestRes = await ref.read(ruoyiClientProvider).get(
+                          '/market/symbols/${_symbol.text.trim()}/ai/latest',
+                          query: {'market': _market},
+                          timeout: const Duration(seconds: 15),
+                        );
+                    final latest = latestRes.data;
+                    if (latest is Map) {
+                      final summary = '${latest['summary'] ?? latest['summaryText'] ?? ''}';
+                      final rec = '${latest['recommendation'] ?? ''}';
+                      text = [rec, summary]
+                          .where((s) => s.trim().isNotEmpty)
+                          .join('\n');
+                      if (text.isEmpty) text = latestRes.msg.isNotEmpty ? latestRes.msg : '研判完成';
+                    } else {
+                      text = latestRes.msg.isNotEmpty ? latestRes.msg : '研判完成';
+                    }
+                  } catch (_) {
+                    text = '研判完成，请稍后刷新';
+                  }
                 }
                 break;
               }

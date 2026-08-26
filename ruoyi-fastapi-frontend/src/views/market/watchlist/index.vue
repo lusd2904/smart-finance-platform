@@ -490,8 +490,20 @@ async function handleAnalyzeAll() {
   try {
     const res = await analyzeMarketWatchlist({ refreshContent: true })
     const d = res.data || {}
-    proxy.$modal.msgSuccess(res.msg || (d.accepted ? '已加入后台队列' : '分析完成'))
-    if (!d.accepted) await loadOverview()
+    if (d.accepted || d.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已加入后台队列')
+      if (d.jobId) {
+        const ticket = await pollMarketJob(d.jobId)
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '分析失败')
+          return
+        }
+      }
+      await loadOverview()
+      return
+    }
+    proxy.$modal.msgSuccess(res.msg || '分析完成')
+    await loadOverview()
   } finally {
     analyzeAllLoading.value = false
   }

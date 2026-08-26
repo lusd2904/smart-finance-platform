@@ -461,22 +461,17 @@ async def get_daily_list(
 @Log(title='次日策略清单扫描', business_type=BusinessType.OTHER)
 async def scan_daily_list(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    from utils.job_queue import JobQueue
-
     profile = str((body or {}).get('profile') or 'balanced')
     ticket = await JobQueue.submit(
         'daily_list_scan', {'userId': _current_user_id(current_user), 'profile': profile}
     )
-    if ticket:
-        return ResponseUtil.success(data=ticket, msg='已加入后台队列')
-    from module_quant.service.daily_list_service import DailyListService
-
-    data = await DailyListService.scan_user(query_db, _current_user_id(current_user), profile)
-    return ResponseUtil.success(data=data, msg=data.get('message') or '扫描完成')
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'次日策略清单扫描已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')
 
 
 @quant_controller.post(

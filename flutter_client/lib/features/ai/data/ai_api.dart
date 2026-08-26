@@ -55,6 +55,7 @@ class AiApi {
           'message': result.msg,
         };
       }
+      return <String, dynamic>{'message': result.msg.isNotEmpty ? result.msg : '研判已完成，请稍后刷新'};
     }
     return data.isEmpty ? <String, dynamic>{'message': result.msg} : data;
   }
@@ -62,10 +63,14 @@ class AiApi {
   Future<Map<String, dynamic>> _pollJob(String jobId) async {
     final deadline = DateTime.now().add(const Duration(minutes: 3));
     while (DateTime.now().isBefore(deadline)) {
-      final result = ApiResult.from(await _dio.get<void>('/market/jobs/$jobId'));
-      final ticket = result.dataAsMap ?? <String, dynamic>{};
-      final status = '${ticket['status'] ?? ''}';
-      if (status == 'done' || status == 'failed') return ticket;
+      try {
+        final result = ApiResult.from(await _dio.get<void>('/market/jobs/$jobId'));
+        final ticket = result.dataAsMap ?? <String, dynamic>{};
+        final status = '${ticket['status'] ?? ''}';
+        if (status == 'done' || status == 'failed') return ticket;
+      } catch (_) {
+        // 短暂 5xx / 票据未写入时继续等到截止
+      }
       await Future<void>.delayed(const Duration(seconds: 2));
     }
     return <String, dynamic>{'status': 'failed', 'error': '任务等待超时'};
