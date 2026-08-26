@@ -174,9 +174,17 @@ ruoyi-fastapi-frontend/.env*
 !ruoyi-fastapi-frontend/.env.*.example
 *.log
 
-# 本地分析备忘，不入库
+# 本地分析备忘 / 设计稿，不入库
 自动分析任务优化清单.md
 设计稿.md
+反重力图片/
+反重力*.md
+iphone_390_mobile_design.md
+docs/mobile-designs/
+docs/mobile-phone-design*.md
+docs/mobile-phone-inventory.md
+ox意见.md
+todos.md
 
 # 本地生产数据备份/迁移 dump，禁止入库
 _mac_*

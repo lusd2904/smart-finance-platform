@@ -43,9 +43,6 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 门户六组卡片按当前用户 `getRouters` 过滤；系统 / 监控 / 工具 / 分析对无权限账号隐藏。
 - `/trade/terminal` 与 `/market/terminal` 两条直达路由都保留。
 
-### 5. 🎨 设计稿
-- `反重力移动端设计稿.md` + `反重力图片/`；英文路径副本 `docs/mobile-designs/`。
-
 ---
 
 ## 🚀 0825 V10 迭代更新日志（交易台、北京时间、四端 Flutter 原生壳）
