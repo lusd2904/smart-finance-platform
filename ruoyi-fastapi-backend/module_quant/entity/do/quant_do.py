@@ -133,7 +133,46 @@ class QuantLongbridgeConfig(Base):
     app_secret = Column(String(255), nullable=True, comment='长桥App Secret')
     access_token = Column(String(2048), nullable=True, comment='长桥Access Token')
     region = Column(String(10), nullable=True, server_default="'cn'", comment='区域（cn/hk等）')
+    auto_trade_enabled = Column(CHAR(1), nullable=False, server_default='0', comment='本账户自动交易 0关1开')
+    daily_buy_ratio = Column(Float, nullable=False, server_default='0.20', comment='日内买入占净资产比例')
+    max_symbol_position_pct = Column(Float, nullable=False, server_default='0.10', comment='单标的持仓市值占净资产上限')
     update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
+
+
+class QuantAlpha101Value(Base):
+    """Alpha101 单因子值（一行一个因子，禁止 JSON 堆 TEXT）。"""
+
+    __tablename__ = 'quant_alpha101_value'
+    __table_args__ = (
+        UniqueConstraint('symbol', 'market', 'as_of', 'factor_key', name='uk_alpha101_symbol_asof_key'),
+        {'comment': 'Alpha101 因子值'},
+    )
+
+    id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键')
+    symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
+    market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
+    as_of = Column(String(16), nullable=False, comment='K线截止日期')
+    factor_key = Column(String(32), nullable=False, comment='因子键')
+    factor_value = Column(Float, nullable=True, comment='因子值')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='写入时间')
+
+
+class QuantAlpha158Value(Base):
+    """Alpha158 单因子值（一行一个因子，禁止 JSON 堆 TEXT）。"""
+
+    __tablename__ = 'quant_alpha158_value'
+    __table_args__ = (
+        UniqueConstraint('symbol', 'market', 'as_of', 'factor_key', name='uk_alpha158_symbol_asof_key'),
+        {'comment': 'Alpha158 因子值'},
+    )
+
+    id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='主键')
+    symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
+    market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
+    as_of = Column(String(16), nullable=False, comment='K线截止日期')
+    factor_key = Column(String(32), nullable=False, comment='因子键')
+    factor_value = Column(Float, nullable=True, comment='因子值')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='写入时间')
 
 
 class QuantFactorSnapshot(Base):

@@ -37,8 +37,7 @@ class QuantApi {
         queryParameters: {'limit': limit},
       ),
     );
-    final items = result.dataAsMap?['items'];
-    return ((items as List<dynamic>?) ?? const [])
+    return asJsonList(result.dataAsMap?['items'])
         .whereType<Map<String, dynamic>>()
         .map(ScanRun.fromJson)
         .toList();
@@ -52,12 +51,32 @@ class QuantApi {
     return result.dataAsMap ?? <String, dynamic>{};
   }
 
+  /// 计算单标的因子打分。
+  Future<Map<String, dynamic>> computeFactor({
+    required String symbol,
+    required String market,
+    String profile = 'balanced',
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/quant/factor/compute',
+        queryParameters: {
+          'symbol': symbol,
+          'market': market,
+          'profile': profile,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 60)),
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{};
+  }
+
   /// 8 族权重三档预设（注意挂在 /trade 域，权限 quant:strategy:list）。
   Future<List<StrategyProfile>> strategyProfiles() async {
     final result = ApiResult.from(
       await _dio.get<void>('/trade/strategy-profiles'),
     );
-    return ((result.data as List<dynamic>?) ?? const [])
+    return asJsonList(result.data)
         .whereType<Map<String, dynamic>>()
         .map(StrategyProfile.fromJson)
         .toList();

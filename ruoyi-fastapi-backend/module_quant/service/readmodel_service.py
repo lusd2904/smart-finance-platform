@@ -3,6 +3,7 @@ from typing import Any
 
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.json_cache import cache_get_json, cache_set_json
+from utils.time_format_util import now_beijing
 
 _CACHE_TTL = 30
 BOARD_TTL = 15 * 60
@@ -72,7 +73,7 @@ class ReadModelService:
             'netAssets': acc.get('netAssets') if configured else None,
             'availableCash': acc.get('availableCash') if configured else None,
             'currency': acc.get('currency') if configured else None,
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
         }
         await cls._set(cache_key, snapshot)
         return snapshot
@@ -102,7 +103,7 @@ class ReadModelService:
             'totalMarketValue': None,
             'totalUnrealizedPnl': None,
             'positions': positions,
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
         }
         await cls._set(cache_key, snapshot)
         return snapshot
@@ -133,11 +134,13 @@ class ReadModelService:
             'configured': configured,
             'message': asset.get('message') or (None if configured else '长桥凭据未配置'),
             'asset': asset,
-            'position': pos if configured else {'count': 0, 'positions': [], 'totalMarketValue': None, 'totalUnrealizedPnl': None},
+            'position': pos
+            if configured
+            else {'count': 0, 'positions': [], 'totalMarketValue': None, 'totalUnrealizedPnl': None},
             'factorScan': factor_scan,
             'board': {'count': board.get('count'), 'asOf': board.get('asOf'), 'items': (board.get('items') or [])[:16]},
             'readModelVersion': 'v2.3',
-            'refreshTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'refreshTime': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'source': 'live',
         }
         await cls._set(cache_key, snapshot)

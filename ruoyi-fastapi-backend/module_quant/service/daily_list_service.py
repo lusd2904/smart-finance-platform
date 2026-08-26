@@ -116,7 +116,7 @@ class DailyListService:
             await db.commit()
             return serialize_list(row, [])
 
-        profile_cfg = await QuantService.load_profile_config(db, profile)
+        profile_cfg = await QuantService.load_profile_config(db, profile, user_id=user_id)
         cycle = await StrategyService.run_strategy_cycle_async(targets, profile, 'US', profile_cfg)
         name_map = {(t['symbol'], t['market']): t.get('name') for t in targets}
         buy_rows = [s for s in (cycle.get('signals') or []) if str(s.get('signal') or '').upper() == 'BUY']
@@ -195,6 +195,22 @@ class DailyListService:
         return {'skipped': False, 'userCount': len(users), 'results': results}
 
     @classmethod
+    async def _account_trade_ready(cls, db: AsyncSession, user_id: int) -> tuple[bool, str]:
+        """真实下单必须：本账户已配长桥 Key，且策略配置里的自动交易已打开。"""
+        from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
+        from module_trade.service.auto_trade_service import AutoTradeService
+
+        settings = await AutoTradeService.load_user_trade_settings(db, user_id)
+        if settings.get('auto_trade_enabled'):
+            await LongbridgeService.ensure_credentials_from_db(db, user_id)
+            return True, ''
+        row = await QuantLongbridgeConfigDao.get_config(db, int(user_id))
+        has_keys = bool(row and str(getattr(row, 'app_key', '') or '') and str(getattr(row, 'access_token', '') or ''))
+        if not has_keys:
+            return False, '未配置长桥账户 Key，无法打开自动交易'
+        return False, '请先在「量化交易 / 策略配置」打开本账户自动交易'
+
+    @classmethod
     async def open_selected(
         cls, db: AsyncSession, user_id: int, item_ids: list[int], auto_join: bool = False
     ) -> dict[str, Any]:
@@ -203,6 +219,9 @@ class DailyListService:
         latest = await QuantDailyListDao.latest_for_user(db, user_id)
         if not latest or latest.status != 'open':
             raise ServiceException(message='没有可交易的次日清单')
+        ready, reason = await cls._account_trade_ready(db, user_id)
+        if not ready:
+            raise ServiceException(message=reason)
         await LongbridgeService.ensure_credentials_from_db(db, user_id)
         outcomes = []
         for item_id in item_ids:
@@ -227,6 +246,10 @@ class DailyListService:
         latest = await QuantDailyListDao.latest_for_user(db, user_id)
         if not latest:
             raise ServiceException(message='暂无清单')
+        if enabled:
+            ready, reason = await cls._account_trade_ready(db, user_id)
+            if not ready:
+                raise ServiceException(message=reason)
         latest.auto_enabled = '1' if enabled else '0'
         items = await QuantDailyListDao.list_items(db, latest.list_id)
         target_ids = {int(i) for i in (item_ids or [])}
@@ -244,13 +267,23 @@ class DailyListService:
     async def execute_queued(cls, db: AsyncSession) -> dict[str, Any]:
         rows = await QuantDailyListDao.list_queued(db)
         done = []
+        allowed: dict[int, bool] = {}
+        skipped_users: list[int] = []
         for row in rows:
             if not is_market_session_open(row.market):
                 continue
-            await LongbridgeService.ensure_credentials_from_db(db, row.user_id)
-            done.append(await cls._place_or_queue(db, row, row.user_id, force_submit=True))
+            uid = int(row.user_id)
+            if uid not in allowed:
+                ready, _reason = await cls._account_trade_ready(db, uid)
+                allowed[uid] = ready
+                if not ready:
+                    skipped_users.append(uid)
+            if not allowed[uid]:
+                continue
+            await LongbridgeService.ensure_credentials_from_db(db, uid)
+            done.append(await cls._place_or_queue(db, row, uid, force_submit=True))
         await db.commit()
-        return {'count': len(done), 'outcomes': done}
+        return {'count': len(done), 'outcomes': done, 'skippedUsers': skipped_users}
 
     @classmethod
     async def rebalance_auto(cls, db: AsyncSession, user_id: int) -> dict[str, Any]:
@@ -263,6 +296,9 @@ class DailyListService:
         latest = await QuantDailyListDao.latest_for_user(db, user_id)
         if not latest or latest.auto_enabled != '1':
             return {'skipped': True, 'reason': 'auto_disabled'}
+        ready, reason = await cls._account_trade_ready(db, user_id)
+        if not ready:
+            return {'skipped': True, 'reason': 'account_auto_disabled', 'message': reason}
         await LongbridgeService.ensure_credentials_from_db(db, user_id)
         items = [it for it in await QuantDailyListDao.list_items(db, latest.list_id) if it.auto_trade == '1']
         wanted = {(it.symbol.upper(), (it.market or 'US').upper()) for it in items}

@@ -9,7 +9,30 @@
 /// 客户端 M4 不接入任何下单/撤单写端点，天然处于纸面保护态。
 library;
 
+import '../../../core/api/api_result.dart';
+
 /// 账户资产：GET /trade/account → data（flatten 后平铺键）
+class CurrencyBalance {
+  const CurrencyBalance({
+    required this.currency,
+    this.totalCash,
+    this.availableCash,
+    this.netAssets,
+  });
+
+  factory CurrencyBalance.fromJson(Map<String, dynamic> json) => CurrencyBalance(
+        currency: asString(json['currency']).toUpperCase(),
+        totalCash: asDouble(json['totalCash']),
+        availableCash: asDouble(json['availableCash']) ?? asDouble(json['totalCash']),
+        netAssets: asDouble(json['netAssets']),
+      );
+
+  final String currency;
+  final double? totalCash;
+  final double? availableCash;
+  final double? netAssets;
+}
+
 class AccountInfo {
   const AccountInfo({
     this.configured = false,
@@ -18,28 +41,34 @@ class AccountInfo {
     this.totalCash,
     this.availableCash,
     this.netAssets,
+    this.balances = const [],
   });
 
   factory AccountInfo.fromJson(Map<String, dynamic> json) {
-    // 实测载荷顶层只有 balances[]（多币种），平铺键可能缺省 → 从首条回退。
-    final balances = (json['balances'] as List?) ?? const [];
-    final first = balances.isNotEmpty && balances.first is Map
-        ? (balances.first as Map).cast<String, dynamic>()
-        : const <String, dynamic>{};
+    final balances = asJsonList(json['balances'])
+        .map(asJsonMap)
+        .whereType<Map<String, dynamic>>()
+        .map(CurrencyBalance.fromJson)
+        .where((b) => b.currency.isNotEmpty)
+        .toList();
+    CurrencyBalance? pick;
+    for (final row in balances) {
+      pick ??= row;
+      if (row.currency == 'USD') {
+        pick = row;
+        break;
+      }
+    }
     return AccountInfo(
       configured: json['configured'] == true,
-      message: (json['message'] as String?) ?? '',
-      currency:
-          (json['currency'] as String?) ?? (first['currency'] as String?) ?? '',
-      totalCash:
-          (json['totalCash'] as num?)?.toDouble() ??
-          (first['totalCash'] as num?)?.toDouble(),
-      availableCash:
-          (json['availableCash'] as num?)?.toDouble() ??
-          (first['availableCash'] as num?)?.toDouble(),
-      netAssets:
-          (json['netAssets'] as num?)?.toDouble() ??
-          (first['netAssets'] as num?)?.toDouble(),
+      message: asString(json['message']),
+      currency: asString(json['currency']).isNotEmpty
+          ? asString(json['currency']).toUpperCase()
+          : (pick?.currency ?? ''),
+      totalCash: asDouble(json['totalCash']) ?? pick?.totalCash,
+      availableCash: asDouble(json['availableCash']) ?? pick?.availableCash,
+      netAssets: asDouble(json['netAssets']) ?? pick?.netAssets,
+      balances: balances,
     );
   }
 
@@ -49,10 +78,19 @@ class AccountInfo {
   final double? totalCash;
   final double? availableCash;
   final double? netAssets;
+  final List<CurrencyBalance> balances;
+
+  CurrencyBalance? balanceOf(String ccy) {
+    final key = ccy.toUpperCase();
+    for (final b in balances) {
+      if (b.currency == key) return b;
+    }
+    return null;
+  }
 }
 
 /// 持仓行：GET /trade/positions → data.positions[i]
-/// 注：服务端不含现价/浮盈，需行情侧自行叠加；M4 只读展示成本口径。
+/// 现价/昨收由服务端叠加长桥 realtime quote；涨跌幅与盈亏仍由客户端计算。
 class PositionItem {
   const PositionItem({
     this.symbol = '',
@@ -61,15 +99,19 @@ class PositionItem {
     this.availableQuantity,
     this.costPrice,
     this.currency = '',
+    this.last,
+    this.prevClose,
   });
 
   factory PositionItem.fromJson(Map<String, dynamic> json) => PositionItem(
-    symbol: (json['symbol'] as String?) ?? '',
-    symbolName: (json['symbolName'] as String?) ?? '',
-    quantity: (json['quantity'] as num?)?.toDouble(),
-    availableQuantity: (json['availableQuantity'] as num?)?.toDouble(),
-    costPrice: (json['costPrice'] as num?)?.toDouble(),
-    currency: (json['currency'] as String?) ?? '',
+    symbol: asString(json['symbol']),
+    symbolName: asString(json['symbolName']),
+    quantity: asDouble(json['quantity']),
+    availableQuantity: asDouble(json['availableQuantity']),
+    costPrice: asDouble(json['costPrice']),
+    currency: asString(json['currency']).toUpperCase(),
+    last: asDouble(json['last'] ?? json['lastDone']),
+    prevClose: asDouble(json['prevClose']),
   );
 
   final String symbol;
@@ -78,6 +120,91 @@ class PositionItem {
   final double? availableQuantity;
   final double? costPrice;
   final String currency;
+  final double? last;
+  final double? prevClose;
+
+  PositionQuote? get asQuote {
+    if (last == null && prevClose == null) return null;
+    return PositionQuote(last: last, prevClose: prevClose);
+  }
+
+  String get market {
+    final s = symbol.toUpperCase();
+    if (s.endsWith('.HK') || s.contains('.HK')) return 'HK';
+    if (s.endsWith('.US')) return 'US';
+    final code = s.split('.').first;
+    if (RegExp(r'^\d{1,5}$').hasMatch(code)) return 'HK';
+    if (RegExp(r'^\d{6}').hasMatch(code)) return 'CN';
+    return 'US';
+  }
+
+  String get quoteSymbol => symbol.split('.').first;
+}
+
+/// 长桥快照里的现价/昨收，涨跌幅由客户端用 last 与 prevClose 自算。
+class PositionQuote {
+  const PositionQuote({this.last, this.prevClose});
+  final double? last;
+  final double? prevClose;
+
+  double? get changePct {
+    final a = last;
+    final b = prevClose;
+    if (a == null || b == null || b == 0) return null;
+    return (a - b) / b * 100;
+  }
+
+  /// 当日涨跌金额：(最新价 − 昨收) × 数量。
+  double? dayAmount(double? qty) {
+    final a = last;
+    final b = prevClose;
+    if (a == null || b == null || qty == null) return null;
+    return (a - b) * qty;
+  }
+
+  /// 持仓盈亏：(最新价 − 成本) × 数量。
+  double? pnl(double? qty, double? cost) {
+    final a = last;
+    if (a == null || qty == null || cost == null) return null;
+    return (a - cost) * qty;
+  }
+}
+
+/// 港元/美元展示换算。取不到实时汇率时用联系汇率中枢 7.80。
+class UsdHkdFx {
+  const UsdHkdFx({this.usdHkd = 7.80, this.display = 'HKD'});
+
+  static const fallbackRate = 7.80;
+
+  final double usdHkd;
+  final String display;
+
+  bool get isHkd => display.toUpperCase() == 'HKD';
+
+  String get prefix => isHkd ? 'HK\$' : '\$';
+
+  double toUsd(double amount, String from) {
+    switch (from.toUpperCase()) {
+      case 'USD':
+        return amount;
+      case 'HKD':
+        return usdHkd == 0 ? amount : amount / usdHkd;
+      case 'CNY':
+        return amount / 7.2;
+      default:
+        return amount;
+    }
+  }
+
+  double convert(double amount, String from) {
+    final usd = toUsd(amount, from);
+    return isHkd ? usd * usdHkd : usd;
+  }
+
+  UsdHkdFx copyWith({double? usdHkd, String? display}) => UsdHkdFx(
+        usdHkd: usdHkd ?? this.usdHkd,
+        display: display ?? this.display,
+      );
 }
 
 /// 委托单：GET /trade/orders?scope=today|history → data.orders[i]（_map_order 键）
@@ -215,6 +342,7 @@ class AutoTradeStatus {
     this.configured = false,
     this.message = '',
     this.tradingEnabled = false,
+    this.autoTradeEnabled = false,
     this.submitAllowed = false,
     this.submitBlockReason = '',
     this.strategyProfile = '',
@@ -234,10 +362,13 @@ class AutoTradeStatus {
         (json['config'] as Map?)?.cast<String, dynamic>() ?? const {};
     final guardrails =
         (json['guardrails'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final enabled =
+        json['autoTradeEnabled'] == true || json['tradingEnabled'] == true;
     return AutoTradeStatus(
       configured: json['configured'] == true,
       message: (json['message'] as String?) ?? '',
-      tradingEnabled: json['tradingEnabled'] == true,
+      tradingEnabled: enabled,
+      autoTradeEnabled: enabled,
       submitAllowed: json['submitAllowed'] == true,
       submitBlockReason: (json['submitBlockReason'] as String?) ?? '',
       strategyProfile: (config['strategy_profile'] as String?) ?? '',
@@ -266,6 +397,9 @@ class AutoTradeStatus {
 
   /// 服务端硬开关：false = 纸面保护态（客户端只读的根基）。
   final bool tradingEnabled;
+
+  /// 本账户自动交易开关，与 [tradingEnabled] 同源。
+  final bool autoTradeEnabled;
   final bool submitAllowed;
   final String submitBlockReason;
   final String strategyProfile;

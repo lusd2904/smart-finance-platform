@@ -10,7 +10,6 @@ import '../../../shared/widgets/quote_text.dart';
 import '../data/market_api.dart';
 import '../data/market_models.dart';
 import '../data/market_quotes_ws.dart';
-import 'universe_page.dart';
 
 /// 行情 tab 首页：市场热度看板。
 /// 结构（自上而下）：市场切换 → 盘中指数条 → 统计卡行 → 热度摘要 → 热度 Top50 列表，
@@ -35,14 +34,21 @@ class _MarketTabState extends ConsumerState<MarketTab> {
   /// 主数据源：heatDaily 的本地 AsyncValue（Future + setState 管理）。
   AsyncValue<HeatDailyData> _daily = const AsyncLoading();
 
-  /// 盘中指数条独立请求：存为字段以便下拉刷新时重建触发 FutureBuilder 重拉。
-  late Future<List<IndexQuote>> _indexFuture;
+  List<IndexQuote> _indexes = const [];
 
   @override
   void initState() {
     super.initState();
-    _indexFuture = ref.read(marketApiProvider).indexQuotes();
+    _loadIndexes();
     _load();
+  }
+
+  Future<void> _loadIndexes() async {
+    try {
+      final items = await ref.read(marketApiProvider).indexQuotes();
+      if (!mounted) return;
+      setState(() => _indexes = items);
+    } catch (_) {}
   }
 
   /// 拉取当前市场热度日数据（含 Top50 快照）。
@@ -60,14 +66,19 @@ class _MarketTabState extends ConsumerState<MarketTab> {
 
   /// 下拉刷新：指数条与主数据一并重拉。
   Future<void> _refresh() async {
-    setState(() {
-      _indexFuture = ref.read(marketApiProvider).indexQuotes();
-    });
-    await _load();
+    await Future.wait([_loadIndexes(), _load()]);
+  }
+
+  List<IndexQuote> get _liveOrPolledIndexes {
+    final live = ref.watch(marketQuotesStreamProvider).asData?.value.items;
+    if (live != null && live.isNotEmpty) return live;
+    return _indexes;
   }
 
   @override
   Widget build(BuildContext context) {
+    // 订阅指数 WS，供指数条/统计卡与轮询结果二选一。
+    ref.watch(marketQuotesStreamProvider);
     final data = _daily.value;
     final Widget body;
     if (_daily.isLoading && data == null) {
@@ -108,23 +119,16 @@ class _MarketTabState extends ConsumerState<MarketTab> {
   /// 正常内容：看板各区块 + Top50。
   Widget _buildContent(HeatDailyData data) {
     final heat = data.heat ?? const HeatSummary();
+    final quotes = _liveOrPolledIndexes;
+    final strip = heatStripQuotes(quotes, _market);
+    final statQ = heatStatQuote(quotes, _market);
+    final statPct = _market == 'US' ? statQ?.changePct : (statQ?.changePct ?? heat.indexChangePct);
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        PageHeader(
+        const PageHeader(
           title: '行情',
-          subtitle: '${_markets[_market]} · 市场热度看板',
-          actions: [
-            TextButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const UniverseBrowsePage(),
-                ),
-              ),
-              icon: const Icon(Icons.grid_view_outlined, size: 18),
-              label: const Text('全部股票'),
-            ),
-          ],
+          subtitle: '市场热度看板',
         ),
         Padding(
           padding: const EdgeInsets.symmetric(
@@ -146,14 +150,17 @@ class _MarketTabState extends ConsumerState<MarketTab> {
                   _load();
                 },
               ),
-              const SizedBox(height: 16),
-              _IndexStrip(future: _indexFuture),
+              const SizedBox(height: 10),
+              _filterRuleBanner(context, data),
+              const SizedBox(height: 12),
+              _IndexStrip(items: strip),
               const SizedBox(height: 16),
               StatGrid(
                 cells: [
                   StatCellData(
-                    label: heat.indexName.isEmpty ? '指数涨跌' : heat.indexName,
-                    value: PctText(heat.indexChangePct),
+                    label: kHeatStatIndex[_market]?.$2 ??
+                        (heat.indexName.isEmpty ? '指数涨跌' : heat.indexName),
+                    value: PctText(statPct),
                   ),
                   StatCellData(
                     label: '成交额',
@@ -210,6 +217,34 @@ class _MarketTabState extends ConsumerState<MarketTab> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _filterRuleBanner(BuildContext context, HeatDailyData data) {
+    final raw = data.filterRuleFor(_market);
+    if (raw.isEmpty) return const SizedBox.shrink();
+    final text = raw.contains('市值') ? raw : '市值 $raw';
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppDimens.radiusControl),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.filter_alt_outlined, size: 16, color: scheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '筛选规则：$text',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -362,92 +397,71 @@ class _MarketTabState extends ConsumerState<MarketTab> {
   }
 }
 
-/// 盘中指数条：WS 实时流优先；未连接/无数据时回退一次性轮询。
-/// 加载中或空列表（非交易时段）整条隐藏。
-class _IndexStrip extends ConsumerWidget {
-  const _IndexStrip({required this.future});
+/// 当前市场指数条。空列表（该市场暂无报价）整条隐藏。
+class _IndexStrip extends StatelessWidget {
+  const _IndexStrip({required this.items});
 
-  final Future<List<IndexQuote>> future;
+  final List<IndexQuote> items;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final live = ref.watch(marketQuotesStreamProvider);
-    if (live.hasValue && live.requireValue.items.isNotEmpty) {
-      final snapshot = live.requireValue;
-      return _cards(context, snapshot.items, live: true);
-    }
-    return FutureBuilder<List<IndexQuote>>(
-      future: future,
-      builder: (context, snap) {
-        final items = snap.data;
-        if (items == null || items.isEmpty) return const SizedBox.shrink();
-        return _cards(context, items, live: false);
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 10.0;
+        final n = items.length;
+        final cols = n <= 2 ? n : 2;
+        final cellW = cols <= 1
+            ? constraints.maxWidth
+            : (constraints.maxWidth - gap * (cols - 1)) / cols;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final q in items)
+              SizedBox(
+                width: cellW,
+                child: _indexCard(context, q),
+              ),
+          ],
+        );
       },
     );
   }
 
-  Widget _cards(
-    BuildContext context,
-    List<IndexQuote> items, {
-    required bool live,
-  }) {
-    return SizedBox(
-      height: 84,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final q = items[i];
-          return Container(
-            width: 136,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(AppDimens.radiusCard),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
+  Widget _indexCard(BuildContext context, IndexQuote q) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppDimens.radiusCard),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            indexDisplayName(q),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        q.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    if (live && i == 0) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: AppColors.down,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                PriceText(
-                  q.last,
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                PctText(q.changePct, bold: true),
-              ],
+          ),
+          const SizedBox(height: 5),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: PriceText(
+              q.last,
+              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 2),
+          PctText(q.changePct, bold: true),
+        ],
       ),
     );
   }

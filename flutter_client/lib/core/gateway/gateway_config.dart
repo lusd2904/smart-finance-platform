@@ -1,3 +1,17 @@
+/// 未配置时的默认网关：线上前端入口。本机 Docker / 模拟器仍可在网关页手动改。
+const kDefaultGateway = 'https://sfp.luapi.top';
+
+String suggestedLocalGateway() => kDefaultGateway;
+
+/// 模拟器环回地址在真机上不可达；当作未配置，回落到线上网关。
+String resolveStoredGateway(String stored) {
+  final u = stored.trim().toLowerCase();
+  if (u.isEmpty || u.contains('10.0.2.2') || u.contains('10.0.3.2')) {
+    return kDefaultGateway;
+  }
+  return stored.trim();
+}
+
 /// 网关配置（与 desktop/src/gateway.js 的 gateway.json 结构对齐）。
 class GatewayConfig {
   const GatewayConfig({
@@ -53,21 +67,27 @@ class GatewayPreset {
 
 const gatewayPresets = <GatewayPreset>[
   GatewayPreset(
+    'cloud',
+    '线上 HTTPS',
+    kDefaultGateway,
+    '生产前端网关 sfp.luapi.top，业务接口走 /docker-api',
+  ),
+  GatewayPreset(
     'local-docker',
     '本机 Docker',
     'http://127.0.0.1:12580',
     'docker-compose.sentiment.yml 默认前端网关，已代理 /docker-api',
   ),
   GatewayPreset(
+    'android-emulator',
+    'Android 模拟器',
+    'http://10.0.2.2:12580',
+    '模拟器访问宿主机环回',
+  ),
+  GatewayPreset(
     'lan',
     '局域网',
     'http://192.168.1.10:12580',
     '把 IP 换成这台机器在局域网中的地址',
-  ),
-  GatewayPreset(
-    'cloud',
-    '云上 HTTPS',
-    'https://your-domain.example',
-    '填写已部署的公网前端地址，不是后端 9099/19099 端口',
   ),
 ];

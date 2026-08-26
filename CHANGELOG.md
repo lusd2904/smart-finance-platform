@@ -3,6 +3,72 @@
 所有项目的重要更改都将记录在此文件中。
 
 
+## [v1.8.0] - 2026-08-26 - 手机原生五栏、桌面 WebView 壳、实时持仓 (0826 V11)
+
+### 📱 Flutter 手机
+- 底栏改为舆情 / 选股 / 热度 / 持仓 / 我的；量化、需求沟通、网关放到「我的」
+- 智能选股结论优先（评分 / 立场 / 建议 / 摘要），点行进 K 线
+- 持仓用长桥现价自算涨跌幅与浮动盈亏；总资产港元 / 美元切换
+- 个股详情对齐反重力设计稿图 01：大字报价、指标格、周期、十档、AI 研判、买卖栏
+- 底部抽屉极速下单（`showFastTicket`）：限价、25%/50%/75%/全仓
+- 需求沟通改为对话气泡（`AiReqChatPage`），轮询 `jobId`，不再用消息表格
+- 登录页接入 `CyberBackground`；macOS 沉浸式标题栏 + 交通灯避让
+
+### 🖥️ Flutter 桌面
+- 宽屏登录后 `DesktopWebShell` 用 WebView 打开网关 `/portal`，与 Docker Web 同一份前端
+- JWT 写入 `Admin-Token` Cookie；macOS JWT 改存 SharedPreferences（开发签名不再弹钥匙串）
+- 默认网关 `https://sfp.luapi.top`；`10.0.2.2` / `10.0.3.2` 视为未配置并回落线上
+- 依赖 `webview_flutter`；macOS 窗口 `fullSizeContentView`、标题「智慧金融」
+
+### 💹 后端行情 / 交易
+- 指数批量：美股补道琼斯、港股补恒生国企、A 股补创业板/科创板；休市也返回最近报价；缓存 `market:index:quotes:v3`
+- `GET /trade/positions` 叠长桥 realtime `last`/`prevClose`，港股代码去前导零互认
+- 新增 `GET /trade/quote/realtime`（权限 `trade:position:list`）
+
+### 🚪 Web
+- 门户卡片按 `permissionStore.addRoutes` 过滤；无权限不展示系统/监控/工具/分析
+- `/trade/terminal` 与 `/market/terminal` 两条直达路由都保留
+
+### 🧪 测试与设计稿
+- 指数规格、持仓行情合并、默认网关单测；壳层 golden 更新
+- 反重力设计稿与图片入库（根目录中文路径 + `docs/mobile-designs/`）
+
+---
+
+## [v1.7.1] - 2026-08-25 - Android / iOS / Windows 原生壳补回 (0825 晚)
+
+### 🖥️ Flutter 三端
+- 从清空前的平台工程还原，并对齐今日 macOS：HTTP 网关、显示名「智慧金融」、桌面窗 1440×900 / 最小 1100×700
+- Android：`network_security_config` 明文网关、预测性返回；本机 debug + release APK 已构建（无 keystore 时 debug 签名）
+- iOS：ATS 本地网络、`NSLocalNetworkUsageDescription`、出口合规标记；`flutter build ios --debug --no-codesign` 已通过。`ios/scripts/xcrun` 仅在 `xcode-select` 指向 CommandLineTools 时帮 Dart native-asset 找到完整 Xcode
+- Windows：居中、最小尺寸 `WM_GETMINMAXINFO`、NSIS 快捷方式中文名；本机不交叉编译，CI `windows-latest` 出 zip + setup.exe
+- `flutter.yml` 恢复四平台 job；push 触发仍仅 `main` / tag / PR
+
+---
+
+## [v1.7.0] - 2026-08-25 - 交易台时段 K 线、北京时间、macOS 客户端 (0825 V10)
+
+### 💹 交易台 / 行情台
+- 自选分组下拉，打开默认第一只标的；顶栏全市场代码搜索
+- 盘中 K 线走长桥 `TradeSessions.All`（美股 4:00 ET 盘前可见 1 分钟线）；日/周/月走 Influx；港/A 休市回当天日 K
+- 长桥 LV1 无美股隔夜（20:00–04:00 ET）分钟线，不捏造
+- 交易台量化自动交易开关（无密钥灰显）；单票仓位占净值上限；同日买单去重
+
+### ⏰ 时间
+- 长桥 / Influx UTC → 北京时间展示
+- 舆情 naive `pub_time` 仍按北京墙钟，**不二次 +8**
+- 信封响应 `time` 按北京编码
+
+### 🔄 同步与量化
+- 生产→本地：加密用户名密码换 `/open/sync` 短期令牌（`scripts/sync_from_prod.py`）
+- `max_symbol_position_pct` 默认 0.10；增量 SQL `sql/quant-symbol-position-pct.sql`
+
+### 🖥️ Flutter / CI
+- 当日先只改 macOS 原生壳；三端曾清空为占位（当晚已在 v1.7.1 补回）
+- push 触发收窄到 `main` + tag + PR，减轻邮件风暴
+- 舆情 ruff：429 命名常量、isort、过长分支 noqa，避免 ratchet 在 PR 上失败
+---
+
 ## [v1.6.0] - 2026-08-24 - 四端客户端 M2–M5 全量落地与行情实时通道 (0824 V9)
 
 ### 📱 Flutter 四端客户端（功能全量对齐 Web）

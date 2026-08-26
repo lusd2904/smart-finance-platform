@@ -73,7 +73,7 @@ class SentimentAiConfig(Base):
     api_key = Column(String(255), nullable=True, comment='AI接口API Key')
     model_name = Column(String(100), nullable=True, comment='模型名称')
     temperature = Column(Float, nullable=True, server_default='0.2', comment='温度')
-    max_news_per_round = Column(Integer, nullable=True, server_default='30', comment='单次分析最大资讯条数')
+    max_news_per_round = Column(Integer, nullable=True, server_default='200', comment='单次分析最大资讯条数')
     auto_analyze = Column(CHAR(1), nullable=False, server_default='1', comment='采集后自动分析（0否 1是）')
     enabled_sources = Column(
         String(255), nullable=True, server_default="'eastmoney,sina'", comment='启用的数据源（逗号分隔）'

@@ -25,11 +25,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
-  if (!window.Create(L"智慧金融", origin, size)) {
+  Win32Window::Point origin(0, 0);
+  Win32Window::Size size(1440, 900);
+  window.SetMinSize(Win32Window::Size(1100, 700));
+  if (!window.Create(L"智慧金融分析平台", origin, size)) {
     return EXIT_FAILURE;
   }
+  window.Center();
   window.SetQuitOnClose(true);
 
   ::MSG msg;

@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import delete, desc, func, or_, select, update
@@ -11,6 +11,8 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentNewsPageQueryModel,
 )
 from utils.page_util import PageUtil
+
+_MIN_KEYWORD_LEN = 2
 
 
 class SentimentNewsDao:
@@ -71,7 +73,7 @@ class SentimentNewsDao:
         seen: set[str] = set()
         for raw in keywords:
             kw = str(raw or '').strip()
-            if len(kw) < 2 or kw.upper() in seen:
+            if len(kw) < _MIN_KEYWORD_LEN or kw.upper() in seen:
                 continue
             seen.add(kw.upper())
             like = f'%{kw}%'
@@ -92,21 +94,19 @@ class SentimentNewsDao:
         return list(rows)
 
     @classmethod
-    async def get_unanalyzed_news(cls, db: AsyncSession, limit: int = 30) -> list[SentimentNews]:
+    async def get_unanalyzed_news(
+        cls, db: AsyncSession, limit: int = 30, window_minutes: int | None = None
+    ) -> list[SentimentNews]:
         """
-        获取未分析的资讯（按发布时间倒序）
+        获取未分析的资讯（按发布时间倒序）。
+        window_minutes：仅取最近 N 分钟内发布的未分析资讯；limit 为安全上限。
         """
+        query = select(SentimentNews).where(SentimentNews.analyzed == '0')
+        if window_minutes is not None and int(window_minutes) > 0:
+            cutoff = datetime.now() - timedelta(minutes=int(window_minutes))
+            query = query.where(SentimentNews.pub_time >= cutoff)
         rows = (
-            (
-                await db.execute(
-                    select(SentimentNews)
-                    .where(SentimentNews.analyzed == '0')
-                    .order_by(desc(SentimentNews.pub_time))
-                    .limit(limit)
-                )
-            )
-            .scalars()
-            .all()
+            (await db.execute(query.order_by(desc(SentimentNews.pub_time)).limit(limit))).scalars().all()
         )
         return list(rows)
 

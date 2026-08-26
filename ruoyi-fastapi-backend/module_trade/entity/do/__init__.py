@@ -8,12 +8,14 @@ from module_trade.entity.do.trade_do import (
     PlatRiskEvent,
     PlatRiskRule,
     PlatStrategyProfile,
+    PlatStrategyProfileUser,
 )
 
 __all__ = [
     'PlatRiskRule',
     'PlatRiskEvent',
     'PlatStrategyProfile',
+    'PlatStrategyProfileUser',
     'PlatNotification',
     'PlatBacktestRun',
     'PlatAiBatchRun',

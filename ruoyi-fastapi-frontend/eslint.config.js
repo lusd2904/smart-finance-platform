@@ -133,7 +133,7 @@ export default [
       // 历史代码存量问题，先降级为警告逐步清理
       'vue/no-mutating-props': 'warn',
       'vue/no-side-effects-in-computed-properties': 'warn',
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-console': 'off'
     }
   },

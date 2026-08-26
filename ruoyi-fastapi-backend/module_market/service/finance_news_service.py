@@ -18,6 +18,7 @@ from sqlalchemy import desc, select
 from module_market.dao.market_dao import FinanceBriefingDao
 from module_market.service.indicator_service import IndicatorService
 from module_quant.entity.do.quant_do import QuantStrategyRun, QuantStrategySignal
+from utils.time_format_util import now_beijing
 from module_sentiment.entity.do.sentiment_do import SentimentNews
 from utils.common_util import CamelCaseUtil
 from utils.influx_util import InfluxUtil
@@ -100,7 +101,7 @@ class FinanceNewsService:
                 'market': market,
                 'count': len(data),
                 'limit': limit,
-                'snapshotAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'snapshotAt': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
                 'sources': sorted({d['sourceName'] for d in data if d.get('sourceName')}),
                 'googleNews': google_status,
                 'message': upstream_message,

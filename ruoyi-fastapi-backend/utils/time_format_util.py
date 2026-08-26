@@ -1,5 +1,5 @@
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -48,6 +48,36 @@ def format_beijing_datetime(value: datetime | str | None, fmt: str = BEIJING_FMT
     if stamp.tzinfo is not None:
         stamp = stamp.replace(tzinfo=None)
     return stamp.strftime(fmt)
+
+
+def format_utc_as_beijing(value: datetime | str | None, fmt: str = BEIJING_FMT) -> str | None:
+    """
+    把 UTC 时刻转成北京墙上时钟。仅给长桥 / Influx 等 UTC 源用。
+
+    舆情必须继续走 format_beijing_datetime / apply_beijing_times / now_beijing：
+    东财/新浪朴素 pub_time 已是北京墙上时钟，用本函数会错误 +8。
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return ''
+        try:
+            parsed = parse(raw)
+        except Exception:
+            return raw.replace('T', ' ').replace('Z', '').split('+')[0][:19]
+        return format_utc_as_beijing(parsed, fmt)
+    if not isinstance(value, datetime):
+        return str(value)
+    stamp = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return stamp.astimezone(BEIJING_TZ).strftime(fmt)
+
+
+def encode_api_datetime(value: datetime) -> str:
+    """API JSON：aware UTC → 北京；naive 视为已是墙上时钟（库内中国源 / 未标时区）。"""
+    formatted = format_beijing_datetime(value)
+    return formatted or ''
 
 
 def apply_beijing_times(obj: Any) -> Any:

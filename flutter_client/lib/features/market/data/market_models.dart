@@ -2,6 +2,8 @@
 /// 契约依据：module_market/controller/market_controller.py + market_vo.py。
 library;
 
+import '../../../core/api/api_result.dart';
+
 /// 热度摘要：GET /market/heat/daily → data.heat
 class HeatSummary {
   const HeatSummary({
@@ -78,20 +80,100 @@ class TopPickRow {
 
 /// 热度日数据：data = {heat, meta, top50}
 class HeatDailyData {
-  const HeatDailyData({this.heat, this.top50 = const []});
+  const HeatDailyData({
+    this.heat,
+    this.top50 = const [],
+    this.capFilterRule = '',
+  });
 
-  factory HeatDailyData.fromJson(Map<String, dynamic> json) => HeatDailyData(
-    heat: json['heat'] is Map<String, dynamic>
-        ? HeatSummary.fromJson(json['heat'] as Map<String, dynamic>)
-        : null,
-    top50: ((json['top50'] as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(TopPickRow.fromJson)
-        .toList(),
-  );
+  factory HeatDailyData.fromJson(Map<String, dynamic> json) {
+    final meta = asJsonMap(json['meta']) ?? const <String, dynamic>{};
+    return HeatDailyData(
+      heat: json['heat'] is Map<String, dynamic>
+          ? HeatSummary.fromJson(json['heat'] as Map<String, dynamic>)
+          : null,
+      top50: asJsonList(json['top50'])
+          .whereType<Map<String, dynamic>>()
+          .map(TopPickRow.fromJson)
+          .toList(),
+      capFilterRule: asString(meta['capFilterRule'] ?? meta['cap_rule']),
+    );
+  }
 
   final HeatSummary? heat;
   final List<TopPickRow> top50;
+  final String capFilterRule;
+
+  /// 当前市场的市值筛选文案（接口优先，缺省回退本地规则）。
+  String filterRuleFor(String market) {
+    final live = heat?.filterRule.trim() ?? '';
+    if (live.isNotEmpty) return live;
+    if (capFilterRule.trim().isNotEmpty) return capFilterRule.trim();
+    return kHeatCapRule[market] ?? '';
+  }
+}
+
+/// 热度指数条按市场展示的腾讯代码（顺序即卡片顺序）。
+/// 美股条上只放标普/纳指，道琼斯放到统计卡，避免再重复一个标普。
+const kHeatStripCodes = <String, List<String>>{
+  'US': ['usINX', 'usIXIC'],
+  'HK': ['r_hkHSI', 'r_hkHSTECH', 'r_hkHSCEI'],
+  'CN': ['sh000001', 'sz399006', 'sh000688'],
+};
+
+/// 统计卡第一格：美股改道琼斯，港股恒生，A 股上证。
+const kHeatStatIndex = <String, (String, String)>{
+  'US': ('usDJI', '道琼斯'),
+  'HK': ('r_hkHSI', '恒生指数'),
+  'CN': ('sh000001', '上证指数'),
+};
+
+/// 三市场默认市值过滤（与 backend MARKET_META.cap_rule 对齐）。
+const kHeatCapRule = <String, String>{
+  'US': '10亿-1000亿美元',
+  'HK': '100亿-1000亿港币',
+  'CN': '100亿-2000亿人民币',
+};
+
+const kIndexDisplayName = <String, String>{
+  'usinx': '标普500',
+  'usixic': '纳斯达克',
+  'usdji': '道琼斯',
+  'r_hkhsi': '恒生指数',
+  'r_hkhstech': '恒生科技',
+  'r_hkhscei': '恒生国企',
+  'sh000001': '上证指数',
+  'sz399006': '创业板指数',
+  'sh000688': '科创板指数',
+};
+
+String indexDisplayName(IndexQuote q) =>
+    kIndexDisplayName[q.symbol.toLowerCase()] ?? (q.name.isEmpty ? q.symbol : q.name);
+
+/// 按当前市场抽出指数条，缺代码时退回该 market 字段匹配的项。
+List<IndexQuote> heatStripQuotes(List<IndexQuote> all, String market) {
+  final codes = kHeatStripCodes[market] ?? const <String>[];
+  final byCode = <String, IndexQuote>{
+    for (final q in all) q.symbol.toLowerCase(): q,
+  };
+  final matched = <IndexQuote>[
+    for (final code in codes)
+      if (byCode[code.toLowerCase()] != null) byCode[code.toLowerCase()]!,
+  ];
+  if (matched.isNotEmpty) return matched;
+  return all
+      .where((q) => q.market.toUpperCase() == market.toUpperCase())
+      .toList();
+}
+
+IndexQuote? heatStatQuote(List<IndexQuote> all, String market) {
+  final spec = kHeatStatIndex[market];
+  if (spec == null) return null;
+  final code = spec.$1.toLowerCase();
+  for (final q in all) {
+    if (q.symbol.toLowerCase() == code) return q;
+  }
+  return null;
 }
 
 /// 热度趋势点：GET /market/heat/trend → data.points[i]
@@ -343,6 +425,8 @@ class KlineBar {
   static List<KlineBar> listFrom(dynamic payload) {
     final List<dynamic> raw = switch (payload) {
       {'klines': List l} => l,
+      {'items': List l} => l,
+      {'bars': List l} => l,
       {'list': List l} => l,
       List l => l,
       _ => const [],

@@ -1,0 +1,16 @@
+#!/bin/sh
+# package:objective_c hooks strip DEVELOPER_DIR. When xcode-select is
+# CommandLineTools, the real xcrun cannot see iphoneos; locate a full Xcode.
+if ! /usr/bin/xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
+  for candidate in \
+    /Applications/Xcode-beta.app/Contents/Developer \
+    /Applications/Xcode.app/Contents/Developer \
+    /Applications/*.app/Contents/Developer \
+    /Applications/*/*.app/Contents/Developer
+  do
+    [ -d "$candidate/Platforms/iPhoneOS.platform" ] || continue
+    export DEVELOPER_DIR="$candidate"
+    break
+  done
+fi
+exec /usr/bin/xcrun "$@"

@@ -9,6 +9,7 @@ Unicode true
 RequestExecutionLevel admin
 
 !define APPNAME "Smart Finance Platform"
+!define DISPLAYNAME "智慧金融分析平台"
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SmartFinancePlatform"
 !ifndef VERSION
   !define VERSION "0.0.0-dev"
@@ -30,11 +31,11 @@ Section "install"
   File /r "${SRCDIR}\*.*"
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
-  CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\flutter_client.exe"
-  CreateShortCut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\flutter_client.exe"
+  CreateShortCut "$SMPROGRAMS\${APPNAME}\${DISPLAYNAME}.lnk" "$INSTDIR\flutter_client.exe"
+  CreateShortCut "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\flutter_client.exe"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  WriteRegStr HKLM "${REGKEY}" "DisplayName" "${APPNAME}"
+  WriteRegStr HKLM "${REGKEY}" "DisplayName" "${DISPLAYNAME}"
   WriteRegStr HKLM "${REGKEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "${REGKEY}" "DisplayIcon" '"$INSTDIR\flutter_client.exe"'
   WriteRegDWORD HKLM "${REGKEY}" "NoModify" 1
@@ -43,8 +44,10 @@ SectionEnd
 
 Section "uninstall"
   RMDir /r "$INSTDIR"
+  Delete "$SMPROGRAMS\${APPNAME}\${DISPLAYNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
   RMDir "$SMPROGRAMS\${APPNAME}"
+  Delete "$DESKTOP\${DISPLAYNAME}.lnk"
   Delete "$DESKTOP\${APPNAME}.lnk"
   DeleteRegKey HKLM "${REGKEY}"
 SectionEnd

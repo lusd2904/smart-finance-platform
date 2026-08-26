@@ -6,15 +6,17 @@
         <div class="hero-tags">
           <el-tag effect="dark" type="primary">长桥自选股票池</el-tag>
           <el-tag effect="plain" type="success">美股开盘量化扫描</el-tag>
-          <el-tag :type="statusData.guardrails?.requirePaper ? 'warning' : 'danger'" effect="plain">
-            {{ statusData.guardrails?.requirePaper ? '纸账户保护：仅扫描' : '纸账户保护已关闭' }}
-          </el-tag>
+          <el-tag v-if="statusData.configured" effect="plain" type="success">长桥凭据已加载</el-tag>
+          <el-tag v-else-if="statusData.message" effect="plain" type="warning">长桥凭据未就绪</el-tag>
           <el-tag :type="statusData.submitAllowed ? 'danger' : 'info'" effect="plain">
-            {{ statusData.submitAllowed ? '允许自动委托' : (statusData.submitBlockReason || '默认不下单') }}
+            {{ statusData.submitAllowed ? '允许自动委托' : (statusData.submitBlockReason || '仅扫描不下单') }}
+          </el-tag>
+          <el-tag effect="plain" :type="statusData.autoTradeEnabled ? 'danger' : 'info'">
+            {{ statusData.autoTradeEnabled ? '本账户自动交易：开' : '本账户自动交易：关' }}
           </el-tag>
         </div>
         <h2>AI 自动交易与日内风控台账</h2>
-        <p>默认只扫描自选池。自动委托需关闭服务端纸账户保护并打开长桥交易开关。</p>
+        <p>{{ statusData.message || '本账户交易开关在「量化交易 / 策略配置」。未配置长桥 Key 时默认关闭。' }}</p>
       </div>
       <div class="hero-actions">
         <el-button type="primary" :icon="VideoPlay" :loading="triggering" @click="handleTriggerRun(false)" v-hasPermi="['trade:aitrade:run']">
@@ -45,13 +47,13 @@
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
         <div class="metric-card">
-          <div class="metric-label">日内买入金额</div>
+          <div class="metric-label">日内买入金额（仓位 20%）</div>
           <div class="metric-val">
             <strong>${{ (statusData.guardrails?.todayNotionalAmount || 0).toLocaleString() }}</strong>
-            <span>/ ${{ (statusData.guardrails?.maxDailyNotionalAmount || 6000).toLocaleString() }}</span>
+            <span>/ ${{ (statusData.guardrails?.maxDailyNotionalAmount || 0).toLocaleString() }}</span>
           </div>
           <el-progress
-            :percentage="Math.min(100, Math.round(((statusData.guardrails?.todayNotionalAmount || 0) / (statusData.guardrails?.maxDailyNotionalAmount || 6000)) * 100))"
+            :percentage="Math.min(100, Math.round(((statusData.guardrails?.todayNotionalAmount || 0) / (statusData.guardrails?.maxDailyNotionalAmount || 1)) * 100))"
             :status="statusData.guardrails?.isAmountLimitReached ? 'exception' : 'success'"
             :stroke-width="6"
           />
@@ -203,7 +205,6 @@ import { ref, computed, onMounted } from 'vue'
 import { VideoPlay, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listAiTradeRuns, getAutoTradeStatus, runAutoTrade } from '@/api/trade'
-import { getReadmodelOverview } from '@/api/quant'
 
 const loading = ref(false)
 const triggering = ref(false)
@@ -241,10 +242,6 @@ async function loadData() {
     if (statusRes.status === 'fulfilled') {
       statusData.value = statusRes.value.data || {}
     }
-    const overviewRes = await getReadmodelOverview().catch(() => null)
-    if (overviewRes?.data?.asset) {
-      statusData.value = { ...statusData.value, readModel: overviewRes.data }
-    }
   } catch (err) {
     ElMessage.error('加载自动交易台账失败: ' + err.message)
   } finally {
@@ -255,8 +252,16 @@ async function loadData() {
 async function handleTriggerRun(execute = false) {
   try {
     if (execute) {
+      if (!statusData.value.configured) {
+        ElMessage.warning('未配置长桥账户 Key，无法下单')
+        return
+      }
+      if (!statusData.value.autoTradeEnabled) {
+        ElMessage.warning('请先在「量化交易 / 策略配置」打开本账户自动交易')
+        return
+      }
       await ElMessageBox.confirm(
-        '将按服务端护栏尝试向券商提交委托。纸账户保护开启或交易开关关闭时仍不会下单。确认继续？',
+        '将按当前登录账号的长桥凭据向券商真实提交委托。确认继续？',
         '二次确认',
         { type: 'warning', confirmButtonText: '继续', cancelButtonText: '取消' }
       )
@@ -317,7 +322,17 @@ onMounted(() => {
 
 .hero-actions {
   display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.account-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 
 .metric-row {

@@ -53,6 +53,50 @@ export const constantRoutes = [
     hidden: true
   },
   {
+    path: '/trade',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: 'terminal',
+        component: () => import('@/views/market/terminal/index.vue'),
+        name: 'TradeTerminalDirect',
+        meta: { title: '行情交易', activeMenu: '/trade/terminal' }
+      }
+    ]
+  },
+  {
+    path: '/market',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: 'symbol',
+        component: () => import('@/views/market/symbol/index.vue'),
+        name: 'MarketSymbolDirect',
+        meta: { title: '标的详情', activeMenu: '/market/board' }
+      },
+      {
+        path: 'kline',
+        component: () => import('@/views/market/kline/index.vue'),
+        name: 'MarketKlineDirect',
+        meta: { title: '行情K线', activeMenu: '/market/board' }
+      },
+      {
+        path: 'tradingview',
+        component: () => import('@/views/market/tradingview/index.vue'),
+        name: 'MarketTradingviewDirect',
+        meta: { title: '高级图表', activeMenu: '/market/board' }
+      },
+      {
+        path: 'terminal',
+        component: () => import('@/views/market/terminal/index.vue'),
+        name: 'MarketTerminalDirect',
+        meta: { title: '行情交易', activeMenu: '/trade/terminal' }
+      }
+    ]
+  },
+  {
     path: "/:pathMatch(.*)*",
     component: () => import('@/views/error/404'),
     hidden: true

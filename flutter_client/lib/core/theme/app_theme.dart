@@ -47,8 +47,18 @@ abstract final class AppDimens {
   static const sideRailWidth = 76.0;
   static const sideNavWidth = 216.0;
 
-  /// 自适应断点：≥900 走桌面壳
+  /// 自适应断点：≥900 走桌面壳（侧栏 + 页签）；更窄走手机壳（抽屉菜单）。
   static const wideBreakpoint = 900.0;
+
+  static bool isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= wideBreakpoint;
+
+  static bool isMac(BuildContext context) =>
+      Theme.of(context).platform == TargetPlatform.macOS;
+
+  /// 沉浸式标题栏下，红黄绿交通灯约占左上 78×28。
+  static const macTrafficLeft = 86.0;
+  static const macTitlebarHeight = 28.0;
 }
 
 /// 数字排版工具：报价、金额等数值文本统一套用，保证纵向对齐。

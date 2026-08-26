@@ -18,6 +18,7 @@ from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
 from module_quant.service.alpha_engine import attach_cross_section_alphas
 from module_quant.service.factor_service import FactorService
+from utils.time_format_util import now_beijing
 from module_quant.service.readmodel_service import (
     BOARD_TTL,
     FACTOR_TTL,
@@ -78,6 +79,7 @@ class SnapshotService:
             'alpha101Count': metrics.get('alpha101Count') or alpha.get('alpha101Count') or 0,
             'alpha158Count': metrics.get('alpha158Count') or alpha.get('alpha158Count') or 0,
             'alpha101': metrics.get('alpha101') or alpha.get('alpha101') or {},
+            'alpha158': metrics.get('alpha158') or alpha.get('alpha158') or {},
             'alpha158Top': _top_alpha(metrics.get('alpha158') or alpha.get('alpha158') or {}),
             'return20': metrics.get('return20'),
             'rsi14': metrics.get('rsi14'),
@@ -128,12 +130,20 @@ class SnapshotService:
                     'score_json': _json(score),
                     'alpha_json': _json(
                         {
-                            'alpha101': snap.get('alpha101') or {},
+                            'alpha101Count': snap.get('alpha101Count') or 0,
+                            'alpha158Count': snap.get('alpha158Count') or 0,
                             'alpha158Top': snap.get('alpha158Top') or {},
-                            'alphaCs': snap.get('alphaCs') or {},
                         }
                     ),
                 },
+            )
+            await QuantSnapshotDao.replace_alpha_values(
+                db,
+                symbol=symbol,
+                market=market,
+                as_of=str(snap.get('asOf') or '')[:16],
+                alpha101=snap.get('alpha101') or {},
+                alpha158=snap.get('alpha158') or {},
             )
             ok_items.append(
                 {
@@ -150,7 +160,7 @@ class SnapshotService:
             )
         ok_items.sort(key=lambda x: float(x.get('total') or 0), reverse=True)
         payload = {
-            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'profile': profile,
             'symbolCount': len(ok_items),
             'failedCount': len(failed),
@@ -202,7 +212,7 @@ class SnapshotService:
                     }
                 )
         payload = {
-            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'count': len(board),
             'items': board,
             'readModelVersion': 'v2.3',
@@ -221,41 +231,52 @@ class SnapshotService:
 
     @classmethod
     async def run_position_monitor(cls, db: AsyncSession) -> dict[str, Any]:
+        from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
         from module_quant.service.longbridge_service import LongbridgeService
         from module_trade.dao.trade_dao import TradeDao
+        from module_trade.service.auto_trade_service import AutoTradeService, parse_symbol_market
 
-        await LongbridgeService.ensure_credentials_from_db(db)
-        pos_res = await LongbridgeService.get_positions_async()
-        if not pos_res.get('configured'):
+        user_ids = await QuantLongbridgeConfigDao.list_configured_user_ids(db)
+        if not user_ids:
             payload = {
                 'configured': False,
-                'message': pos_res.get('message') or '长桥凭据未配置，跳过持仓监控',
+                'message': '没有已配置长桥的账户，跳过持仓监控',
                 'alerts': [],
-                'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             }
             await ReadModelService.put_scheduled('positions', payload, BOARD_TTL)
             return payload
 
-        positions = pos_res.get('positions') or []
         alerts: list[dict[str, Any]] = []
-        for pos in positions:
-            symbol = str(pos.get('symbol') or '').strip()
-            if not symbol:
+        sold = 0
+        position_count = 0
+        for uid in user_ids:
+            await LongbridgeService.ensure_credentials_from_db(db, uid)
+            settings = await AutoTradeService.load_user_trade_settings(db, uid)
+            pos_res = await LongbridgeService.get_positions_async()
+            if not pos_res.get('configured'):
                 continue
-            qty = _to_float(pos.get('quantity')) or 0
-            cost = _to_float(pos.get('costPrice'))
-            last = _to_float(pos.get('lastPrice') or pos.get('price') or pos.get('currentPrice'))
-            market = str(pos.get('market') or 'US').upper()
-            if last is None:
-                bars = await _to_thread(InfluxUtil.query_latest_klines, market, [symbol], 1, '-30d')
-                last_bar = (bars.get(symbol) or [None])[-1]
-                last = _to_float(last_bar.get('close') if last_bar else None)
-            pnl_pct = None
-            if cost and last:
-                pnl_pct = round((last - cost) / cost * 100, 4)
-            alert = None
-            if pnl_pct is not None and pnl_pct <= STOP_LOSS_PCT:
+            positions = pos_res.get('positions') or []
+            position_count += len(positions)
+            for pos in positions:
+                raw_symbol = str(pos.get('symbol') or '').strip()
+                if not raw_symbol:
+                    continue
+                symbol, market = parse_symbol_market(raw_symbol, str(pos.get('market') or 'US'))
+                qty = _to_float(pos.get('availableQuantity') or pos.get('quantity')) or 0
+                cost = _to_float(pos.get('costPrice'))
+                last = _to_float(pos.get('lastPrice') or pos.get('price') or pos.get('currentPrice'))
+                if last is None:
+                    bars = await _to_thread(InfluxUtil.query_latest_klines, market, [symbol], 1, '-30d')
+                    last_bar = (bars.get(symbol) or [None])[-1]
+                    last = _to_float(last_bar.get('close') if last_bar else None)
+                pnl_pct = None
+                if cost and last:
+                    pnl_pct = round((last - cost) / cost * 100, 4)
+                if pnl_pct is None or pnl_pct > STOP_LOSS_PCT:
+                    continue
                 alert = {
+                    'userId': uid,
                     'symbol': symbol,
                     'market': market,
                     'quantity': qty,
@@ -263,15 +284,48 @@ class SnapshotService:
                     'lastPrice': last,
                     'pnlPct': pnl_pct,
                     'level': 'danger',
-                    'title': f'持仓止损预警 · {symbol}',
-                    'content': f'{symbol} 现价 {last} 相对成本 {cost} 浮亏 {pnl_pct}%，触发 {STOP_LOSS_PCT}% 止损线',
+                    'title': f'持仓止损 · {symbol}',
+                    'content': f'用户{uid} {symbol} 现价 {last} 相对成本 {cost} 浮亏 {pnl_pct}%，触发 {STOP_LOSS_PCT}% 止损线',
                 }
-            if alert:
+                order_res = None
+                if settings.get('auto_trade_enabled') and qty > 0:
+                    order_res = await LongbridgeService.submit_order_async(
+                        symbol=symbol,
+                        side='SELL',
+                        quantity=int(qty),
+                        order_type='MO',
+                        market=market,
+                        allow_sim=True,
+                    )
+                    ok = bool(order_res.get('ok'))
+                    await TradeDao.add_auto_trade_decision(
+                        db,
+                        {
+                            'cycle_id': f'stoploss_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
+                            'user_id': uid,
+                            'symbol': symbol,
+                            'market': market,
+                            'side': 'SELL',
+                            'quantity': int(qty),
+                            'price': last,
+                            'status': 'submitted' if ok else 'rejected',
+                            'reason': alert['content'],
+                            'source': 'stop_loss',
+                            'order_id': LongbridgeService.extract_order_id(order_res) if ok else None,
+                            'error': None if ok else (order_res.get('message') or '止损下单失败'),
+                        },
+                    )
+                    if ok:
+                        sold += 1
+                        alert['content'] += '；已按市价卖出'
+                    else:
+                        alert['content'] += f'；下单失败 {order_res.get("message")}'
+                elif not settings.get('auto_trade_enabled'):
+                    alert['content'] += '；本账户自动交易未开，仅记录'
                 alerts.append(alert)
                 recent = await TradeDao.list_risk_events(db, limit=80)
                 duplicate = any(
                     (row.symbol or '') == symbol
-                    and (row.title or '') == alert['title']
                     and str(getattr(row, 'review_status', '') or 'pending_review')
                     in {'pending_review', 'need_review', 'overdue'}
                     for row in recent
@@ -285,24 +339,24 @@ class SnapshotService:
                             'title': alert['title'],
                             'content': alert['content'],
                             'symbol': symbol,
-                            'review_status': 'pending_review',
-                            'handled': '0',
+                            'review_status': 'pending_review' if not (order_res and order_res.get('ok')) else 'handled',
+                            'handled': '1' if order_res and order_res.get('ok') else '0',
                         },
                     )
         if alerts:
             await db.commit()
         payload = {
             'configured': True,
-            'count': len(positions),
+            'count': position_count,
             'alertCount': len(alerts),
+            'soldCount': sold,
             'alerts': alerts,
-            'positions': positions,
-            'asOf': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
         }
         await QuantSnapshotDao.add_readmodel_snapshot(db, 'positions', _json(payload))
         await db.commit()
         await ReadModelService.put_scheduled('positions', payload, BOARD_TTL)
-        return {'configured': True, 'count': len(positions), 'alertCount': len(alerts)}
+        return {'configured': True, 'count': position_count, 'alertCount': len(alerts), 'soldCount': sold}
 
     @classmethod
     async def build_overview_payload(cls, db: AsyncSession) -> dict[str, Any]:
@@ -320,7 +374,7 @@ class SnapshotService:
             'position': pos,
             'factorScan': factor_scan,
             'board': {'count': board_payload.get('count'), 'asOf': board_payload.get('asOf'), 'items': (board_payload.get('items') or [])[:16]},
-            'refreshTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'refreshTime': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'readModelVersion': 'v2.3',
             'source': 'scheduled',
         }

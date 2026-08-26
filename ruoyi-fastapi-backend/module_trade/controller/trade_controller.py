@@ -121,6 +121,39 @@ async def trade_quote_trades(
 
 
 @trade_controller.get(
+    '/quote/realtime',
+    summary='长桥实时行情（批量）',
+    description='QuoteContext.quote，一次返回 lastDone/prevClose。持仓盈亏用这个，不走重量级 snapshot。',
+    dependencies=[UserInterfaceAuthDependency('trade:position:list')],
+)
+async def trade_quote_realtime(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbols: Annotated[str, Query(description='逗号分隔长桥代码，如 AAPL.US,700.HK')] = '',
+    market: Annotated[str, Query(description='无后缀时代码默认市场')] = 'US',
+) -> Response:
+    items = [part.strip() for part in (symbols or '').split(',') if part.strip()]
+    data = await TradeService.get_realtime_quotes_services(query_db, items, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
+    '/quote/snapshot',
+    summary='标的行情快照（长桥补缺）',
+    description='quote + static_info + calc_indexes + 资金分布 + 52周 + 资讯标题。库里已有字段由前端保留，本接口补估值/换手/量比/市值等缺口。缓存约 60 秒。',
+    dependencies=[UserInterfaceAuthDependency('trade:account:list')],
+)
+async def trade_quote_snapshot(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    symbol: Annotated[str, Query(description='标的代码')],
+    market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
+) -> Response:
+    data = await TradeService.get_quote_snapshot_services(query_db, symbol=symbol, market=market)
+    return ResponseUtil.success(data=data)
+
+
+@trade_controller.get(
     '/quote/kline',
     summary='交易台K线',
     description='Influx 日K/周K/月K；US/HK 分钟与分时在时序库为空时回退长桥 candlesticks/intraday',
@@ -262,7 +295,7 @@ from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E4
 @trade_controller.get(
     '/auto/status',
     summary='获取AI自动交易状态与日内护栏',
-    dependencies=[UserInterfaceAuthDependency('trade:aitrade:list')],
+    dependencies=[UserInterfaceAuthDependency(['trade:aitrade:list', 'quant:strategy:list', 'quant:dailylist:list'])],
 )
 async def auto_trade_status(
     request: Request,
@@ -272,16 +305,47 @@ async def auto_trade_status(
     try:
         data = await AutoTradeService.get_status(query_db, user_id=_current_user_id(current_user))
     except Exception as exc:
-        logger.warning(f'[自动交易] status 降级空状态: {exc}')
+        logger.exception('[自动交易] status 读取失败')
         data = {
             'configured': False,
-            'message': '自动交易服务暂不可用或密钥未配置',
+            'message': f'自动交易状态读取失败: {exc}',
             'tradingEnabled': False,
             'submitAllowed': False,
+            'submitBlockReason': str(exc),
             'recentRuns': [],
             'recentDecisions': [],
+            'guardrails': {
+                'tradingEnabled': True,
+                'todayOrdersCount': 0,
+                'maxDailyOrders': 10,
+                'todayNotionalAmount': 0,
+                'maxDailyNotionalAmount': 6000,
+            },
         }
     return ResponseUtil.success(data=data)
+
+
+@trade_controller.put(
+    '/auto/settings',
+    summary='保存当前账户自动交易开关',
+    dependencies=[UserInterfaceAuthDependency(['trade:aitrade:run', 'quant:strategy:list'])],
+)
+async def auto_trade_save_settings(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    body = body or {}
+    settings = await AutoTradeService.save_user_trade_settings(
+        query_db,
+        _current_user_id(current_user),
+        auto_trade_enabled=bool(body.get('autoTradeEnabled') or body.get('auto_trade_enabled')),
+        daily_buy_ratio=body.get('dailyBuyRatio', body.get('daily_buy_ratio')),
+        max_symbol_position_pct=body.get('maxSymbolPositionPct', body.get('max_symbol_position_pct')),
+    )
+    data = await AutoTradeService.get_status(query_db, user_id=settings['user_id'])
+    return ResponseUtil.success(data=data, msg='已保存本账户自动交易设置')
 
 
 @trade_controller.post(
@@ -289,7 +353,12 @@ async def auto_trade_status(
     summary='手动触发自选池AI自动交易扫描',
     dependencies=[UserInterfaceAuthDependency('trade:aitrade:run')],
 )
-@Log(title='AI自动交易扫描', business_type=BusinessType.OTHER)
+@Log(
+    title='AI自动交易扫描',
+    business_type=BusinessType.OTHER,
+    request_log_mode='summary',
+    response_log_mode='summary',
+)
 async def auto_trade_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -308,15 +377,8 @@ async def auto_trade_run(
             user_id=_current_user_id(current_user),
         )
     except Exception as exc:
-        logger.warning(f'[自动交易] run 降级空状态: {exc}')
-        data = {
-            'ok': True,
-            'configured': False,
-            'submittedOrdersCount': 0,
-            'message': '自动交易服务暂不可用或密钥未配置，已跳过委托',
-            'candidates': [],
-            'opportunities': [],
-        }
+        logger.exception('[自动交易] run 失败')
+        return ResponseUtil.failure(msg=f'自动交易扫描失败: {exc}')
     return ResponseUtil.success(data=data, msg=data.get('message', '扫描完成'))
 
 
@@ -415,14 +477,17 @@ async def history_coverage(
 async def strategy_profiles(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    return ResponseUtil.success(data=await PlatformExtService.list_strategy_profiles(query_db))
+    return ResponseUtil.success(
+        data=await PlatformExtService.list_strategy_profiles(query_db, _current_user_id(current_user))
+    )
 
 
 @trade_controller.put(
     '/strategy-profiles/{code}',
-    summary='保存策略配置档位',
-    dependencies=[UserInterfaceAuthDependency('quant:strategy:run')],
+    summary='保存当前账户策略配置档位',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:list')],
 )
 @Log(title='策略配置', business_type=BusinessType.UPDATE)
 async def save_strategy_profile(
@@ -430,11 +495,16 @@ async def save_strategy_profile(
     code: Annotated[str, Path()],
     body: Annotated[dict, Body()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     await PlatformExtService.save_strategy_profile(
-        query_db, code=code, name=str(body.get('profileName') or code), config=body.get('config') or body
+        query_db,
+        code=code,
+        name=str(body.get('profileName') or code),
+        config=body.get('config') or body,
+        user_id=_current_user_id(current_user),
     )
-    return ResponseUtil.success(msg='保存成功')
+    return ResponseUtil.success(msg='已保存本账户策略档位')
 
 
 @trade_controller.get(

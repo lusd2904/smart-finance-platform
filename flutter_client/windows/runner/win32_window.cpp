@@ -37,6 +37,28 @@ int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
+UINT QueryHwndDpi(HWND hwnd) {
+  if (hwnd) {
+    UINT dpi = FlutterDesktopGetDpiForHWND(hwnd);
+    if (dpi != 0) {
+      return dpi;
+    }
+    using GetDpiForWindowProc = UINT __stdcall(HWND);
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+      auto get_dpi_for_window = reinterpret_cast<GetDpiForWindowProc*>(
+          GetProcAddress(user32, "GetDpiForWindow"));
+      if (get_dpi_for_window) {
+        dpi = get_dpi_for_window(hwnd);
+        if (dpi != 0) {
+          return dpi;
+        }
+      }
+    }
+  }
+  return 96;
+}
+
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
 // This API is only needed for PerMonitor V1 awareness mode.
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
@@ -149,6 +171,38 @@ bool Win32Window::Create(const std::wstring& title,
   return OnCreate();
 }
 
+void Win32Window::Center() {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  const POINT primary_origin = {0, 0};
+  HMONITOR monitor = MonitorFromPoint(primary_origin, MONITOR_DEFAULTTOPRIMARY);
+  MONITORINFO monitor_info = {};
+  monitor_info.cbSize = sizeof(monitor_info);
+  if (!GetMonitorInfo(monitor, &monitor_info)) {
+    return;
+  }
+
+  const RECT& work = monitor_info.rcWork;
+  const int window_width = window_rect.right - window_rect.left;
+  const int window_height = window_rect.bottom - window_rect.top;
+  const int x = work.left + (work.right - work.left - window_width) / 2;
+  const int y = work.top + (work.bottom - work.top - window_height) / 2;
+  SetWindowPos(window_handle_, nullptr, x, y, 0, 0,
+               SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Win32Window::SetMinSize(const Size& size) {
+  min_size_ = size;
+  has_min_size_ = true;
+}
+
 bool Win32Window::Show() {
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
@@ -216,6 +270,19 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      if (!has_min_size_) {
+        break;
+      }
+      auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const double scale_factor = QueryHwndDpi(hwnd) / 96.0;
+      info->ptMinTrackSize.x =
+          Scale(static_cast<int>(min_size_.width), scale_factor);
+      info->ptMinTrackSize.y =
+          Scale(static_cast<int>(min_size_.height), scale_factor);
+      return 0;
+    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);

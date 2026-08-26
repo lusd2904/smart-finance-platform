@@ -121,23 +121,26 @@ class _GaugeCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(AppDimens.radiusCard),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SentimentGauge(score: latest.overallScore ?? 50, size: 220),
+          Text(
+            '市场情绪',
+            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          SentimentGauge(score: latest.overallScore ?? 50, size: 156, strokeWidth: 12),
           if (latest.summary.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
               latest.summary,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+              style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
             ),
           ],
         ],
@@ -178,36 +181,34 @@ class VerdictCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppDimens.radiusCard),
         border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(width: 3, height: 40, color: dirColor),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 44,
-            child: Text(name, style: theme.textTheme.titleSmall),
+          Row(
+            children: [
+              Container(width: 3, height: 18, color: dirColor),
+              const SizedBox(width: 10),
+              Text(name, style: theme.textTheme.titleSmall),
+              const Spacer(),
+              DirectionBadge(direction: dir),
+              if (score != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    score!.toStringAsFixed(0),
+                    style: AppNum.style(theme.textTheme.titleMedium!).copyWith(color: dirColor),
+                  ),
+                ),
+            ],
           ),
-          Expanded(
-            child: Text(
-              reason.isEmpty ? '暂无研判理由' : reason,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                height: 1.45,
-              ),
+          const SizedBox(height: 8),
+          Text(
+            reason.isEmpty ? '暂无研判理由' : reason,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              height: 1.55,
             ),
           ),
-          const SizedBox(width: 10),
-          DirectionBadge(direction: dir),
-          if (score != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 6),
-              child: Text(
-                score!.toStringAsFixed(0),
-                style: AppNum.style(theme.textTheme.titleMedium!).copyWith(color: dirColor),
-              ),
-            ),
         ],
       ),
     );

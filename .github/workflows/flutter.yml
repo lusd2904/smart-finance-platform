@@ -3,8 +3,13 @@ name: flutter-clients
 on:
   workflow_dispatch:
   push:
-    branches: ['**']
+    branches: [main]
     tags: ['v*']
+    paths:
+      - 'flutter_client/**'
+      - '.github/workflows/flutter.yml'
+  pull_request:
+    branches: [main]
     paths:
       - 'flutter_client/**'
       - '.github/workflows/flutter.yml'
@@ -166,7 +171,7 @@ jobs:
           path: sff-windows.zip
           if-no-files-found: error
 
-  # 打 v* 标签时把三平台产物发布到 GitHub Release。
+  # 打 v* 标签时把四平台产物发布到 GitHub Release。
   release:
     name: publish release
     runs-on: ubuntu-latest

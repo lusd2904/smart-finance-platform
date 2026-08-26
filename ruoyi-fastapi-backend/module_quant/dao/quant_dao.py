@@ -1,3 +1,4 @@
+import math
 from datetime import date, datetime, time
 from typing import Any
 
@@ -6,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from module_quant.entity.do.quant_do import (
+    QuantAlpha101Value,
+    QuantAlpha158Value,
     QuantDailyList,
     QuantDailyListItem,
     QuantFactorQc,
@@ -291,6 +294,68 @@ class QuantLongbridgeConfigDao:
         await db.flush()
         return db_config
 
+    @classmethod
+    async def list_configured_user_ids(cls, db: AsyncSession) -> list[int]:
+        """已填写长桥 Key/Token 的账号。"""
+        rows = (
+            (
+                await db.execute(
+                    select(QuantLongbridgeConfig.user_id).where(
+                        QuantLongbridgeConfig.app_key.is_not(None),
+                        QuantLongbridgeConfig.app_key != '',
+                        QuantLongbridgeConfig.access_token.is_not(None),
+                        QuantLongbridgeConfig.access_token != '',
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [int(u) for u in rows if u]
+
+    @classmethod
+    async def save_trade_settings(
+        cls,
+        db: AsyncSession,
+        user_id: int,
+        *,
+        auto_trade_enabled: bool,
+        daily_buy_ratio: float,
+        max_symbol_position_pct: float = 0.10,
+    ) -> QuantLongbridgeConfig:
+        """只改当前用户的交易开关与仓位比例，不动凭据。"""
+        target_id = int(user_id)
+        ratio = max(0.05, min(0.50, float(daily_buy_ratio or 0.20)))
+        try:
+            symbol_pct = float(max_symbol_position_pct if max_symbol_position_pct is not None else 0.10)
+        except (TypeError, ValueError):
+            symbol_pct = 0.10
+        symbol_pct = max(0.05, min(0.30, symbol_pct))
+        flag = '1' if auto_trade_enabled else '0'
+        existing = await cls.get_config(db, target_id)
+        now = datetime.now()
+        if existing:
+            existing.auto_trade_enabled = flag
+            existing.daily_buy_ratio = ratio
+            existing.max_symbol_position_pct = symbol_pct
+            existing.update_time = now
+            await db.flush()
+            return existing
+        row = QuantLongbridgeConfig(
+            user_id=target_id,
+            app_key='',
+            app_secret='',
+            access_token='',
+            region='cn',
+            auto_trade_enabled=flag,
+            daily_buy_ratio=ratio,
+            max_symbol_position_pct=symbol_pct,
+            update_time=now,
+        )
+        db.add(row)
+        await db.flush()
+        return row
+
 
 class QuantSnapshotDao:
     """因子快照与读模型聚合快照。"""
@@ -374,6 +439,51 @@ class QuantSnapshotDao:
         db.add(row)
         await db.flush()
         return row
+
+    @classmethod
+    @classmethod
+    async def replace_alpha_values(
+        cls,
+        db: AsyncSession,
+        symbol: str,
+        market: str,
+        as_of: str,
+        alpha101: dict[str, Any] | None,
+        alpha158: dict[str, Any] | None,
+    ) -> None:
+        """按标的覆盖写入 Alpha101/158 明细行，不再把整包 JSON 塞进 TEXT。"""
+        as_of_key = (as_of or datetime.now().strftime('%Y-%m-%d'))[:16]
+        now = datetime.now()
+        for model, payload in (
+            (QuantAlpha101Value, alpha101),
+            (QuantAlpha158Value, alpha158),
+        ):
+            await db.execute(
+                delete(model).where(model.symbol == symbol, model.market == market)
+            )
+            rows = []
+            for key, raw in (payload or {}).items():
+                if isinstance(raw, dict):
+                    continue
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if math.isnan(value):
+                    continue
+                rows.append(
+                    model(
+                        symbol=symbol,
+                        market=market or 'US',
+                        as_of=as_of_key,
+                        factor_key=str(key)[:32],
+                        factor_value=value,
+                        create_time=now,
+                    )
+                )
+            if rows:
+                db.add_all(rows)
+        await db.flush()
 
     @classmethod
     async def get_latest_readmodel(

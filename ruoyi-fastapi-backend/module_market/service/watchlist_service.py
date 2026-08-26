@@ -148,6 +148,14 @@ def _hit_rate(flags: list[bool | None]) -> float | None:
     return round(sum(known) / len(known), 4)
 
 
+def _quote_from_mysql(q: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'last': q.get('price'),
+        'changeRate': q.get('changeRate'),
+        'tradeDate': q.get('tradeDate'),
+    }
+
+
 class MarketWatchlistService:
     """行情自选清单服务。"""
 
@@ -261,23 +269,42 @@ class MarketWatchlistService:
         items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
+        all_symbols = [row.symbol for row in items]
+        mysql_quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, all_symbols)
         quotes: dict[str, dict[str, Any]] = {}
+        for symbol, raw in mysql_quotes.items():
+            if raw.get('price') is not None:
+                quotes[symbol] = _quote_from_mysql(raw)
         by_market: dict[str, list[str]] = {}
         for row in items:
-            by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
-        for market, symbols in by_market.items():
+            if row.symbol not in quotes or quotes[row.symbol].get('last') is None:
+                by_market.setdefault((row.market or 'US').upper(), []).append(row.symbol)
+        influx_hits = 0
+
+        async def _influx_market(market: str, symbols: list[str]) -> dict[str, list]:
             try:
-                grouped = await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d')
+                return await asyncio.to_thread(InfluxUtil.query_latest_klines, market, symbols, 2, '-60d') or {}
             except Exception as exc:
-                # 自选页主路径：库故障降级为无行情，页面仍可看分析记录
                 logger.error(f'[自选] 行情批量查询失败 market={market}: {exc}')
-                grouped = {}
+                return {}
+
+        influx_jobs = [
+            _influx_market(market, symbols) for market, symbols in by_market.items() if symbols
+        ]
+        influx_groups = await asyncio.gather(*influx_jobs) if influx_jobs else []
+        missing = [symbols for symbols in by_market.values() if symbols]
+        for symbols, grouped in zip(missing, influx_groups, strict=False):
             for symbol in symbols:
                 quote = MarketService._build_quote_from_klines(grouped.get(symbol) or [])
                 if quote:
                     quotes[symbol] = quote
-        # Browse/list path: last price from Influx latest 2 daily bars only — do not overlay Longbridge realtime.
-        quote_source = 'influx'
+                    influx_hits += 1
+        if influx_hits and mysql_quotes:
+            quote_source = 'mysql+influx'
+        elif influx_hits:
+            quote_source = 'influx'
+        else:
+            quote_source = 'mysql'
 
         rows = []
         stance_count = {'偏多': 0, '偏空': 0, '中性': 0}
@@ -322,7 +349,8 @@ class MarketWatchlistService:
             for name in row.get('groups') or []:
                 group_counts[name] = group_counts.get(name, 0) + 1
         groups = [{'name': name, 'count': count} for name, count in sorted(group_counts.items(), key=lambda x: (-x[1], x[0]))]
-        ai_conf = await StockPickService._resolve_ai(query_db)
+        # 打开终端不解密模型密钥；AI 是否可用由分析记录本身表达。
+        ai_conf = {'available': True, 'modelName': None}
         return {
             'count': len(rows),
             'bullish': stance_count['偏多'],

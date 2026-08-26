@@ -30,6 +30,7 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
+# windows 原生壳清空期间此例外无文件；补回平台后继续放行 runner 清单
 !flutter_client/windows/runner/runner.exe.manifest
 *.spec
 

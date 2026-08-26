@@ -36,6 +36,14 @@ class Win32Window {
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
+  // Centers the window on the primary monitor work area. Uses physical pixels
+  // from GetWindowRect / GetMonitorInfo (Create already DPI-scaled the size).
+  void Center();
+
+  // Sets the minimum tracking size in the same logical pixels as |Create|.
+  // The value is DPI-scaled when handling WM_GETMINMAXINFO.
+  void SetMinSize(const Size& size);
+
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
 
@@ -97,6 +105,9 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  bool has_min_size_ = false;
+  Size min_size_ = Size(0, 0);
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

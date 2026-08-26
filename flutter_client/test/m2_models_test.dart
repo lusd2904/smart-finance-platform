@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_client/features/ai/data/ai_models.dart';
 import 'package:flutter_client/features/news/data/briefing_models.dart';
 import 'package:flutter_client/features/notice/data/notice_models.dart';
+import 'package:flutter_client/core/api/api_result.dart';
+import 'package:flutter_client/features/market/data/market_models.dart';
 import 'package:flutter_client/features/sentiment/data/sentiment_models.dart';
+import 'package:flutter_client/features/trade/data/trade_models.dart';
 import 'package:flutter_client/shared/utils/format.dart';
 
 void main() {
@@ -53,6 +56,24 @@ void main() {
       expect(a.riskEvents, isEmpty);
     });
 
+    test('ApiResult 兼容 Cloudflare 纯文本 502 与业务 401', () {
+      final plain = ApiException;
+      expect(isBusinessUnauthorized({'code': 401, 'data': '', 'msg': '用户未登录，请先完成登录'}), isTrue);
+      expect(isBusinessUnauthorized({'code': 200}), isFalse);
+      expect(asJsonList(''), isEmpty);
+      expect(asJsonList('["a"]'), ['a']);
+      expect(asJsonMap('{"a":1}')?['a'], 1);
+      expect(describeHttpFailure(502, 'error code: 502'), contains('502'));
+      expect(plain, isNotNull);
+    });
+
+    test('riskEvents 兼容 JSON 字符串', () {
+      final a = SentimentAnalysis.fromJson(const {
+        'riskEvents': '["美联储讲话", "地缘冲突"]',
+      });
+      expect(a.riskEvents, ['美联储讲话', '地缘冲突']);
+    });
+
     test('多数票决定综合方向（2 票起）', () {
       final a = SentimentAnalysis.fromJson(const {
         'usDirection': '涨',
@@ -93,6 +114,19 @@ void main() {
       final running = AiBatch.fromJson(const {'batchId': 4, 'status': '0'});
       expect(done.finished, isTrue);
       expect(running.finished, isFalse);
+    });
+
+    test('AiBatch 兼容 cycleId 为字符串、status 为数字', () {
+      final a = AiBatch.fromJson(const {
+        'batchId': '12',
+        'cycleId': '20260826-scan',
+        'symbolsCount': '3',
+        'status': 1,
+      });
+      expect(a.batchId, 12);
+      expect(a.cycleId, isNull);
+      expect(a.symbolsCount, 3);
+      expect(a.finished, isTrue);
     });
 
     test('AiBatchItem 成功状态与决策解析', () {
@@ -172,6 +206,68 @@ void main() {
     test('非法输入原样返回', () {
       expect(formatRelativeTime('', now: now), '');
       expect(formatRelativeTime('not-a-time', now: now), 'not-a-time');
+    });
+  });
+
+  group('PositionQuote / UsdHkdFx', () {
+    test('涨跌幅用 last 与 prevClose 自算，盈亏按数量', () {
+      const q = PositionQuote(last: 110, prevClose: 100);
+      expect(q.changePct, closeTo(10, 0.0001));
+      expect(q.dayAmount(2), closeTo(20, 0.0001));
+      expect(q.pnl(2, 80), closeTo(60, 0.0001));
+    });
+
+    test('港元美元切换时涨跌金额按汇率换算', () {
+      const hkd = UsdHkdFx(usdHkd: 8, display: 'HKD');
+      const usd = UsdHkdFx(usdHkd: 8, display: 'USD');
+      expect(hkd.convert(10, 'USD'), 80);
+      expect(usd.convert(80, 'HKD'), 10);
+      expect(hkd.convert(100, 'HKD'), 100);
+    });
+
+    test('持仓行解析长桥叠加的 last/prevClose', () {
+      final p = PositionItem.fromJson(const {
+        'symbol': 'AAPL.US',
+        'quantity': 10,
+        'costPrice': 100,
+        'currency': 'USD',
+        'last': 110,
+        'prevClose': 100,
+      });
+      expect(p.asQuote?.changePct, closeTo(10, 0.0001));
+      expect(p.asQuote?.pnl(p.quantity, p.costPrice), closeTo(100, 0.0001));
+    });
+  });
+
+  group('热度指数按市场筛选', () {
+    const all = [
+      IndexQuote(symbol: 'usINX', name: '标普500', market: 'US', changePct: 1),
+      IndexQuote(symbol: 'usIXIC', name: '纳斯达克', market: 'US', changePct: 2),
+      IndexQuote(symbol: 'usDJI', name: '道琼斯', market: 'US', changePct: 0.5),
+      IndexQuote(symbol: 'r_hkHSI', name: '恒生指数', market: 'HK', changePct: -1),
+      IndexQuote(symbol: 'r_hkHSTECH', name: '恒生科技', market: 'HK', changePct: -2),
+      IndexQuote(symbol: 'r_hkHSCEI', name: '恒生国企', market: 'HK', changePct: -0.3),
+      IndexQuote(symbol: 'sh000001', name: '上证指数', market: 'CN', changePct: 0.1),
+      IndexQuote(symbol: 'sz399006', name: '创业板指数', market: 'CN', changePct: 0.2),
+      IndexQuote(symbol: 'sh000688', name: '科创板指数', market: 'CN', changePct: 0.3),
+    ];
+
+    test('三个市场互不串指数，美股统计卡用道琼斯', () {
+      expect(heatStripQuotes(all, 'US').map((q) => q.symbol), ['usINX', 'usIXIC']);
+      expect(heatStripQuotes(all, 'HK').map((q) => q.symbol), ['r_hkHSI', 'r_hkHSTECH', 'r_hkHSCEI']);
+      expect(heatStripQuotes(all, 'CN').map((q) => q.symbol), ['sh000001', 'sz399006', 'sh000688']);
+      expect(heatStatQuote(all, 'US')?.symbol, 'usDJI');
+      expect(indexDisplayName(heatStatQuote(all, 'US')!), '道琼斯');
+    });
+
+    test('筛选规则随市场变化', () {
+      expect(const HeatDailyData().filterRuleFor('US'), contains('美元'));
+      expect(const HeatDailyData().filterRuleFor('HK'), contains('港币'));
+      expect(const HeatDailyData().filterRuleFor('CN'), contains('人民币'));
+      expect(
+        const HeatDailyData(heat: HeatSummary(filterRule: '50亿-500亿港币')).filterRuleFor('HK'),
+        '50亿-500亿港币',
+      );
     });
   });
 }

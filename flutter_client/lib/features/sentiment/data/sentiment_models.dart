@@ -2,6 +2,8 @@
 /// module_sentiment/entity/vo/sentiment_vo.py + service/sentiment_service.py。
 library;
 
+import 'dart:convert';
+
 /// 情绪方向：LLM 原文经归一化后的三值。
 /// 归一规则镜像后端 _normalize_direction（sentiment_service.py:233-241）。
 enum SentimentDirection {
@@ -59,10 +61,7 @@ class SentimentAnalysis {
         aDirection: (json['aDirection'] as String?) ?? '',
         aScore: (json['aScore'] as num?)?.toDouble(),
         aReason: (json['aReason'] as String?) ?? '',
-        riskEvents: ((json['riskEvents'] as List<dynamic>?) ?? const [])
-            .map((e) => e.toString())
-            .where((e) => e.isNotEmpty)
-            .toList(),
+        riskEvents: _parseRiskEvents(json['riskEvents']),
         modelName: (json['modelName'] as String?) ?? '',
         createTime: (json['createTime'] as String?) ?? '',
       );
@@ -90,6 +89,29 @@ class SentimentAnalysis {
     final scores = [usScore, hkScore, aScore].whereType<double>().toList();
     if (scores.isEmpty) return null;
     return scores.reduce((a, b) => a + b) / scores.length;
+  }
+
+  /// 列表接口常把 riskEvents 存成 JSON 字符串，看板接口才是数组。
+  static List<String> _parseRiskEvents(dynamic raw) {
+    if (raw == null) return const [];
+    if (raw is List) {
+      return raw.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+    }
+    final text = raw.toString().trim();
+    if (text.isEmpty) return const [];
+    if (text.startsWith('[')) {
+      try {
+        final parsed = jsonDecode(text);
+        if (parsed is List) {
+          return parsed.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+        }
+      } catch (_) {}
+    }
+    return text
+        .split(RegExp(r'[\n;；]'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 
   /// 综合方向：三市场归一方向的多数票，平票回退中性。

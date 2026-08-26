@@ -190,11 +190,11 @@ class TradeClientMixin:
             return {'configured': True, 'ok': False, 'message': f'下单失败: {exc}'}
 
     @classmethod
-    def cancel_order(cls, order_id: str) -> dict[str, Any]:
-        """撤单。"""
+    def cancel_order(cls, order_id: str, allow_sim: bool = False) -> dict[str, Any]:
+        """撤单。allow_sim=True 时按当前用户模拟账户凭据撤单。"""
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
-        if not cls.is_trading_enabled():
+        if not allow_sim and not cls.is_trading_enabled():
             return {
                 'configured': True,
                 'ok': False,
@@ -380,5 +380,5 @@ class TradeClientMixin:
         )
 
     @classmethod
-    async def cancel_order_async(cls, order_id: str) -> dict[str, Any]:
-        return await asyncio.to_thread(cls.cancel_order, order_id)
+    async def cancel_order_async(cls, order_id: str, allow_sim: bool = False) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.cancel_order, order_id, allow_sim)

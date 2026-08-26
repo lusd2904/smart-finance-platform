@@ -17,6 +17,19 @@ void main() {
       expect(a.currency, 'USD');
     });
 
+    test('多币种余额优先取 USD', () {
+      final a = AccountInfo.fromJson(const {
+        'configured': true,
+        'balances': [
+          {'currency': 'HKD', 'availableCash': 10, 'totalCash': 10, 'netAssets': 10},
+          {'currency': 'USD', 'availableCash': 25000.5, 'totalCash': 26000, 'netAssets': 40000},
+        ],
+      });
+      expect(a.currency, 'USD');
+      expect(a.availableCash, 25000.5);
+      expect(a.netAssets, 40000);
+    });
+
     test('持仓行成本口径字段', () {
       final p = PositionItem.fromJson(const {
         'symbol': 'AAPL',
@@ -163,6 +176,17 @@ void main() {
     test('require_paper 缺省按锁定处理（安全默认）', () {
       final s = AutoTradeStatus.fromJson(const {'config': {}});
       expect(s.requirePaper, isTrue);
+    });
+
+    test('autoTradeEnabled 与 tradingEnabled 互通', () {
+      final a = AutoTradeStatus.fromJson(const {
+        'configured': true,
+        'autoTradeEnabled': true,
+      });
+      expect(a.autoTradeEnabled, isTrue);
+      expect(a.tradingEnabled, isTrue);
+      final b = AutoTradeStatus.fromJson(const {'tradingEnabled': true});
+      expect(b.autoTradeEnabled, isTrue);
     });
   });
 

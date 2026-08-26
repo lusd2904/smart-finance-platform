@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:flutter_client/core/api/api_client.dart';
 import 'package:flutter_client/core/api/api_result.dart';
+import 'package:flutter_client/core/gateway/gateway_controller.dart';
 import 'package:flutter_client/core/storage/token_store.dart';
 import 'package:flutter_client/features/auth/data/auth_api.dart';
 
@@ -13,11 +14,13 @@ class SessionState {
     this.status = SessionStatus.unknown,
     this.user,
     this.roles = const [],
+    this.permissions = const [],
   });
 
   final SessionStatus status;
   final UserInfo? user;
   final List<String> roles;
+  final List<String> permissions;
 
   bool get isAnonymous => status == SessionStatus.anonymous;
   bool get isAuthenticated => status == SessionStatus.authenticated;
@@ -26,11 +29,13 @@ class SessionState {
     SessionStatus? status,
     UserInfo? user,
     List<String>? roles,
+    List<String>? permissions,
   }) =>
       SessionState(
         status: status ?? this.status,
         user: user ?? this.user,
         roles: roles ?? this.roles,
+        permissions: permissions ?? this.permissions,
       );
 }
 
@@ -40,15 +45,34 @@ class SessionController extends Notifier<SessionState> {
   bool _wiredUnauthorized = false;
 
   @override
-  SessionState build() => const SessionState();
+  SessionState build() {
+    ref.listen(gatewayController, (prev, next) {
+      if (prev != null && prev.url != next.url && state.isAuthenticated) {
+        Future<void>.microtask(_signOutLocal);
+      }
+    });
+    ref.listen(dioProvider, (prev, next) {
+      _wiredUnauthorized = false;
+      _ensureUnauthorizedWiring();
+    });
+    return const SessionState();
+  }
 
   /// 401 统一踢出挂在共享 Dio 上，只注册一次（核心层不反向依赖会话层）。
+  /// 线上 FastAPI 业务鉴权常返回 HTTP 200 + {code:401,data:""}，不能只看状态码。
   void _ensureUnauthorizedWiring() {
     if (_wiredUnauthorized) return;
     ref.read(dioProvider).interceptors.add(
           InterceptorsWrapper(
+            onResponse: (response, handler) {
+              if (isBusinessUnauthorized(response.data)) {
+                onUnauthorized();
+              }
+              handler.next(response);
+            },
             onError: (e, handler) {
-              if (e.response?.statusCode == 401) {
+              if (e.response?.statusCode == 401 ||
+                  isBusinessUnauthorized(e.response?.data)) {
                 onUnauthorized();
               }
               handler.next(e);
@@ -71,6 +95,7 @@ class SessionController extends Notifier<SessionState> {
         status: SessionStatus.authenticated,
         user: current.user,
         roles: current.roles,
+        permissions: current.permissions,
       );
     } on ApiException {
       // token 失效/被拒：清除并回登录页。
@@ -102,6 +127,7 @@ class SessionController extends Notifier<SessionState> {
         status: SessionStatus.authenticated,
         user: current.user,
         roles: current.roles,
+        permissions: current.permissions,
       );
       return null;
     } catch (e) {

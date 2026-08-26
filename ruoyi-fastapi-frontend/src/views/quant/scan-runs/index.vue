@@ -49,7 +49,6 @@
                   <div class="sub-title">跳过与控制</div>
                   <el-descriptions :column="1" size="small" border>
                     <el-descriptions-item label="策略档位">{{ details[scope.row.runId].strategyProfile }}</el-descriptions-item>
-                    <el-descriptions-item label="纸账户">是（当前不自动下单）</el-descriptions-item>
                     <el-descriptions-item label="跳过数">{{ details[scope.row.runId].skippedCount }}</el-descriptions-item>
                   </el-descriptions>
                   <el-table :data="(details[scope.row.runId].skipped || []).slice(0, 8)" size="small" style="margin-top: 8px">

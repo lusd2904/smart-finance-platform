@@ -27,7 +27,7 @@ class _GatewayPageState extends ConsumerState<GatewayPage> {
   void initState() {
     super.initState();
     final current = ref.read(gatewayController);
-    _controller = TextEditingController(text: current.url);
+    _controller = TextEditingController(text: resolveStoredGateway(current.url));
   }
 
   @override

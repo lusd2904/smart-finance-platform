@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+from utils.time_format_util import format_beijing_datetime, now_beijing
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +98,7 @@ class DashboardService:
         sections = await cls._collect(query_db, user_id, has)
 
         summary = {
-            'generatedAt': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'generatedAt': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'sessions': _market_sessions(),
             **sections,
         }
@@ -354,7 +355,7 @@ class DashboardService:
                 'summary': (r.summary or '')[:160],
                 'sourceName': r.source_name,
                 'sourceLink': r.source_link,
-                'generatedAt': r.generated_at.strftime('%Y-%m-%d %H:%M:%S') if r.generated_at else None,
+                'generatedAt': format_beijing_datetime(r.generated_at) if r.generated_at else None,
             }
             for r in rows
         ]
@@ -378,20 +379,16 @@ class DashboardService:
 
         since = datetime.now() - timedelta(hours=24)
         total = (
-            await query_db.execute(
-                select(func.count(SysJobLog.job_log_id)).where(SysJobLog.create_time >= since)
-            )
+            await query_db.execute(select(func.count(SysJobLog.job_log_id)).where(SysJobLog.create_time >= since))
         ).scalar() or 0
         failed = (
             await query_db.execute(
-                select(func.count(SysJobLog.job_log_id)).where(
-                    SysJobLog.create_time >= since, SysJobLog.status == '1'
-                )
+                select(func.count(SysJobLog.job_log_id)).where(SysJobLog.create_time >= since, SysJobLog.status == '1')
             )
         ).scalar() or 0
         last_run = (
-            await query_db.execute(select(SysJobLog).order_by(desc(SysJobLog.create_time)).limit(1))
-        ).scalars().first()
+            (await query_db.execute(select(SysJobLog).order_by(desc(SysJobLog.create_time)).limit(1))).scalars().first()
+        )
 
         coverage = None
         try:
@@ -408,9 +405,7 @@ class DashboardService:
                     {
                         'jobName': last_run.job_name,
                         'status': last_run.status,
-                        'createTime': last_run.create_time.strftime('%Y-%m-%d %H:%M:%S')
-                        if last_run.create_time
-                        else None,
+                        'createTime': format_beijing_datetime(last_run.create_time) if last_run.create_time else None,
                     }
                     if last_run
                     else None

@@ -24,6 +24,47 @@ def test_decide_signal_reads_buy_threshold_alias() -> None:
     assert buy['signal'] == 'BUY'
 
 
+def test_list_strategy_profiles_prefers_user_overlay() -> None:
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from module_trade.dao.trade_dao import TradeDao
+    from module_trade.service.platform_ext_service import PlatformExtService
+
+    default = SimpleNamespace(
+        profile_code='balanced',
+        profile_name='均衡',
+        config_json='{"buyThreshold": 64}',
+        update_time=None,
+    )
+    overlay = SimpleNamespace(
+        profile_code='balanced',
+        profile_name='均衡',
+        config_json='{"buyThreshold": 70}',
+        update_time=None,
+    )
+
+    async def _run() -> None:
+        with (
+            patch.object(PlatformExtService, 'ensure_seed_data', AsyncMock()),
+            patch.object(TradeDao, 'list_strategy_profiles', AsyncMock(return_value=[default])),
+            patch.object(TradeDao, 'list_user_strategy_profiles', AsyncMock(return_value=[overlay])),
+        ):
+            rows = await PlatformExtService.list_strategy_profiles(MagicMock(), user_id=101)
+        assert rows[0]['config']['buyThreshold'] == 70
+        assert rows[0]['accountOwned'] is True
+
+        with (
+            patch.object(PlatformExtService, 'ensure_seed_data', AsyncMock()),
+            patch.object(TradeDao, 'get_user_strategy_profile', AsyncMock(return_value=overlay)),
+        ):
+            cfg = await PlatformExtService.get_profile_config(MagicMock(), 'balanced', user_id=101)
+        assert cfg['buyThreshold'] == 70
+
+    asyncio.run(_run())
+
+
 def test_order_status_label() -> None:
     assert LongbridgeService._order_status_label('Filled') == '已成交'
     assert LongbridgeService._order_status_label('PartialFilled') == '部分成交'

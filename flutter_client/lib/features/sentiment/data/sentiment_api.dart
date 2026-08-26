@@ -25,10 +25,14 @@ class SentimentApi {
   Future<List<SentimentTrendPoint>> trend({int limit = 24}) async {
     final result = ApiResult.from(
         await _dio.get<void>('/sentiment/analysis/trend', queryParameters: {'limit': limit}));
-    return ((result.data as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(SentimentTrendPoint.fromJson)
-        .toList();
+    final raw = result.data;
+    final list = raw is List
+        ? raw
+        : raw is Map
+            ? (raw['rows'] ?? raw['items'] ?? raw['data'])
+            : null;
+    if (list is! List) return const [];
+    return list.whereType<Map<String, dynamic>>().map(SentimentTrendPoint.fromJson).toList();
   }
 
   /// 触发一次舆情采集与分析（服务端入队，异步执行）。

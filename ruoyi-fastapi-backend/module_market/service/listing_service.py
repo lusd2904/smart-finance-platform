@@ -595,3 +595,85 @@ class ListingService:
                     conn.close()
                 except Exception:
                     pass
+
+    @classmethod
+    def sync_from_influx(
+        cls,
+        markets: list[str] | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        database: str | None = None,
+        conn: Any | None = None,
+    ) -> dict[str, Any]:
+        """从 Influx schema.tagValues 回填 market_instrument（listed），不覆盖精选分类。
+
+        US → bucket market_us；CN/HK → market_data + market tag 过滤。
+        """
+        from utils.influx_util import InfluxUtil, bucket_for_market, get_client
+
+        wanted = [m.upper() for m in (markets or ['US', 'CN', 'HK'])]
+        rows: list[dict[str, str]] = []
+        fetched: dict[str, int] = {}
+        for market in wanted:
+            bucket = bucket_for_market(market)
+            if market == 'US':
+                symbols = [str(s).strip() for s in InfluxUtil.list_symbols('US') if s]
+            else:
+                flux = (
+                    'import "influxdata/influxdb/schema"\n'
+                    + f'schema.tagValues(bucket: "{bucket}", tag: "symbol", '
+                    + f'predicate: (r) => r["market"] == "{market}")'
+                )
+                symbols = []
+                try:
+                    tables = get_client().query_api().query(flux)
+                    symbols = [
+                        str(record.get_value()).strip()
+                        for table in tables
+                        for record in table.records
+                        if record.get_value()
+                    ]
+                except Exception as exc:
+                    logger.warning(f'[listings] influx tagValues {market} failed: {exc}')
+                    symbols = []
+            clean: list[str] = []
+            for raw in symbols:
+                s = str(raw or '').strip()
+                if not s or s.startswith('#') or s.startswith(',') or s in {'_value', '_result', 'symbol'}:
+                    continue
+                if ',' in s:
+                    s = s.split(',')[-1].strip()
+                if s:
+                    clean.append(s)
+            clean = sorted(set(clean))
+            fetched[market] = len(clean)
+            for symbol in clean:
+                rows.append({'symbol': symbol, 'name': symbol, 'market': market, 'category': LISTED_CATEGORY})
+            logger.info(f'[listings] influx {market}={len(clean)}')
+
+        close_conn = False
+        if conn is None:
+            conn = _connect(host=host, port=port, user=user, password=password, database=database)
+            close_conn = True
+        try:
+            upsert = upsert_listed_rows(conn, rows)
+            breakdown = count_by_market(conn)
+            total = sum(int(item['count']) for item in breakdown)
+            result = {
+                'source': 'influx',
+                'fetched': fetched,
+                'upserted': upsert['fetched'],
+                'affected': upsert['affected'],
+                'total': total,
+                'byMarket': breakdown,
+            }
+            logger.info(f'[listings] sync_from_influx done {result}')
+            return result
+        finally:
+            if close_conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
