@@ -355,11 +355,9 @@ class _Sidebar extends StatelessWidget {
     required this.currentPath,
     required this.onSelect,
     required this.onLogo,
-    this.fill = false,
   });
 
   final bool open;
-  final bool fill;
   final List<RouterNode> routers;
   final bool loading;
   final String currentPath;
@@ -370,7 +368,7 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
-      width: fill ? double.infinity : (open ? WebTokens.sidebarWidth : WebTokens.sidebarCollapsed),
+      width: open ? WebTokens.sidebarWidth : WebTokens.sidebarCollapsed,
       color: WebTokens.sidebarBg,
       child: Material(
         color: Colors.transparent,

@@ -8,9 +8,7 @@ import '../gateway/gateway_store.dart';
 /// JWT 持久化。手机走系统安全存储；macOS 开发签名会反复弹出钥匙串授权，
 /// 桌面端改用本机偏好（与网关地址同一套 SharedPreferences）。
 class TokenStore {
-  TokenStore({FlutterSecureStorage? storage, SharedPreferences? prefs})
-      : _storage = storage,
-        _prefs = prefs;
+  TokenStore({this._storage, this._prefs});
 
   static const _tokenKey = 'auth.token.v1';
 

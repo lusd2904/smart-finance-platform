@@ -27,7 +27,7 @@
 
 ### 🚪 Web
 - 门户卡片按 `permissionStore.addRoutes` 过滤；无权限不展示系统/监控/工具/分析
-- 去掉 `/trade` 下重复的行情交易直达路由，只保留 `/market/terminal`
+- `/trade/terminal` 与 `/market/terminal` 两条直达路由都保留
 
 ### 🧪 测试与设计稿
 - 指数规格、持仓行情合并、默认网关单测；壳层 golden 更新
