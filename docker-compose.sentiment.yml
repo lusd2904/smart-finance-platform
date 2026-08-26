@@ -317,6 +317,12 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
+      # 全量日K写入后分片/WAL 很多，限制缓存避免 Docker Desktop OOM 137
+      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "536870912"
+      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "26214400"
+      INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
+      INFLUXD_QUERY_CONCURRENCY: "4"
+      INFLUXD_QUERY_QUEUE_SIZE: "8"
     volumes:
       - sentiment-influxdb-data:/var/lib/influxdb2
       - sentiment-influxdb-config:/etc/influxdb2
@@ -324,9 +330,11 @@ services:
       - sentiment-network
     healthcheck:
       test: ["CMD", "influx", "ping"]
-      interval: 5s
+      interval: 15s
       timeout: 10s
-      retries: 30
+      retries: 20
+      # 存量分片很多时启动要扫 TSM/WAL，5s 探测会在未监听时把容器打成 unhealthy
+      start_period: 10m
 
   # MySQL服务
   ruoyi-mysql:

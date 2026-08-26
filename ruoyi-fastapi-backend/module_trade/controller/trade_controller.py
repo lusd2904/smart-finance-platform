@@ -184,13 +184,18 @@ async def trade_submit(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     body: Annotated[dict, Body()],
 ) -> Response:
+    try:
+        quantity = float(body.get('quantity') or 0)
+        price = float(body['price']) if body.get('price') not in (None, '') else None
+    except (TypeError, ValueError):
+        return ResponseUtil.failure(msg='下单数量与价格必须为数字')
     result = await TradeService.submit_order_services(
         query_db,
         symbol=str(body.get('symbol') or ''),
         side=str(body.get('side') or 'buy'),
-        quantity=float(body.get('quantity') or 0),
+        quantity=quantity,
         order_type=str(body.get('orderType') or 'LO'),
-        price=float(body['price']) if body.get('price') not in (None, '') else None,
+        price=price,
         market=str(body.get('market') or 'US'),
     )
     logger.info(f'下单结果: {result}')

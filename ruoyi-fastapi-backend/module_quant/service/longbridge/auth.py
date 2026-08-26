@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import os
 import time
 from contextvars import ContextVar
 from typing import Any
@@ -250,13 +249,6 @@ class CredentialsMixin:
             return None
         region = creds['region']
         eps = endpoints(region)
-        # 通过环境变量与显式参数双保险
-        os.environ['LONGPORT_APP_KEY'] = creds['app_key']
-        os.environ['LONGPORT_APP_SECRET'] = creds['app_secret']
-        os.environ['LONGPORT_ACCESS_TOKEN'] = creds['access_token']
-        os.environ['LONGPORT_REGION'] = region
-        # 默认中文内容（公告/资讯标题与正文）
-        os.environ['LONGPORT_LANGUAGE'] = 'zh-CN'
         from longport.openapi import Config, Language  # 延迟导入
 
         return Config.from_apikey(
