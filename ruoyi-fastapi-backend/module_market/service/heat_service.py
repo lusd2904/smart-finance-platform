@@ -192,16 +192,20 @@ class MarketHeatService:
 
     @classmethod
     def _index_change_from_influx(cls, market: str, symbol: str) -> float | None:
-        klines = InfluxUtil.query_klines(market, symbol, '-30d', 'now()', 3)
-        if len(klines) < MIN_KLINES_FOR_CHANGE:
+        try:
+            klines = InfluxUtil.query_klines(market, symbol, '-30d', 'now()', 3)
+            if len(klines) < MIN_KLINES_FOR_CHANGE:
+                return None
+            prev = klines[-2]
+            last = klines[-1]
+            prev_close = prev.get('close')
+            last_close = last.get('close')
+            if not prev_close or not last_close:
+                return None
+            return round((float(last_close) / float(prev_close) - 1.0) * 100, 4)
+        except Exception as exc:
+            logger.warning(f'[热度] Influx 指数K线查询失败 {market} {symbol}: {exc}')
             return None
-        prev = klines[-2]
-        last = klines[-1]
-        prev_close = prev.get('close')
-        last_close = last.get('close')
-        if not prev_close or not last_close:
-            return None
-        return round((float(last_close) / float(prev_close) - 1.0) * 100, 4)
 
     @classmethod
     def filter_top50_candidates(
@@ -245,7 +249,7 @@ class MarketHeatService:
         return round(_clamp_score(score), 2)
 
     @classmethod
-    async def collect_market(cls, db: AsyncSession, market: str, trade_date: str | None = None) -> dict[str, Any]:  # noqa: PLR0915
+    async def collect_market(cls, db: AsyncSession, market: str, trade_date: str | None = None) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
         market = _normalize_market(market)
         session_date = _resolve_trade_date(market, trade_date)
         if not _is_weekday(session_date):
@@ -308,9 +312,13 @@ class MarketHeatService:
                 }
             )
 
-        index_change = await loop.run_in_executor(
-            None, cls._index_change_from_influx, market, str(meta['index_symbol'])
-        )
+        try:
+            index_change = await loop.run_in_executor(
+                None, cls._index_change_from_influx, market, str(meta['index_symbol'])
+            )
+        except Exception as exc:
+            logger.warning(f'[热度] Influx 指数K线获取失败，回退行情: {exc}')
+            index_change = None
         if index_change is None:
             idx_quote = quote_map.get(str(meta['index_symbol']).upper()) or {}
             index_change = idx_quote.get('changeRate') or idx_quote.get('change')

@@ -14,6 +14,7 @@ from common.router import APIRouterPro
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.platform_ext_service import PlatformExtService
 from module_trade.service.trade_service import TradeService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 from utils.response_util import ResponseUtil
 
@@ -646,18 +647,20 @@ async def notices_read_db(
 @Log(title='批量AI研判', business_type=BusinessType.OTHER)
 async def ai_batch_run(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
-    symbols = body.get('symbols')
-    data = await PlatformExtService.run_ai_batch(
-        query_db,
-        symbols=symbols,
-        market=str(body.get('market') or 'US'),
-        days=int(body.get('days') or 90),
+    ticket = await JobQueue.submit(
+        'ai_batch',
+        {
+            'symbols': body.get('symbols'),
+            'market': str(body.get('market') or 'US'),
+            'days': int(body.get('days') or 90),
+        },
     )
-    return ResponseUtil.success(data=data, msg=f"完成 {data.get('success')}/{data.get('total')}")
+    if not ticket:
+        return ResponseUtil.failure(msg='队列不可用')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')
 
 
 @trade_controller.get(

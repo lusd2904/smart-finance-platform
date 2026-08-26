@@ -60,16 +60,42 @@ export function syncMarket(data) {
   })
 }
 
-// AI行情研判（模型调用约 47–90s，需长于默认超时）
+// AI行情研判：入队后立即返回 job ticket
 export function aiAnalyze(data, options = {}) {
   return request({
     url: '/market/ai/analyze',
     method: 'post',
     data: data,
-    timeout: 120000,
+    timeout: 20000,
     loadingText: '研判中…',
     ...options
   })
+}
+
+export function getMarketJob(jobId) {
+  return request({ url: '/market/jobs/' + jobId, method: 'get', timeout: 8000 })
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** 轮询任务票直到 done/failed；间隔 2s，超时约 3 分钟。 */
+export async function pollMarketJob(jobId, options = {}) {
+  const intervalMs = options.intervalMs ?? 2000
+  const timeoutMs = options.timeoutMs ?? 180000
+  if (!jobId) return { status: 'failed', error: '缺少任务 ID' }
+  const started = Date.now()
+  for (;;) {
+    const res = await getMarketJob(jobId)
+    const ticket = res.data || {}
+    const status = String(ticket.status || '')
+    if (status === 'done' || status === 'failed') return ticket
+    if (Date.now() - started >= timeoutMs) {
+      return { ...ticket, status: 'failed', error: ticket.error || '任务等待超时' }
+    }
+    await sleep(intervalMs)
+  }
 }
 
 // 标的详情概览（core | all）
@@ -106,7 +132,7 @@ export function symbolAiAnalyze(symbol, query, options = {}) {
     url: '/market/symbols/' + encodeURIComponent(symbol) + '/ai-analyze',
     method: 'post',
     params: query,
-    timeout: 120000,
+    timeout: 20000,
     loadingText: '研判中…',
     ...options
   })
@@ -166,7 +192,7 @@ export function analyzeMarketWatchlist(data) {
     url: '/market/watchlist/analyze',
     method: 'post',
     data: data || {},
-    timeout: 180000
+    timeout: 30000
   })
 }
 

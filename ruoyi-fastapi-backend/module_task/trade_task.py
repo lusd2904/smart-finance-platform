@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from config.database import AsyncSessionLocal
 from module_quant.dao.quant_dao import QuantWatchlistDao
 from module_trade.service.auto_trade_service import AutoTradeService
+from utils.job_queue import JobQueue
 from utils.log_util import logger
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ async def _scan_one_user(db: AsyncSession, uid: int, profile: str) -> None:
 
 
 async def run_auto_trade_scan_now(profile: str = 'balanced', user_id: int | None = None) -> dict[str, Any]:
-    """内联扫描（队列消费或入队失败兜底）。是否真实下单仍跟各账户 auto_trade_enabled。"""
+    """队列消费者执行的自动交易扫描。是否真实下单仍跟各账户 auto_trade_enabled。"""
     async with AsyncSessionLocal() as db:
         try:
             if user_id:
@@ -62,8 +63,6 @@ async def run_auto_trade_scan_now(profile: str = 'balanced', user_id: int | None
 
 
 async def run_auto_trade_scan_job(*args, **kwargs) -> None:
-    from utils.job_queue import JobQueue
-
     profile, user_id = _parse_scan_args(*args, **kwargs)
     payload: dict[str, Any] = {'profile': profile}
     if user_id:
@@ -71,20 +70,12 @@ async def run_auto_trade_scan_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('auto_trade_scan', payload):
         logger.info('[自动交易定时扫描] 已入队')
         return
-    await run_auto_trade_scan_now(profile=profile, user_id=user_id)
+    logger.error('[自动交易定时扫描] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def run_feishu_push_job(*args, **kwargs) -> None:
     """按用户时区推送飞书策略摘要；非交易日/空清单静默。"""
-    from utils.job_queue import JobQueue  # noqa: PLC0415 - 定时任务入口延迟加载，缩短模块导入链
-
     if await JobQueue.enqueue('feishu_push', {}):
         logger.info('[飞书推送] 已入队')
         return
-    from module_trade.service.feishu_push_service import (  # noqa: PLC0415 - 定时任务入口延迟加载服务，缩短模块导入链
-        FeishuPushService,
-    )
-
-    async with AsyncSessionLocal() as db:
-        result = await FeishuPushService.run_due(db)
-        logger.info(f'[飞书推送] {result}')
+    logger.error('[飞书推送] 入队失败，跳过本轮（不在 scheduler 内联执行）')

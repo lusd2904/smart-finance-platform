@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Body, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -302,12 +302,15 @@ async def migrate_mysql_to_influx(
 async def market_ai_analyze(
     request: Request,
     analyze_body: MarketAiAnalyzeModel,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
-    result = await MarketService.ai_analyze_services(query_db, analyze_body)
-    logger.info(f'行情AI分析完成: {analyze_body.symbol} -> {result.get("message")}')
-
-    return ResponseUtil.success(data=result, msg=result.get('message', ''))
+    ticket = await JobQueue.submit(
+        'ai_analyze',
+        {'symbol': analyze_body.symbol, 'market': analyze_body.market, 'days': analyze_body.days},
+    )
+    if not ticket:
+        raise ServiceException(message='队列不可用')
+    logger.info(f'行情AI分析已入队: {analyze_body.symbol} job={ticket.get("jobId")}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')
 
 
 @market_controller.get(
@@ -326,6 +329,22 @@ async def market_ai_analyze_stream(
     analyze_body = MarketAiAnalyzeModel(symbol=symbol, market=market, days=days)
     stream_gen = MarketService.ai_analyze_stream_services(query_db, analyze_body)
     return StreamingResponse(stream_gen, media_type='text/event-stream')
+
+
+@market_controller.get(
+    '/jobs/{job_id}',
+    summary='后台任务票据',
+    description='查询 JobQueue 入队任务状态（queued/running/done/failed）',
+    dependencies=[UserInterfaceAuthDependency(['market:ai:analyze', 'market:watchlist:list'])],
+)
+async def get_market_job_ticket(
+    request: Request,
+    job_id: Annotated[str, Path(description='任务ID')],
+) -> Response:
+    ticket = await JobQueue.get_ticket(job_id)
+    if not ticket:
+        raise ServiceException(message='任务不存在或已过期')
+    return ResponseUtil.success(data=ticket)
 
 
 @market_controller.get(
@@ -418,14 +437,14 @@ async def get_symbol_ai_latest(
 async def symbol_ai_analyze(
     request: Request,
     symbol: Annotated[str, Path()],
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     market: Annotated[str, Query()] = 'US',
     days: Annotated[int, Query()] = 120,
 ) -> Response:
-    result = await MarketService.ai_analyze_services(
-        query_db, MarketAiAnalyzeModel(symbol=symbol, market=market, days=days)
-    )
-    return ResponseUtil.success(data=result, msg=result.get('message', ''))
+    ticket = await JobQueue.submit('ai_analyze', {'symbol': symbol, 'market': market, 'days': days})
+    if not ticket:
+        raise ServiceException(message='队列不可用')
+    logger.info(f'标的AI研判已入队: {symbol} job={ticket.get("jobId")}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')
 
 
 @market_controller.get(
@@ -554,24 +573,21 @@ async def get_market_watchlist_analysis(
 @Log(title='行情自选分析', business_type=BusinessType.OTHER)
 async def analyze_market_watchlist(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: MarketWatchlistAnalyzeModel = Body(default_factory=MarketWatchlistAnalyzeModel),
 ) -> Response:
-    if not getattr(body, 'symbol', None):
-        ticket = await JobQueue.submit(
-            'watchlist_analyze',
-            {'userId': _current_user_id(current_user), 'refreshContent': getattr(body, 'refresh_content', None)},
-        )
-        if not ticket:
-            raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
-        logger.info(f'自选全部分析已入队: {ticket}')
-        return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新清单查看结果')
-    data = await MarketWatchlistService.analyze_services(
-        query_db, body, user_id=_current_user_id(current_user)
-    )
-    logger.info(f'自选综合分析完成: {data.get("message")}')
-    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')
+    payload: dict[str, Any] = {
+        'userId': _current_user_id(current_user),
+        'refreshContent': getattr(body, 'refresh_content', None),
+    }
+    if getattr(body, 'symbol', None):
+        payload['symbol'] = body.symbol
+        payload['market'] = getattr(body, 'market', None)
+    ticket = await JobQueue.submit('watchlist_analyze', payload)
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'自选分析已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新清单查看结果')
 
 
 @market_controller.get(

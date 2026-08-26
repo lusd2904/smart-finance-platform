@@ -51,9 +51,52 @@ def test_handlers_cover_known_jobs() -> None:
     assert group_for('req_summarize') == 'llm'
     assert group_for('stock_pick_run') == 'llm'
     assert group_for('eod_kline_sync') == 'market'
+    assert group_for('ai_analyze') == 'llm'
+    assert group_for('ai_batch') == 'llm'
+    assert group_for('listings_sync') == 'market'
+    assert group_for('klines_slow') == 'market'
     assert JobQueue.consume_keys('none') == []
     assert 'sfp:job:queue:market' in JobQueue.consume_keys('market')
     assert 'sfp:job:queue:quant' in JobQueue.consume_keys('all')
+
+
+def test_new_job_types_encode_and_group() -> None:
+    expected = {
+        'ai_analyze': 'llm',
+        'ai_batch': 'llm',
+        'listings_sync': 'market',
+        'klines_slow': 'market',
+    }
+    for job_type, queue in expected.items():
+        assert job_type in JOB_GROUPS
+        assert group_for(job_type) == queue
+        raw = JobQueue.encode(job_type, {})
+        job = JobQueue.decode(raw)
+        assert job is not None
+        assert job['type'] == job_type
+        assert job['queue'] == queue
+
+
+def test_market_ai_analyze_style_submit_is_known() -> None:
+    assert 'ai_analyze' in JOB_GROUPS
+    raw = JobQueue.encode('ai_analyze', {'symbol': 'AAPL', 'market': 'US', 'days': 90})
+    job = JobQueue.decode(raw)
+    assert job is not None
+    assert job['type'] == 'ai_analyze'
+    assert job['payload'] == {'symbol': 'AAPL', 'market': 'US', 'days': 90}
+    assert group_for(job['type']) == 'llm'
+
+
+def test_watchlist_analyze_payload_with_symbol() -> None:
+    raw = JobQueue.encode(
+        'watchlist_analyze',
+        {'symbol': 'AAPL', 'market': 'US', 'userId': 9, 'refreshContent': False},
+    )
+    job = JobQueue.decode(raw)
+    assert job is not None
+    assert job['payload']['symbol'] == 'AAPL'
+    assert job['payload']['refreshContent'] is False
+    assert group_for('watchlist_analyze') == 'llm'
 
 
 def test_processing_and_dead_keys() -> None:
@@ -96,23 +139,22 @@ async def test_auto_trade_scan_job_enqueues(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_auto_trade_scan_job_falls_back_inline(monkeypatch):
+async def test_auto_trade_scan_job_skips_when_enqueue_fails(monkeypatch):
     from module_task.trade_task import run_auto_trade_scan_job
 
     async def fake_enqueue(job_type, payload=None):
         return False
 
-    ran = {}
+    inline_called = {'value': False}
 
     async def fake_now(profile='balanced', user_id=None):
-        ran['profile'] = profile
-        ran['userId'] = user_id
+        inline_called['value'] = True
         return {'profile': profile, 'userId': user_id}
 
     monkeypatch.setattr(JobQueue, 'enqueue', fake_enqueue)
     monkeypatch.setattr('module_task.trade_task.run_auto_trade_scan_now', fake_now)
     await run_auto_trade_scan_job(profile='balanced')
-    assert ran == {'profile': 'balanced', 'userId': None}
+    assert inline_called['value'] is False
 
 
 @pytest.mark.asyncio
@@ -340,3 +382,118 @@ def test_audit_skips_metrics_and_docs() -> None:
     assert _should_skip('/docker-api/metrics')
     assert _should_skip('/docker-api/docs')
     assert not _should_skip('/market/watchlist/overview')
+
+
+@pytest.mark.asyncio
+async def test_watchlist_analyze_handler_honors_symbol_payload(monkeypatch):
+    captured: dict = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeWatchlistService:
+        @classmethod
+        async def analyze_services(cls, db, body, user_id=None):
+            captured['mode'] = 'symbol'
+            captured['symbol'] = body.symbol
+            captured['market'] = body.market
+            captured['refresh_content'] = body.refresh_content
+            captured['user_id'] = user_id
+            return {'ok': True}
+
+        @classmethod
+        async def run_hourly_job(cls, db):
+            captured['mode'] = 'hourly'
+            return {'ok': True}
+
+    class FakeBreaker:
+        @staticmethod
+        def allow():
+            return True
+
+    monkeypatch.setattr('config.database.AsyncSessionLocal', FakeSession)
+    monkeypatch.setattr(
+        'module_market.service.watchlist_service.MarketWatchlistService',
+        FakeWatchlistService,
+    )
+    monkeypatch.setattr('utils.longbridge_breaker.LongbridgeBreaker', FakeBreaker)
+
+    result = await HANDLERS['watchlist_analyze'](
+        {'symbol': 'AAPL', 'market': 'US', 'userId': 9, 'refreshContent': False}
+    )
+    assert result['ok'] is True
+    assert captured == {
+        'mode': 'symbol',
+        'symbol': 'AAPL',
+        'market': 'US',
+        'refresh_content': False,
+        'user_id': 9,
+    }
+
+    captured.clear()
+    hourly = await HANDLERS['watchlist_analyze']({})
+    assert hourly['ok'] is True
+    assert captured['mode'] == 'hourly'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('role', ['api', 'scheduler', 'worker'])
+async def test_init_create_table_skips_create_all_for_split_roles(monkeypatch, role):
+    from config import get_db
+    from config.env import AppConfig
+
+    monkeypatch.setattr(AppConfig, 'app_role', role)
+
+    class BoomEngine:
+        def begin(self):
+            raise AssertionError('create_all should be skipped')
+
+    monkeypatch.setattr(get_db, 'async_engine', BoomEngine())
+    await get_db.init_create_table()
+
+
+@pytest.mark.asyncio
+async def test_init_create_table_runs_create_all_for_all_role(monkeypatch):
+    from config import get_db
+    from config.env import AppConfig
+
+    monkeypatch.setattr(AppConfig, 'app_role', 'all')
+    called = {'create_all': False}
+
+    class FakeConn:
+        async def run_sync(self, fn):
+            called['create_all'] = True
+            called['fn'] = fn
+
+    class FakeBegin:
+        async def __aenter__(self):
+            return FakeConn()
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeEngine:
+        def begin(self):
+            return FakeBegin()
+
+    monkeypatch.setattr(get_db, 'async_engine', FakeEngine())
+    await get_db.init_create_table()
+    assert called['create_all'] is True
+
+
+@pytest.mark.asyncio
+async def test_ai_analyze_submit_goes_to_llm_queue(fake_redis):
+    ticket = await JobQueue.submit('ai_analyze', {'symbol': 'AAPL', 'market': 'US', 'days': 90})
+    assert ticket and ticket['queue'] == 'llm' and ticket['type'] == 'ai_analyze'
+    assert len(fake_redis.lists['sfp:job:queue:llm']) == 1
+    batch = await JobQueue.submit('ai_batch', {'symbols': ['AAPL'], 'market': 'US', 'days': 90})
+    assert batch and batch['queue'] == 'llm'
+    listings = await JobQueue.submit('listings_sync', {})
+    assert listings and listings['queue'] == 'market'
+    klines = await JobQueue.submit('klines_slow', {'years': 10})
+    assert klines and klines['queue'] == 'market'
+    assert len(fake_redis.lists['sfp:job:queue:market']) == 2

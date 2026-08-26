@@ -24,8 +24,8 @@ from module_market.controller.market_ws_controller import (
 
 
 def test_normalize_interval():
-    assert normalize_interval(None) == 5
-    assert normalize_interval('abc') == 5
+    assert normalize_interval(None) == 15
+    assert normalize_interval('abc') == 15
     assert normalize_interval('1') == 3  # 下限钳制
     assert normalize_interval('999') == 60  # 上限钳制
     assert normalize_interval('10') == 10

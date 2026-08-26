@@ -224,7 +224,8 @@ import {
   getMarketWatchlistAnalysis,
   getMarketWatchlistBacktest,
   listInstrument,
-  getKline
+  getKline,
+  pollMarketJob
 } from '@/api/market'
 
 const { proxy } = getCurrentInstance()
@@ -460,6 +461,19 @@ async function handleAnalyzeOne(row) {
   analyzingId.value = row.id
   try {
     const res = await analyzeMarketWatchlist({ symbol: row.symbol, market: row.market, refreshContent: true })
+    const d = res.data || {}
+    if (d.accepted || d.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队')
+      if (d.jobId) {
+        const ticket = await pollMarketJob(d.jobId)
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '分析失败')
+          return
+        }
+      }
+      await loadOverview()
+      return
+    }
     proxy.$modal.msgSuccess(res.msg || '分析完成')
     await loadOverview()
   } finally {
@@ -512,15 +526,38 @@ function onResize() {
   viewportWidth.value = window.innerWidth
 }
 
+function stopQuoteTimer() {
+  if (quoteTimer) {
+    clearInterval(quoteTimer)
+    quoteTimer = null
+  }
+}
+function startQuoteTimer() {
+  stopQuoteTimer()
+  quoteTimer = setInterval(loadOverviewQuiet, 8000)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!quoteTimer) {
+      loadOverviewQuiet()
+      startQuoteTimer()
+    }
+  } else {
+    stopQuoteTimer()
+  }
+}
+
 onMounted(() => {
   loadInstruments()
   loadOverview()
   loadBacktest()
-  quoteTimer = setInterval(loadOverviewQuiet, 8000)
+  startQuoteTimer()
   window.addEventListener('resize', onResize)
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
-  if (quoteTimer) clearInterval(quoteTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopQuoteTimer()
   window.removeEventListener('resize', onResize)
   disposeHist()
   disposeChart()

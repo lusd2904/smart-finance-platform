@@ -115,14 +115,37 @@ async function refreshAll(force = false) {
 
 let pollTimer = null
 
+function stopPollTimer() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+function startPollTimer() {
+  stopPollTimer()
+  pollTimer = setInterval(() => refreshAll(false), 5 * 60 * 1000)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!pollTimer) {
+      refreshAll(false)
+      startPollTimer()
+    }
+  } else {
+    stopPollTimer()
+  }
+}
+
 onMounted(() => {
   refreshAll()
   // 5 分钟静默轮询；命中后端 30s 缓存，成本可忽略
-  pollTimer = setInterval(() => refreshAll(false), 5 * 60 * 1000)
+  startPollTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 
 onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopPollTimer()
 })
 
 // 从行情中心等页面带 ?market=US 返回时自动刷新一次

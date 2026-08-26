@@ -17,7 +17,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
 - 🖥️ **桌面端（过渡）**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
-- 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。默认网关 `https://sfp.luapi.top`，本机 Docker 可在网关页改回。
+- 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。Debug 默认本机 Docker（`127.0.0.1:12580`，Android 模拟器 `10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
 ## 🚀 0826 V11 迭代更新日志（手机原生五栏、桌面 WebView 壳、实时持仓）
@@ -32,7 +32,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 ### 2. 🖥️ Flutter 桌面：登录后即 Web 控制台
 - macOS / Windows 宽屏不再走 Flutter 精简页，`WebView` 打开网关 `/portal`，页面、路由、样式与 Docker Web 同一份。
 - JWT 写入 `Admin-Token` Cookie；macOS 开发签名下 JWT 改存 SharedPreferences，避免反复弹钥匙串。
-- 默认网关改为线上 `https://sfp.luapi.top`；模拟器环回（`10.0.2.2` / `10.0.3.2`）视为未配置并回落线上。本机 Docker 仍可在网关页改 `http://127.0.0.1:12580`。
+- Debug 默认本机 Docker；Release 默认线上 `https://sfp.luapi.top`。模拟器环回 `10.0.2.2` 不再被改写成线上地址。
 
 ### 3. 💹 行情指数与持仓实时价
 - 大盘指数一次拉三市场各三条，始终返回最近有效报价，由客户端按当前市场筛选。缓存键 `market:index:quotes:v3`。

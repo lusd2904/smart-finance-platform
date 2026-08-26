@@ -14,7 +14,7 @@ class AiApi {
 
   final Dio _dio;
 
-  /// 触发单标的 AI 研判（交易工作台用）。
+  /// 触发单标的 AI 研判：HTTP 只入队，再轮询票据并取最新落库结果。
   Future<Map<String, dynamic>> analyze({
     required String symbol,
     required String market,
@@ -28,10 +28,47 @@ class AiApi {
           'market': market,
           'days': days,
         },
-        options: Options(receiveTimeout: const Duration(seconds: 120)),
+        options: Options(receiveTimeout: const Duration(seconds: 20)),
       ),
     );
-    return result.dataAsMap ?? <String, dynamic>{'message': result.msg};
+    final data = result.dataAsMap ?? <String, dynamic>{};
+    final jobId = '${data['jobId'] ?? ''}';
+    if (data['accepted'] == true || jobId.isNotEmpty) {
+      if (jobId.isNotEmpty) {
+        final ticket = await _pollJob(jobId);
+        if ('${ticket['status']}' == 'failed') {
+          return {
+            'message': ticket['error'] ?? result.msg ?? '研判失败',
+            ...ticket,
+          };
+        }
+      }
+      final latest = await this.latest(symbol: symbol, market: market);
+      if (latest != null) {
+        return {
+          'recommendation': latest.recommendation,
+          'stance': latest.stance,
+          'confidence': latest.confidence,
+          'summary': latest.summaryText,
+          'operationAdvice': latest.operationAdvice,
+          'modelName': latest.modelName,
+          'message': result.msg,
+        };
+      }
+    }
+    return data.isEmpty ? <String, dynamic>{'message': result.msg} : data;
+  }
+
+  Future<Map<String, dynamic>> _pollJob(String jobId) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 3));
+    while (DateTime.now().isBefore(deadline)) {
+      final result = ApiResult.from(await _dio.get<void>('/market/jobs/$jobId'));
+      final ticket = result.dataAsMap ?? <String, dynamic>{};
+      final status = '${ticket['status'] ?? ''}';
+      if (status == 'done' || status == 'failed') return ticket;
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    return <String, dynamic>{'status': 'failed', 'error': '任务等待超时'};
   }
 
   /// 单标的最新研判；无记录返回 null。

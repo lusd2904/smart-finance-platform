@@ -1,15 +1,24 @@
-/// 未配置时的默认网关：线上前端入口。本机 Docker / 模拟器仍可在网关页手动改。
-const kDefaultGateway = 'https://sfp.luapi.top';
+import 'package:flutter/foundation.dart';
 
-String suggestedLocalGateway() => kDefaultGateway;
+const kProdGateway = 'https://sfp.luapi.top';
+const kLocalGateway = 'http://127.0.0.1:12580';
+const kAndroidEmulatorGateway = 'http://10.0.2.2:12580';
 
-/// 模拟器环回地址在真机上不可达；当作未配置，回落到线上网关。
-String resolveStoredGateway(String stored) {
-  final u = stored.trim().toLowerCase();
-  if (u.isEmpty || u.contains('10.0.2.2') || u.contains('10.0.3.2')) {
-    return kDefaultGateway;
+String suggestedLocalGateway() {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    return kAndroidEmulatorGateway;
   }
-  return stored.trim();
+  return kLocalGateway;
+}
+
+/// Debug/profile: 本机 Docker；Release: 线上。
+String get kDefaultGateway => kReleaseMode ? kProdGateway : suggestedLocalGateway();
+
+/// Empty stored → default. Do NOT rewrite 10.0.2.2 / 10.0.3.2.
+String resolveStoredGateway(String stored) {
+  final u = stored.trim();
+  if (u.isEmpty) return kDefaultGateway;
+  return u;
 }
 
 /// 网关配置（与 desktop/src/gateway.js 的 gateway.json 结构对齐）。
@@ -69,7 +78,7 @@ const gatewayPresets = <GatewayPreset>[
   GatewayPreset(
     'cloud',
     '线上 HTTPS',
-    kDefaultGateway,
+    kProdGateway,
     '生产前端网关 sfp.luapi.top，业务接口走 /docker-api',
   ),
   GatewayPreset(

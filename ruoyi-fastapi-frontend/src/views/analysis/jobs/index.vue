@@ -255,12 +255,35 @@ async function loadLogs() {
   }
 }
 
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+function startTimer() {
+  stopTimer()
+  timer = setInterval(loadOverviewQuiet, 10000)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!timer) {
+      loadOverviewQuiet()
+      startTimer()
+    }
+  } else {
+    stopTimer()
+  }
+}
+
 onMounted(() => {
   loadOverview()
-  timer = setInterval(loadOverviewQuiet, 10000)
+  startTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopTimer()
 })
 </script>
 

@@ -161,7 +161,7 @@
 
 <script setup name="MarketSymbolIndex">
 import echarts from '@/utils/echarts'
-import { listInstrument, getSymbolOverview, symbolAiAnalyze, getSymbolContent } from '@/api/market'
+import { listInstrument, getSymbolOverview, symbolAiAnalyze, getSymbolContent, getLatestAi, pollMarketJob } from '@/api/market'
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
@@ -304,35 +304,51 @@ function loadAll() {
     })
 }
 
-function handleAi() {
+function applyLatestAi(data) {
+  latestAi.value = {
+    finalDecision: data.finalDecision || data.recommendation,
+    recommendation: data.recommendation || data.finalDecision,
+    finalConfidence: data.finalConfidence ?? data.confidence,
+    confidence: data.confidence ?? data.finalConfidence,
+    stance: data.stance || data.trend,
+    trend: data.trend || data.stance,
+    summary: data.summary || data.summaryText,
+    indicatorReview: data.indicatorReview,
+    sentimentReview: data.sentimentReview,
+    operationAdvice: data.operationAdvice || data.advice,
+    advice: data.advice || data.operationAdvice,
+    riskWarning: data.riskWarning,
+    analysisTime: data.analysisTime || new Date().toLocaleString()
+  }
+}
+
+async function handleAi() {
   aiLoading.value = true
-  symbolAiAnalyze(symbol.value, { market: market.value, days: 120 })
-    .then(res => {
-      const data = res.data || {}
-      if (data.ok) {
-        proxy.$modal.msgSuccess(data.message || '研判完成')
-        latestAi.value = {
-          finalDecision: data.finalDecision || data.recommendation,
-          recommendation: data.recommendation || data.finalDecision,
-          finalConfidence: data.finalConfidence ?? data.confidence,
-          confidence: data.confidence ?? data.finalConfidence,
-          stance: data.stance || data.trend,
-          trend: data.trend || data.stance,
-          summary: data.summary,
-          indicatorReview: data.indicatorReview,
-          sentimentReview: data.sentimentReview,
-          operationAdvice: data.operationAdvice || data.advice,
-          advice: data.advice || data.operationAdvice,
-          riskWarning: data.riskWarning,
-          analysisTime: new Date().toLocaleString()
+  try {
+    const res = await symbolAiAnalyze(symbol.value, { market: market.value, days: 120 })
+    const data = res.data || {}
+    if (data.accepted || data.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队')
+      if (data.jobId) {
+        const ticket = await pollMarketJob(data.jobId)
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '研判失败')
+          return
         }
-      } else {
-        proxy.$modal.msgWarning(data.message || '研判失败')
       }
-    })
-    .finally(() => {
-      aiLoading.value = false
-    })
+      const latest = await getLatestAi(symbol.value, { market: market.value })
+      applyLatestAi(latest.data || {})
+      return
+    }
+    if (data.ok) {
+      proxy.$modal.msgSuccess(data.message || '研判完成')
+      applyLatestAi(data)
+    } else {
+      proxy.$modal.msgWarning(data.message || '研判失败')
+    }
+  } finally {
+    aiLoading.value = false
+  }
 }
 
 function loadContent(refresh = false) {

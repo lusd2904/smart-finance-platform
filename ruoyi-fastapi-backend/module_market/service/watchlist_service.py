@@ -25,12 +25,49 @@ from module_market.entity.vo.market_vo import (
 from module_market.service.market_service import MarketService
 from module_market.service.stock_pick_service import StockPickService
 from utils.influx_util import InfluxUtil
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_WATCHLIST_BATCH = 30
+OVERVIEW_CACHE_TTL = 10
+OVERVIEW_CACHE_PREFIX = 'market:watchlist:overview:'
+
+
+async def _overview_cache_get(user_id: int) -> dict[str, Any] | None:
+    try:
+        cached = await cache_get_json(f'{OVERVIEW_CACHE_PREFIX}{user_id}')
+    except Exception as exc:
+        logger.debug(f'[自选] overview 缓存读取失败: {exc}')
+        return None
+    if isinstance(cached, dict) and 'items' in cached:
+        return cached
+    return None
+
+
+async def _overview_cache_set(user_id: int, data: dict[str, Any]) -> None:
+    if not isinstance(data, dict) or 'items' not in data:
+        return
+    try:
+        await cache_set_json(f'{OVERVIEW_CACHE_PREFIX}{user_id}', data, OVERVIEW_CACHE_TTL)
+    except Exception as exc:
+        logger.debug(f'[自选] overview 缓存写入失败: {exc}')
+
+
+async def _overview_cache_clear(user_id: int | None) -> None:
+    if not user_id:
+        return
+    try:
+        from config.get_redis import RedisUtil
+
+        redis = RedisUtil.get_client()
+        if redis is None:
+            return
+        await redis.delete(f'{OVERVIEW_CACHE_PREFIX}{user_id}')
+    except Exception as exc:
+        logger.debug(f'[自选] overview 缓存失效失败: {exc}')
 
 
 def _resolve_watchlist_name(symbol: str, market: str, stored_name: str | None = None) -> str:
@@ -215,6 +252,7 @@ class MarketWatchlistService:
                 },
             )
             await query_db.commit()
+            await _overview_cache_clear(user_id)
             return CrudResponseModel(is_success=True, message='新增成功')
         except Exception:
             await query_db.rollback()
@@ -233,6 +271,7 @@ class MarketWatchlistService:
         try:
             await MarketWatchlistDao.delete_by_ids(query_db, id_list, user_id=user_id)
             await query_db.commit()
+            await _overview_cache_clear(user_id)
             return CrudResponseModel(is_success=True, message='删除成功')
         except Exception:
             await query_db.rollback()
@@ -266,6 +305,15 @@ class MarketWatchlistService:
     async def overview_services(cls, query_db: AsyncSession, user_id: int) -> dict[str, Any]:
         if not user_id:
             raise ServiceException(message='无法识别当前用户')
+        cached = await _overview_cache_get(user_id)
+        if cached is not None:
+            return cached
+        payload = await cls._build_overview(query_db, user_id)
+        await _overview_cache_set(user_id, payload)
+        return payload
+
+    @classmethod
+    async def _build_overview(cls, query_db: AsyncSession, user_id: int) -> dict[str, Any]:  # noqa: PLR0912
         items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
@@ -351,7 +399,7 @@ class MarketWatchlistService:
         groups = [{'name': name, 'count': count} for name, count in sorted(group_counts.items(), key=lambda x: (-x[1], x[0]))]
         # 打开终端不解密模型密钥；AI 是否可用由分析记录本身表达。
         ai_conf = {'available': True, 'modelName': None}
-        return {
+        payload = {
             'count': len(rows),
             'bullish': stance_count['偏多'],
             'bearish': stance_count['偏空'],
@@ -366,6 +414,7 @@ class MarketWatchlistService:
             'groups': groups,
             'items': rows,
         }
+        return payload
 
     @classmethod
     async def history_services(
@@ -595,6 +644,7 @@ class MarketWatchlistService:
             await query_db.commit()
         except Exception:
             await query_db.rollback()
+        await _overview_cache_clear(user_id)
         return {
             'ok': len(failed) == 0,
             'count': len(results),

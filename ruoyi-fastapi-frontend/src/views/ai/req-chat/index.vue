@@ -82,10 +82,40 @@ async function loadMessages(silent) {
   }
 }
 
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+function startTimer() {
+  stopTimer()
+  if (document.hidden || !pendingJobs.size) return
+  timer = setInterval(async () => {
+    if (document.hidden || !pendingJobs.size) {
+      if (!pendingJobs.size) stopTimer()
+      return
+    }
+    await pollPendingJobs()
+    if (!pendingJobs.size) stopTimer()
+  }, 2500)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!timer && pendingJobs.size) {
+      pollPendingJobs()
+      startTimer()
+    }
+  } else {
+    stopTimer()
+  }
+}
+
 function trackJob(jobId, hint) {
   if (!jobId) return
   pendingJobs.set(jobId, hint || '机器人正在并行回复')
   pendingHint.value = hint || '机器人正在并行回复，完成后会刷新对话'
+  startTimer()
 }
 
 async function pollPendingJobs() {
@@ -158,16 +188,11 @@ async function handleSummarize() {
 onMounted(async () => {
   await loadRoom()
   await loadMessages()
-  timer = setInterval(async () => {
-    if (pendingJobs.size) {
-      await pollPendingJobs()
-    } else {
-      await loadMessages(true)
-    }
-  }, 2500)
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopTimer()
 })
 </script>
 
