@@ -5,10 +5,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_result.dart';
 import 'trade_models.dart';
 
-/// 交易域接口（M4 只读）。契约依据：module_trade/controller/trade_controller.py。
-/// 安全红线：不接入 POST /trade/order、POST /trade/order/{id}/cancel、
-/// POST /trade/auto/run、PUT /quant/longbridge/config 等写端点；
-/// 服务端硬开关（longport_trading_enabled，默认 False）关闭时本域天然为纸面保护态。
+/// 交易域接口。契约依据：module_trade/controller/trade_controller.py。
 class TradeApi {
   TradeApi(this._dio);
 

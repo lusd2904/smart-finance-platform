@@ -28,6 +28,16 @@ enum SentimentDirection {
   }
 }
 
+/// 后端舆情影响分约为 [-10, 10]；手机仪表盘固定 0–100。
+/// |raw|≤10 时线性映射：-10→0、0→50、10→100；已是百分制则原样使用。
+double? sentimentIndexTo100(double? raw) {
+  if (raw == null) return null;
+  if (raw >= -10 && raw <= 10) {
+    return ((raw + 10) * 5).clamp(0, 100);
+  }
+  return raw.clamp(0, 100);
+}
+
 /// 大盘综合研判记录：GET /sentiment/analysis/list → rows[i]（取用字段子集）。
 class SentimentAnalysis {
   const SentimentAnalysis({
@@ -53,13 +63,13 @@ class SentimentAnalysis {
         newsCount: (json['newsCount'] as num?)?.toInt() ?? 0,
         summary: (json['summary'] as String?) ?? '',
         usDirection: (json['usDirection'] as String?) ?? '',
-        usScore: (json['usScore'] as num?)?.toDouble(),
+        usScore: sentimentIndexTo100((json['usScore'] as num?)?.toDouble()),
         usReason: (json['usReason'] as String?) ?? '',
         hkDirection: (json['hkDirection'] as String?) ?? '',
-        hkScore: (json['hkScore'] as num?)?.toDouble(),
+        hkScore: sentimentIndexTo100((json['hkScore'] as num?)?.toDouble()),
         hkReason: (json['hkReason'] as String?) ?? '',
         aDirection: (json['aDirection'] as String?) ?? '',
-        aScore: (json['aScore'] as num?)?.toDouble(),
+        aScore: sentimentIndexTo100((json['aScore'] as num?)?.toDouble()),
         aReason: (json['aReason'] as String?) ?? '',
         riskEvents: _parseRiskEvents(json['riskEvents']),
         modelName: (json['modelName'] as String?) ?? '',
@@ -70,7 +80,7 @@ class SentimentAnalysis {
   final int newsCount;
   final String summary;
 
-  /// 三市场方向原文与归一分值（0~100）。
+  /// 三市场方向原文与展示分值（已映射到 0~100）。
   final String usDirection;
   final double? usScore;
   final String usReason;
@@ -141,9 +151,9 @@ class SentimentTrendPoint {
   factory SentimentTrendPoint.fromJson(Map<String, dynamic> json) =>
       SentimentTrendPoint(
         createTime: (json['createTime'] as String?) ?? '',
-        usScore: (json['usScore'] as num?)?.toDouble(),
-        hkScore: (json['hkScore'] as num?)?.toDouble(),
-        aScore: (json['aScore'] as num?)?.toDouble(),
+        usScore: sentimentIndexTo100((json['usScore'] as num?)?.toDouble()),
+        hkScore: sentimentIndexTo100((json['hkScore'] as num?)?.toDouble()),
+        aScore: sentimentIndexTo100((json['aScore'] as num?)?.toDouble()),
       );
 
   final String createTime;

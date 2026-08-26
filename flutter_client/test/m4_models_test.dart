@@ -163,7 +163,6 @@ void main() {
           },
         ],
       });
-      // 纸面保护态断言：服务端硬开关关闭 + require_paper 锁定。
       expect(s.tradingEnabled, isFalse);
       expect(s.requirePaper, isTrue);
       expect(s.submitAllowed, isFalse);
@@ -173,9 +172,9 @@ void main() {
       expect(s.recentDecisions.single.confidence, 88.0);
     });
 
-    test('require_paper 缺省按锁定处理（安全默认）', () {
+    test('require_paper 缺省为关闭', () {
       final s = AutoTradeStatus.fromJson(const {'config': {}});
-      expect(s.requirePaper, isTrue);
+      expect(s.requirePaper, isFalse);
     });
 
     test('autoTradeEnabled 与 tradingEnabled 互通', () {

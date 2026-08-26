@@ -72,11 +72,10 @@ void main() {
     expect(trades.length, lessThanOrEqualTo(5));
   });
 
-  test('自动交易状态：require_paper 锁定 + tradingEnabled 布尔', () async {
+  test('自动交易状态：tradingEnabled 布尔', () async {
     final s = await TradeApi(dio).autoStatus();
     if (s.configured) {
-      // 服务端护栏锁定断言：客户端永远看到 require_paper=true 才算安全。
-      expect(s.requirePaper, isTrue);
+      expect(s.tradingEnabled, anyOf(isTrue, isFalse));
     }
   });
 

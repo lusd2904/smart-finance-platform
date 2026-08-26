@@ -49,6 +49,24 @@ void main() {
       expect(SentimentDirection.fromRaw(null), SentimentDirection.unknown);
     });
 
+    test('[-10,10] 舆情指数映射到 0–100 仪表盘', () {
+      expect(sentimentIndexTo100(-10), 0);
+      expect(sentimentIndexTo100(0), 50);
+      expect(sentimentIndexTo100(10), 100);
+      expect(sentimentIndexTo100(4), 70);
+      expect(sentimentIndexTo100(-2), 40);
+      expect(sentimentIndexTo100(72.5), 72.5);
+      final a = SentimentAnalysis.fromJson(const {
+        'usScore': 4,
+        'hkScore': -2,
+        'aScore': 0,
+      });
+      expect(a.usScore, 70);
+      expect(a.hkScore, 40);
+      expect(a.aScore, 50);
+      expect(a.overallScore, closeTo(53.33, 0.01));
+    });
+
     test('缺字段容错：null 分值不参与综合分', () {
       final a = SentimentAnalysis.fromJson(const {'usScore': 60});
       expect(a.overallScore, 60);
