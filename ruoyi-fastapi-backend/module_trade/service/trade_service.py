@@ -11,7 +11,6 @@ from module_market.dao.market_dao import MarketInstrumentDao
 from module_market.entity.vo.market_vo import KlineQueryModel
 from module_market.service.index_session import is_live_kline_session, kline_session_tag
 from module_market.service.kline_period import is_minute_period, normalize_kline_period
-from module_market.service.market_service import MarketService
 from module_quant.service.longbridge_quote import (
     is_cn_market,
     kline_high_low,
@@ -146,6 +145,8 @@ class TradeService:
         if not is_cn_market(market, symbol):
             return out
         try:
+            from module_market.service.market_service import MarketService  # 缩短模块导入链
+
             klines = await MarketService.get_kline_services(
                 KlineQueryModel(symbol=symbol, market='CN', period='daily')
             )
@@ -168,6 +169,8 @@ class TradeService:
 
     @classmethod
     async def _influx_klines(cls, code: str, mkt: str, period_key: str) -> list[dict[str, Any]]:
+        from module_market.service.market_service import MarketService  # 缩短模块导入链
+
         rows = await MarketService.get_kline_services(KlineQueryModel(symbol=code, market=mkt, period=period_key))
         return list(rows or [])
 

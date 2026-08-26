@@ -11,7 +11,8 @@ import '../../market/data/market_models.dart';
 
 /// 行情指数实时通道（M5 WS 通道客户端侧）。
 /// 契约依据：module_market/controller/market_ws_controller.py
-/// （WS /ws/market/quotes?token=&interval=，载荷与 /market/index/quotes data 一致）。
+/// （WS /ws/market/quotes?token=&interval=15，载荷与 /market/index/quotes data 一致）。
+/// interval=15 避免 stampede 后端 Redis CACHE_TTL=30s。
 ///
 /// 语义：
 /// - 断线自动重连（指数退避 2s→16s 封顶），连接期间持续推送；
@@ -53,7 +54,7 @@ final marketQuotesStreamProvider =
       while (!disposed) {
         final channel = WebSocketChannel.connect(
           Uri.parse(
-            '$wsBase/docker-api/ws/market/quotes?token=$token&interval=5',
+            '$wsBase/docker-api/ws/market/quotes?token=$token&interval=15',
           ),
         );
         try {

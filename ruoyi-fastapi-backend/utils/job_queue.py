@@ -88,10 +88,15 @@ JOB_GROUPS = {
     'req_summarize': 'llm',
     'daily_list_scan': 'quant',
     'daily_list_open': 'quant',
+    'auto_trade_scan': 'quant',
     'feishu_push': 'llm',
     'stock_pick_run': 'llm',
     'eod_kline_sync': 'market',
     'market_review': 'llm',
+    'ai_analyze': 'llm',
+    'ai_batch': 'llm',
+    'listings_sync': 'market',
+    'klines_slow': 'market',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -538,14 +543,32 @@ async def _market_heat_collect(payload: dict[str, Any]) -> dict[str, Any]:
         return await MarketHeatService.collect_market(db, market=market, trade_date=trade_date)
 
 
-async def _watchlist_analyze(_payload: dict[str, Any]) -> dict[str, Any]:
+async def _watchlist_analyze(payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal
+    from module_market.entity.vo.market_vo import MarketWatchlistAnalyzeModel
     from module_market.service.watchlist_service import MarketWatchlistService
     from utils.longbridge_breaker import LongbridgeBreaker
 
     if not LongbridgeBreaker.allow():
         return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message()}
+    symbol = payload.get('symbol')
     async with AsyncSessionLocal() as db:
+        if symbol:
+            refresh_raw = payload.get('refreshContent', payload.get('refresh_content'))
+            refresh_content = True if refresh_raw is None else bool(refresh_raw)
+            user_id = int(payload.get('userId') or 0) or None
+            body = MarketWatchlistAnalyzeModel.model_validate(
+                {
+                    'symbol': str(symbol),
+                    'market': payload.get('market'),
+                    'refreshContent': refresh_content,
+                }
+            )
+            return await MarketWatchlistService.analyze_services(
+                db,
+                body,
+                user_id=user_id,
+            )
         return await MarketWatchlistService.run_hourly_job(db)
 
 
@@ -630,6 +653,14 @@ async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
         return await DailyListService.execute_queued(db)
 
 
+async def _auto_trade_scan(payload: dict[str, Any]) -> dict[str, Any]:
+    from module_task.trade_task import run_auto_trade_scan_now
+
+    profile = str((payload or {}).get('profile') or 'balanced')
+    user_id = int((payload or {}).get('userId') or 0) or None
+    return await run_auto_trade_scan_now(profile=profile, user_id=user_id)
+
+
 async def _stock_pick_run(payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal
     from module_market.service.stock_pick_service import StockPickService
@@ -667,6 +698,61 @@ async def _market_review(payload: dict[str, Any]) -> dict[str, Any]:
         return await MarketReviewService.analyze_markets(db, markets)
 
 
+async def _ai_analyze(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_market.entity.vo.market_vo import MarketAiAnalyzeModel
+    from module_market.service.market_service import MarketService
+
+    async with AsyncSessionLocal() as db:
+        return await MarketService.ai_analyze_services(
+            db,
+            MarketAiAnalyzeModel(
+                symbol=str(payload.get('symbol') or ''),
+                market=str(payload.get('market') or 'US'),
+                days=int(payload.get('days') or 120),
+            ),
+        )
+
+
+async def _ai_batch(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_trade.service.platform_ext_service import PlatformExtService
+
+    async with AsyncSessionLocal() as db:
+        return await PlatformExtService.run_ai_batch(
+            db,
+            symbols=payload.get('symbols'),
+            market=str(payload.get('market') or 'US'),
+            days=int(payload.get('days') or 90),
+        )
+
+
+async def _listings_sync(_payload: dict[str, Any]) -> dict[str, Any]:
+    from module_market.service.listing_service import ListingService
+
+    def _run() -> dict[str, Any]:
+        try:
+            return ListingService.sync_from_influx()
+        except Exception as exc:
+            logger.warning(f'[全市场代码] Influx 同步失败，回退外部源: {exc}')
+            return ListingService.sync()
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _run)
+
+
+async def _klines_slow(payload: dict[str, Any]) -> dict[str, Any]:
+    from module_market.service.sync_service import MarketSyncService
+
+    years = int(payload.get('years') or 10)
+
+    def _run() -> dict[str, Any]:
+        return MarketSyncService.sync_universe(years=years, include_listed=True)
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _run)
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'finance_briefings': _finance_briefings,
@@ -686,8 +772,13 @@ HANDLERS = {
     'req_summarize': _req_summarize,
     'daily_list_scan': _daily_list_scan,
     'daily_list_open': _daily_list_open,
+    'auto_trade_scan': _auto_trade_scan,
     'feishu_push': _feishu_push,
     'stock_pick_run': _stock_pick_run,
     'eod_kline_sync': _eod_kline_sync,
     'market_review': _market_review,
+    'ai_analyze': _ai_analyze,
+    'ai_batch': _ai_batch,
+    'listings_sync': _listings_sync,
+    'klines_slow': _klines_slow,
 }

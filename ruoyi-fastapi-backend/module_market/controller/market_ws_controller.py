@@ -1,6 +1,6 @@
 """行情指数 WebSocket 通道（规划文档「SSE/WebSocket 行情通道」开放项落地）。
 
-端点：WS /ws/market/quotes?token=<JWT>&interval=5
+端点：WS /ws/market/quotes?token=<JWT>&interval=15
 - 鉴权：仅校验 JWT 签名与有效期（不查库/不查会话，读-only 行情足够）；
   失败以 code=4401 关闭连接。
 - 推送：每 interval 秒推送一次盘中指数快照，载荷形态与
@@ -30,11 +30,11 @@ MAX_INTERVAL_SECONDS = 60
 
 
 def normalize_interval(raw: str | None) -> int:
-    """钳制推送间隔到 [3, 60] 秒；非法输入取默认 5。"""
+    """钳制推送间隔到 [3, 60] 秒；非法输入取默认 15（对齐指数 30s 缓存）。"""
     try:
-        value = int(raw) if raw else 5
+        value = int(raw) if raw else 15
     except (TypeError, ValueError):
-        return 5
+        return 15
     return max(MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, value))
 
 

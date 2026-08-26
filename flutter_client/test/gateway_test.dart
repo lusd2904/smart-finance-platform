@@ -18,12 +18,25 @@ ProbePage _page({
     );
 
 void main() {
-  test('默认网关为线上地址', () {
-    expect(suggestedLocalGateway(), 'https://sfp.luapi.top');
-    expect(kDefaultGateway, 'https://sfp.luapi.top');
+  test('Debug 默认本机网关，不改写模拟器环回', () {
+    expect(kProdGateway, 'https://sfp.luapi.top');
+    expect(kLocalGateway, 'http://127.0.0.1:12580');
+    expect(kDefaultGateway, isNot(kProdGateway));
+    expect(
+      kDefaultGateway,
+      anyOf(kLocalGateway, kAndroidEmulatorGateway),
+    );
     expect(resolveStoredGateway(''), kDefaultGateway);
-    expect(resolveStoredGateway('http://10.0.2.2:12580'), kDefaultGateway);
+    expect(
+      resolveStoredGateway('http://10.0.2.2:12580'),
+      'http://10.0.2.2:12580',
+    );
     expect(resolveStoredGateway('https://sfp.luapi.top'), 'https://sfp.luapi.top');
+    expect(suggestedLocalGateway(), startsWith('http://'));
+    expect(
+      suggestedLocalGateway(),
+      anyOf(kLocalGateway, kAndroidEmulatorGateway),
+    );
   });
 
   group('normalizeGateway（对齐 desktop/src/gateway.test.js 用例）', () {

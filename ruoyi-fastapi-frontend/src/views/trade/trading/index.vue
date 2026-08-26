@@ -603,19 +603,37 @@ async function cancel(row) {
   d.ok ? proxy.$modal.msgSuccess(d.message || '已撤') : proxy.$modal.msgError(d.message || '失败')
   await refreshAll()
 }
-function restartLive() {
+function stopLive() {
   if (liveTimer) {
     clearInterval(liveTimer)
     liveTimer = null
   }
+}
+function tickLive() {
+  loadKline()
+  if (!isCn.value && configured.value && !liveBlocked.value) {
+    loadDepth()
+    loadTrades()
+  }
+}
+function startLive() {
+  stopLive()
+  if (document.hidden) return
   const ms = liveBlocked.value ? LIVE_SLOW_MS : LIVE_MS
-  liveTimer = setInterval(() => {
-    loadKline()
-    if (!isCn.value && configured.value && !liveBlocked.value) {
-      loadDepth()
-      loadTrades()
+  liveTimer = setInterval(tickLive, ms)
+}
+function restartLive() {
+  startLive()
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!liveTimer) {
+      tickLive()
+      startLive()
     }
-  }, ms)
+  } else {
+    stopLive()
+  }
 }
 function handleResize() {
   chart && chart.resize()
@@ -635,10 +653,12 @@ watch(
 onMounted(() => {
   refreshAll()
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  if (liveTimer) clearInterval(liveTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopLive()
   if (chart) {
     chart.dispose()
     chart = null

@@ -49,14 +49,37 @@ defineExpose({ loadQuotes })
 
 let pollTimer = null
 
+function stopPollTimer() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+function startPollTimer() {
+  stopPollTimer()
+  pollTimer = setInterval(loadQuotes, 60 * 1000)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!pollTimer) {
+      loadQuotes()
+      startPollTimer()
+    }
+  } else {
+    stopPollTimer()
+  }
+}
+
 onMounted(() => {
   loadQuotes()
   // 后端 30s 缓存，前端 60s 轮询错开；空列表整体不渲染（不开盘全隐藏）
-  pollTimer = setInterval(loadQuotes, 60 * 1000)
+  startPollTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 
 onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopPollTimer()
 })
 </script>
 

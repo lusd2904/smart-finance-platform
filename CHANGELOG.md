@@ -5,6 +5,31 @@
 
 ## [Unreleased]
 
+### ⚡ 启动、队列与内存
+- 登录/交易/AI/舆情 API 不再 `depends_on` Influx healthy；前端也不再等行情/量化进程
+- Redis 钉 `7-alpine`，AOF + 256mb `volatile-lru` + 数据卷；jobs worker 补 `/health`
+- 部署脚本先起 API 再起前端
+- Grok 单标的 / 批量研判 / 自选单票分析入 `llm` 队列，HTTP 立即回 ticket；SSE 流式仍走市场 API
+- 调度入队失败不再在 scheduler 内联跑重任务；`api/scheduler/worker` 跳过 `create_all`
+- 慢速 K 线 / 全市场代码同步入 `market` 队列
+- pandas、`MarketService` 在用户导入/交易快照路径懒加载
+- 热度采集 Influx 指数 K 失败时回退行情，不整单失败
+
+### 🖥️ 前端轮询
+- 自选/看板/首页/委托/通知等后台标签暂停轮询；需求沟通仅在有 job 时轮询
+- `/trade/ai/` nginx 超时 180s；指数 WS 默认间隔 15s（对齐 30s 缓存）
+- 自选 overview Redis 缓存 10s
+
+### 📱 Flutter
+- Debug 默认本机 Docker；不再把 `10.0.2.2` 改写成线上网关
+
+### 🐛 调度与内存
+- 修复「立即执行」：ORM 行转 JobModel 保留 snake_case `invoke_target`
+- 调度日志只记 JobExecutionEvent；配置同步不再因 `update_time` 为空每 30 秒删加任务
+- 自动交易扫描入 `quant` 队列，不再占 scheduler 进程
+- Influx 超时 8s、容器内存上限；平台 API `APP_MODULE=platform`；pandas 改为按需导入
+- 示例库连接池 8+4（约 10 进程 ×12 ≈ 120，低于 MySQL 300）
+
 ### 🧹 仓库清理
 - 移除根目录与 `docs/` 下的设计稿、反重力图片、NotebookLM/反重力逐页规范、`todos.md`、`ox意见.md`
 

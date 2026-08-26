@@ -175,7 +175,7 @@ ANALYSIS_JOBS: tuple[AnalysisJobSpec, ...] = (
         default_cron='0 0/15 * * * ?',
         schedule_label='每 15 分钟',
         heavy=True,
-        queue_type=None,
+        queue_type='auto_trade_scan',
         default_status='1',
     ),
     AnalysisJobSpec(

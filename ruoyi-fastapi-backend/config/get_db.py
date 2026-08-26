@@ -22,6 +22,11 @@ async def init_create_table() -> None:
 
     :return:
     """
+    from config.env import AppConfig
+
+    if AppConfig.app_role in {'api', 'scheduler', 'worker'}:
+        logger.info(f'跳过 metadata.create_all（APP_ROLE={AppConfig.app_role}，表结构由 SQL 迁移维护）')
+        return
     logger.info('🔎 初始化数据库连接...')
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -88,11 +88,29 @@ async function loadAll(silent=false){
     rows.value=(payload.rows||payload.quotes||[]).map(formatQuote)
   } finally { if(!silent) loading.value=false }
 }
+function stopQuoteTimer(){
+  if(quoteTimer){ clearInterval(quoteTimer); quoteTimer=null }
+}
+function startQuoteTimer(){
+  stopQuoteTimer()
+  quoteTimer=setInterval(()=>loadAll(true), 8000)
+}
+function handleVisibility(){
+  if(document.visibilityState==='visible'){
+    if(!quoteTimer){ loadAll(true); startQuoteTimer() }
+  } else {
+    stopQuoteTimer()
+  }
+}
 onMounted(()=>{
   loadAll()
-  quoteTimer=setInterval(()=>loadAll(true), 8000)
+  startQuoteTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
-onBeforeUnmount(()=>{ if(quoteTimer) clearInterval(quoteTimer) })
+onBeforeUnmount(()=>{
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopQuoteTimer()
+})
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

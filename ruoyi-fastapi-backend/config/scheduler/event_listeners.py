@@ -5,7 +5,7 @@ import socket
 from datetime import datetime
 from typing import Any
 
-from apscheduler.events import SchedulerEvent
+from apscheduler.events import JobExecutionEvent, SchedulerEvent
 from redis import asyncio as aioredis
 
 from common.constant import SchedulerConstant
@@ -156,10 +156,13 @@ class EventListenersMixin:
         try:
             # 获取事件类型和任务ID
             event_type = event.__class__.__name__
-            # 获取任务执行异常信息
+            # 只记真正跑完的 JobExecutionEvent。JobEvent（add/remove）写入会把
+            # 每 30 秒的配置同步刷成数万条假成功日志。
+            if event_type != 'JobExecutionEvent':
+                return
             status = '0'
             exception_info = ''
-            if event_type == 'JobExecutionEvent' and event.exception:
+            if event.exception:
                 exception_info = str(event.exception)
                 status = '1'
             if hasattr(event, 'job_id'):

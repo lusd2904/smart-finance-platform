@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import Any
 
 from module_quant.service.longbridge.auth import ACCOUNT_CACHE_TTL
@@ -131,6 +132,39 @@ class TradeClientMixin:
             return {'configured': True, 'message': f'获取历史订单失败: {exc}', 'orders': []}
 
     @classmethod
+    def _validate_order_input(
+        cls,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str,
+        price: float | None,
+    ) -> str | None:
+        """下单入参服务端强校验；非法输入直接拒绝，返回错误消息（None 表示通过）。"""
+        if not str(symbol or '').strip():
+            return '标的代码不能为空'
+        if str(side or '').strip().lower() not in {'buy', 'b', '买', '买入', 'sell', 's', '卖', '卖出'}:
+            return f'无效交易方向: {side!r}（仅支持 buy/sell）'
+        try:
+            qty = float(quantity)
+        except (TypeError, ValueError):
+            return '下单数量必须为数字'
+        if not math.isfinite(qty) or qty <= 0:
+            return '下单数量必须为大于0的有限数值'
+        ot = str(order_type or 'LO').strip().upper()
+        if ot not in {'LO', 'MO', 'ELO', 'AO'}:
+            return f'不支持的订单类型: {order_type!r}（仅支持 LO/MO/ELO/AO）'
+        if ot == 'MO':
+            return None
+        try:
+            px = float(price) if price is not None else None
+        except (TypeError, ValueError):
+            return '委托价格必须为数字'
+        if px is None or not math.isfinite(px) or px <= 0:
+            return f'{ot} 订单必须提供大于0的有效价格'
+        return None
+
+    @classmethod
     def submit_order(
         cls,
         symbol: str,
@@ -148,6 +182,9 @@ class TradeClientMixin:
         """
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
+        param_error = cls._validate_order_input(symbol, side, quantity, order_type, price)
+        if param_error:
+            return {'configured': True, 'ok': False, 'message': param_error}
         if not allow_sim and not cls.is_trading_enabled():
             return {
                 'configured': True,
@@ -162,8 +199,18 @@ class TradeClientMixin:
                 TimeInForceType,
             )
 
-            side_enum = OrderSide.Buy if str(side).lower() in {'buy', 'b', '买', '买入'} else OrderSide.Sell
-            ot = str(order_type or 'LO').upper()
+            side_map = {
+                'buy': OrderSide.Buy,
+                'b': OrderSide.Buy,
+                '买': OrderSide.Buy,
+                '买入': OrderSide.Buy,
+                'sell': OrderSide.Sell,
+                's': OrderSide.Sell,
+                '卖': OrderSide.Sell,
+                '卖出': OrderSide.Sell,
+            }
+            side_enum = side_map[str(side).strip().lower()]
+            ot = str(order_type or 'LO').strip().upper()
             type_map = {
                 'LO': OrderType.LO,
                 'MO': OrderType.MO,
@@ -180,7 +227,7 @@ class TradeClientMixin:
                 'symbol': lb_symbol,
                 'order_type': type_enum,
             }
-            if ot == 'LO' and price is not None:
+            if ot != 'MO':
                 kwargs['submitted_price'] = price
             resp = ctx.submit_order(**kwargs)
             order_id = getattr(resp, 'order_id', None) or getattr(resp, 'orderId', None)
@@ -194,6 +241,8 @@ class TradeClientMixin:
         """撤单。allow_sim=True 时按当前用户模拟账户凭据撤单。"""
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
+        if not str(order_id or '').strip():
+            return {'configured': True, 'ok': False, 'message': '订单号不能为空'}
         if not allow_sim and not cls.is_trading_enabled():
             return {
                 'configured': True,

@@ -3,7 +3,6 @@ import io
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
 from fastapi import Request, UploadFile
 from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -365,7 +364,7 @@ class UserService:
             raise e
 
     @classmethod
-    def _set_row_sex_value(cls, row: pd.Series) -> None:
+    def _set_row_sex_value(cls, row: Any) -> None:
         """
         设置行性别值
 
@@ -380,7 +379,7 @@ class UserService:
             row['sex'] = '2'
 
     @classmethod
-    def _set_row_status_value(cls, row: pd.Series) -> None:
+    def _set_row_status_value(cls, row: Any) -> None:
         """
         设置行状态值
 
@@ -425,6 +424,8 @@ class UserService:
             '帐号状态': 'status',
         }
         contents = await file.read()
+        import pandas as pd  # pandas 为可选重依赖，仅批量导入 Excel 时加载
+
         df = await asyncio.to_thread(pd.read_excel, io.BytesIO(contents))
         await file.close()
         df.rename(columns=header_dict, inplace=True)

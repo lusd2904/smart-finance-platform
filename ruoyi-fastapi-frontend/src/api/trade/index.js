@@ -114,7 +114,7 @@ export function readNoticesDb(id) {
   return request({ url: '/trade/notices/read', method: 'post', data: id ? { id } : {} })
 }
 export function runAiBatch(data, options = {}) {
-  return request({ url: '/trade/ai/batch', method: 'post', data, timeout: 600000, loadingText: '研判中…', ...options })
+  return request({ url: '/trade/ai/batch', method: 'post', data, timeout: 30000, loadingText: '研判中…', ...options })
 }
 export function listAiBatches() {
   return request({ url: '/trade/ai/batches', method: 'get' })

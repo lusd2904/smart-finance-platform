@@ -87,3 +87,48 @@ async def test_market_heat_collect_skips_on_breaker() -> None:
     result = await _market_heat_collect({'market': 'US'})
     assert result['skipped'] is True
     assert result['reason'] == 'circuit_open'
+
+
+def test_index_change_from_influx_returns_none_on_error() -> None:
+    with patch(
+        'module_market.service.heat_service.InfluxUtil.query_klines',
+        side_effect=RuntimeError('influx down'),
+    ):
+        assert MarketHeatService._index_change_from_influx('US', '^GSPC') is None
+
+
+@pytest.mark.asyncio
+async def test_collect_market_continues_when_influx_index_kline_fails() -> None:
+    db = AsyncMock()
+    upsert = AsyncMock()
+    replace_top50 = AsyncMock()
+    quote_map = {
+        'AAPL': {'lastDone': 150.0, 'turnover': 2e9, 'changeRate': 1.2},
+        '^GSPC': {'changeRate': 0.85},
+    }
+    static_map = {'AAPL': {'name': 'Apple', 'totalShares': 1e8}}
+    weights = {'index': 0.4, 'turnover': 0.3, 'advance_decline': 0.3}
+
+    with (
+        patch.object(LongbridgeService, 'ensure_credentials_from_db', new=AsyncMock()),
+        patch.object(MarketHeatService, 'resolve_weights', new=AsyncMock(return_value=weights)),
+        patch.object(MarketHeatService, '_universe_symbols', new=AsyncMock(return_value=[('AAPL', 'Apple')])),
+        patch.object(MarketHeatService, '_quote_map_from_longbridge', return_value=quote_map),
+        patch.object(MarketHeatService, '_static_info_map', return_value=static_map),
+        patch.object(MarketHeatService, '_index_change_from_influx', side_effect=RuntimeError('influx down')),
+        patch('module_market.service.heat_service.MarketHeatDao.list_heat_trend', new=AsyncMock(return_value=[])),
+        patch('module_market.service.heat_service.MarketHeatDao.upsert_heat', new=upsert),
+        patch('module_market.service.heat_service.MarketHeatDao.replace_top50', new=replace_top50),
+    ):
+        result = await MarketHeatService.collect_market(db, 'US', trade_date='2026-08-25')
+
+    assert 'skipped' not in result
+    assert result['market'] == 'US'
+    assert result['tradeDate'] == '2026-08-25'
+    assert result['status'] == 'ok'
+    assert result['top50Count'] == 1
+    upsert.assert_awaited()
+    replace_top50.assert_awaited()
+    db.commit.assert_awaited()
+    payload = upsert.await_args.args[1]
+    assert payload['index_change_pct'] == 0.85

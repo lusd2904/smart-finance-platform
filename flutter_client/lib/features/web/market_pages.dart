@@ -953,9 +953,42 @@ class _MarketAiWorkbenchPageState extends ConsumerState<MarketAiWorkbenchPage> {
       final r = await ref.read(ruoyiClientProvider).post(
             '/market/ai/analyze',
             data: {'symbol': _symbol.text.trim(), 'market': _market, 'days': 90},
-            timeout: const Duration(seconds: 120),
+            timeout: const Duration(seconds: 20),
           );
-      setState(() => _result = r.data?.toString() ?? r.msg);
+      final data = r.data;
+      String text = r.msg;
+      if (data is Map) {
+        final jobId = '${data['jobId'] ?? ''}';
+        if (data['accepted'] == true || jobId.isNotEmpty) {
+          text = r.msg.isNotEmpty ? r.msg : '已加入后台队列';
+          if (jobId.isNotEmpty) {
+            final deadline = DateTime.now().add(const Duration(minutes: 3));
+            while (DateTime.now().isBefore(deadline)) {
+              final ticketRes = await ref.read(ruoyiClientProvider).get(
+                    '/market/jobs/$jobId',
+                    timeout: const Duration(seconds: 8),
+                  );
+              final ticket = ticketRes.data;
+              final status = ticket is Map ? '${ticket['status'] ?? ''}' : '';
+              if (status == 'done' || status == 'failed') {
+                if (status == 'failed') {
+                  final err = ticket is Map ? ticket['error'] : null;
+                  text = (err == null || '$err'.isEmpty) ? '研判失败' : '$err';
+                } else {
+                  text = '研判完成，请刷新最新结果';
+                }
+                break;
+              }
+              await Future<void>.delayed(const Duration(seconds: 2));
+            }
+          }
+        } else {
+          text = data.toString();
+        }
+      } else if (data != null) {
+        text = data.toString();
+      }
+      setState(() => _result = text);
     } catch (e) {
       setState(() => _result = describeApiError(e));
     } finally {

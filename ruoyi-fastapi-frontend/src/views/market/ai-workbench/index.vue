@@ -115,7 +115,7 @@
 </template>
 
 <script setup name="MarketAiWorkbench">
-import { listInstrument, aiAnalyze, getLatestAi, getKline } from '@/api/market'
+import { listInstrument, aiAnalyze, getLatestAi, getKline, pollMarketJob } from '@/api/market'
 import { runAiBatch, listAiBatches, listAiBatchItems } from '@/api/trade'
 import { analyzeOneshot, chatConsultant } from '@/api/ai/chat'
 
@@ -160,7 +160,20 @@ async function runAi() {
         { symbol: symbol.value, market: market.value, days: days.value },
         { skipPageLoading: true }
       )
-      result.value = res.data || {}
+      const data = res.data || {}
+      if (data.accepted || data.jobId) {
+        proxy.$modal.msgSuccess(res.msg || '已入队')
+        if (data.jobId) {
+          const ticket = await pollMarketJob(data.jobId)
+          if (ticket.status === 'failed') {
+            proxy.$modal.msgError(ticket.error || '研判失败')
+            return
+          }
+        }
+        await loadLatest()
+        return
+      }
+      result.value = data
       snap.value = {
         ...snap.value,
         modelName: result.value.modelName,
@@ -235,12 +248,25 @@ async function loadBatches() {
 async function runBatch() {
   batchLoading.value = true
   try {
-    const res = await proxy.$modal.withLoading('研判中…', () =>
-      runAiBatch({ market: batchMarket.value, days: 90 }, { skipPageLoading: true })
-    )
-    proxy.$modal.msgSuccess(res.msg || '批量完成')
-    await loadBatches()
-    if (res.data && res.data.batchId) await showBatch({ batchId: res.data.batchId })
+    await proxy.$modal.withLoading('研判中…', async () => {
+      const res = await runAiBatch({ market: batchMarket.value, days: 90 }, { skipPageLoading: true })
+      const data = res.data || {}
+      if (data.accepted || data.jobId) {
+        proxy.$modal.msgSuccess(res.msg || '已入队')
+        if (data.jobId) {
+          const ticket = await pollMarketJob(data.jobId)
+          if (ticket.status === 'failed') {
+            proxy.$modal.msgError(ticket.error || '批量研判失败')
+            return
+          }
+        }
+        await loadBatches()
+        return
+      }
+      proxy.$modal.msgSuccess(res.msg || '批量完成')
+      await loadBatches()
+      if (data.batchId) await showBatch({ batchId: data.batchId })
+    })
   } finally {
     batchLoading.value = false
   }

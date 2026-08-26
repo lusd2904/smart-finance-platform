@@ -48,11 +48,35 @@ async function cancel(row){
   load()
 }
 let timer = null
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+function startTimer() {
+  stopTimer()
+  timer = setInterval(load, 15000)
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!timer) {
+      load()
+      startTimer()
+    }
+  } else {
+    stopTimer()
+  }
+}
 onMounted(() => {
   load()
-  timer = setInterval(load, 15000)
+  startTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
-onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopTimer()
+})
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

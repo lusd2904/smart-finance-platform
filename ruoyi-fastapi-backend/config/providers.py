@@ -318,8 +318,12 @@ class ModuleAdminSchedulerJobPersistence:
 
     def build_job_from_row(self, row: Any) -> SchedulerJobInfo:
         from module_admin.entity.vo.job_vo import JobModel
+        from utils.common_util import CamelCaseUtil
 
-        return JobModel.model_validate(row)
+        payload = CamelCaseUtil.transform_result(row)
+        if isinstance(payload, dict):
+            return JobModel(**payload)
+        return JobModel.model_validate(payload)
 
     def build_execution_log(self, **fields: Any) -> Any:
         from module_admin.entity.vo.job_vo import JobLogModel

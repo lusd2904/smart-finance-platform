@@ -14,7 +14,15 @@ x-backend-image: &backend-image
     - sentiment-network
   restart: unless-stopped
 
-x-backend-depends: &backend-depends
+# 登录/系统/AI/交易 HTTP 只等 MySQL+Redis。Influx 冷启动可达 10 分钟，不能挡住登录。
+x-core-depends: &core-depends
+  ruoyi-mysql:
+    condition: service_healthy
+  ruoyi-redis:
+    condition: service_healthy
+
+# 行情/量化读时序库，等 Influx healthy 再接流量。
+x-data-depends: &data-depends
   ruoyi-mysql:
     condition: service_healthy
   ruoyi-redis:
@@ -40,14 +48,11 @@ services:
         condition: service_healthy
       sentiment-trade:
         condition: service_healthy
-      sentiment-market:
-        condition: service_healthy
-      sentiment-quant:
-        condition: service_healthy
       sentiment-news:
         condition: service_healthy
       sentiment-ai:
         condition: service_healthy
+      # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
       interval: 15s
@@ -57,7 +62,7 @@ services:
     networks:
       - sentiment-network
 
-  # 平台 API：登录/系统/任务中心。APP_MODULE=all 作为网关回退。
+  # 平台 API：登录/系统/任务中心。nginx 将 trade/market/quant/news/ai 分片到独立进程。
   sentiment-backend:
     <<: *backend-image
     container_name: sentiment-backend
@@ -65,11 +70,12 @@ services:
       - "127.0.0.1:19099:9099"
     environment:
       APP_ROLE: api
-      APP_MODULE: all
+      APP_MODULE: platform
       APP_JOB_GROUP: none
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
+    mem_limit: 1g
     healthcheck:
       test:
         [
@@ -94,7 +100,7 @@ services:
       APP_NAME: "Trade API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
     mem_limit: 1g
     cpus: 1.0
     healthcheck:
@@ -120,7 +126,7 @@ services:
       APP_NAME: "Market API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *data-depends
     mem_limit: 1g
     cpus: 1.0
     healthcheck:
@@ -146,7 +152,7 @@ services:
       APP_NAME: "Quant API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *data-depends
     mem_limit: 1g
     cpus: 1.0
     healthcheck:
@@ -172,7 +178,7 @@ services:
       APP_NAME: "Sentiment API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
     mem_limit: 1g
     cpus: 1.0
     healthcheck:
@@ -198,7 +204,7 @@ services:
       APP_NAME: "AI API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
     mem_limit: 1g
     cpus: 1.0
     healthcheck:
@@ -231,7 +237,7 @@ services:
       APP_RELOAD: "false"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
     mem_limit: 2g
     cpus: 2.0
     healthcheck:
@@ -262,9 +268,21 @@ services:
       APP_RELOAD: "false"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *data-depends
     mem_limit: 1536m
     cpus: 1.0
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
 
   # 量化计算消费组
   sentiment-jobs-quant:
@@ -281,9 +299,21 @@ services:
       APP_RELOAD: "false"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *data-depends
     mem_limit: 1536m
     cpus: 1.0
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
 
   # 舆情与 LLM 消费组
   sentiment-jobs-llm:
@@ -300,9 +330,21 @@ services:
       APP_RELOAD: "false"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *backend-depends
+    depends_on: *core-depends
     mem_limit: 1536m
     cpus: 1.0
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
 
   # InfluxDB时序库服务（行情/量化数据）
   sentiment-influxdb:
@@ -317,6 +359,18 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
+      # 1044 shard 冷启动：538 shard ≈ 3GiB，全量约 6GiB。3g/5g 硬顶会在中途 137。
+      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。勿降到 5g 以下。
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: "5GiB"
+      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"
+      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "26214400"
+      INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
+      INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
+      INFLUXD_QUERY_CONCURRENCY: "2"
+      INFLUXD_QUERY_QUEUE_SIZE: "4"
+    mem_limit: 6g
+    cpus: 2.0
     volumes:
       - sentiment-influxdb-data:/var/lib/influxdb2
       - sentiment-influxdb-config:/etc/influxdb2
@@ -324,9 +378,11 @@ services:
       - sentiment-network
     healthcheck:
       test: ["CMD", "influx", "ping"]
-      interval: 5s
+      interval: 15s
       timeout: 10s
-      retries: 30
+      retries: 20
+      # 存量分片很多时启动要扫 TSM/WAL，5s 探测会在未监听时把容器打成 unhealthy
+      start_period: 10m
 
   # MySQL服务
   ruoyi-mysql:
@@ -358,6 +414,7 @@ services:
       - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
       - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
       - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
+    # max-connections=300：~10 Python 进程 × (DB_POOL_SIZE 8 + DB_MAX_OVERFLOW 4) ≈ 120；旧 50+10 会到 ~600 并饿死此上限
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
     networks:
       - sentiment-network
@@ -369,12 +426,26 @@ services:
 
   # Redis服务
   ruoyi-redis:
-    image: redis:latest
+    image: redis:7-alpine
     container_name: sentiment-redis
     restart: unless-stopped
     # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:16379:6379"
     # Redis 密码可选：留空 = 允许无密码访问（与运行栈现状一致），设置则启用 requirepass。
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-}"]
+    # volatile-lru：只淘汰带 TTL 的 ticket/缓存，队列 list 无 TTL 不会被踢。
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:-}",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "volatile-lru",
+      ]
+    volumes:
+      - sentiment-redis-data:/data
     networks:
       - sentiment-network
     healthcheck:
@@ -387,6 +458,7 @@ volumes:
   sentiment-mysql-data:
   sentiment-influxdb-data:
   sentiment-influxdb-config:
+  sentiment-redis-data:
 
 # 网络配置
 networks:

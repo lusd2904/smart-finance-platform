@@ -6,13 +6,11 @@ invoke_target: module_task.market_task.sync_market_job
 同步本身为同步IO（pymysql/httpx/influx），放入线程池执行避免阻塞事件循环。
 """
 
-import asyncio
 from typing import Any
 
 from config.database import AsyncSessionLocal
 from module_market.entity.vo.market_vo import MarketSyncModel
 from module_market.service.market_service import MarketService
-from module_market.service.sync_service import MarketSyncService
 from utils.job_queue import JobQueue
 from utils.log_util import logger
 
@@ -31,13 +29,7 @@ async def sync_market_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('market_sync', {'years': 10}):
         logger.info('[行情定时任务] 已入队 Redis 后台队列')
         return
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, MarketSyncService.sync, None, 10)
-        logger.info(f'[行情定时任务] 执行完成: 标的{len(result["synced_symbols"])}个，写入{result["total_points"]}点')
-    except Exception as e:
-        logger.error(f'[行情定时任务] 执行失败: {e}')
-        raise
+    logger.error('[行情定时任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def sync_klines_slow_job(*args, **kwargs) -> None:
@@ -45,24 +37,11 @@ async def sync_klines_slow_job(*args, **kwargs) -> None:
     慢速同步全市场日K（源级限流、精选优先、已有新K线则跳过）。
     invoke_target: module_task.market_task.sync_klines_slow_job
     """
-    from module_market.service.sync_service import (
-        MarketSyncService,
-    )
-
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: MarketSyncService.sync_universe(years=10, include_listed=True),
-        )
-        logger.info(
-            f'[慢速K线] 完成 scanned={result.get("scanned")} '
-            f'synced={len(result.get("synced_symbols") or [])} '
-            f'skip={len(result.get("skipped") or [])} fail={len(result.get("failed") or [])}'
-        )
-    except Exception as e:
-        logger.error(f'[慢速K线] 失败: {e}')
-        raise
+    years = int(kwargs.get('years') or 10)
+    if await JobQueue.enqueue('klines_slow', {'years': years}):
+        logger.info(f'[慢速K线] 已入队 years={years}')
+        return
+    logger.error('[慢速K线] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def sync_listings_job(*args, **kwargs) -> None:
@@ -70,22 +49,10 @@ async def sync_listings_job(*args, **kwargs) -> None:
     同步美股/A股/港股全市场代码到 market_instrument。
     invoke_target: module_task.market_task.sync_listings_job
     """
-    from module_market.service.listing_service import (
-        ListingService,
-    )
-
-    try:
-        loop = asyncio.get_running_loop()
-        try:
-            result = await loop.run_in_executor(None, ListingService.sync_from_influx)
-            logger.info(f'[全市场代码] Influx 同步完成: {result}')
-        except Exception as exc:
-            logger.warning(f'[全市场代码] Influx 同步失败，回退外部源: {exc}')
-            result = await loop.run_in_executor(None, ListingService.sync)
-            logger.info(f'[全市场代码] 外部源同步完成: {result}')
-    except Exception as e:
-        logger.error(f'[全市场代码] 同步失败: {e}')
-        raise
+    if await JobQueue.enqueue('listings_sync', {}):
+        logger.info('[全市场代码] 已入队')
+        return
+    logger.error('[全市场代码] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def sync_symbol_job(symbol: str, *args, **kwargs) -> None:
@@ -105,20 +72,10 @@ async def refresh_finance_briefings_job(*args, **kwargs) -> None:
     定时刷新财经资讯简报流。
     invoke_target: module_task.market_task.refresh_finance_briefings_job
     """
-    from module_market.service.finance_news_service import (
-        FinanceNewsService,
-    )
-
     if await JobQueue.enqueue('finance_briefings', {}):
         logger.info('[财经资讯定时任务] 已入队')
         return
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await FinanceNewsService.refresh_all_markets(db)
-            logger.info(f'[财经资讯定时任务] 完成: {result}')
-        except Exception as e:
-            logger.error(f'[财经资讯定时任务] 失败: {e}')
-            raise
+    logger.error('[财经资讯定时任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def refresh_symbol_content_now() -> dict[str, Any]:
@@ -160,7 +117,7 @@ async def refresh_symbol_content_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('symbol_content', {}):
         logger.info('[内容缓存任务] 已入队')
         return
-    await refresh_symbol_content_now()
+    logger.error('[内容缓存任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def analyze_market_review_job(*args, **kwargs) -> None:
@@ -168,8 +125,6 @@ async def analyze_market_review_job(*args, **kwargs) -> None:
     收盘后三市场复盘。kwargs['markets'] 或第一个位置参数为 US/HK/CN，逗号分隔；默认三个市场。
     invoke_target: module_task.market_task.analyze_market_review_job
     """
-    from module_market.service.market_review_service import MarketReviewService
-
     raw = kwargs.get('markets') or kwargs.get('market')
     if isinstance(raw, (list, tuple)):
         markets = [str(p).strip().upper() for p in raw if str(p).strip()]
@@ -181,13 +136,7 @@ async def analyze_market_review_job(*args, **kwargs) -> None:
     if await JobQueue.enqueue('market_review', {'markets': markets}):
         logger.info(f'[市场复盘任务] 已入队 markets={markets or "ALL"}')
         return
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await MarketReviewService.analyze_markets(db, markets)
-            logger.info(f'[市场复盘任务] {result.get("message")}')
-        except Exception as e:
-            logger.error(f'[市场复盘任务] 失败: {e}')
-            raise
+    logger.error('[市场复盘任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def analyze_watchlist_job(*args, **kwargs) -> None:
@@ -195,41 +144,18 @@ async def analyze_watchlist_job(*args, **kwargs) -> None:
     每小时对行情自选清单做综合分析（指标 + 长桥资讯 + 舆情）。
     invoke_target: module_task.market_task.analyze_watchlist_job
     """
-    from module_market.service.watchlist_service import (
-        MarketWatchlistService,
-    )
-
     if await JobQueue.enqueue('watchlist_analyze', {}):
         logger.info('[自选综合分析任务] 已入队 Redis 后台队列')
         return
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await MarketWatchlistService.run_hourly_job(db)
-            logger.info(
-                f'[自选综合分析任务] 完成: count={result.get("count")} failed={result.get("failedCount")} '
-                f'ai={result.get("aiAvailable")}'
-            )
-        except Exception as e:
-            logger.error(f'[自选综合分析任务] 失败: {e}')
-            raise
+    logger.error('[自选综合分析任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
 
 
 async def _collect_market_heat(market: str, trade_date: str | None = None) -> None:
-    from module_market.service.heat_service import (
-        MarketHeatService,
-    )
-
     payload = {'market': market.upper(), 'tradeDate': trade_date}
     if await JobQueue.enqueue('market_heat_collect', payload):
         logger.info(f'[热度采集任务] 已入队 market={market}')
         return
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await MarketHeatService.collect_market(db, market=market, trade_date=trade_date)
-            logger.info(f'[热度采集任务] 完成 market={market}: {result}')
-        except Exception as e:
-            logger.error(f'[热度采集任务] 失败 market={market}: {e}')
-            raise
+    logger.error(f'[热度采集任务] 入队失败，跳过本轮（不在 scheduler 内联执行） market={market}')
 
 
 async def collect_market_heat_us_job(*args, **kwargs) -> None:
@@ -248,16 +174,12 @@ async def collect_market_heat_cn_job(*args, **kwargs) -> None:
 
 
 async def _eod_kline_sync(market: str) -> dict[str, Any]:
-    from module_market.service.sync_service import MarketSyncService
-
     payload = {'market': market.upper()}
     if await JobQueue.enqueue('eod_kline_sync', payload):
         logger.info(f'[收盘K线] 已入队 market={market}')
         return {'queued': True, 'market': market}
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, lambda: MarketSyncService.sync_eod_market(market))
-    logger.info(f'[收盘K线] 完成 market={market}: {result}')
-    return result
+    logger.error(f'[收盘K线] 入队失败，跳过本轮（不在 scheduler 内联执行） market={market}')
+    return {'queued': False, 'skipped': True, 'market': market}
 
 
 async def eod_kline_sync_cn_job(*args, **kwargs) -> None:
@@ -277,15 +199,8 @@ async def eod_kline_sync_us_job(*args, **kwargs) -> None:
 
 async def run_stock_pick_job(*args, **kwargs) -> None:
     """智能选股扫描。invoke_target: module_task.market_task.run_stock_pick_job"""
-    from module_market.service.stock_pick_service import StockPickService
-
     payload = {'trigger': 'schedule'}
     if await JobQueue.enqueue('stock_pick_run', payload):
         logger.info('[选股] 已入队')
         return
-    async with AsyncSessionLocal() as db:
-        result = await StockPickService.run(db, trigger='schedule', use_ai=True)
-        logger.info(
-            f'[选股] 完成 status={result.get("status")} picked={result.get("pickedCount")} ai={result.get("aiCount")}'
-        )
-
+    logger.error('[选股] 入队失败，跳过本轮（不在 scheduler 内联执行）')

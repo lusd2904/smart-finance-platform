@@ -25,8 +25,15 @@ let pollTimer=null
 async function load(silent=false){ if(!silent) loading.value=true; try{ const res=await listNotifications(80); list.value=res.data||[] } finally{ if(!silent) loading.value=false } }
 async function mark(n){ await readNotifications(n.id); load() }
 async function markAll(){ await readNotifications(); load() }
-onMounted(()=>{ load(); pollTimer=setInterval(()=>load(true), 15000) })
-onBeforeUnmount(()=>{ if(pollTimer) clearInterval(pollTimer) })
+function stopPollTimer(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null } }
+function startPollTimer(){ stopPollTimer(); pollTimer=setInterval(()=>load(true), 15000) }
+function handleVisibility(){
+  if(document.visibilityState==='visible'){
+    if(!pollTimer){ load(true); startPollTimer() }
+  } else { stopPollTimer() }
+}
+onMounted(()=>{ load(); startPollTimer(); document.addEventListener('visibilitychange', handleVisibility) })
+onBeforeUnmount(()=>{ document.removeEventListener('visibilitychange', handleVisibility); stopPollTimer() })
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

@@ -206,7 +206,7 @@ import {
   getTradeQuoteDepth, getTradeQuoteTrades, getTradeQuoteKline
 } from '@/api/trade'
 import { listWatchlist, computeFactor } from '@/api/quant'
-import { getBoardQuotes, aiAnalyze, getSymbolOverview } from '@/api/market'
+import { getBoardQuotes, aiAnalyze, getSymbolOverview, getLatestAi, pollMarketJob } from '@/api/market'
 
 const route = useRoute()
 const router = useRouter()
@@ -481,6 +481,20 @@ async function runAi() {
   try {
     const res = await aiAnalyze({ symbol: form.value.symbol, market: form.value.market, days: 90 })
     const d = res.data || {}
+    if (d.accepted || d.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队')
+      if (d.jobId) {
+        const ticket = await pollMarketJob(d.jobId)
+        if (ticket.status === 'failed') {
+          aiText.value = ticket.error || '研判失败'
+          return
+        }
+      }
+      const latest = await getLatestAi(form.value.symbol, { market: form.value.market })
+      const data = latest.data || {}
+      aiText.value = data.content || data.analysis || data.summary || data.message || JSON.stringify(data, null, 2)
+      return
+    }
     aiText.value = d.content || d.analysis || d.summary || d.message || JSON.stringify(d, null, 2)
   } catch (e) {
     aiText.value = e.message || '研判失败'
@@ -569,24 +583,47 @@ async function cancel(row) {
   d.ok ? proxy.$modal.msgSuccess(d.message || '已撤') : proxy.$modal.msgError(d.message || '失败')
   await loadOrders()
 }
+function stopLive() {
+  if (liveTimer) {
+    clearInterval(liveTimer)
+    liveTimer = null
+  }
+}
+function tickLive() {
+  loadKline()
+  if (String(form.value.market).toUpperCase() !== 'CN' && configured.value) {
+    loadDepth()
+    loadTrades()
+  }
+}
+function startLive() {
+  stopLive()
+  if (document.hidden) return
+  liveTimer = setInterval(tickLive, 20000)
+}
 function restartLive() {
-  if (liveTimer) clearInterval(liveTimer)
-  liveTimer = setInterval(() => {
-    loadKline()
-    if (String(form.value.market).toUpperCase() !== 'CN' && configured.value) {
-      loadDepth()
-      loadTrades()
+  startLive()
+}
+function handleVisibility() {
+  if (document.visibilityState === 'visible') {
+    if (!liveTimer) {
+      tickLive()
+      startLive()
     }
-  }, 20000)
+  } else {
+    stopLive()
+  }
 }
 function handleResize() { chart && chart.resize() }
 onMounted(() => {
   refreshAll()
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  if (liveTimer) clearInterval(liveTimer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  stopLive()
   if (chart) { chart.dispose(); chart = null }
 })
 </script>

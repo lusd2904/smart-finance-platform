@@ -53,7 +53,9 @@ def test_heartbeat_alive_helper() -> None:
 
 
 def test_auto_trade_uses_free_job_id() -> None:
-    assert ANALYSIS_JOB_MAP[112].code == 'auto_trade_scan'
+    spec = ANALYSIS_JOB_MAP[112]
+    assert spec.code == 'auto_trade_scan'
+    assert spec.queue_type == 'auto_trade_scan'
 
 
 def test_extra_jobs_are_treated_as_analysis_targets() -> None:

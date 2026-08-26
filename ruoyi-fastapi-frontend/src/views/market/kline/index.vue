@@ -122,7 +122,7 @@
 <script setup name="MarketKline">
 import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme';
-import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze } from '@/api/market';
+import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze, getLatestAi, pollMarketJob } from '@/api/market';
 
 const { proxy } = getCurrentInstance();
 const router = useRouter();
@@ -409,30 +409,47 @@ function handleSync() {
   });
 }
 
+function mapAiResult(data) {
+  return {
+    recommendation: data.recommendation || data.finalDecision,
+    stance: data.stance || data.trend,
+    confidence: data.confidence ?? data.finalConfidence,
+    pickScore: data.pickScore,
+    factorScore: data.factorScore,
+    summary: data.summary || data.summaryText,
+    indicatorReview: data.indicatorReview || data.result?.indicator_review,
+    sentimentReview: data.sentimentReview || data.result?.sentiment_review,
+    operationAdvice: data.operationAdvice || data.advice || data.result?.operation_advice,
+    riskWarning: data.riskWarning || data.result?.risk_warning
+  };
+}
+
 /** AI分析 */
-function handleAiAnalyze() {
+async function handleAiAnalyze() {
   if (!current.value) return;
   aiOpen.value = true;
   aiLoading.value = true;
   aiResult.value = null;
-  aiAnalyze({ symbol: current.value.symbol, market: current.value.market }).then(res => {
+  try {
+    const res = await aiAnalyze({ symbol: current.value.symbol, market: current.value.market });
     const data = res.data || {};
-    // 兼容扁平字段与 result 嵌套
-    aiResult.value = {
-      recommendation: data.recommendation || data.finalDecision,
-      stance: data.stance || data.trend,
-      confidence: data.confidence ?? data.finalConfidence,
-      pickScore: data.pickScore,
-      factorScore: data.factorScore,
-      summary: data.summary,
-      indicatorReview: data.indicatorReview || data.result?.indicator_review,
-      sentimentReview: data.sentimentReview || data.result?.sentiment_review,
-      operationAdvice: data.operationAdvice || data.advice || data.result?.operation_advice,
-      riskWarning: data.riskWarning || data.result?.risk_warning
-    };
-  }).finally(() => {
+    if (data.accepted || data.jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队');
+      if (data.jobId) {
+        const ticket = await pollMarketJob(data.jobId);
+        if (ticket.status === 'failed') {
+          proxy.$modal.msgError(ticket.error || '研判失败');
+          return;
+        }
+      }
+      const latest = await getLatestAi(current.value.symbol, { market: current.value.market });
+      aiResult.value = mapAiResult(latest.data || {});
+      return;
+    }
+    aiResult.value = mapAiResult(data);
+  } finally {
     aiLoading.value = false;
-  });
+  }
 }
 
 let resizeTimer = null;
