@@ -32,7 +32,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 ### 2. 🖥️ Flutter 桌面：登录后即 Web 控制台
 - macOS / Windows 宽屏不再走 Flutter 精简页，`WebView` 打开网关 `/portal`，页面、路由、样式与 Docker Web 同一份。
 - JWT 写入 `Admin-Token` Cookie；macOS 开发签名下 JWT 改存 SharedPreferences，避免反复弹钥匙串。
-- Debug 默认本机 Docker；Release 默认线上 `https://sfp.luapi.top`。模拟器环回 `10.0.2.2` 不再被改写成线上地址。
+- Debug 默认本机 Docker；Release 默认线上 `https://sfp.luapi.top`。Debug 保留模拟器环回 `10.0.2.2`；Release 仍把残留的 `10.0.2.2` 改回线上。注意事项见 `docs/DEPLOY.md` §2.1。
 
 ### 3. 💹 行情指数与持仓实时价
 - 大盘指数一次拉三市场各三条，始终返回最近有效报价，由客户端按当前市场筛选。缓存键 `market:index:quotes:v3`。

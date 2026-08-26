@@ -64,6 +64,68 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
   细节见 `ruoyi-fastapi-backend/sql/README.md`。
 - 服务层不再运行时建表：代码依赖的表（如 `market_price_history_daily`）缺失时按日志提示执行迁移即可。
 
+## 2.1 本次改动注意事项（队列 / Influx / Redis / 客户端）
+
+合并 PR #31、#32 后滚动业务容器即可生效。下面这些行为会和旧栈不一样，上线前先过一遍。
+
+### 禁止事项
+
+- **禁止 `docker compose down` 整栈。** 命名卷 `sentiment-influxdb-data` 不能删、不能 `-v`。
+- **不要**把 `ruoyi-redis` / `sentiment-influxdb` / `ruoyi-mysql` 和业务容器绑在一次 `up --build` 里「顺便重建」。数据层单独决策。
+- 自动交易扫描只入 `quant` 队列；是否真下单仍看账户策略开关，这次改动**不会**改成默认实盘。
+
+推荐滚动（先 API，再前端；脚本 `scripts/deploy_and_verify.sh` 已按这个顺序）：
+
+```bash
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
+  sentiment-backend sentiment-trade sentiment-ai sentiment-news \
+  sentiment-market sentiment-quant \
+  sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
+```
+
+`market` / `quant` / `jobs-market` / `jobs-quant` 会等 Influx `healthy`。Influx 冷启动可达 10 分钟，期间这四个起不来是预期，**登录 API 不应跟着挂**。
+
+### Influx 与登录
+
+- `sentiment-backend`（登录/系统）、`trade`、`news`、`ai`、`jobs`、`jobs-llm` **不再** `depends_on` Influx healthy。
+- 前端也不再等 `market`/`quant`。Influx 未就绪时：登录页可以开，行情/量化接口可能 502 或业务码 500。
+- 旧容器的 `depends_on` 只在**创建时**生效；正在跑的栈要按上面 `--no-deps` 重建业务容器后，新依赖才算数。
+
+### Redis（要单独重建才换镜像/策略）
+
+compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy noeviction`、卷 `sentiment-redis-data`。
+
+- **正在跑的** `sentiment-redis` 若仍是 `redis:latest`、无数据卷，则上述配置**尚未生效**。需要时才：
+
+  ```bash
+  docker compose -f docker-compose.sentiment.yml up -d ruoyi-redis
+  ```
+
+- 第一次挂上新卷会是**空库**：会话、验证码、任务队列、ticket 全没。MySQL / Influx **不受影响**。重建后用户需重新登录；排队中的 Grok/采集任务会丢，可在任务中心再跑一次。
+- `noeviction`：内存到 256mb 后 **写入失败**，而不是踢掉 JWT / ticket。看到 Redis OOM 或 `OOM command not allowed` 时加内存或清缓存，不要改回 `volatile-lru`（会先淘汰带 TTL 的登录态和 job ticket）。
+
+### 队列与 HTTP
+
+- 单标的研判、批量研判、自选分析、收盘复盘、选股、热度采集：**HTTP 只入队并立即返回 ticket**（`accepted` / `jobId` / `status`）。前端轮询 `GET /market/jobs/{jobId}`。
+- ticket 状态：`queued` → `running` → 失败且还会重试时为 **`retrying`** → 成功 `done` / 进死信才 `failed`。前端只把 `done`/`failed` 当终态。
+- **SSE** `GET /market/ai/analyze/stream` 仍在市场 API 进程里跑 Grok，会占 worker。
+- 调度入队失败**不再在 scheduler 里内联**重任务。Redis 短暂不可用时，这一轮 cron 会跳过。收盘 K 线、开盘送单、自动交易扫描这类一天一次/开盘窗口任务，入队失败不会补跑，需要任务中心手动再执行，或等下一周期。
+- HTTP「自选分析全部」只分析**当前登录用户**的启用自选。全站小时任务仍是 scheduler 的 `watchlist_analyze`（无 `userId`）。
+- `APP_ROLE=api|scheduler|worker` 启动时**跳过** `metadata.create_all`。新库靠 compose 初始化 SQL + `scripts/sql_migrate.py`。只 `compose up`、不跑迁移时，登录可能通，热度/选股/复盘等表会缺。`APP_ROLE=all` 的本地单体仍会 `create_all`。
+
+### 客户端
+
+- Web：后台标签页会停报价轮询；需求沟通只在有 `jobId` 时轮询。自选 overview 有约 10s Redis 缓存，刚分析完若列表未变，等一轮或手动刷新。
+- nginx `/docker-api/trade/ai/` 读超时 180s（必须写在通用 `/trade/` 30s 之前）。批量研判已入队，一般秒回。
+- Flutter **Debug**：默认 `http://127.0.0.1:12580`，Android 模拟器 `http://10.0.2.2:12580`，已存的模拟器地址**保留**。真机 Debug 请在网关页改成局域网 IP，不要用 `10.0.2.2`。
+- Flutter **Release**：默认 `https://sfp.luapi.top`；若还存着 `10.0.2.2`/`10.0.3.2` 会改回线上（避免调试残留带到生产包）。
+- 指数 WS 默认间隔 15s（对齐指数 30s 缓存）。客户端传 `interval=5` 仍允许，但会反复打同一份缓存。
+
+### jobs worker 健康检查
+
+`jobs-market` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建三个 worker（不要 down 整栈）。
+
 ## 3. 监控（可选）
 
 ```bash
@@ -124,3 +186,4 @@ curl -s -H "X-Req-Token: $REQUIREMENTS_EXPORT_TOKEN" \
 3. 长桥配置填写凭证。
 4. 确认 `sentiment-jobs` 健康（`/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
 5. 合并功能分支 PR，不要直接推 `main`。
+6. 过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。

@@ -26,6 +26,16 @@
 ### 📱 Flutter
 - Debug 默认本机 Docker，保留 `10.0.2.2`；Release 仍把模拟器环回改回线上
 
+### ⚠️ 注意事项
+- 禁止 `compose down` 整栈、禁止删 Influx 命名卷；滚动业务容器用 `--no-deps`
+- Redis 新镜像/AOF/`noeviction` 要单独 `up ruoyi-redis` 才生效；第一次挂新卷会清空会话和任务队列（库表和行情时序不受影响），用户需重新登录
+- Influx 未就绪时登录应可用，行情/量化可能 502；`market`/`quant` 重建仍会等 Influx healthy
+- 研判/复盘/选股 HTTP 只回 ticket，前端轮询 `/market/jobs/{id}`；重试中是 `retrying` 不是 `failed`
+- 调度入队失败本轮跳过、不内联；窗口型任务（收盘 K、开盘送单）失败后要手动补跑
+- 拆分角色跳过 `create_all`，新环境必须跑 `sql_migrate.py`
+- SSE 流式研判仍走市场 API；自动交易默认仍不实盘下单
+- 完整说明见 `docs/DEPLOY.md`「2.1 本次改动注意事项」
+
 ### 🐛 调度与内存
 - 修复「立即执行」：ORM 行转 JobModel 保留 snake_case `invoke_target`
 - 调度日志只记 JobExecutionEvent；配置同步不再因 `update_time` 为空每 30 秒删加任务

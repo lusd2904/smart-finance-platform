@@ -28,7 +28,7 @@ flutter run -d macos     # 或 windows / ios / android
 
 ## 首启流程（复刻 desktop 语义）
 
-未配置时：Debug/Profile 默认本机 Docker（`http://127.0.0.1:12580`，Android 模拟器 `http://10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。已保存的模拟器环回（`10.0.2.2` / `10.0.3.2`）是有效网关，不会被改写成线上。网关必须是**前端地址**，业务 API 走 `{网关}/docker-api`；后端端口（19099/9099）不能当网关。
+未配置时：Debug/Profile 默认本机 Docker（`http://127.0.0.1:12580`，Android 模拟器 `http://10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。Debug 下已保存的 `10.0.2.2` / `10.0.3.2` 会保留；Release 会把这类模拟器环回改回线上，避免调试残留进生产包。真机 Debug 请填局域网 HTTP 地址。网关必须是**前端地址**，业务 API 走 `{网关}/docker-api`；后端端口（19099/9099）不能当网关。滚动 Docker 与 Redis/Influx 注意见仓库 `docs/DEPLOY.md` §2.1。
 
 ## 测试
 
