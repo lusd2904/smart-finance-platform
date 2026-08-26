@@ -92,6 +92,17 @@ class JobCrudMixin:
         job_executor = job_info.job_executor
         if iscoroutinefunction(cls._import_function(job_info.invoke_target)):
             job_executor = 'default'
+        expected_args = tuple(job_args) if job_args else ()
+        expected_kwargs = job_kwargs or {}
+        current_args = job_state.get('args') or ()
+        current_kwargs = job_state.get('kwargs') or {}
+        current_func = job_state.get('func')
+        expected_func_path = (job_info.invoke_target or '').strip()
+        current_func_path = ''
+        if isinstance(current_func, str):
+            current_func_path = current_func
+        elif current_func is not None:
+            current_func_path = f'{getattr(current_func, "__module__", "")}.{getattr(current_func, "__name__", "")}'
         expected = {
             'name': job_info.job_name,
             'executor': job_executor,
@@ -100,9 +111,9 @@ class JobCrudMixin:
             'coalesce': job_info.misfire_policy == '2',
             'max_instances': 3 if job_info.concurrent == '0' else 1,
             'trigger': str(MyCronTrigger.from_crontab(job_info.cron_expression)),
-            'args': tuple(job_args) if job_args else None,
-            'kwargs': job_kwargs if job_kwargs else None,
-            'func': str(cls._import_function(job_info.invoke_target)),
+            'args': expected_args,
+            'kwargs': expected_kwargs,
+            'func': expected_func_path,
         }
         current = {
             'name': job_state.get('name'),
@@ -112,9 +123,9 @@ class JobCrudMixin:
             'coalesce': job_state.get('coalesce'),
             'max_instances': job_state.get('max_instances'),
             'trigger': str(job_state.get('trigger')),
-            'args': job_state.get('args'),
-            'kwargs': job_state.get('kwargs'),
-            'func': str(job_state.get('func')),
+            'args': tuple(current_args) if current_args else (),
+            'kwargs': current_kwargs if current_kwargs else {},
+            'func': current_func_path,
         }
         return expected == current
 
@@ -135,10 +146,12 @@ class JobCrudMixin:
             return
         if cls._should_skip_job_update(job_id, job_update_time):
             return
-        if not cls._is_job_config_in_sync(scheduler_job, job_info):
-            scheduler.remove_job(job_id=job_id)
-            cls._add_job_to_scheduler(job_info)
-            logger.info(f'♻️ 同步更新任务: {job_info.job_name}')
+        if cls._is_job_config_in_sync(scheduler_job, job_info):
+            cls._refresh_job_update_cache(job_id, job_update_time)
+            return
+        scheduler.remove_job(job_id=job_id)
+        cls._add_job_to_scheduler(job_info)
+        logger.info(f'♻️ 同步更新任务: {job_info.job_name}')
         cls._refresh_job_update_cache(job_id, job_update_time)
 
     @classmethod
@@ -151,7 +164,8 @@ class JobCrudMixin:
         :return: 是否跳过
         """
         if job_update_time is None:
-            return False
+            # 110/111 等行 update_time 为空时不能每次都当「有变更」，否则 30s 同步会反复删加。
+            return job_id in cls._job_update_time_cache
         return cls._job_update_time_cache.get(job_id) == job_update_time
 
     @classmethod
@@ -166,7 +180,8 @@ class JobCrudMixin:
         if job_update_time is not None:
             cls._job_update_time_cache[job_id] = job_update_time
         else:
-            cls._job_update_time_cache.pop(job_id, None)
+            # None 表示「已加载且无时间戳」；用 sentinel 避免下一轮当成未同步。
+            cls._job_update_time_cache[job_id] = datetime.min
 
     @classmethod
     async def request_scheduler_sync(cls) -> None:

@@ -57,7 +57,7 @@ services:
     networks:
       - sentiment-network
 
-  # 平台 API：登录/系统/任务中心。APP_MODULE=all 作为网关回退。
+  # 平台 API：登录/系统/任务中心。nginx 将 trade/market/quant/news/ai 分片到独立进程。
   sentiment-backend:
     <<: *backend-image
     container_name: sentiment-backend
@@ -65,11 +65,12 @@ services:
       - "127.0.0.1:19099:9099"
     environment:
       APP_ROLE: api
-      APP_MODULE: all
+      APP_MODULE: platform
       APP_JOB_GROUP: none
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on: *backend-depends
+    mem_limit: 1g
     healthcheck:
       test:
         [
@@ -372,6 +373,7 @@ services:
       - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
       - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
       - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
+    # max-connections=300：~10 Python 进程 × (DB_POOL_SIZE 8 + DB_MAX_OVERFLOW 4) ≈ 120；旧 50+10 会到 ~600 并饿死此上限
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
     networks:
       - sentiment-network

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 🐛 调度与内存
+- 修复「立即执行」：ORM 行转 JobModel 保留 snake_case `invoke_target`
+- 调度日志只记 JobExecutionEvent；配置同步不再因 `update_time` 为空每 30 秒删加任务
+- 自动交易扫描入 `quant` 队列，不再占 scheduler 进程
+- Influx 超时 8s、容器内存上限；平台 API `APP_MODULE=platform`；pandas 改为按需导入
+- 示例库连接池 8+4（约 10 进程 ×12 ≈ 120，低于 MySQL 300）
+
 ### 🧹 仓库清理
 - 移除根目录与 `docs/` 下的设计稿、反重力图片、NotebookLM/反重力逐页规范、`todos.md`、`ox意见.md`
 

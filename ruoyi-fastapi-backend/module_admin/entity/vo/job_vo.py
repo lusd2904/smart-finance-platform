@@ -11,7 +11,7 @@ class JobModel(BaseModel):
     定时任务调度表对应pydantic模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     job_id: int | None = Field(default=None, description='任务ID')
     job_name: str | None = Field(default=None, description='任务名称')

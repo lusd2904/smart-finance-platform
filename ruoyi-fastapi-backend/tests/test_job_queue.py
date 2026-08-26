@@ -44,6 +44,7 @@ def test_handlers_cover_known_jobs() -> None:
     assert group_for('board_warmup') == 'market'
     assert group_for('strategy_run') == 'quant'
     assert group_for('position_monitor') == 'quant'
+    assert group_for('auto_trade_scan') == 'quant'
     assert group_for('watchlist_analyze') == 'llm'
     assert group_for('sentiment_analyze') == 'llm'
     assert group_for('req_send') == 'llm'
@@ -66,6 +67,52 @@ def test_processing_and_dead_keys() -> None:
 @pytest.mark.asyncio
 async def test_enqueue_without_redis_returns_false() -> None:
     assert await JobQueue.enqueue('market_sync', {'years': 1}) is False
+    assert await JobQueue.enqueue('auto_trade_scan', {'profile': 'balanced'}) is False
+
+
+@pytest.mark.asyncio
+async def test_auto_trade_scan_job_enqueues(monkeypatch):
+    from module_task.trade_task import run_auto_trade_scan_job
+
+    captured: dict = {}
+
+    async def fake_enqueue(job_type, payload=None):
+        captured['type'] = job_type
+        captured['payload'] = payload
+        return True
+
+    inline_called = {'value': False}
+
+    async def fake_now(**kwargs):
+        inline_called['value'] = True
+        return kwargs
+
+    monkeypatch.setattr(JobQueue, 'enqueue', fake_enqueue)
+    monkeypatch.setattr('module_task.trade_task.run_auto_trade_scan_now', fake_now)
+    await run_auto_trade_scan_job('aggressive', userId=7)
+    assert captured['type'] == 'auto_trade_scan'
+    assert captured['payload'] == {'profile': 'aggressive', 'userId': 7}
+    assert inline_called['value'] is False
+
+
+@pytest.mark.asyncio
+async def test_auto_trade_scan_job_falls_back_inline(monkeypatch):
+    from module_task.trade_task import run_auto_trade_scan_job
+
+    async def fake_enqueue(job_type, payload=None):
+        return False
+
+    ran = {}
+
+    async def fake_now(profile='balanced', user_id=None):
+        ran['profile'] = profile
+        ran['userId'] = user_id
+        return {'profile': profile, 'userId': user_id}
+
+    monkeypatch.setattr(JobQueue, 'enqueue', fake_enqueue)
+    monkeypatch.setattr('module_task.trade_task.run_auto_trade_scan_now', fake_now)
+    await run_auto_trade_scan_job(profile='balanced')
+    assert ran == {'profile': 'balanced', 'userId': None}
 
 
 @pytest.mark.asyncio
@@ -165,6 +212,9 @@ async def test_submit_enqueues_and_writes_ticket(fake_redis):
     assert len(fake_redis.lists[QUEUE_KEY]) == 1
     fetched = await JobQueue.get_ticket(ticket['jobId'])
     assert fetched and fetched['jobId'] == ticket['jobId']
+    trade_ticket = await JobQueue.submit('auto_trade_scan', {'profile': 'balanced', 'userId': 3})
+    assert trade_ticket and trade_ticket['queue'] == 'quant'
+    assert len(fake_redis.lists[QUEUE_KEY]) == 2
 
 
 @pytest.mark.asyncio

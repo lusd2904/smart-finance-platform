@@ -88,6 +88,7 @@ JOB_GROUPS = {
     'req_summarize': 'llm',
     'daily_list_scan': 'quant',
     'daily_list_open': 'quant',
+    'auto_trade_scan': 'quant',
     'feishu_push': 'llm',
     'stock_pick_run': 'llm',
     'eod_kline_sync': 'market',
@@ -630,6 +631,14 @@ async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
         return await DailyListService.execute_queued(db)
 
 
+async def _auto_trade_scan(payload: dict[str, Any]) -> dict[str, Any]:
+    from module_task.trade_task import run_auto_trade_scan_now
+
+    profile = str((payload or {}).get('profile') or 'balanced')
+    user_id = int((payload or {}).get('userId') or 0) or None
+    return await run_auto_trade_scan_now(profile=profile, user_id=user_id)
+
+
 async def _stock_pick_run(payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal
     from module_market.service.stock_pick_service import StockPickService
@@ -686,6 +695,7 @@ HANDLERS = {
     'req_summarize': _req_summarize,
     'daily_list_scan': _daily_list_scan,
     'daily_list_open': _daily_list_open,
+    'auto_trade_scan': _auto_trade_scan,
     'feishu_push': _feishu_push,
     'stock_pick_run': _stock_pick_run,
     'eod_kline_sync': _eod_kline_sync,
