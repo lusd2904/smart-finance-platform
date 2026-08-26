@@ -25,5 +25,5 @@ SELECT 104, '标的内容缓存刷新', 'default', 'default', 'module_task.marke
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 104);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 112, '自动交易扫描', 'default', 'default', 'module_task.trade_task.run_auto_trade_scan_job', NULL, NULL, '0 0/15 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '按策略扫描自选机会，默认只评估不向券商提交委托'
+SELECT 112, '自动交易扫描', 'default', 'default', 'module_task.trade_task.run_auto_trade_scan_job', NULL, NULL, '0 0/15 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '按策略扫描美/港热度池机会，默认只评估不向券商提交委托；A股不参与'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 112);
