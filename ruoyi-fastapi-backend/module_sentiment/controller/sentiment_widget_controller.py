@@ -29,7 +29,7 @@ class OpenTokenRequest(BaseModel):
 @sentiment_widget_controller.post(
     '/token',
     summary='舆情 Widget 登录换令牌',
-    description='用户名密码签发 60 分钟 JWT。不再使用固定 SENTIMENT_WIDGET_TOKEN。',
+    description='RSA-OAEP+AES-GCM 加密用户名密码，签发 60 分钟 JWT。明文密码拒绝。',
 )
 @ApiRateLimit(namespace=ApiNamespace.LOGIN, preset=ApiRateLimitPreset.ANON_AUTH_LOGIN)
 async def sentiment_widget_token(

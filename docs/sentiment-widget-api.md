@@ -6,7 +6,7 @@
 
 | 项 | 值 |
 |---|---|
-| 换令牌 | `POST /prod-api/sentiment/widget/token`，JSON `{"username","password"}`，返回 60 分钟 JWT |
+| 换令牌 | `POST /prod-api/sentiment/widget/token`，**RSA-OAEP + AES-256-GCM 信封**（与 `/open/sync/token` 相同），明文密码会被拒绝 |
 | 生产 URL | `https://sfp.luapi.top/prod-api/sentiment/widget/dashboard` |
 | 方法 | `GET` |
 | 鉴权 Header | `Authorization: Bearer <token>`（不再使用固定 `SENTIMENT_WIDGET_TOKEN`） |
@@ -19,12 +19,22 @@
 
 ## 示例
 
-```bash
-TOKEN=$(curl -sS -X POST "https://sfp.luapi.top/prod-api/sentiment/widget/token" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"<密码>"}' \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('data') or {}).get('token') or '')")
+密码必须走传输层信封，不能 `curl -d '{"password":"..."}'`。流程与 `scripts/sync_from_prod.py` 的 `encrypted_json` 相同：先 `GET /transport/crypto/public-key`，再用 RSA-OAEP 包一层 AES-256-GCM，AAD 绑定 `POST` + `/sentiment/widget/token`。
 
+```python
+# 伪代码，实现见 scripts/sync_from_prod.py 的 encrypted_json
+key = load_public_key('https://sfp.luapi.top/prod-api')
+data = encrypted_json(
+    'https://sfp.luapi.top/prod-api',
+    '/sentiment/widget/token',
+    {'username': 'admin', 'password': '<密码>'},
+    key,
+)
+token = data['token']  # 60 分钟
+# 随后 GET dashboard 只需 Authorization: Bearer，不必再加密
+```
+
+```bash
 curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/sentiment/widget/dashboard?trendLimit=24"

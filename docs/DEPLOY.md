@@ -170,14 +170,20 @@ npm run e2e:web
 curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:19099/ai/req/items/export
 ```
 
-脚本 / 外部拉取先用用户名密码换短期令牌（60 分钟，不再使用固定 `REQUIREMENTS_EXPORT_TOKEN`）：
+脚本 / 外部拉取先用用户名密码换短期令牌（60 分钟，不再使用固定 `REQUIREMENTS_EXPORT_TOKEN`）。**密码必须 RSA-OAEP + AES-256-GCM 信封**，与 `/open/sync/token` 相同；明文 POST 会被拒绝。实现见 `scripts/sync_from_prod.py` 的 `encrypted_json`：
+
+```python
+key = load_public_key('https://sfp.luapi.top/prod-api')
+data = encrypted_json(
+    'https://sfp.luapi.top/prod-api',
+    '/open/token',
+    {'username': 'admin', 'password': '<密码>'},
+    key,
+)
+token = data['token']
+```
 
 ```bash
-TOKEN=$(curl -sS -X POST "https://sfp.luapi.top/prod-api/open/token" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"<密码>"}' \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('data') or {}).get('token') or '')")
-
 curl -s -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/open/requirements?status=pending"
 ```
@@ -192,3 +198,4 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 4. 确认 `sentiment-jobs` 健康（`/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
 5. 合并功能分支 PR，不要直接推 `main`。
 6. 过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
+7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。

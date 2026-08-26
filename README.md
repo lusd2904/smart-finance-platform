@@ -60,7 +60,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ### 3. 🔄 生产 → 本地同步
 - `POST /open/sync/token` + `POST /open/sync/pull`：RSA-OAEP + AES-GCM 加密用户名密码换短期令牌，不再写死固定 token。
-- 传输加密仅挂在 `/open/sync/*`。脚本：`scripts/sync_from_prod.py`。
+- 传输加密强制路径：`/open/sync/*`、`/open/token`、`/sentiment/widget/token`。脚本：`scripts/sync_from_prod.py`。
 
 ### 4. 🖥️ Flutter
 - macOS：交易台、盘前/夜盘时段、北京时间轴；本机已打 `智慧金融.app`。窗口 1440×900，最小 1100×700；ATS 允许本机/局域网 HTTP 网关。
@@ -109,7 +109,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 生产构建后左侧菜单消失已修复。
 
 ### 6. 📰 舆情 Widget、北京时间与工作台超时
-- **只读 Widget API**：`POST /sentiment/widget/token`（用户名密码换 60 分钟 JWT）+ `GET /sentiment/widget/dashboard`（`Authorization: Bearer`）。文档见 `docs/sentiment-widget-api.md`。
+- **只读 Widget API**：`POST /sentiment/widget/token`（RSA-OAEP + AES-GCM 加密用户名密码，换 60 分钟 JWT）+ `GET /sentiment/widget/dashboard`（`Authorization: Bearer`）。文档见 `docs/sentiment-widget-api.md`。
 - 舆情大盘 / 资讯 / 分析历史统一北京时间展示与落库；naive `pub_time` 按北京墙钟处理。
 - `GET /dashboard/summary` 各段 5 秒超时，读模型缺失时返回空载荷提示而非回退长桥实时。
 
