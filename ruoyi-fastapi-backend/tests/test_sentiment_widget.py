@@ -10,31 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from exceptions.exception import ServiceException
-from module_sentiment.controller.sentiment_widget_controller import _check_widget_token
 from module_sentiment.service.sentiment_service import SentimentService
-
-
-def test_widget_token_disabled() -> None:
-    with patch('module_sentiment.controller.sentiment_widget_controller.AppConfig') as cfg:
-        cfg.sentiment_widget_token = ''
-        with pytest.raises(ServiceException) as err:
-            _check_widget_token('anything')
-        assert 'SENTIMENT_WIDGET_TOKEN' in err.value.message
-
-
-def test_widget_token_invalid() -> None:
-    with patch('module_sentiment.controller.sentiment_widget_controller.AppConfig') as cfg:
-        cfg.sentiment_widget_token = 'secret-token'
-        with pytest.raises(ServiceException) as err:
-            _check_widget_token('wrong')
-        assert err.value.message == 'Widget 令牌无效'
-
-
-def test_widget_token_ok() -> None:
-    with patch('module_sentiment.controller.sentiment_widget_controller.AppConfig') as cfg:
-        cfg.sentiment_widget_token = 'secret-token'
-        _check_widget_token('secret-token')
 
 
 def test_normalize_direction() -> None:

@@ -109,7 +109,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 生产构建后左侧菜单消失已修复。
 
 ### 6. 📰 舆情 Widget、北京时间与工作台超时
-- **只读 Widget API**：`GET /sentiment/widget/dashboard`，`X-Widget-Token` 鉴权（`SENTIMENT_WIDGET_TOKEN`，空则关闭）。文档见 `docs/sentiment-widget-api.md`。
+- **只读 Widget API**：`POST /sentiment/widget/token`（用户名密码换 60 分钟 JWT）+ `GET /sentiment/widget/dashboard`（`Authorization: Bearer`）。文档见 `docs/sentiment-widget-api.md`。
 - 舆情大盘 / 资讯 / 分析历史统一北京时间展示与落库；naive `pub_time` 按北京墙钟处理。
 - `GET /dashboard/summary` 各段 5 秒超时，读模型缺失时返回空载荷提示而非回退长桥实时。
 
@@ -311,7 +311,7 @@ smart-finance-platform/
 ## 🛡️ 隐私与数据安全说明
 
 - 仓库只有 `.env.*.example`，不含生产密钥。
-- 不要提交 `DB_PASSWORD` / `JWT_SECRET` / `INFLUX_TOKEN` / 长桥 Token / RSA 私钥 / `SENTIMENT_WIDGET_TOKEN`。
+- 不要提交 `DB_PASSWORD` / `JWT_SECRET` / `INFLUX_TOKEN` / 长桥 Token / RSA 私钥。
 - 长桥交易开关与纸面保护在服务端，前端关不掉实盘拦截。
 - Widget 接口空 token 即关闭；管理端口默认只绑本机回环。
 

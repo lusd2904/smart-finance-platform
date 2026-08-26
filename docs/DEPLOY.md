@@ -164,16 +164,21 @@ npm run e2e:web
 
 ## 7. 需求清单对外接口
 
-登录后：
+登录后（Web 会话 JWT）：
 
 ```bash
 curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:19099/ai/req/items/export
 ```
 
-生产可用 Token（环境变量 `REQUIREMENTS_EXPORT_TOKEN`）：
+脚本 / 外部拉取先用用户名密码换短期令牌（60 分钟，不再使用固定 `REQUIREMENTS_EXPORT_TOKEN`）：
 
 ```bash
-curl -s -H "X-Req-Token: $REQUIREMENTS_EXPORT_TOKEN" \
+TOKEN=$(curl -sS -X POST "https://sfp.luapi.top/prod-api/open/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<密码>"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('data') or {}).get('token') or '')")
+
+curl -s -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/open/requirements?status=pending"
 ```
 

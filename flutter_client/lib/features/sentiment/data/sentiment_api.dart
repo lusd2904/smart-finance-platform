@@ -6,7 +6,7 @@ import '../../../core/api/api_result.dart';
 import 'sentiment_models.dart';
 
 /// 舆情域接口。契约依据：module_sentiment/controller/sentiment_controller.py。
-/// 客户端走登录态接口（/sentiment/widget/* 需独立 Widget Token，不适用）。
+/// 客户端走登录态接口（Widget 走 /sentiment/widget/token 换 JWT，本页不使用）。
 class SentimentApi {
   SentimentApi(this._dio);
 

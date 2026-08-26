@@ -6,10 +6,10 @@
 
 | 项 | 值 |
 |---|---|
+| 换令牌 | `POST /prod-api/sentiment/widget/token`，JSON `{"username","password"}`，返回 60 分钟 JWT |
 | 生产 URL | `https://sfp.luapi.top/prod-api/sentiment/widget/dashboard` |
 | 方法 | `GET` |
-| 鉴权 Header | `X-Widget-Token: <token>` |
-| 环境变量 | `SENTIMENT_WIDGET_TOKEN`（部署在 `sentiment-news` 容器；空则接口关闭） |
+| 鉴权 Header | `Authorization: Bearer <token>`（不再使用固定 `SENTIMENT_WIDGET_TOKEN`） |
 
 可选查询参数：
 
@@ -20,8 +20,13 @@
 ## 示例
 
 ```bash
+TOKEN=$(curl -sS -X POST "https://sfp.luapi.top/prod-api/sentiment/widget/token" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<密码>"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('data') or {}).get('token') or '')")
+
 curl -sS \
-  -H "X-Widget-Token: $SENTIMENT_WIDGET_TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/sentiment/widget/dashboard?trendLimit=24"
 ```
 
@@ -70,18 +75,15 @@ curl -sS \
 
 | 场景 | `msg` 示例 |
 |---|---|
-| 未配置 token | `未配置 SENTIMENT_WIDGET_TOKEN，舆情大盘 Widget 接口未开启` |
-| token 错误 | `Widget 令牌无效` |
+| 未登录 / 无 Header | `请先用用户名密码获取令牌`（HTTP 401） |
+| 用户名密码错误 | 与登录接口相同的失败文案 |
+| token 过期或伪造 | `令牌已失效，请重新登录`（HTTP 401） |
 
 ## 部署
 
-1. 在仓库根目录 `.env` 或 `ruoyi-fastapi-backend/.env.dockersentiment` 中设置：
-
-   ```env
-   SENTIMENT_WIDGET_TOKEN=openssl_rand_hex_32
-   ```
-
-2. 重启 `sentiment-news` 服务（`APP_MODULE=sentiment` 已包含本路由，**无需改 nginx**）。
+1. 使用平台账号（用户名 + 密码）换令牌，不再配置 `SENTIMENT_WIDGET_TOKEN`。
+2. 令牌 60 分钟过期后重新 `POST /sentiment/widget/token`。限流与登录接口相同。
+3. `APP_MODULE=sentiment` 已包含本路由，**无需改 nginx**。
 
 ## CORS
 

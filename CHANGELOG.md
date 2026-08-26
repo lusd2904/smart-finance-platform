@@ -26,6 +26,9 @@
 ### 📱 Flutter
 - Debug 默认本机 Docker，保留 `10.0.2.2`；Release 仍把模拟器环回改回线上
 
+### 🔐 对外接口
+- 舆情 Widget、需求清单导出不再使用环境变量固定 Token；先 `POST` 用户名密码换 60 分钟 JWT，再 `Authorization: Bearer` 访问
+
 ### ⚠️ 注意事项
 - 禁止 `compose down` 整栈、禁止删 Influx 命名卷；滚动业务容器用 `--no-deps`
 - Redis 新镜像/AOF/`noeviction` 要单独 `up ruoyi-redis` 才生效；第一次挂新卷会清空会话和任务队列（库表和行情时序不受影响），用户需重新登录
