@@ -24,6 +24,10 @@ _CLIENT_CONFIG_KEYS = frozenset({'max_symbols', 'min_confidence', 'strategy_prof
 MIN_TARGET_AMOUNT_USD = 50
 DAILY_BUY_POSITION_RATIO = 0.20
 DEFAULT_MAX_SYMBOL_POSITION_PCT = 0.10
+# 默认策略：美/港热度池（不含 A 股）；总持仓不超过净资产；已持仓不再加仓
+AUTO_TRADE_MARKETS = frozenset({'US', 'HK'})
+MAX_GROSS_EXPOSURE_PCT = 1.0
+TODAY_BUY_STATUSES = frozenset({'submitted', 'filled', 'pending'})
 
 
 def merge_runtime_config(custom_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -165,12 +169,69 @@ def symbol_buy_room(net_assets: float, pct: float | None, existing_mv: float) ->
     return round(symbol_position_cap(net_assets, pct) - max(0.0, held), 2)
 
 
+def is_auto_trade_market(market: str | None, symbol: str | None = None) -> bool:
+    """自动交易只扫美股/港股，A 股（CN/SH/SZ）不扫描、不下单。"""
+    from module_quant.service.longbridge_quote import is_cn_market
+
+    if is_cn_market(market, symbol):
+        return False
+    mkt = str(market or 'US').strip().upper()
+    if mkt in {'CN', 'SH', 'SZ', 'A'}:
+        return False
+    return mkt in AUTO_TRADE_MARKETS or mkt == ''
+
+
 def should_skip_duplicate_buy(symbol: str, today_bought: set[str] | None) -> bool:
     code, _ = parse_symbol_market(symbol)
     if not code:
         return False
     bought = {parse_symbol_market(item)[0] for item in (today_bought or set())}
     return code in bought
+
+
+def position_quantity(pos: dict[str, Any] | None) -> float:
+    if not pos:
+        return 0.0
+    for key in ('availableQuantity', 'available_quantity', 'quantity', 'qty'):
+        try:
+            qty = float(pos.get(key) or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty > 0:
+            return qty
+    return 0.0
+
+
+def should_skip_held_buy(pos: dict[str, Any] | None) -> bool:
+    """已有持仓则不再买入同一标的（默认策略：不重复买）。"""
+    return position_quantity(pos) > 0
+
+
+def total_position_market_value(positions: list[dict[str, Any]] | None) -> float:
+    total = 0.0
+    for pos in positions or []:
+        total += existing_position_market_value(pos)
+    return round(total, 2)
+
+
+def remaining_gross_room(net_assets: float, total_mv: float, max_pct: float = MAX_GROSS_EXPOSURE_PCT) -> float:
+    """总持仓相对净资产的剩余额度；默认不得超过 100% 净资产。"""
+    cap = max(0.0, float(net_assets or 0)) * max(0.0, float(max_pct or 0))
+    held = max(0.0, float(total_mv or 0))
+    return round(cap - held, 2)
+
+
+def pick_available_cash(account_result: dict[str, Any] | None) -> float:
+    balances = (account_result or {}).get('balances') or []
+    if not balances:
+        flat = LongbridgeService.flatten_account(account_result or {})
+        return float(flat.get('availableCash') or flat.get('totalCash') or 0)
+    usd = next((b for b in balances if str(b.get('currency') or '').upper() == 'USD'), None)
+    chosen = usd or max(
+        balances,
+        key=lambda b: float(b.get('availableCash') or b.get('totalCash') or 0),
+    )
+    return float(chosen.get('availableCash') or chosen.get('totalCash') or 0)
 
 
 def pick_net_assets(account_result: dict[str, Any] | None) -> float:
@@ -212,10 +273,15 @@ def parse_symbol_market(raw: str, default_market: str = 'US') -> tuple[str, str]
 
 
 def match_position(positions: list[dict[str, Any]], symbol: str, market: str) -> dict[str, Any] | None:
-    lb = LongbridgeService.to_longbridge_symbol(symbol, market).upper()
-    candidates = {symbol.upper(), lb, f'{symbol}.{market}'.upper()}
+    from module_quant.service.longbridge_quote import _symbol_match_keys
+
+    lb = LongbridgeService.to_longbridge_symbol(symbol, market)
+    keys = _symbol_match_keys(symbol) | _symbol_match_keys(lb) | _symbol_match_keys(f'{symbol}.{market}')
+    if not keys:
+        return None
     for pos in positions or []:
-        if str(pos.get('symbol') or '').upper() in candidates:
+        pos_keys = _symbol_match_keys(str(pos.get('symbol') or ''))
+        if keys & pos_keys:
             return pos
     return None
 
@@ -240,6 +306,10 @@ class AutoTradeService:
         'max_symbol_position_pct': DEFAULT_MAX_SYMBOL_POSITION_PCT,
         'min_confidence': 65,
         'price_slippage_tolerance': 0.03,
+        'scan_markets': tuple(sorted(AUTO_TRADE_MARKETS)),
+        'max_gross_exposure_pct': MAX_GROSS_EXPOSURE_PCT,
+        'skip_held_buy': True,
+        'skip_cn': True,
     }
 
     @classmethod
@@ -273,7 +343,7 @@ class AutoTradeService:
             PlatAutoTradeDecision.create_time >= today_start,
             PlatAutoTradeDecision.user_id == int(user_id),
             PlatAutoTradeDecision.side == 'BUY',
-            PlatAutoTradeDecision.status.in_(['submitted', 'filled']),
+            PlatAutoTradeDecision.status.in_(list(TODAY_BUY_STATUSES)),
         )
         res = await db.execute(stmt)
         return {parse_symbol_market(s)[0] for s in res.scalars().all() if s}
@@ -316,36 +386,83 @@ class AutoTradeService:
         }
 
     @classmethod
+    @classmethod
+    def _append_target(
+        cls, items: list[dict[str, str]], seen: set[tuple[str, str]], symbol: str, market: str
+    ) -> None:
+        sym = str(symbol or '').strip()
+        mkt = str(market or 'US').strip().upper()
+        if not sym:
+            return
+        if '.' in sym:
+            sym, inferred = parse_symbol_market(sym, mkt)
+            mkt = inferred or mkt
+        if not is_auto_trade_market(mkt, sym):
+            return
+        key = (sym.upper(), mkt)
+        if key in seen:
+            return
+        seen.add(key)
+        items.append({'symbol': sym, 'market': mkt})
+
+    @classmethod
+    async def _heat_scan_universe(cls, db: AsyncSession) -> list[dict[str, str]]:
+        """与行情热度相同的 Top50 池，仅美股/港股。"""
+        from module_market.dao.heat_dao import MarketHeatDao
+
+        items: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for market in ('US', 'HK'):
+            heat = await MarketHeatDao.get_latest_heat(db, market)
+            if not heat or not getattr(heat, 'trade_date', None):
+                continue
+            rows = await MarketHeatDao.list_top50(db, market, heat.trade_date)
+            for row in rows:
+                cls._append_target(items, seen, str(getattr(row, 'symbol', '') or ''), market)
+        return items
+
+    @classmethod
     async def _resolve_targets(
         cls, db: AsyncSession, symbols: list[str] | list[dict[str, str]] | None, user_id: int | None = None
     ) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
         if symbols:
             for item in symbols:
                 if isinstance(item, dict):
-                    sym = str(item.get('symbol') or '').strip()
-                    mkt = str(item.get('market') or 'US').strip().upper()
-                    if sym:
-                        if '.' in sym and not item.get('market'):
-                            sym, mkt = parse_symbol_market(sym, mkt)
-                        items.append({'symbol': sym, 'market': mkt})
+                    cls._append_target(
+                        items,
+                        seen,
+                        str(item.get('symbol') or ''),
+                        str(item.get('market') or 'US'),
+                    )
                 else:
                     sym, mkt = parse_symbol_market(str(item))
-                    if sym:
-                        items.append({'symbol': sym, 'market': mkt})
+                    cls._append_target(items, seen, sym, mkt)
             return items
+
+        heat_items = await cls._heat_scan_universe(db)
+        for row in heat_items:
+            cls._append_target(items, seen, row['symbol'], row['market'])
 
         from module_quant.dao.quant_dao import QuantWatchlistDao
 
         rows = await QuantWatchlistDao.get_enabled_symbols(db, user_id=user_id)
         for row in rows:
-            sym = str(getattr(row, 'symbol', '') or '').strip()
-            mkt = str(getattr(row, 'market', '') or 'US').strip().upper()
-            if sym:
-                if '.' in sym:
-                    sym, inferred = parse_symbol_market(sym, mkt)
-                    mkt = inferred or mkt
-                items.append({'symbol': sym, 'market': mkt})
+            cls._append_target(
+                items,
+                seen,
+                str(getattr(row, 'symbol', '') or ''),
+                str(getattr(row, 'market', '') or 'US'),
+            )
+        if items:
+            return items
+        from module_market.constant.instruments import TARGET_INSTRUMENTS
+
+        for symbol, _name, mkt, category in TARGET_INSTRUMENTS:
+            if category == 'index':
+                continue
+            cls._append_target(items, seen, symbol, mkt)
         return items
 
     @classmethod
@@ -495,9 +612,10 @@ class AutoTradeService:
         user_id: int | None = None,
     ) -> dict[str, Any]:
         """
-        跑一次自选池 AI 自动交易扫描。
+        跑一次自动交易扫描。
 
-        多账户语义：user_id 决定三件事——扫谁的自选、用谁的券商凭据、护栏额度算谁的。
+        默认标的池：美/港行情热度 Top50（可叠加该用户美/港自选）；A 股不扫不下单。
+        多账户语义：user_id 决定用谁的券商凭据和护栏额度。
         不传 user_id 时回退请求上下文用户，再回退管理员(1)。
         """
         from module_quant.service.longbridge_service import (
@@ -520,7 +638,10 @@ class AutoTradeService:
         )
 
         if not target_items:
-            summary_msg = f'用户 {target_user_id} 的自选池为空，已跳过扫描。请先在量化自选池中添加标的。'
+            summary_msg = (
+                f'用户 {target_user_id} 扫描池为空（美/港热度 Top50 且无可用自选）。'
+                'A 股不参与自动交易。请等待热度任务写入或添加美/港自选。'
+            )
             finished_at = datetime.now()
             await TradeDao.add_ai_trade_run_log(
                 db,
@@ -577,6 +698,8 @@ class AutoTradeService:
             metrics = ((item.get('factor_json') or {}).get('metrics') or {})
             price = item.get('price') or metrics.get('latestClose')
             is_opp = decision in {'BUY', 'SELL'} and confidence >= min_confidence
+            if is_opp and not is_auto_trade_market(item.get('market'), item.get('symbol')):
+                is_opp = False
             candidate_record = slim_scan_row(
                 {
                     'symbol': item.get('symbol'),
@@ -628,9 +751,13 @@ class AutoTradeService:
         submitted_count = 0
         positions: list[dict[str, Any]] = []
         net_assets = 0.0
+        available_cash = 0.0
+        account_snapshot: dict[str, Any] | None = None
         if configured:
             try:
-                net_assets = pick_net_assets(await LongbridgeService.get_account_balance_async())
+                account_snapshot = await LongbridgeService.get_account_balance_async()
+                net_assets = pick_net_assets(account_snapshot)
+                available_cash = pick_available_cash(account_snapshot)
             except Exception as exc:
                 logger.warning(f'[AI自动交易] 读取账户净资产失败: {exc}')
         buy_ratio = float(settings['daily_buy_ratio'])
@@ -653,11 +780,15 @@ class AutoTradeService:
             'maxSymbolPositionPct': max_symbol_pct,
             'netAssets': round(net_assets, 2),
             'dailyBuyRatio': buy_ratio,
+            'maxGrossExposurePct': MAX_GROSS_EXPOSURE_PCT,
+            'availableCash': round(available_cash, 2),
             'autoTradeEnabled': settings['auto_trade_enabled'],
             'configured': configured,
             'submitAllowed': can_submit,
             'submitBlockReason': submit_block,
             'priceSlippageTolerance': config['price_slippage_tolerance'],
+            'totalPositionMv': 0.0,
+            'grossRoom': remaining_gross_room(net_assets, 0.0),
         }
 
         if can_submit and opportunities:
@@ -678,6 +809,27 @@ class AutoTradeService:
                     {'symbol': '*', 'reason': f'账户净资产为 0，无法按仓位 {int(buy_ratio * 100)}% 计算日内买入额度'}
                 )
                 can_submit = False
+
+        total_mv = total_position_market_value(positions)
+        gross_room = remaining_gross_room(net_assets, total_mv)
+        guardrail_snapshot['totalPositionMv'] = round(total_mv, 2)
+        guardrail_snapshot['grossRoom'] = round(gross_room, 2)
+        guardrail_snapshot['availableCash'] = round(available_cash, 2)
+        if can_submit and opportunities and gross_room < MIN_TARGET_AMOUNT_USD:
+            skipped_reasons.append(
+                {
+                    'symbol': '*',
+                    'reason': (
+                        f'总持仓 ${total_mv:.0f} 已达或超过净资产 ${net_assets:.0f}，停止买入'
+                    ),
+                }
+            )
+            can_submit = False
+        if can_submit and opportunities and available_cash < MIN_TARGET_AMOUNT_USD:
+            skipped_reasons.append(
+                {'symbol': '*', 'reason': f'可用现金不足 (${available_cash:.2f})，停止买入'}
+            )
+            can_submit = False
 
         today_bought: set[str] = set()
         if can_submit and opportunities:
@@ -731,10 +883,16 @@ class AutoTradeService:
                         skipped_reasons.append({'symbol': symbol, 'reason': '无可用持仓，跳过卖出'})
                         continue
                 else:
+                    if not is_auto_trade_market(market, symbol):
+                        skipped_reasons.append({'symbol': symbol, 'reason': 'A股不参与自动交易'})
+                        continue
                     if should_skip_duplicate_buy(symbol, today_bought):
                         skipped_reasons.append({'symbol': symbol, 'reason': '今日已买入该标的，跳过重复加仓'})
                         continue
                     pos = match_position(positions, symbol, market)
+                    if should_skip_held_buy(pos):
+                        skipped_reasons.append({'symbol': symbol, 'reason': '已持有该标的，跳过重复买入'})
+                        continue
                     existing_mv = existing_position_market_value(pos, realtime_price)
                     room = symbol_buy_room(net_assets, max_symbol_pct, existing_mv)
                     if room < MIN_TARGET_AMOUNT_USD:
@@ -746,10 +904,16 @@ class AutoTradeService:
                         )
                         continue
                     remaining_daily = max(0.0, max_daily - today_notional_amount)
-                    target_amount = min(remaining_daily, room, net_assets * buy_ratio if net_assets > 0 else remaining_daily)
+                    gross_room = remaining_gross_room(net_assets, total_mv)
+                    target_amount = min(remaining_daily, room, gross_room, max(0.0, available_cash))
                     if target_amount < MIN_TARGET_AMOUNT_USD:
                         skipped_reasons.append(
-                            {'symbol': symbol, 'reason': f'剩余可用日内额度不足 (${target_amount:.2f})'}
+                            {
+                                'symbol': symbol,
+                                'reason': (
+                                    f'剩余额度不足 (${target_amount:.2f})：日内/单票/总仓位/现金'
+                                ),
+                            }
                         )
                         continue
                     quantity = max(1, int(target_amount / realtime_price))
@@ -802,6 +966,8 @@ class AutoTradeService:
                         code, _ = parse_symbol_market(symbol, market)
                         if code:
                             today_bought.add(code)
+                        total_mv += order_amount
+                        available_cash = max(0.0, available_cash - order_amount)
         elif should_execute and not can_submit and submit_block:
             skipped_reasons.append({'symbol': '*', 'reason': submit_block})
 

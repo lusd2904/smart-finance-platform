@@ -312,7 +312,10 @@ def test_resolve_targets_scopes_to_user_watchlist() -> None:
 
     async def _run() -> None:
         db = SimpleNamespace()
-        with patch.object(QuantWatchlistDao, 'get_enabled_symbols', AsyncMock(return_value=rows)) as get_rows:
+        with (
+            patch.object(AutoTradeService, '_heat_scan_universe', AsyncMock(return_value=[])),
+            patch.object(QuantWatchlistDao, 'get_enabled_symbols', AsyncMock(return_value=rows)) as get_rows,
+        ):
             items = await AutoTradeService._resolve_targets(db, None, user_id=42)
         get_rows.assert_awaited_once_with(db, user_id=42)
         assert items == [{'symbol': 'AAPL', 'market': 'US'}, {'symbol': '0700', 'market': 'HK'}]

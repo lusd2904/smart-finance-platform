@@ -4,9 +4,7 @@
 /// module_trade/service/auto_trade_service.py:98-111,135-169,216-238（自动交易状态）
 /// module_trade/service/platform_ext_service.py:174-189+（风控规则/事件）。
 ///
-/// 安全语义：后端无独立纸面下单端点——POST /trade/order 直连长桥 SDK，
-/// 受服务端硬开关 longport_trading_enabled（默认 False）门禁。
-/// 客户端 M4 不接入任何下单/撤单写端点，天然处于纸面保护态。
+/// POST /trade/order 走当前用户长桥凭据提交委托。
 library;
 
 import '../../../core/api/api_result.dart';
@@ -349,7 +347,7 @@ class AutoTradeStatus {
     this.maxSymbols = 0,
     this.maxDailyOrders = 0,
     this.minConfidence,
-    this.requirePaper = true,
+    this.requirePaper = false,
     this.todayOrdersCount = 0,
     this.maxDailyNotionalAmount = 0,
     this.todayNotionalAmount = 0,
@@ -375,7 +373,7 @@ class AutoTradeStatus {
       maxSymbols: (config['max_symbols'] as num?)?.toInt() ?? 0,
       maxDailyOrders: (config['max_daily_orders'] as num?)?.toInt() ?? 0,
       minConfidence: (config['min_confidence'] as num?)?.toDouble(),
-      requirePaper: config['require_paper'] != false,
+      requirePaper: config['require_paper'] == true,
       todayOrdersCount: (guardrails['todayOrdersCount'] as num?)?.toInt() ?? 0,
       maxDailyNotionalAmount:
           (guardrails['maxDailyNotionalAmount'] as num?)?.toDouble() ?? 0,
@@ -395,7 +393,7 @@ class AutoTradeStatus {
   final bool configured;
   final String message;
 
-  /// 服务端硬开关：false = 纸面保护态（客户端只读的根基）。
+  /// 与账户自动交易开关同源。
   final bool tradingEnabled;
 
   /// 本账户自动交易开关，与 [tradingEnabled] 同源。

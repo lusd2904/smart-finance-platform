@@ -11,12 +11,7 @@ import '../../sentiment/presentation/sentiment_page.dart' show ErrorView;
 import '../data/trade_api.dart';
 import 'market_watch_panel.dart';
 
-/// 交易台（M4 只读）：
-/// 账户资产 / 长桥绑定态与连通性 / 持仓 / 当日·历史委托 / 自动交易状态 / 风控。
-///
-/// 安全红线（规划文档 M4）：后端无独立纸面下单端点，POST /trade/order 直连长桥 SDK、
-/// 由服务端硬开关（默认关闭）门禁。客户端不接入任何下单/撤单写端点，
-/// 页面顶部常驻「纸面保护」徽标明示当前只读语义。
+/// 交易台：账户、持仓、委托与自动交易状态。
 class TradePage extends ConsumerWidget {
   const TradePage({super.key});
 
@@ -73,7 +68,7 @@ class TradePage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          const PageHeader(title: '交易台', subtitle: '纸面保护态 · 只读终端'),
+          const PageHeader(title: '交易台', subtitle: '账户 · 持仓 · 委托'),
           Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: AppDimens.pagePadding,
@@ -453,7 +448,7 @@ class OrderTile extends StatelessWidget {
   }
 }
 
-/// 自动交易状态卡：服务端硬开关徽标 + 护栏用量 + 近期运行/决策。
+/// 自动交易状态卡：护栏用量 + 近期运行/决策。
 class _AutoTradeCard extends ConsumerWidget {
   const _AutoTradeCard();
 
@@ -463,8 +458,8 @@ class _AutoTradeCard extends ConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return SectionCard(
-      title: '纸面自动交易',
-      subtitle: '扫描-only · require_paper 服务端锁定',
+      title: '自动交易',
+      subtitle: '扫描与护栏',
       child: status.when(
         loading: () => const SizedBox(
           height: 90,
@@ -500,7 +495,7 @@ class _AutoTradeCard extends ConsumerWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    s.tradingEnabled ? '实盘开关已开启' : '纸面保护态（实盘开关关闭）',
+                    s.tradingEnabled ? '本账户自动交易已开启' : '本账户自动交易已关闭',
                     style: theme.textTheme.titleSmall?.copyWith(
                       color: s.tradingEnabled ? scheme.error : AppColors.warn,
                     ),

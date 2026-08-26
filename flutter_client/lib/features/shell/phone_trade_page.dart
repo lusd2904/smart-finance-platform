@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/utils/format.dart';
 import '../../shared/widgets/quote_text.dart';
@@ -336,7 +337,7 @@ String _signed(double v) {
   return abs;
 }
 
-/// 极速交易抽屉：限价/市价、仓位比例。实盘下单受服务端硬开关约束，未开则提示纸面保护。
+/// 极速交易抽屉：限价/市价、仓位比例，提交 POST /trade/order。
 Future<void> showFastTicket(
   BuildContext context, {
   required String symbol,
@@ -364,6 +365,7 @@ class _FastTicketSheet extends ConsumerStatefulWidget {
 class _FastTicketSheetState extends ConsumerState<_FastTicketSheet> {
   String _side = 'buy';
   String _type = 'LO';
+  bool _busy = false;
   final _price = TextEditingController();
   final _qty = TextEditingController(text: '100');
 
@@ -376,6 +378,46 @@ class _FastTicketSheetState extends ConsumerState<_FastTicketSheet> {
 
   int get _qtyN => int.tryParse(_qty.text.trim()) ?? 0;
   double? get _px => double.tryParse(_price.text.trim());
+
+  Future<void> _submit() async {
+    HapticFeedback.mediumImpact();
+    if (_qtyN <= 0) {
+      toast(context, '请输入股数', error: true);
+      return;
+    }
+    if (_type == 'LO' && (_px == null || _px! <= 0)) {
+      toast(context, '限价单请填写有效价格', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final r = await ref.read(tradeApiProvider).submitOrder(
+            symbol: widget.symbol,
+            market: widget.market,
+            side: _side,
+            orderType: _type,
+            quantity: _qtyN,
+            price: _type == 'LO' ? _px : null,
+          );
+      if (!mounted) return;
+      final ok = r['ok'] == true || r['orderId'] != null;
+      toast(
+        context,
+        (r['message'] as String?)?.trim().isNotEmpty == true
+            ? r['message'] as String
+            : (ok ? '已提交委托' : '下单失败'),
+        error: !ok,
+      );
+      ref.invalidate(tradeAccountProvider);
+      ref.invalidate(tradePositionsProvider);
+      ref.invalidate(tradeOrdersProvider('today'));
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) toast(context, describeApiError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -456,14 +498,10 @@ class _FastTicketSheetState extends ConsumerState<_FastTicketSheet> {
                 backgroundColor: _side == 'buy' ? AppColors.up : AppColors.down,
                 minimumSize: const Size.fromHeight(48),
               ),
-              onPressed: () async {
-                HapticFeedback.mediumImpact();
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  toast(context, '纸面保护：当前未开放实盘下单，委托不会发到券商');
-                }
-              },
-              child: Text(_side == 'buy' ? '极速买入 $_qtyN股' : '极速卖出 $_qtyN股'),
+              onPressed: _busy ? null : _submit,
+              child: Text(_busy
+                  ? '提交中…'
+                  : (_side == 'buy' ? '极速买入 $_qtyN股' : '极速卖出 $_qtyN股')),
             ),
           ],
         ),

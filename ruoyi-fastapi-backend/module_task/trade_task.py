@@ -52,8 +52,11 @@ async def run_auto_trade_scan_now(profile: str = 'balanced', user_id: int | None
             if user_id:
                 await _scan_one_user(db, user_id, profile)
             else:
-                # 多账户模式：对每个有启用自选的账号各跑一次，各自用自己的长桥凭据与护栏额度
-                users = (await QuantWatchlistDao.distinct_users(db)) or [1]
+                from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
+
+                watch_users = await QuantWatchlistDao.distinct_users(db)
+                key_users = await QuantLongbridgeConfigDao.list_configured_user_ids(db)
+                users = sorted({int(u) for u in [*watch_users, *key_users] if u}) or [1]
                 for uid in users:
                     await _scan_one_user(db, uid, profile)
         except Exception as exc:

@@ -8,18 +8,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.service.auto_trade_service import (
+    AutoTradeService,
     check_daily_limits,
     clamp_max_symbol_position_pct,
     daily_buy_cap,
+    is_auto_trade_market,
+    match_position,
     merge_runtime_config,
     parse_symbol_market,
+    remaining_gross_room,
     resolve_submit_permission,
     round_limit_price,
     should_skip_duplicate_buy,
+    should_skip_held_buy,
     slim_scan_row,
     slippage_exceeded,
     symbol_buy_room,
     symbol_position_cap,
+    total_position_market_value,
 )
 
 
@@ -85,6 +91,20 @@ def test_daily_limits_and_slippage() -> None:
     assert should_skip_duplicate_buy('AAPL', {'AAPL'}) is True
     assert should_skip_duplicate_buy('AAPL.US', {'AAPL'}) is True
     assert should_skip_duplicate_buy('MSFT', {'AAPL'}) is False
+    assert is_auto_trade_market('US') is True
+    assert is_auto_trade_market('HK') is True
+    assert is_auto_trade_market('CN', '600519') is False
+    assert is_auto_trade_market('SH', '600519.SH') is False
+    assert should_skip_held_buy({'symbol': 'AAPL.US', 'quantity': 1}) is True
+    assert should_skip_held_buy({'symbol': 'AAPL.US', 'quantity': 0}) is False
+    assert total_position_market_value(
+        [{'marketValue': 6000}, {'quantity': 10, 'costPrice': 100}]
+    ) == 7000.0
+    assert remaining_gross_room(10000, 12000) < 0
+    assert remaining_gross_room(10000, 2000) == 8000.0
+    held = match_position([{'symbol': '00700.HK', 'quantity': 100}], '700', 'HK')
+    assert held is not None
+    assert match_position([{'symbol': 'AAPL.US', 'quantity': 2}], 'AAPL', 'US') is not None
     assert round_limit_price(1247.665, 'US') == 1247.67
     assert round_limit_price(10.004, 'US') == 10.00
     slim = slim_scan_row({'symbol': 'AAPL', 'factors': {'alpha158Count': 154}, 'score': 88, 'signal': 'BUY'})
@@ -166,7 +186,12 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None):
         patch.object(
             LongbridgeService,
             'get_account_balance_async',
-            AsyncMock(return_value={'configured': True, 'balances': [{'currency': 'USD', 'netAssets': 10000}]}),
+            AsyncMock(
+                return_value={
+                    'configured': True,
+                    'balances': [{'currency': 'USD', 'netAssets': 10000, 'availableCash': 8000, 'totalCash': 8000}],
+                }
+            ),
         ),
         patch.object(LongbridgeService, 'get_realtime_quote_async', AsyncMock(return_value={'quotes': [{'lastDone': 100}]})),
         patch.object(LongbridgeService, 'extract_last_price', return_value=100.0),
@@ -219,7 +244,12 @@ def test_cycle_never_submits_when_execute_false() -> None:
             patch.object(
                 LongbridgeService,
                 'get_account_balance_async',
-                AsyncMock(return_value={'configured': True, 'balances': [{'currency': 'USD', 'netAssets': 10000}]}),
+                AsyncMock(
+                return_value={
+                    'configured': True,
+                    'balances': [{'currency': 'USD', 'netAssets': 10000, 'availableCash': 8000, 'totalCash': 8000}],
+                }
+            ),
             ),
             patch.object(LongbridgeService, 'submit_order_async', AsyncMock()) as submit,
         ):
@@ -256,8 +286,62 @@ def test_cycle_skips_buy_when_symbol_position_cap_reached() -> None:
         add_decision.assert_not_called()
         assert result['submittedOrdersCount'] == 0
         reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
-        assert '单标的仓位上限' in reasons
-        assert '10% NAV' in reasons
+        assert '已持有该标的' in reasons or '单标的仓位上限' in reasons
+
+    asyncio.run(_run())
+
+
+def test_cycle_skips_buy_when_already_held() -> None:
+    async def _run() -> None:
+        result, submit, add_decision = await _run_buy_cycle(
+            positions=[{'symbol': 'AAPL.US', 'quantity': 2, 'marketValue': 200}],
+        )
+        submit.assert_not_called()
+        add_decision.assert_not_called()
+        assert result['submittedOrdersCount'] == 0
+        reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
+        assert '已持有该标的' in reasons
+
+    asyncio.run(_run())
+
+
+def test_cycle_skips_buy_when_gross_exposure_exceeds_nav() -> None:
+    async def _run() -> None:
+        result, submit, add_decision = await _run_buy_cycle(
+            positions=[{'symbol': 'MSFT.US', 'quantity': 50, 'marketValue': 12000}],
+        )
+        submit.assert_not_called()
+        add_decision.assert_not_called()
+        assert result['submittedOrdersCount'] == 0
+        reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
+        assert '总持仓' in reasons
+
+    asyncio.run(_run())
+
+
+def test_resolve_targets_drops_cn_and_uses_heat() -> None:
+    async def _run() -> None:
+        db = MagicMock()
+        heat = SimpleNamespace(trade_date='2026-08-26')
+        rows = [SimpleNamespace(symbol='NVDA', market='US')]
+        watch = [SimpleNamespace(symbol='600519', market='CN'), SimpleNamespace(symbol='0700', market='HK')]
+        with (
+            patch('module_market.dao.heat_dao.MarketHeatDao.get_latest_heat', AsyncMock(side_effect=[heat, None])),
+            patch('module_market.dao.heat_dao.MarketHeatDao.list_top50', AsyncMock(return_value=rows)),
+            patch('module_quant.dao.quant_dao.QuantWatchlistDao.get_enabled_symbols', AsyncMock(return_value=watch)),
+        ):
+            items = await AutoTradeService._resolve_targets(db, None, user_id=1)
+        markets = {item['market'] for item in items}
+        symbols = {item['symbol'] for item in items}
+        assert 'CN' not in markets
+        assert 'NVDA' in symbols
+        assert '0700' in symbols
+        assert '600519' not in symbols
+
+        dropped = await AutoTradeService._resolve_targets(
+            db, [{'symbol': '600519', 'market': 'CN'}, {'symbol': 'AAPL', 'market': 'US'}]
+        )
+        assert dropped == [{'symbol': 'AAPL', 'market': 'US'}]
 
     asyncio.run(_run())
 
