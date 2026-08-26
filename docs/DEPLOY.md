@@ -122,6 +122,22 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy no
 - Flutter **Release**：默认 `https://sfp.luapi.top`；若还存着 `10.0.2.2`/`10.0.3.2` 会改回线上（避免调试残留带到生产包）。
 - 指数 WS 默认间隔 15s（对齐指数 30s 缓存）。客户端传 `interval=5` 仍允许，但会反复打同一份缓存。
 
+### 美股盘前 / 盘后 / 夜盘
+
+长桥实盘支持美股延长时段，本仓库下单现已打开：
+
+| 时段 | 美东时间 | `outside_rth` |
+|------|----------|----------------|
+| 盘前 | 周一至周五 04:00–09:30 | `AnyTime` |
+| 盘中 | 周一至周五 09:30–16:00 | `AnyTime`（常规盘成交，未成交可进盘后） |
+| 盘后 | 周一至周五 16:00–20:00 | `AnyTime` |
+| 夜盘 | 周日～周四 20:00–次日 03:50 | `Overnight` |
+
+- 港股 / A 股不传 `outside_rth`。
+- **模拟账户**：长桥官方不撮合美股盘前、盘后、夜盘，只在常规盘模拟成交。纸面账号在延长时段下单可能被拒或挂着不成交，这是券商限制，不是平台开关没开。
+- 夜盘行情依赖 SDK `enable_overnight=True`（代码已写死，不必再配 `LONGPORT_ENABLE_OVERNIGHT`）。
+- 滚动 `sentiment-trade`（以及会下单的 `sentiment-quant` / `jobs-quant`）后生效。不要 `compose down`。
+
 ### jobs worker 健康检查
 
 `jobs-market` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建三个 worker（不要 down 整栈）。

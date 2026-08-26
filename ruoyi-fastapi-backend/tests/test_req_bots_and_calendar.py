@@ -97,6 +97,16 @@ def test_session_closed_on_weekend() -> None:
     assert is_market_session_open('CN', saturday) is False
 
 
+def test_us_session_open_pre_post_overnight() -> None:
+    et = ZoneInfo('America/New_York')
+    assert is_market_session_open('US', datetime(2026, 8, 25, 8, 0, tzinfo=et)) is True
+    assert is_market_session_open('US', datetime(2026, 8, 25, 17, 0, tzinfo=et)) is True
+    assert is_market_session_open('US', datetime(2026, 8, 25, 21, 0, tzinfo=et)) is True
+    assert is_market_session_open('US', datetime(2026, 8, 23, 21, 0, tzinfo=et)) is True
+    assert is_market_session_open('US', datetime(2026, 8, 23, 12, 0, tzinfo=et)) is False
+    assert is_market_session_open('US', datetime(2026, 8, 29, 12, 0, tzinfo=et)) is False
+
+
 def test_feishu_card_has_disclaimer_and_not_advice() -> None:
     card = build_card(
         {

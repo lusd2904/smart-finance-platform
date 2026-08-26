@@ -47,6 +47,9 @@ class MarketSessionClock {
     final minutes = local.hour * 60 + local.minute;
     final weekend = local.weekday >= DateTime.saturday;
     if (weekend) {
+      if (local.weekday == DateTime.sunday && minutes >= 20 * 60) {
+        return const MarketSession(market: 'US', isOpen: true, sessionName: '夜盘', tag: 'overnight');
+      }
       return const MarketSession(market: 'US', isOpen: true, sessionName: '休市', tag: 'closed');
     }
     if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) {

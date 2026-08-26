@@ -15,8 +15,9 @@ function zonedClock(timeZone, now = new Date()) {
   )
   const hour = Number(parts.hour === '24' ? 0 : parts.hour)
   const minute = Number(parts.minute)
-  const weekend = parts.weekday === 'Sat' || parts.weekday === 'Sun'
-  return { minutes: hour * 60 + minute, weekend, hour, minute }
+  const weekday = parts.weekday
+  const weekend = weekday === 'Sat' || weekday === 'Sun'
+  return { minutes: hour * 60 + minute, weekend, weekday, hour, minute }
 }
 
 function inWindows(minutes, windows) {
@@ -29,7 +30,7 @@ function inWindows(minutes, windows) {
 export function getMarketSessionStatus(market, now) {
   const m = String(market || '').toUpperCase()
   if (m === 'US') {
-    const { minutes, weekend } = zonedClock('America/New_York', now)
+    const { minutes, weekend, weekday } = zonedClock('America/New_York', now)
     let sessionName = '夜盘'
     let sessionTag = 'overnight'
     let regular = false
@@ -44,8 +45,13 @@ export function getMarketSessionStatus(market, now) {
       sessionName = '盘后'
       sessionTag = 'post'
     } else if (weekend) {
-      sessionName = '休市'
-      sessionTag = 'closed'
+      if (weekday === 'Sun' && minutes >= 20 * 60) {
+        sessionName = '夜盘'
+        sessionTag = 'overnight'
+      } else {
+        sessionName = '休市'
+        sessionTag = 'closed'
+      }
     }
     return {
       isOpen: true,

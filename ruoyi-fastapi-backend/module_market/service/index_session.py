@@ -10,11 +10,16 @@ from datetime import datetime
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo
 
+_THURSDAY_WEEKDAY = 3
+_FRIDAY_WEEKDAY = 4
 _SATURDAY_WEEKDAY = 5
+_SUNDAY_WEEKDAY = 6
 _US_PRE = dt_time(4, 0)
 _US_REGULAR = dt_time(9, 30)
 _US_POST = dt_time(16, 0)
 _US_OVERNIGHT = dt_time(20, 0)
+# 长桥夜盘收市 03:50 ET，04:00 才开盘前；中间约 10 分钟不可撮合。
+_US_OVERNIGHT_END = dt_time(3, 50)
 
 SESSIONS: dict[str, list[tuple[dt_time, dt_time]]] = {
     'CN': [(dt_time(9, 30), dt_time(11, 30)), (dt_time(13, 0), dt_time(15, 0))],
@@ -42,10 +47,17 @@ def should_include_market(market: str, now_local: datetime) -> bool:
 
 
 def us_session_tag(now_et: datetime) -> str:
-    """美股会话：overnight | pre | regular | post | closed（周末）。时间为美东。"""
-    if now_et.weekday() >= _SATURDAY_WEEKDAY:
-        return 'closed'
+    """美股会话：overnight | pre | regular | post | closed（周末）。时间为美东。
+
+    周日 20:00 ET 起为下一交易日夜盘（长桥 24H）；周六全天与周日白天为休市。
+    周五 20:00 后行情侧仍标夜盘（与既有分时一致）；下单路由见 `is_us_overnight_order_session`。
+    """
+    weekday = now_et.weekday()
     current = now_et.time()
+    if weekday >= _SATURDAY_WEEKDAY:
+        if weekday == _SUNDAY_WEEKDAY and current >= _US_OVERNIGHT:
+            return 'overnight'
+        return 'closed'
     if _US_PRE <= current < _US_REGULAR:
         return 'pre'
     if _US_REGULAR <= current < _US_POST:
@@ -53,6 +65,39 @@ def us_session_tag(now_et: datetime) -> str:
     if _US_POST <= current < _US_OVERNIGHT:
         return 'post'
     return 'overnight'
+
+
+def is_us_overnight_order_session(now_et: datetime) -> bool:
+    """长桥美股夜盘可撮合：周日～周四 20:00 ET 至次日 03:50（不含周五夜）。"""
+    weekday = now_et.weekday()
+    current = now_et.time()
+    if weekday <= _FRIDAY_WEEKDAY and current < _US_OVERNIGHT_END:
+        return True
+    return current >= _US_OVERNIGHT and (weekday == _SUNDAY_WEEKDAY or weekday <= _THURSDAY_WEEKDAY)
+
+
+def is_us_trade_session_open(now_et: datetime) -> bool:
+    """美股当前能否立即送单：夜盘，或周一至周五 04:00–20:00（盘前/盘中/盘后）。"""
+    if is_us_overnight_order_session(now_et):
+        return True
+    if now_et.weekday() >= _SATURDAY_WEEKDAY:
+        return False
+    current = now_et.time()
+    return _US_PRE <= current < _US_OVERNIGHT
+
+
+def us_outside_rth_mode(now_et: datetime | None = None) -> str:
+    """美股 `outside_rth`：夜盘用 Overnight，其余时段用 AnyTime（盘前+盘后+盘中）。"""
+    stamp = now_et
+    if stamp is None:
+        stamp = datetime.now(ZoneInfo('America/New_York'))
+    elif stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=ZoneInfo('America/New_York'))
+    else:
+        stamp = stamp.astimezone(ZoneInfo('America/New_York'))
+    if is_us_overnight_order_session(stamp):
+        return 'overnight'
+    return 'anytime'
 
 
 def _now_in_market(market: str, now: datetime | None = None) -> datetime:
