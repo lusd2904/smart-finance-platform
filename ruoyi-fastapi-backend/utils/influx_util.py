@@ -45,7 +45,8 @@ def get_client() -> InfluxDBClient:
             url=InfluxConfig.influx_url,
             token=InfluxConfig.influx_token,
             org=InfluxConfig.influx_org,
-            timeout=60_000,
+            # 库宕机/重启时 60s 会占满单 worker，nginx 表现为 502。查询失败应尽快返回。
+            timeout=8_000,
         )
     return _client
 

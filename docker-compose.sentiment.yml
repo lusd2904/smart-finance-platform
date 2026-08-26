@@ -317,12 +317,18 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
-      # 全量日K写入后分片/WAL 很多，限制缓存避免 Docker Desktop OOM 137
-      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "536870912"
+      # 1044 shard 冷启动：538 shard ≈ 3GiB，全量约 6GiB。3g/5g 硬顶会在中途 137。
+      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。勿降到 5g 以下。
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: "5GiB"
+      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"
       INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "26214400"
       INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
-      INFLUXD_QUERY_CONCURRENCY: "4"
-      INFLUXD_QUERY_QUEUE_SIZE: "8"
+      INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
+      INFLUXD_QUERY_CONCURRENCY: "2"
+      INFLUXD_QUERY_QUEUE_SIZE: "4"
+    mem_limit: 6g
+    cpus: 2.0
     volumes:
       - sentiment-influxdb-data:/var/lib/influxdb2
       - sentiment-influxdb-config:/etc/influxdb2
