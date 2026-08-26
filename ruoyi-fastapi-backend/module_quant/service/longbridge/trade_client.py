@@ -174,23 +174,13 @@ class TradeClientMixin:
         price: float | None = None,
         time_in_force: str = 'Day',
         market: str = 'US',
-        allow_sim: bool = False,
     ) -> dict[str, Any]:
-        """
-        提交订单。side: buy/sell；order_type: LO/MO 等。
-        默认需开启实盘开关；allow_sim=True 时按当前用户凭据下单（产品约定配置的是模拟账户）。
-        """
+        """提交订单。side: buy/sell；order_type: LO/MO 等。走当前用户配置的长桥账户（模拟或真实由凭据决定）。"""
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
         param_error = cls._validate_order_input(symbol, side, quantity, order_type, price)
         if param_error:
             return {'configured': True, 'ok': False, 'message': param_error}
-        if not allow_sim and not cls.is_trading_enabled():
-            return {
-                'configured': True,
-                'ok': False,
-                'message': '实盘交易未启用，当前为只读/模拟模式，请管理员在系统设置中开启后再试',
-            }
         lb_symbol = cls.to_longbridge_symbol(symbol, market)
         try:
             from longport.openapi import (  # 延迟导入，SDK 为可选依赖
@@ -255,7 +245,7 @@ class TradeClientMixin:
 
     @classmethod
     def _apply_us_outside_rth(cls, kwargs: dict[str, Any], lb_symbol: str, market: str) -> str | None:
-        """美股实盘：盘前/盘后 AnyTime，夜盘 Overnight。港/A 不传。模拟账户长桥不撮合延长时段。"""
+        """美股：盘前/盘后 AnyTime，夜盘 Overnight。港/A 不传。长桥模拟账户本身不撮合延长时段。"""
         if not cls._is_us_listed(lb_symbol, market):
             return None
         try:
@@ -273,18 +263,12 @@ class TradeClientMixin:
         return mode
 
     @classmethod
-    def cancel_order(cls, order_id: str, allow_sim: bool = False) -> dict[str, Any]:
-        """撤单。allow_sim=True 时按当前用户模拟账户凭据撤单。"""
+    def cancel_order(cls, order_id: str) -> dict[str, Any]:
+        """撤单。走当前用户配置的长桥账户。"""
         if not cls.is_configured():
             return {'configured': False, 'ok': False, 'message': '长桥凭据未配置'}
         if not str(order_id or '').strip():
             return {'configured': True, 'ok': False, 'message': '订单号不能为空'}
-        if not allow_sim and not cls.is_trading_enabled():
-            return {
-                'configured': True,
-                'ok': False,
-                'message': '实盘交易未启用，当前为只读/模拟模式，请管理员在系统设置中开启后再试',
-            }
         try:
             ctx = cls._build_trade_context()
             ctx.cancel_order(order_id)
@@ -450,7 +434,6 @@ class TradeClientMixin:
         price: float | None = None,
         time_in_force: str = 'Day',
         market: str = 'US',
-        allow_sim: bool = False,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
             cls.submit_order,
@@ -461,9 +444,8 @@ class TradeClientMixin:
             price,
             time_in_force,
             market,
-            allow_sim,
         )
 
     @classmethod
-    async def cancel_order_async(cls, order_id: str, allow_sim: bool = False) -> dict[str, Any]:
-        return await asyncio.to_thread(cls.cancel_order, order_id, allow_sim)
+    async def cancel_order_async(cls, order_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(cls.cancel_order, order_id)

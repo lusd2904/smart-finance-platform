@@ -320,7 +320,6 @@ class TradeService:
             order_type=order_type,
             price=price,
             market=market,
-            allow_sim=True,
         )
         await cls.push_notification_db(
             query_db,
@@ -334,7 +333,7 @@ class TradeService:
     @classmethod
     async def cancel_order_services(cls, query_db: AsyncSession, order_id: str) -> dict[str, Any]:
         await cls._ensure(query_db)
-        result = await LongbridgeService.cancel_order_async(order_id, allow_sim=True)
+        result = await LongbridgeService.cancel_order_async(order_id)
         await cls.push_notification_db(
             query_db,
             title=f'撤单{"成功" if result.get("ok") else "失败"}',

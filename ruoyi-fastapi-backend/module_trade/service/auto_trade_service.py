@@ -559,10 +559,10 @@ class AutoTradeService:
         if not configured:
             status_message = '长桥凭据未配置，自动交易仅扫描、不会下单'
         elif not settings['auto_trade_enabled']:
-            status_message = '本账户自动交易已关闭，只扫描不下单。打开开关后将按该账户长桥凭据真实下单。'
+            status_message = '本账户自动交易已关闭，只扫描不下单。打开开关后会按该账户配置的长桥凭据委托。'
         else:
             status_message = (
-                f'本账户自动交易已开启。定时扫描与「扫描并尝试下单」会向长桥真实委托；'
+                f'本账户自动交易已开启。定时扫描与「扫描并尝试下单」会向该账户长桥凭据委托；'
                 f'日内买入上限为仓位的 {int(settings["daily_buy_ratio"] * 100)}%，'
                 f'单标的上限 {int(max_symbol_pct * 100)}%。'
             )
@@ -931,7 +931,6 @@ class AutoTradeService:
                         quantity=quantity,
                         price=order_price,
                         market=market,
-                        allow_sim=True,
                     )
                 except Exception as exc:
                     logger.warning(f'[AI自动交易] {symbol} 下单异常: {exc}')

@@ -600,7 +600,7 @@ class _BrandPane extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              '全市场行情 · 舆情共振 · 智能量化 · 纸面交易',
+              '全市场行情 · 舆情共振 · 智能量化 · 长桥交易',
               style: TextStyle(
                 fontSize: 14,
                 color: dark ? const Color(0xB3E2E8F0) : const Color(0xFF475569),

@@ -120,7 +120,7 @@ void main() {
         'configured': true,
         'tradingEnabled': false,
         'submitAllowed': false,
-        'submitBlockReason': '实盘交易未启用',
+        'submitBlockReason': '当前账户未开启自动交易，已跳过委托',
         'config': {
           'enabled': true,
           'auto_execute': false,
@@ -128,14 +128,12 @@ void main() {
           'max_symbols': 3,
           'max_daily_orders': 10,
           'min_confidence': 65,
-          'require_paper': true,
         },
         'guardrails': {
           'todayOrdersCount': 2,
           'maxDailyOrders': 10,
           'todayNotionalAmount': 1200.5,
           'maxDailyNotionalAmount': 6000.0,
-          'requirePaper': true,
           'tradingEnabled': false,
         },
         'recentRuns': [
@@ -164,17 +162,11 @@ void main() {
         ],
       });
       expect(s.tradingEnabled, isFalse);
-      expect(s.requirePaper, isTrue);
       expect(s.submitAllowed, isFalse);
       expect(s.strategyProfile, 'balanced');
       expect(s.todayOrdersCount, 2);
       expect(s.recentRuns.single.cycleId, 100);
       expect(s.recentDecisions.single.confidence, 88.0);
-    });
-
-    test('require_paper 缺省为关闭', () {
-      final s = AutoTradeStatus.fromJson(const {'config': {}});
-      expect(s.requirePaper, isFalse);
     });
 
     test('autoTradeEnabled 与 tradingEnabled 互通', () {

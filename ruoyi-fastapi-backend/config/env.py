@@ -173,7 +173,6 @@ class LongbridgeSettings(BaseSettings):
     longport_app_secret: str = ''
     longport_access_token: str = ''
     longport_region: str = 'cn'
-    longport_trading_enabled: bool = False
 
 
 class LogSettings(BaseSettings):
