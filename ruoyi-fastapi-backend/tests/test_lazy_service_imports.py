@@ -27,6 +27,37 @@ def test_user_service_does_not_import_pandas_at_module_level() -> None:
     assert 'pandas' not in names
 
 
+def test_excel_util_does_not_import_pandas_at_module_level() -> None:
+    names = _toplevel_imported_modules(BACKEND_ROOT / 'utils/excel_util.py')
+    assert 'pandas' not in names
+
+
+def test_importing_excel_util_does_not_load_pandas() -> None:
+    env = os.environ.copy()
+    env.setdefault('JWT_SECRET_KEY', 'a' * 64)
+    env.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
+    pythonpath = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = str(BACKEND_ROOT) if not pythonpath else f'{BACKEND_ROOT}{os.pathsep}{pythonpath}'
+    proc = subprocess.run(
+        [
+            sys.executable,
+            '-c',
+            (
+                'import sys\n'
+                'from utils.excel_util import ExcelUtil\n'
+                'assert ExcelUtil.__name__ == "ExcelUtil"\n'
+                'assert "pandas" not in sys.modules\n'
+            ),
+        ],
+        cwd=BACKEND_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
 def test_trade_service_does_not_import_market_service_at_module_level() -> None:
     names = _toplevel_imported_modules(BACKEND_ROOT / 'module_trade/service/trade_service.py')
     assert 'module_market.service.market_service' not in names

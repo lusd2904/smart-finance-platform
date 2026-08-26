@@ -275,7 +275,10 @@ class JobQueue:
             await cls._ack(redis, proc_key, raw, job_id)
             logger.info(f'[job-queue] {job_type} 完成: {str(result)[:240]}')
         except Exception as exc:
-            await cls._write_ticket(job, 'failed', error=str(exc))
+            retries = int(job.get('retries') or 0)
+            # HTTP 轮询把 failed 当终态；仍会重试时写 retrying，避免提前停轮询
+            if retries + 1 <= max_retries():
+                await cls._write_ticket(job, 'retrying', error=str(exc))
             logger.error(f'[job-queue] {job_type} 失败: {exc}')
             await cls._requeue_or_dead(redis, src_key, raw, job, str(exc))
         finally:
@@ -324,6 +327,7 @@ class JobQueue:
                 pass
         next_retries = retries + 1
         if next_retries > max_retries():
+            await cls._write_ticket(job, 'failed', error=error)
             dead = {
                 'job': job,
                 'payload': job.get('payload') or {},
@@ -345,6 +349,7 @@ class JobQueue:
                 f'[job-queue] {job.get("type")} 将重试({next_retries}/{max_retries()}) job={job_id}: {error[:200]}'
             )
         except Exception as exc2:
+            await cls._write_ticket(job, 'failed', error=error)
             logger.warning(f'[job-queue] 重试入队失败 job={job_id}: {exc2}')
 
     @classmethod
@@ -395,7 +400,9 @@ class JobQueue:
         redis = cls._redis()
         if redis is None:
             return 0
-        keys = cls.consume_keys(group) if group and group not in {'all', '*'} else [LEGACY_QUEUE_KEY, *QUEUE_KEYS.values()]
+        keys = (
+            cls.consume_keys(group) if group and group not in {'all', '*'} else [LEGACY_QUEUE_KEY, *QUEUE_KEYS.values()]
+        )
         total = 0
         for key in keys:
             try:
@@ -445,7 +452,9 @@ class JobQueue:
         return f'sfp:job:ticket:{job_id}'
 
     @classmethod
-    async def _write_ticket(cls, job: dict[str, Any], status: str, result: Any = None, error: str | None = None) -> None:
+    async def _write_ticket(
+        cls, job: dict[str, Any], status: str, result: Any = None, error: str | None = None
+    ) -> None:
         job_id = str(job.get('jobId') or '')
         if not job_id:
             return
@@ -458,7 +467,9 @@ class JobQueue:
         if error:
             ticket['error'] = error[:500]
         try:
-            await redis.setex(cls._ticket_key(job_id), TICKET_TTL_SECONDS, json.dumps(ticket, ensure_ascii=False, default=str))
+            await redis.setex(
+                cls._ticket_key(job_id), TICKET_TTL_SECONDS, json.dumps(ticket, ensure_ascii=False, default=str)
+            )
         except Exception:
             return
 
@@ -538,7 +549,12 @@ async def _market_heat_collect(payload: dict[str, Any]) -> dict[str, Any]:
     market = str(payload.get('market') or 'US').upper()
     trade_date = payload.get('tradeDate')
     if not LongbridgeBreaker.allow():
-        return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message(), 'market': market}
+        return {
+            'skipped': True,
+            'reason': 'circuit_open',
+            'message': LongbridgeBreaker.blocked_message(),
+            'market': market,
+        }
     async with AsyncSessionLocal() as db:
         return await MarketHeatService.collect_market(db, market=market, trade_date=trade_date)
 
@@ -552,11 +568,11 @@ async def _watchlist_analyze(payload: dict[str, Any]) -> dict[str, Any]:
     if not LongbridgeBreaker.allow():
         return {'skipped': True, 'reason': 'circuit_open', 'message': LongbridgeBreaker.blocked_message()}
     symbol = payload.get('symbol')
+    refresh_raw = payload.get('refreshContent', payload.get('refresh_content'))
+    refresh_content = True if refresh_raw is None else bool(refresh_raw)
+    user_id = int(payload.get('userId') or 0) or None
     async with AsyncSessionLocal() as db:
         if symbol:
-            refresh_raw = payload.get('refreshContent', payload.get('refresh_content'))
-            refresh_content = True if refresh_raw is None else bool(refresh_raw)
-            user_id = int(payload.get('userId') or 0) or None
             body = MarketWatchlistAnalyzeModel.model_validate(
                 {
                     'symbol': str(symbol),
@@ -569,6 +585,9 @@ async def _watchlist_analyze(payload: dict[str, Any]) -> dict[str, Any]:
                 body,
                 user_id=user_id,
             )
+        if user_id:
+            body = MarketWatchlistAnalyzeModel(refresh_content=refresh_content)
+            return await MarketWatchlistService.analyze_services(db, body, user_id=user_id)
         return await MarketWatchlistService.run_hourly_job(db)
 
 

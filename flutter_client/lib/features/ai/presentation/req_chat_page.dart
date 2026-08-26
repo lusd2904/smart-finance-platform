@@ -71,10 +71,7 @@ class _AiReqChatPageState extends ConsumerState<AiReqChatPage> {
   }
 
   Future<void> _tick() async {
-    if (_jobs.isEmpty) {
-      await _load(silent: true);
-      return;
-    }
+    if (_jobs.isEmpty) return;
     for (final id in [..._jobs.keys]) {
       try {
         final result = await _client.get('/ai/req/jobs/$id');

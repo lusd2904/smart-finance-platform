@@ -1,6 +1,5 @@
 import io
 
-import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill
 from openpyxl.utils import get_column_letter
@@ -34,6 +33,8 @@ class ExcelUtil:
         :param mapping_dict: 映射字典
         :return: list数据对应excel的二进制数据
         """
+        import pandas as pd
+
         mapping_data = cls.__mapping_list(list_data, mapping_dict)
         df = pd.DataFrame(mapping_data)
         binary_data = io.BytesIO()

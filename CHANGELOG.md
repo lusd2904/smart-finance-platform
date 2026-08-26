@@ -7,13 +7,16 @@
 
 ### ⚡ 启动、队列与内存
 - 登录/交易/AI/舆情 API 不再 `depends_on` Influx healthy；前端也不再等行情/量化进程
-- Redis 钉 `7-alpine`，AOF + 256mb `volatile-lru` + 数据卷；jobs worker 补 `/health`
+- Redis 钉 `7-alpine`，AOF + 256mb `noeviction` + 数据卷；jobs worker 补 `/health`
 - 部署脚本先起 API 再起前端
 - Grok 单标的 / 批量研判 / 自选单票分析入 `llm` 队列，HTTP 立即回 ticket；SSE 流式仍走市场 API
 - 调度入队失败不再在 scheduler 内联跑重任务；`api/scheduler/worker` 跳过 `create_all`
 - 慢速 K 线 / 全市场代码同步入 `market` 队列
 - pandas、`MarketService` 在用户导入/交易快照路径懒加载
 - 热度采集 Influx 指数 K 失败时回退行情，不整单失败
+- 任务重试中 ticket 为 `retrying`，避免前端当失败停轮询
+- HTTP 自选「分析全部」只跑当前用户；收盘复盘 / 选股 / 热度采集入队失败不再内联
+- `excel_util` 不再顶层导入 pandas
 
 ### 🖥️ 前端轮询
 - 自选/看板/首页/委托/通知等后台标签暂停轮询；需求沟通仅在有 job 时轮询
@@ -21,7 +24,7 @@
 - 自选 overview Redis 缓存 10s
 
 ### 📱 Flutter
-- Debug 默认本机 Docker；不再把 `10.0.2.2` 改写成线上网关
+- Debug 默认本机 Docker，保留 `10.0.2.2`；Release 仍把模拟器环回改回线上
 
 ### 🐛 调度与内存
 - 修复「立即执行」：ORM 行转 JobModel 保留 snake_case `invoke_target`

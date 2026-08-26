@@ -206,13 +206,12 @@ async def get_stock_pick_latest(
 )
 async def run_stock_pick(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
     ticket = await JobQueue.submit('stock_pick_run', {'trigger': 'manual', 'useAi': True})
-    if ticket:
-        return ResponseUtil.success(data=ticket, msg='已加入选股队列，稍后刷新')
-    data = await StockPickService.run(query_db, trigger='manual', use_ai=True)
-    return ResponseUtil.success(data=data, msg=data.get('message') or '已生成选股单')
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'智能选股已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入选股队列，稍后刷新')
 
 
 @market_controller.get(
@@ -334,8 +333,14 @@ async def market_ai_analyze_stream(
 @market_controller.get(
     '/jobs/{job_id}',
     summary='后台任务票据',
-    description='查询 JobQueue 入队任务状态（queued/running/done/failed）',
-    dependencies=[UserInterfaceAuthDependency(['market:ai:analyze', 'market:watchlist:list'])],
+    description='查询 JobQueue 入队任务状态（queued/running/retrying/done/failed）',
+    dependencies=[UserInterfaceAuthDependency([
+        'market:ai:analyze',
+        'market:watchlist:list',
+        'market:review:analyze',
+        'market:picks:run',
+        'market:heat:collect',
+    ])],
 )
 async def get_market_job_ticket(
     request: Request,
@@ -675,15 +680,14 @@ async def get_market_heat_config(request: Request) -> Response:
 @Log(title='市场热度采集', business_type=BusinessType.OTHER)
 async def collect_market_heat(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
     trade_date: Annotated[str | None, Query(alias='tradeDate')] = None,
 ) -> Response:
     ticket = await JobQueue.submit('market_heat_collect', {'market': market.upper(), 'tradeDate': trade_date})
-    if ticket:
-        return ResponseUtil.success(data=ticket, msg='已加入后台队列')
-    data = await MarketHeatService.collect_market(query_db, market=market, trade_date=trade_date)
-    return ResponseUtil.success(data=data, msg='采集完成')
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'市场热度采集已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')
 
 
 @market_controller.get(
@@ -740,10 +744,11 @@ async def get_market_review_history(
 @Log(title='市场收盘分析', business_type=BusinessType.OTHER)
 async def analyze_market_review(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     market: Annotated[str | None, Query()] = None,
 ) -> Response:
     markets = [market] if market else None
-    data = await MarketReviewService.analyze_markets(query_db, markets)
-    logger.info(f'市场收盘分析: {data.get("message")}')
-    return ResponseUtil.success(data=data, msg=data.get('message') or '分析完成')
+    ticket = await JobQueue.submit('market_review', {'markets': markets})
+    if not ticket:
+        raise ServiceException(message='队列不可用')
+    logger.info(f'市场收盘分析已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列')

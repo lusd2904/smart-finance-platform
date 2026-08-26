@@ -18,6 +18,7 @@ ProbePage _page({
     );
 
 void main() {
+  // flutter test 下 kReleaseMode 恒为 false，无法覆盖 release 把 10.0.2.2/10.0.3.2 改写成 kProdGateway。
   test('Debug 默认本机网关，不改写模拟器环回', () {
     expect(kProdGateway, 'https://sfp.luapi.top');
     expect(kLocalGateway, 'http://127.0.0.1:12580');
@@ -30,6 +31,10 @@ void main() {
     expect(
       resolveStoredGateway('http://10.0.2.2:12580'),
       'http://10.0.2.2:12580',
+    );
+    expect(
+      resolveStoredGateway('http://10.0.3.2:12580'),
+      'http://10.0.3.2:12580',
     );
     expect(resolveStoredGateway('https://sfp.luapi.top'), 'https://sfp.luapi.top');
     expect(suggestedLocalGateway(), startsWith('http://'));

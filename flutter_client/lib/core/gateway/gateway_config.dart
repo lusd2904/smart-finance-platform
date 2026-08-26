@@ -14,10 +14,14 @@ String suggestedLocalGateway() {
 /// Debug/profile: 本机 Docker；Release: 线上。
 String get kDefaultGateway => kReleaseMode ? kProdGateway : suggestedLocalGateway();
 
-/// Empty stored → default. Do NOT rewrite 10.0.2.2 / 10.0.3.2.
+/// Empty stored → default.
+/// Debug: keep 10.0.2.2 / 10.0.3.2. Release: rewrite emulator leftovers to kProdGateway.
 String resolveStoredGateway(String stored) {
   final u = stored.trim();
   if (u.isEmpty) return kDefaultGateway;
+  if (kReleaseMode && (u.contains('10.0.2.2') || u.contains('10.0.3.2'))) {
+    return kProdGateway;
+  }
   return u;
 }
 

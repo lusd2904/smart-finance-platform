@@ -431,7 +431,7 @@ services:
     restart: unless-stopped
     # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:16379:6379"
     # Redis 密码可选：留空 = 允许无密码访问（与运行栈现状一致），设置则启用 requirepass。
-    # volatile-lru：只淘汰带 TTL 的 ticket/缓存，队列 list 无 TTL 不会被踢。
+    # noeviction：内存满时拒绝写入。ticket/JWT 带 TTL，volatile-lru 会在压力下把它们踢掉。
     command:
       [
         "redis-server",
@@ -442,7 +442,7 @@ services:
         "--maxmemory",
         "256mb",
         "--maxmemory-policy",
-        "volatile-lru",
+        "noeviction",
       ]
     volumes:
       - sentiment-redis-data:/data

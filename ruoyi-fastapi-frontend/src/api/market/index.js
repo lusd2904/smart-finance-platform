@@ -80,19 +80,25 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** 轮询任务票直到 done/failed；间隔 2s，超时约 3 分钟。 */
+/** 轮询任务票直到 done/failed；间隔 2s，超时约 3 分钟。拦截器抛错不中断，记为失败。 */
 export async function pollMarketJob(jobId, options = {}) {
   const intervalMs = options.intervalMs ?? 2000
   const timeoutMs = options.timeoutMs ?? 180000
   if (!jobId) return { status: 'failed', error: '缺少任务 ID' }
   const started = Date.now()
   for (;;) {
-    const res = await getMarketJob(jobId)
-    const ticket = res.data || {}
-    const status = String(ticket.status || '')
-    if (status === 'done' || status === 'failed') return ticket
-    if (Date.now() - started >= timeoutMs) {
-      return { ...ticket, status: 'failed', error: ticket.error || '任务等待超时' }
+    try {
+      const res = await getMarketJob(jobId)
+      const ticket = res.data || {}
+      const status = String(ticket.status || '')
+      if (status === 'done' || status === 'failed') return ticket
+      if (Date.now() - started >= timeoutMs) {
+        return { ...ticket, status: 'failed', error: ticket.error || '任务等待超时' }
+      }
+    } catch (e) {
+      if (Date.now() - started >= timeoutMs) {
+        return { status: 'failed', error: (e && e.message) || '任务等待超时' }
+      }
     }
     await sleep(intervalMs)
   }
@@ -319,6 +325,6 @@ export function analyzeMarketReview(market) {
     url: '/market/review/analyze',
     method: 'post',
     params: market ? { market } : {},
-    timeout: 180000
+    timeout: 20000
   })
 }
