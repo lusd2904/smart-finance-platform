@@ -3,6 +3,13 @@
 所有项目的重要更改都将记录在此文件中。
 
 
+## [Unreleased]
+
+### 🧹 仓库清理
+- 移除根目录与 `docs/` 下的设计稿、反重力图片、NotebookLM/反重力逐页规范、`todos.md`、`ox意见.md`
+
+---
+
 ## [v1.8.0] - 2026-08-26 - 手机原生五栏、桌面 WebView 壳、实时持仓 (0826 V11)
 
 ### 📱 Flutter 手机
@@ -29,9 +36,8 @@
 - 门户卡片按 `permissionStore.addRoutes` 过滤；无权限不展示系统/监控/工具/分析
 - `/trade/terminal` 与 `/market/terminal` 两条直达路由都保留
 
-### 🧪 测试与设计稿
+### 🧪 测试
 - 指数规格、持仓行情合并、默认网关单测；壳层 golden 更新
-- 反重力设计稿与图片入库（根目录中文路径 + `docs/mobile-designs/`）
 
 ---
 
