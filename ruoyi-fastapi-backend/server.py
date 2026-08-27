@@ -25,6 +25,13 @@ from utils.transport_crypto_util import TransportKeyProvider
 install_module_admin_provider()
 
 
+def _should_consume_op_logs() -> bool:
+    """操作日志入库只跑一份：本地 all，或拆分后的平台 API。"""
+    if AppConfig.app_role == 'all':
+        return True
+    return AppConfig.app_role == 'api' and AppConfig.app_module == 'platform'
+
+
 async def _start_background_tasks(app: FastAPI) -> None:
     """
     启动应用后台任务
@@ -45,7 +52,13 @@ async def _start_background_tasks(app: FastAPI) -> None:
         await SchedulerUtil.init_system_scheduler(app.state.redis)
     else:
         logger.info(f'⏸️ APP_ROLE={AppConfig.app_role}，跳过 APScheduler，定时任务由 sentiment-jobs 执行')
-    app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
+    if _should_consume_op_logs():
+        app.state.log_aggregator_task = asyncio.create_task(LogAggregatorService.consume_stream(app.state.redis))
+    else:
+        app.state.log_aggregator_task = None
+        logger.info(
+            f'⏸️ APP_MODULE={AppConfig.app_module} 不消费操作日志流（仅 platform/all），避免多 API 抢 Redis'
+        )
     if AppConfig.runs_job_queue_worker():
         app.state.job_queue_stop = asyncio.Event()
         app.state.job_queue_task = asyncio.create_task(

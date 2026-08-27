@@ -60,6 +60,7 @@ class KlineQueryModel(BaseModel):
     )
     start: str = Field(default='-2y', description='起始时间（Flux时间或YYYY-MM-DD）')
     stop: str = Field(default='now()', description='结束时间')
+    limit: int | None = Field(default=None, description='最多返回条数，下推 Influx tail')
 
 
 class IndicatorQueryModel(BaseModel):

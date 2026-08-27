@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### ⚡ 项目性能（不是按云主机砍 Docker 上限）
+- **撤回**按 16G 云主机下调 MySQL/调度/Influx 查询内存的编排改动；那会拖慢资源更大的本机
+- 操作日志 Redis Stream **只由 platform API 消费**；trade/market/quant/news/ai 不再每人一份 `XREADGROUP`
+- K 线 / 指标 / 历史把 `limit` 下推到 Influx `tail`，避免默认拉两年再在 Python 里切片
+- Docker 示例关闭容器内文件日志（stdout 即可）；云上 `.env.dockersentiment` 可设 `LOG_FILE_ENABLED=false`
+
 ### 💹 去掉平台纸账户层
 - 下单 / 撤单不再看 `longport_trading_enabled` 或 `allow_sim`；配了长桥模拟账户就是模拟，配了真实账户就是真实
 - 删除服务端「只读/模拟模式」拦截和客户端 `requirePaper` / `paperAccount` 标记

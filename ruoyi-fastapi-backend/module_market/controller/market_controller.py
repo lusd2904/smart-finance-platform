@@ -390,10 +390,11 @@ async def get_symbol_history(
     market: Annotated[str, Query()] = 'US',
     limit: Annotated[int, Query()] = 120,
 ) -> Response:
+    take = max(1, min(int(limit or 120), 500))
     klines = await MarketService.get_kline_services(
-        KlineQueryModel(symbol=symbol, market=market, start='-2y', stop='now()')
+        KlineQueryModel(symbol=symbol, market=market, start='-2y', stop='now()', limit=take)
     )
-    items = klines[-max(1, min(limit, 500)) :] if klines else []
+    items = klines[-take:] if klines else []
     return ResponseUtil.success(data={'symbol': symbol, 'market': market, 'items': items, 'count': len(items)})
 
 
