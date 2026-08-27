@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### 📖 部署
+- `docs/DEPLOY.md` 增加「云主机怎么部署」：拉 `main`、只滚业务容器、不要 down、不要动 grok2api / Influx 卷
+
 ### ⚡ 项目性能（不是按云主机砍 Docker 上限）
 - **撤回**按 16G 云主机下调 MySQL/调度/Influx 查询内存的编排改动；那会拖慢资源更大的本机
 - 操作日志 Redis Stream **只由 platform API 消费**；trade/market/quant/news/ai 不再每人一份 `XREADGROUP`
