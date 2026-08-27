@@ -5,14 +5,6 @@
 
 ## [Unreleased]
 
-### 🖥 16G 云主机资源封顶
-- 目标机：16G / 128G Docker，同机仅本栈 + grok2api；不要在这台机开监控栈
-- 全容器日志 `json-file` 20MB×3，避免 128G 盘被日志写满
-- MySQL 容器 1.5G + `innodb_buffer_pool_size=1G` + `O_DIRECT` + 关 binlog / performance_schema
-- Redis 进程 384M 封顶（数据仍 256mb `noeviction`）；前端 128M
-- 调度从 2G/2CPU 收到 1G/1CPU；Influx 仍 6G，另加单查询 512MB / 总查询 1G
-- `APP_WORKERS` 仍为 1。落地见 `docs/DEPLOY.md`「16G / 128G 云主机」
-
 ### 💹 去掉平台纸账户层
 - 下单 / 撤单不再看 `longport_trading_enabled` 或 `allow_sim`；配了长桥模拟账户就是模拟，配了真实账户就是真实
 - 删除服务端「只读/模拟模式」拦截和客户端 `requirePaper` / `paperAccount` 标记

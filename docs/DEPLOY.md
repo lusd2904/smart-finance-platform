@@ -138,49 +138,11 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy no
 - 夜盘行情依赖 SDK `enable_overnight=True`（代码已写死，不必再配 `LONGPORT_ENABLE_OVERNIGHT`）。
 - 滚动 `sentiment-trade`（以及会下单的 `sentiment-quant` / `jobs-quant`）后生效。不要 `compose down`。
 
-### 16G / 128G 云主机（同机只有本栈 + grok2api）
-
-这是生产目标机：**16G 内存、128G 盘、Docker 里就是智慧金融平台 + grok2api**。不要在这台机再开 Prometheus/Grafana、不要再跑别的 compose。grok2api 很轻，不必改它。
-
-内存按这个预算挤：Influx **6G**（不要降）、MySQL **1.5G 封顶 + 1G 缓冲池**、10 个 Python 日常约 3G、Redis 384M、前端 128M、grok2api ~0.2G、系统留 **≥2G**。`APP_WORKERS` 保持 1。
-
-盘：Docker 日志封 20MB×3；MySQL 单机关 binlog；**不要在这台机堆 build cache**。定期：
-
-```bash
-df -h
-docker system df
-docker builder prune -af          # 只清构建缓存，不加 -v
-docker image prune -af            # 只删无容器旧镜像
-```
-
-配置变更落地（**禁止 `compose down`，禁止删 Influx 卷**）。限制和日志驱动只在**重建该容器**后生效：
-
-```bash
-# 1) 业务进程（登录/交易先起来）
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
-  sentiment-backend sentiment-trade sentiment-ai sentiment-news \
-  sentiment-market sentiment-quant \
-  sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
-
-# 2) MySQL：缓冲池/封顶/关 binlog。命名卷保留，表数据还在。
-docker compose -f docker-compose.sentiment.yml up -d ruoyi-mysql
-
-# 3) Influx：加上单查询内存封顶。命名卷保留；重建后可能 10 分钟才 healthy。
-docker compose -f docker-compose.sentiment.yml up -d sentiment-influxdb
-
-# 4) Redis：仅当仍是 redis:latest 或没有 sentiment-redis-data 时才做。
-#    第一次挂新卷会清空会话，用户需重新登录。
-# docker compose -f docker-compose.sentiment.yml up -d ruoyi-redis
-```
-
-宿主机建议 2–4G swap、`vm.swappiness=10`，只防 Influx 尖峰 OOM，不是用来跑业务。
-
 ### jobs worker 健康检查
 
 `jobs-market` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建三个 worker（不要 down 整栈）。
 
-## 3. 监控（可选，16G 云主机不要开）
+## 3. 监控（可选）
 
 ```bash
 docker compose -f docker-compose.monitor.yml up -d
