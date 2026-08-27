@@ -1,3 +1,5 @@
+# 16G 云主机不要启用本文件：Prometheus+Grafana 再吃约 300MB+ 磁盘写。
+# 有余量的机器再：docker compose -f docker-compose.monitor.yml up -d
 services:
   prometheus:
     image: prom/prometheus:v2.55.1
