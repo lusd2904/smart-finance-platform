@@ -230,6 +230,8 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ## 🛠 快速启动与部署指南
 
+**云主机日常更新**（本平台 + grok2api，禁止 `compose down`）：步骤见 [docs/DEPLOY.md「云主机怎么部署」](./docs/DEPLOY.md#云主机怎么部署日常更新)。
+
 - **方案 1：Docker Compose 一键启动（推荐）**
   ```bash
   cp ruoyi-fastapi-backend/.env.dockersentiment.example \

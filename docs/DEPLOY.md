@@ -4,6 +4,91 @@
 
 完整 OpenAPI：启动后端后访问 `http://127.0.0.1:19099/docs`（Docker 反代路径为 `/docker-api/docs`）。
 
+云上日常更新看下面 **「云主机怎么部署」**。本机资源更大，和云机共用同一份 compose，**不要按云主机内存去砍容器上限**。
+
+---
+
+## 云主机怎么部署（日常更新）
+
+适用：**一台 Docker 云主机，里面是本平台 + grok2api**。不要改 grok2api，不要 `compose down`，不要删 Influx 命名卷。
+
+### 这次上线会改什么
+
+拉 `main` 并滚动**业务容器**之后生效：
+
+- 下单走你配置的长桥账户（模拟就是模拟、真实就是真实）；自动交易开关打开才会委托
+- 美股盘前 / 盘后 / 夜盘下单（长桥模拟账户本身仍只撮合常规盘）
+- 操作日志只由 `sentiment-backend` 消费，其它 API 不再抢 Redis 日志流
+- K 线 / 指标 / 历史在 Influx 侧 `tail`，不再默认拉两年再截断
+
+**不要**为了「给 16G 封顶」去重建 MySQL / Influx / Redis。数据层保持不动。
+
+### 步骤
+
+在云主机仓库根目录（有 `docker-compose.sentiment.yml` 的那层）：
+
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+```
+
+可选：关闭容器内文件日志（Docker 已有 stdout）。编辑已挂载的 `ruoyi-fastapi-backend/.env.dockersentiment`：
+
+```ini
+LOG_FILE_ENABLED = false
+```
+
+未改过就保持原样，不影响这次功能。
+
+只重建业务容器（先 API / jobs，再前端）：
+
+```bash
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
+  sentiment-backend sentiment-trade sentiment-ai sentiment-news \
+  sentiment-market sentiment-quant \
+  sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
+
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
+```
+
+或直接：
+
+```bash
+bash scripts/deploy_and_verify.sh
+```
+
+脚本同样**不碰** MySQL / Redis / Influx。
+
+### 验收
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+curl -sf http://127.0.0.1:19099/health && echo
+curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
+```
+
+- `sentiment-backend` / `sentiment-trade` / `sentiment-frontend` 应为 healthy
+- `jobs-market` / `jobs-quant` / `jobs-llm` 重建后应出现 `(healthy)`
+- 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
+- 浏览器强刷一次前端静态资源
+
+### 不要做
+
+| 不要 | 原因 |
+|------|------|
+| `docker compose down` | 会停整栈；Influx 冷启动可到 10 分钟 |
+| `down -v` 或删 `sentiment-influxdb-data` | 行情时序没了 |
+| 把 mysql / redis / influx 和业务绑一次 `up --build` | 数据层被顺带重建 |
+| 改 grok2api | 独立服务，本次无关 |
+| 开 `docker-compose.monitor.yml` | 可选监控，云上不必为部署打开 |
+
+Redis 只有在仍是 `redis:latest`、且还没有 `sentiment-redis-data` 时，才单独 `up ruoyi-redis`。第一次挂新卷会清空登录态，用户要重新登录。不需要就别动。
+
+更细的队列 / Influx / 客户端行为见下面 [§2.1](#21-本次改动注意事项队列--influx--redis--客户端)。
+
+---
+
 ## 1. 环境变量
 
 ```bash
@@ -213,5 +298,5 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 3. 长桥配置填写凭证。
 4. 确认 `sentiment-jobs` 健康（`/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
 5. 合并功能分支 PR，不要直接推 `main`。
-6. 过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
+6. 云上日常更新按文首「云主机怎么部署」滚业务容器。过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
 7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。
