@@ -5,13 +5,11 @@
 
 ## [Unreleased]
 
-### 🖥 16G 云主机资源封顶
-- 目标机：16G / 128G Docker，同机仅本栈 + grok2api；不要在这台机开监控栈
-- 全容器日志 `json-file` 20MB×3，避免 128G 盘被日志写满
-- MySQL 容器 1.5G + `innodb_buffer_pool_size=1G` + `O_DIRECT` + 关 binlog / performance_schema
-- Redis 进程 384M 封顶（数据仍 256mb `noeviction`）；前端 128M
-- 调度从 2G/2CPU 收到 1G/1CPU；Influx 仍 6G，另加单查询 512MB / 总查询 1G
-- `APP_WORKERS` 仍为 1。落地见 `docs/DEPLOY.md`「16G / 128G 云主机」
+### ⚡ 项目性能（不是按云主机砍 Docker 上限）
+- **撤回**按 16G 云主机下调 MySQL/调度/Influx 查询内存的编排改动；那会拖慢资源更大的本机
+- 操作日志 Redis Stream **只由 platform API 消费**；trade/market/quant/news/ai 不再每人一份 `XREADGROUP`
+- K 线 / 指标 / 历史把 `limit` 下推到 Influx `tail`，避免默认拉两年再在 Python 里切片
+- Docker 示例关闭容器内文件日志（stdout 即可）；云上 `.env.dockersentiment` 可设 `LOG_FILE_ENABLED=false`
 
 ### 💹 去掉平台纸账户层
 - 下单 / 撤单不再看 `longport_trading_enabled` 或 `allow_sim`；配了长桥模拟账户就是模拟，配了真实账户就是真实

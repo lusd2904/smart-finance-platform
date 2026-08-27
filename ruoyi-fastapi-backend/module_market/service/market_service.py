@@ -25,6 +25,7 @@ from module_market.service.finance_news_service import FinanceNewsService
 from module_market.service.indicator_service import IndicatorService
 from utils.time_format_util import now_beijing
 from module_market.service.kline_period import (
+    default_kline_limit,
     default_range_start,
     is_minute_period,
     normalize_kline_period,
@@ -317,6 +318,7 @@ class MarketService:
         loop = asyncio.get_running_loop()
         period = normalize_kline_period(query_object.period)
         start = default_range_start(period, query_object.start)
+        limit = default_kline_limit(period, getattr(query_object, 'limit', None))
         if is_minute_period(period):
             klines = await loop.run_in_executor(
                 None,
@@ -325,6 +327,7 @@ class MarketService:
                 query_object.symbol,
                 start,
                 query_object.stop,
+                limit,
             )
             how = {'5min': '5min', '15min': '15min'}.get(period)
             if how and klines:
@@ -337,6 +340,7 @@ class MarketService:
             query_object.symbol,
             start,
             query_object.stop,
+            limit,
         )
         how = resample_how(period) or 'D'
         return _resample_klines(klines, how)
@@ -390,6 +394,7 @@ class MarketService:
             query_object.symbol,
             query_object.start,
             query_object.stop,
+            default_kline_limit('daily', None),
         )
         if not klines:
             return {'symbol': query_object.symbol, 'market': query_object.market, 'dates': []}

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from datetime import datetime, timezone
 
 from module_market.service.kline_period import (
+    default_kline_limit,
     default_range_start,
     is_minute_period,
     normalize_kline_period,
@@ -47,6 +48,10 @@ def test_normalize_kline_period_aliases() -> None:
     assert resample_how('weekly') == 'W'
     assert default_range_start('monthly', '-2y') == '-5y'
     assert default_range_start('daily', '-10d') == '-10d'
+    assert default_kline_limit('daily', None) == 800
+    assert default_kline_limit('1min', None) == 2000
+    assert default_kline_limit('daily', 120) == 120
+    assert default_kline_limit('daily', 99999) == 5000
 
 
 def test_cn_and_unconfigured_depth_are_empty() -> None:
@@ -485,6 +490,20 @@ async def test_quote_kline_live_minute_falls_back_to_influx_when_lb_empty() -> N
     assert data['priceSource'] == 'history'
     assert data.get('fallback') is None
     assert data['klines'][0]['close'] == 11
+
+
+@pytest.mark.asyncio
+async def test_get_kline_services_pushes_limit_to_influx() -> None:
+    from module_market.entity.vo.market_vo import KlineQueryModel
+    from module_market.service.market_service import MarketService
+
+    with patch('module_market.service.market_service.InfluxUtil.query_klines', return_value=[]) as query:
+        await MarketService.get_kline_services(
+            KlineQueryModel(symbol='AAPL', market='US', period='daily', limit=120)
+        )
+    assert query.call_args.args[0] == 'US'
+    assert query.call_args.args[1] == 'AAPL'
+    assert query.call_args.args[-1] == 120
 
 
 def test_merge_position_quotes_from_longbridge_realtime() -> None:

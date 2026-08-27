@@ -51,6 +51,16 @@ _DEFAULT_START = {
     'weekly': '-3y',
     'monthly': '-5y',
 }
+# HTTP/Influx tail：先在库侧截断，避免拉满窗口再在 Python 里切片。
+_DEFAULT_LIMIT = {
+    'intraday': 500,
+    '1min': 2000,
+    '5min': 1500,
+    '15min': 800,
+    'daily': 800,
+    'weekly': 800,
+    'monthly': 1500,
+}
 
 
 def normalize_kline_period(raw: str | None) -> str:
@@ -64,6 +74,19 @@ def is_minute_period(period: str | None) -> bool:
 
 def resample_how(period: str | None) -> str | None:
     return _RESAMPLE.get(normalize_kline_period(period))
+
+
+def default_kline_limit(period: str | None, current_limit: int | None = None) -> int | None:
+    """未指定 limit 时按周期给 Influx tail；非法/过大值夹到 1–5000。"""
+    if current_limit is not None:
+        try:
+            n = int(current_limit)
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            return _DEFAULT_LIMIT.get(normalize_kline_period(period), 800)
+        return max(1, min(n, 5000))
+    return _DEFAULT_LIMIT.get(normalize_kline_period(period), 800)
 
 
 def default_range_start(period: str | None, current_start: str | None = None) -> str:
