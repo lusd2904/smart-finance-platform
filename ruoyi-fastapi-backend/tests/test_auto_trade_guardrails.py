@@ -317,7 +317,7 @@ def test_cycle_hk_stock_order_qty_uses_hkd_notional() -> None:
 
     async def _run() -> None:
         fx = FxRates(usd_hkd=7.8, usd_cny=7.2)
-        result, submit, _ = await _run_buy_cycle(
+        _, submit, _ = await _run_buy_cycle(
             fx=fx,
             signal=hk_signal,
             targets=[{'symbol': '0700', 'market': 'HK'}],
