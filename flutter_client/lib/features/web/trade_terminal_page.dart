@@ -133,7 +133,7 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _syncTimers(TickerMode.of(context));
+    _syncTimers(TickerMode.valuesOf(context).enabled);
   }
 
   void _syncTimers(bool on) {
