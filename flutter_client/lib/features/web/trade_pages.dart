@@ -69,21 +69,25 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
       Map<String, dynamic> depth = const {};
       Map<String, dynamic> kline = const {};
       try {
-        depth = asMap((await client.get(
-          '/trade/quote/depth',
-          query: {'symbol': _symbol.text.trim(), 'market': _market},
-        )).data);
+        depth = asMap(
+          (await client.get(
+            '/trade/quote/depth',
+            query: {'symbol': _symbol.text.trim(), 'market': _market},
+          )).data,
+        );
       } catch (_) {}
       try {
-        kline = asMap((await client.get(
-          '/trade/quote/kline',
-          query: {
-            'symbol': _symbol.text.trim(),
-            'market': _market,
-            'period': 'daily',
-            'limit': 80,
-          },
-        )).data);
+        kline = asMap(
+          (await client.get(
+            '/trade/quote/kline',
+            query: {
+              'symbol': _symbol.text.trim(),
+              'market': _market,
+              'period': 'daily',
+              'limit': 80,
+            },
+          )).data,
+        );
       } catch (_) {}
       if (!mounted) return;
       setState(() {
@@ -111,7 +115,9 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
     if (!ok) return;
     setState(() => _busy = true);
     try {
-      await ref.read(ruoyiClientProvider).post(
+      await ref
+          .read(ruoyiClientProvider)
+          .post(
             '/trade/order',
             data: {
               'symbol': _symbol.text.trim(),
@@ -134,7 +140,9 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
 
   Future<void> _cancel(String id) async {
     try {
-      await ref.read(ruoyiClientProvider).post('/trade/order/${Uri.encodeComponent(id)}/cancel');
+      await ref
+          .read(ruoyiClientProvider)
+          .post('/trade/order/${Uri.encodeComponent(id)}/cancel');
       await _load();
     } catch (e) {
       if (mounted) toast(context, describeApiError(e), error: true);
@@ -151,7 +159,9 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
           PageHero(
             title: '交易台',
             subtitle: '报价 · K线 · 买卖盘 · 下单 · 委托（长桥）',
-            actions: [OutlinedButton(onPressed: _load, child: const Text('刷新全部'))],
+            actions: [
+              OutlinedButton(onPressed: _load, child: const Text('刷新全部')),
+            ],
           ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
@@ -183,7 +193,10 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
                 ),
                 Text(
                   last.isEmpty ? '--' : last,
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 Text(cellText(quote['changeRate'] ?? quote['changePct'])),
               ],
@@ -223,7 +236,8 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
                           ButtonSegment(value: 'sell', label: Text('卖出')),
                         ],
                         selected: {_side},
-                        onSelectionChanged: (s) => setState(() => _side = s.first),
+                        onSelectionChanged: (s) =>
+                            setState(() => _side = s.first),
                       ),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
@@ -265,7 +279,9 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
           ElCard(
             header: const Text('账户'),
             child: KvGrid({
-              '净资产': cellText(_account['netAsset'] ?? _account['equity'] ?? _account['total']),
+              '净资产': cellText(
+                _account['netAsset'] ?? _account['equity'] ?? _account['total'],
+              ),
               '现金': cellText(_account['cash'] ?? _account['available']),
               '币种': cellText(_account['currency']),
             }),
@@ -299,7 +315,8 @@ class _TradeTradingPageState extends ConsumerState<TradeTradingPage> {
               rows: _orders,
               rowActions: (row) => [
                 TextButton(
-                  onPressed: () => _cancel(cellText(row['orderId'] ?? row['id'])),
+                  onPressed: () =>
+                      _cancel(cellText(row['orderId'] ?? row['id'])),
                   child: const Text('撤单'),
                 ),
               ],
@@ -338,7 +355,7 @@ class TradePositionsPage extends StatelessWidget {
         TableCol('盈亏', 'unrealizedPnl'),
       ],
       onRowTap: (row) => open?.call(
-        '/trade/trading?symbol=${row['symbol']}&market=${row['market']}',
+        '/trade/terminal?symbol=${row['symbol']}&market=${row['market']}',
         title: '交易台',
       ),
     );
@@ -455,7 +472,9 @@ class _TradeBacktestPageState extends ConsumerState<TradeBacktestPage> {
   Future<void> _run() async {
     setState(() => _busy = true);
     try {
-      await ref.read(ruoyiClientProvider).post(
+      await ref
+          .read(ruoyiClientProvider)
+          .post(
             '/trade/backtest/run',
             data: {'symbol': _symbol.text.trim(), 'market': 'US'},
             timeout: const Duration(seconds: 120),
@@ -475,6 +494,7 @@ class _TradeBacktestPageState extends ConsumerState<TradeBacktestPage> {
         children: [
           PageHero(
             title: '策略回测',
+            subtitle: '8 族因子信号，只看当前登录账户',
             actions: [
               SizedBox(
                 width: 140,
@@ -495,10 +515,11 @@ class _TradeBacktestPageState extends ConsumerState<TradeBacktestPage> {
               padding: EdgeInsets.zero,
               child: SimpleTable(
                 columns: const [
-                  TableCol('编号', 'runId'),
+                  TableCol('编号', 'id'),
                   TableCol('代码', 'symbol'),
+                  TableCol('策略', 'strategy'),
                   TableCol('收益', 'returnPct'),
-                  TableCol('状态', 'status'),
+                  TableCol('回撤', 'maxDrawdown'),
                   TableCol('时间', 'createTime'),
                 ],
                 rows: _rows,
@@ -586,9 +607,14 @@ class _TradeFeishuPageState extends ConsumerState<TradeFeishuPage> {
   Future<void> _save() async {
     setState(() => _busy = true);
     try {
-      await ref.read(ruoyiClientProvider).put(
+      await ref
+          .read(ruoyiClientProvider)
+          .put(
             '/trade/feishu/config',
-            data: {'webhook': _webhook.text.trim(), 'secret': _secret.text.trim()},
+            data: {
+              'webhook': _webhook.text.trim(),
+              'secret': _secret.text.trim(),
+            },
           );
       setState(() => _msg = '已保存');
     } catch (e) {
@@ -617,8 +643,15 @@ class _TradeFeishuPageState extends ConsumerState<TradeFeishuPage> {
                   decoration: const InputDecoration(labelText: 'Secret'),
                 ),
                 const SizedBox(height: 16),
-                FilledButton(onPressed: _busy ? null : _save, child: const Text('保存')),
-                if (_msg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_msg!)),
+                FilledButton(
+                  onPressed: _busy ? null : _save,
+                  child: const Text('保存'),
+                ),
+                if (_msg != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(_msg!),
+                  ),
               ],
             ),
           ),

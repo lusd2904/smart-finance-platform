@@ -190,6 +190,10 @@ onMounted(async () => {
   await loadMessages()
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => {
+  if (pendingJobs.size) startTimer()
+})
+onDeactivated(() => stopTimer())
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   stopTimer()

@@ -13,7 +13,7 @@ function sh(cmd) {
 }
 
 // 测试期关验证码（后端使用 Redis DB 2）
-sh(`docker exec sentiment-mysql mysql -uroot -proot -e "UPDATE \\\`sentiment-ai\\\`.sys_config SET config_value='false' WHERE config_key='sys.account.captchaEnabled';"`)
+sh(`docker exec sentiment-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "UPDATE \\\`sentiment-ai\\\`.sys_config SET config_value=\\"false\\" WHERE config_key=\\"sys.account.captchaEnabled\\";"'`)
 sh(`docker exec sentiment-redis redis-cli -n 2 SET sys_config:sys.account.captchaEnabled false`)
 sh(`docker exec sentiment-redis redis-cli SET sys_config:sys.account.captchaEnabled false`)
 
@@ -40,7 +40,7 @@ function walkRoutes(nodes, prefix = '', out = []) {
 }
 
 const results = []
-const token = await loginApi()
+const token = process.env.E2E_TOKEN || await loginApi()
 const routersRes = await fetch(`${API}/getRouters`, { headers: { Authorization: `Bearer ${token}` } })
 const routersJson = await routersRes.json()
 const routes = walkRoutes(routersJson.data || [])
@@ -137,8 +137,9 @@ for (const r of all) {
 await browser.close()
 
 // 恢复验证码
-sh(`docker exec sentiment-mysql mysql -uroot -proot -e "UPDATE \\\`sentiment-ai\\\`.sys_config SET config_value='true' WHERE config_key='sys.account.captchaEnabled';"`)
+sh(`docker exec sentiment-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "UPDATE \\\`sentiment-ai\\\`.sys_config SET config_value=\\"true\\" WHERE config_key=\\"sys.account.captchaEnabled\\";"'`)
 sh(`docker exec sentiment-redis redis-cli SET sys_config:sys.account.captchaEnabled true`)
+sh(`docker exec sentiment-redis redis-cli -n 2 SET sys_config:sys.account.captchaEnabled true`)
 
 const failed = results.filter(r => !r.ok)
 console.log('\n==== SUMMARY ====')

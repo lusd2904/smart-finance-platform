@@ -19,6 +19,7 @@ from module_market.config.heat_config import (
 from module_market.dao.heat_dao import MarketHeatDao
 from module_market.dao.market_dao import MarketInstrumentDao, MarketWatchlistDao
 from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
+from module_market.service.live_quotes_service import LiveQuotesService
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
@@ -164,16 +165,26 @@ class MarketHeatService:
 
     @classmethod
     def _quote_map_from_longbridge(cls, market: str, symbols: list[str]) -> dict[str, dict[str, Any]]:
-        lb_symbols = [LongbridgeService.to_longbridge_symbol(sym, market) for sym in symbols]
-        res = LongbridgeService.get_realtime_quote(lb_symbols)
+        if not symbols:
+            return {}
+        items = LiveQuotesService._fetch_items([(sym, market) for sym in symbols]) or []
         mapping: dict[str, dict[str, Any]] = {}
-        for quote in res.get('quotes') or []:
-            sym = str(quote.get('symbol') or '')
-            clean = sym.split('.', maxsplit=1)[0] if market != 'US' else sym.replace('.US', '').replace('.HK', '')
-            if market == 'HK' and '.HK' in sym:
-                clean = sym
-            mapping[clean.upper()] = quote
-            mapping[sym.upper()] = quote
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get('symbol') or '').strip()
+            if not symbol:
+                continue
+            payload = dict(item)
+            if payload.get('lastDone') is None and payload.get('last') is not None:
+                payload['lastDone'] = payload['last']
+            mapping[symbol.upper()] = payload
+            try:
+                lb_sym = str(LongbridgeService.to_longbridge_symbol(symbol, market) or '').strip()
+            except Exception:
+                lb_sym = ''
+            if lb_sym:
+                mapping[lb_sym.upper()] = payload
         return mapping
 
     @classmethod
@@ -264,7 +275,7 @@ class MarketHeatService:
                 'message': LongbridgeBreaker.blocked_message(),
             }
 
-        await LongbridgeService.ensure_credentials_from_db(db)
+        await LongbridgeService.ensure_credentials_from_db(db, allow_admin_fallback=True)
         meta = MARKET_META[market]
         weights = await cls.resolve_weights()
         universe = await cls._universe_symbols(db, market)

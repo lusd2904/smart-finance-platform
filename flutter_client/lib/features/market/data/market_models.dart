@@ -360,6 +360,25 @@ class WatchlistItem {
   final String recommendation;
   final String summary;
   final String analysisTime;
+
+  WatchlistItem copyWith({
+    double? last,
+    double? changeRate,
+  }) {
+    return WatchlistItem(
+      id: id,
+      symbol: symbol,
+      name: name,
+      market: market,
+      last: last ?? this.last,
+      changeRate: changeRate ?? this.changeRate,
+      groups: groups,
+      note: note,
+      recommendation: recommendation,
+      summary: summary,
+      analysisTime: analysisTime,
+    );
+  }
 }
 
 /// 自选概览：data = {items[], count, bullish, bearish, neutral, groups[{name,count}]}
@@ -400,6 +419,17 @@ class WatchlistOverview {
   final int bearish;
   final int neutral;
   final List<({String name, int count})> groups;
+
+  WatchlistOverview copyWithItems(List<WatchlistItem> items) {
+    return WatchlistOverview(
+      items: items,
+      count: count,
+      bullish: bullish,
+      bearish: bearish,
+      neutral: neutral,
+      groups: groups,
+    );
+  }
 }
 
 /// K线单根：data.klines[i]（date + OHLCV）

@@ -264,6 +264,32 @@ class QuoteClientMixin:
     )
 
     @classmethod
+    def _hub_security_quote(cls, symbol: str, market: str) -> dict[str, Any] | None:
+        """订阅枢纽已有 last 时，拼成 map_security_quote / assemble_quote_snapshot 可用的 quote。"""
+        from module_market.service.quote_subscribe_hub import QuoteSubscribeHub
+
+        for item in QuoteSubscribeHub.latest_for([(symbol, market)]):
+            last = cls._to_float(item.get('last'))
+            if last is None or last <= 0:
+                continue
+            change_rate = item.get('changeRate')
+            if change_rate is None:
+                change_rate = item.get('changePct')
+            payload = {
+                'symbol': item.get('symbol') or symbol,
+                'last': last,
+                'lastDone': last,
+                'prevClose': item.get('prevClose'),
+                'changeRate': change_rate,
+                'timestamp': item.get('timestamp') or item.get('quoteTime') or '',
+            }
+            mapped = map_security_quote(payload)
+            if mapped.get('changeRate') is None:
+                mapped['changeRate'] = cls._to_float(payload.get('changeRate'))
+            return mapped
+        return None
+
+    @classmethod
     def get_quote_snapshot(cls, symbol: str, market: str = 'US') -> dict[str, Any]:
         """终端基本面快照：quote + static_info + calc_indexes + 资金分布。低频缓存。"""
         mkt = str(market or 'US').upper()
@@ -286,8 +312,14 @@ class QuoteClientMixin:
             return {**base, 'reason': 'unavailable', 'message': '长桥 QuoteContext 不可用'}
         quote = static = calc = capital = {}
         try:
-            raw_q = ctx.quote([lb_symbol]) if hasattr(ctx, 'quote') else []
-            quote = map_security_quote((raw_q or [None])[0] if raw_q else None)
+            quote = cls._hub_security_quote(symbol, mkt) or {}
+        except Exception as exc:
+            logger.info(f'[长桥] snapshot hub quote 跳过 {lb_symbol}: {exc}')
+            quote = {}
+        try:
+            if not quote:
+                raw_q = ctx.quote([lb_symbol]) if hasattr(ctx, 'quote') else []
+                quote = map_security_quote((raw_q or [None])[0] if raw_q else None)
         except Exception as exc:
             cls._note_sdk_error(exc)
             logger.warning(f'[长桥] snapshot quote 失败 {lb_symbol}: {exc}')
@@ -641,6 +673,62 @@ class QuoteClientMixin:
         return result
 
     overlay_last_bar = staticmethod(overlay_last_bar)
+
+    @classmethod
+    def set_quote_handler(cls, handler: Any) -> dict[str, Any]:
+        """绑定 QuoteContext.set_on_quote。失败不抛。"""
+        if not cls.is_configured() or cls._blocked():
+            return {'ok': False, 'message': '长桥不可用'}
+        ctx = cls._build_quote_context()
+        if ctx is None or not hasattr(ctx, 'set_on_quote'):
+            return {'ok': False, 'message': 'QuoteContext 不支持推送'}
+        try:
+            ctx.set_on_quote(handler)
+            return {'ok': True}
+        except Exception as exc:
+            cls._note_sdk_error(exc)
+            logger.warning(f'[长桥] set_on_quote 失败: {exc}')
+            return {'ok': False, 'message': str(exc)}
+
+    @classmethod
+    def subscribe_quotes(cls, symbols: list[str]) -> dict[str, Any]:
+        """QuoteContext.subscribe(SubType.Quote)。SDK 缺失时返回 ok=False。"""
+        symbols = [str(item).strip() for item in (symbols or []) if str(item).strip()]
+        if not symbols:
+            return {'ok': True, 'subscribed': []}
+        if not cls.is_configured() or cls._blocked():
+            return {'ok': False, 'message': '长桥不可用'}
+        ctx = cls._build_quote_context()
+        if ctx is None or not hasattr(ctx, 'subscribe'):
+            return {'ok': False, 'message': 'QuoteContext 不支持订阅'}
+        try:
+            from longport.openapi import SubType  # 延迟导入
+
+            ctx.subscribe(symbols, [SubType.Quote], True)
+            return {'ok': True, 'subscribed': symbols}
+        except Exception as exc:
+            cls._note_sdk_error(exc)
+            logger.warning(f'[长桥] subscribe 失败 n={len(symbols)}: {exc}')
+            return {'ok': False, 'message': str(exc)}
+
+    @classmethod
+    def unsubscribe_quotes(cls, symbols: list[str]) -> dict[str, Any]:
+        symbols = [str(item).strip() for item in (symbols or []) if str(item).strip()]
+        if not symbols:
+            return {'ok': True}
+        ctx = None
+        if cls.is_configured():
+            ctx = cls._cached_quote_ctxs.get(cls._get_creds_signature(cls.resolve_credentials()))
+        if ctx is None or not hasattr(ctx, 'unsubscribe'):
+            return {'ok': False, 'message': 'QuoteContext 不可用'}
+        try:
+            from longport.openapi import SubType  # 延迟导入
+
+            ctx.unsubscribe(symbols, [SubType.Quote])
+            return {'ok': True}
+        except Exception as exc:
+            logger.info(f'[长桥] unsubscribe 跳过: {exc}')
+            return {'ok': False, 'message': str(exc)}
 
     @staticmethod
     def _to_float(value: Any) -> float | None:

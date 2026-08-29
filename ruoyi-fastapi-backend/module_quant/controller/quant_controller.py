@@ -99,11 +99,18 @@ async def get_factor_schema(request: Request) -> Response:
 async def compute_factor(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     symbol: Annotated[str, Query(description='标的代码')],
     market: Annotated[str, Query(description='市场（US/HK/CN）')] = 'US',
-    profile: Annotated[str, Query(description='策略档位')] = 'balanced',
+    profile: Annotated[str | None, Query(description='策略档位，空则用本账户绑定档位')] = None,
 ) -> Response:
-    result = await QuantService.compute_factor_services(symbol, market, profile, query_db=query_db)
+    uid = _current_user_id(current_user)
+    from module_trade.service.platform_ext_service import PlatformExtService
+
+    code = await PlatformExtService.resolve_profile(query_db, uid, profile)
+    result = await QuantService.compute_factor_services(
+        symbol, market, code, query_db=query_db, user_id=uid
+    )
     logger.info(f'计算标的{symbol}因子完成')
     return ResponseUtil.success(data=result)
 
@@ -153,13 +160,13 @@ async def export_factor_snapshots(
 @Log(title='因子日扫', business_type=BusinessType.OTHER)
 async def run_daily_factor_scan(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     profile: Annotated[str, Query()] = 'balanced',
 ) -> Response:
-    from module_quant.service.snapshot_service import SnapshotService
-
-    data = await SnapshotService.run_daily_factor_scan(query_db, profile=profile)
-    return ResponseUtil.success(data=data, msg=f"因子日扫完成，成功 {data.get('symbolCount', 0)} 个标的")
+    ticket = await JobQueue.submit('factor_scan', {'profile': profile})
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'因子日扫已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新查看结果')
 
 
 @quant_controller.post(
@@ -210,18 +217,19 @@ async def get_factor_qc(
 @quant_controller.post(
     '/factor/qc/run',
     summary='立即运行因子质检',
-    description='用目标股票池日K 计算 Alphalens 风格 IC/IR 与五分位收益并落库',
+    description='入队后台计算 Alphalens 风格 IC/IR 与五分位收益并落库，立即返回 ticket',
     dependencies=[UserInterfaceAuthDependency('quant:factor:compute')],
 )
 @Log(title='因子质检', business_type=BusinessType.OTHER)
 async def run_factor_qc(
     request: Request,
-    query_db: Annotated[AsyncSession, DBSessionDependency()],
     market: Annotated[str, Query(description='市场 US/HK/CN')] = 'US',
 ) -> Response:
-    data = await FactorQcService.run_and_store(query_db, market=market)
-    logger.info(f'因子质检完成: market={market} items={data.get("itemCount")} saved={data.get("saved")}')
-    return ResponseUtil.success(data=data, msg=data.get('message') or '质检完成')
+    ticket = await JobQueue.submit('factor_qc', {'market': (market or 'US').upper()})
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'因子质检已入队: market={market} {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新查看结果')
 
 
 # ---------------------------------------------------------------- 自选池 ---
@@ -301,14 +309,14 @@ async def run_strategy(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    ticket = await JobQueue.submit(
-        'strategy_run',
-        {
-            'profile': getattr(run_model, 'profile', None) or 'balanced',
-            'symbols': getattr(run_model, 'symbols', None),
-            'userId': _current_user_id(current_user),
-        },
-    )
+    uid = _current_user_id(current_user)
+    payload: dict = {
+        'symbols': getattr(run_model, 'symbols', None),
+        'userId': uid,
+    }
+    if getattr(run_model, 'profile', None):
+        payload['profile'] = run_model.profile
+    ticket = await JobQueue.submit('strategy_run', payload)
     if not ticket:
         raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
     logger.info(f'策略运行已入队: {ticket}')
@@ -326,8 +334,11 @@ async def get_strategy_history(
     request: Request,
     run_page_query: Annotated[QuantStrategyRunPageQueryModel, Query()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await QuantService.get_strategy_history_services(query_db, run_page_query, is_page=True)
+    result = await QuantService.get_strategy_history_services(
+        query_db, run_page_query, is_page=True, user_id=_current_user_id(current_user)
+    )
     logger.info('获取策略运行历史成功')
     return ResponseUtil.success(model_content=result)
 
@@ -341,9 +352,12 @@ async def get_strategy_history(
 async def get_scan_runs(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query(description='条数 20/50/100')] = 20,
 ) -> Response:
-    result = await QuantService.get_scan_runs_services(query_db, limit=limit)
+    result = await QuantService.get_scan_runs_services(
+        query_db, limit=limit, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=result)
 
 
@@ -464,10 +478,11 @@ async def scan_daily_list(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
-    profile = str((body or {}).get('profile') or 'balanced')
-    ticket = await JobQueue.submit(
-        'daily_list_scan', {'userId': _current_user_id(current_user), 'profile': profile}
-    )
+    payload: dict = {'userId': _current_user_id(current_user)}
+    raw_profile = (body or {}).get('profile')
+    if raw_profile:
+        payload['profile'] = str(raw_profile)
+    ticket = await JobQueue.submit('daily_list_scan', payload)
     if not ticket:
         raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
     logger.info(f'次日策略清单扫描已入队: {ticket}')
@@ -476,10 +491,10 @@ async def scan_daily_list(
 
 @quant_controller.post(
     '/daily-list/open',
-    summary='勾选后长桥模拟开仓',
+    summary='勾选后向当前长桥账户提交委托',
     dependencies=[UserInterfaceAuthDependency('quant:dailylist:open')],
 )
-@Log(title='次日清单模拟开仓', business_type=BusinessType.OTHER)
+@Log(title='次日清单开仓', business_type=BusinessType.OTHER)
 async def open_daily_list(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],

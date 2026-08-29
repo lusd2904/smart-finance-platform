@@ -227,6 +227,8 @@ class StrategyProfile {
     this.sellThreshold,
     this.weights = const {},
     this.updateTime = '',
+    this.active = false,
+    this.accountOwned = false,
   });
 
   factory StrategyProfile.fromJson(Map<String, dynamic> json) {
@@ -239,6 +241,8 @@ class StrategyProfile {
       sellThreshold: (config?['sellThreshold'] as num?)?.toInt(),
       weights: rawWeights,
       updateTime: (json['updateTime'] as String?) ?? '',
+      active: json['active'] == true,
+      accountOwned: json['accountOwned'] == true,
     );
   }
 
@@ -247,6 +251,8 @@ class StrategyProfile {
   final String profileName;
   final int? buyThreshold;
   final int? sellThreshold;
+  final bool active;
+  final bool accountOwned;
 
   /// 8 族权重键：trend/priceAction/momentum/breakout/volumeFlow/reversion/volatility/liquidity
   final Map<String, double> weights;

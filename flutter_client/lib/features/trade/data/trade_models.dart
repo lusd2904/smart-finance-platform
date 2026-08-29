@@ -350,6 +350,8 @@ class AutoTradeStatus {
     this.todayOrdersCount = 0,
     this.maxDailyNotionalAmount = 0,
     this.todayNotionalAmount = 0,
+    this.halted = false,
+    this.haltReason = '',
     this.recentRuns = const [],
     this.recentDecisions = const [],
   });
@@ -377,6 +379,8 @@ class AutoTradeStatus {
           (guardrails['maxDailyNotionalAmount'] as num?)?.toDouble() ?? 0,
       todayNotionalAmount:
           (guardrails['todayNotionalAmount'] as num?)?.toDouble() ?? 0,
+      halted: json['halted'] == true || guardrails['halted'] == true,
+      haltReason: (json['haltReason'] as String?) ?? '',
       recentRuns: ((json['recentRuns'] as List?) ?? const [])
           .whereType<Map>()
           .map((m) => AutoRun.fromJson(m.cast<String, dynamic>()))
@@ -405,6 +409,8 @@ class AutoTradeStatus {
   final int todayOrdersCount;
   final double maxDailyNotionalAmount;
   final double todayNotionalAmount;
+  final bool halted;
+  final String haltReason;
   final List<AutoRun> recentRuns;
   final List<AutoDecision> recentDecisions;
 }

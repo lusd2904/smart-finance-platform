@@ -112,6 +112,9 @@ class MenuService:
         try:
             await MenuDao.add_menu_dao(query_db, page_object)
             await query_db.commit()
+            from module_admin.service.login_service import LoginService
+
+            await LoginService.invalidate_current_user_cache(all_users=True)
             return CrudResponseModel(is_success=True, message='新增成功')
         except Exception as e:
             await query_db.rollback()
@@ -138,6 +141,9 @@ class MenuService:
             try:
                 await MenuDao.edit_menu_dao(query_db, edit_menu)
                 await query_db.commit()
+                from module_admin.service.login_service import LoginService
+
+                await LoginService.invalidate_current_user_cache(all_users=True)
                 return CrudResponseModel(is_success=True, message='更新成功')
             except Exception as e:
                 await query_db.rollback()
@@ -164,6 +170,9 @@ class MenuService:
                         raise ServiceWarning(message='菜单已分配,不允许删除')
                     await MenuDao.delete_menu_dao(query_db, MenuModel(menuId=menu_id))
                 await query_db.commit()
+                from module_admin.service.login_service import LoginService
+
+                await LoginService.invalidate_current_user_cache(all_users=True)
                 return CrudResponseModel(is_success=True, message='删除成功')
             except Exception as e:
                 await query_db.rollback()

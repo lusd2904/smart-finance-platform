@@ -7,6 +7,7 @@ Phase 2 定时扫描与读模型快照：
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -18,7 +19,6 @@ from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
 from module_quant.service.alpha_engine import attach_cross_section_alphas
 from module_quant.service.factor_service import FactorService
-from utils.time_format_util import now_beijing
 from module_quant.service.readmodel_service import (
     BOARD_TTL,
     FACTOR_TTL,
@@ -27,6 +27,7 @@ from module_quant.service.readmodel_service import (
 )
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
+from utils.time_format_util import now_beijing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,40 +58,18 @@ class SnapshotService:
         market: str,
         profile: str = 'balanced',
         weights: dict[str, Any] | None = None,
+        klines: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        result = FactorService.compute_symbol(symbol, market, profile, weights=weights)
-        if not result.get('ok'):
-            return {
-                'ok': False,
-                'symbol': symbol,
-                'market': market,
-                'reason': result.get('reason') or '计算失败',
-            }
-        score = result.get('score') or {}
-        metrics = result.get('metrics') or {}
-        alpha = metrics.get('alphaFactors') or {}
-        return {
-            'ok': True,
-            'symbol': symbol,
-            'market': market,
-            'asOf': metrics.get('tradeDate'),
-            'latestClose': metrics.get('latestClose'),
-            'score': score,
-            'alpha101Count': metrics.get('alpha101Count') or alpha.get('alpha101Count') or 0,
-            'alpha158Count': metrics.get('alpha158Count') or alpha.get('alpha158Count') or 0,
-            'alpha101': metrics.get('alpha101') or alpha.get('alpha101') or {},
-            'alpha158': metrics.get('alpha158') or alpha.get('alpha158') or {},
-            'alpha158Top': _top_alpha(metrics.get('alpha158') or alpha.get('alpha158') or {}),
-            'return20': metrics.get('return20'),
-            'rsi14': metrics.get('rsi14'),
-            'volumeRatio20': metrics.get('volumeRatio20'),
-            'distanceHigh20': metrics.get('distanceHigh20'),
-            'alpha006': (metrics.get('alpha101') or alpha.get('alpha101') or {}).get('alpha006')
-            or alpha.get('alpha006'),
-        }
+        if klines is None:
+            result = FactorService.compute_symbol(symbol, market, profile, weights=weights)
+        else:
+            result = FactorService.compute_from_klines(klines, profile, weights=weights)
+            result['symbol'] = symbol
+            result['market'] = market
+        return _snapshot_from_result(symbol, market, result)
 
     @classmethod
-    async def run_daily_factor_scan(
+    async def run_daily_factor_scan(  # noqa: PLR0915 - 批量预取 + 线程池计算 + 落库内聚
         cls, db: AsyncSession, profile: str = 'balanced'
     ) -> dict[str, Any]:
         from module_quant.service.quant_service import QuantService
@@ -100,24 +79,53 @@ class SnapshotService:
         failed: list[dict[str, str]] = []
         snaps: list[dict[str, Any]] = []
         profile_cfg = await QuantService.load_profile_config(db, profile)
+        by_market: dict[str, list[str]] = {}
         for symbol, _name, market in universe:
+            by_market.setdefault(market, []).append(symbol)
+        prefetched: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        skipped_markets: set[str] = set()
+        for market, symbols in by_market.items():
+            unique = list(dict.fromkeys(symbols))
             try:
-                snap = await _to_thread(cls.compute_symbol_snapshot, symbol, market, profile, profile_cfg)
+                fetched = await asyncio.to_thread(InfluxUtil.query_klines_many, market, unique, '-1y', 320)
             except Exception as exc:
-                failed.append({'symbol': symbol, 'reason': str(exc)})
+                logger.warning(f'[因子日扫] 批量K线失败 market={market}: {exc}')
+                skipped_markets.add(market)
+                failed.extend({'symbol': symbol, 'reason': f'K线拉取失败: {exc}'} for symbol in unique)
                 continue
-            if not snap.get('ok'):
-                failed.append({'symbol': symbol, 'reason': snap.get('reason') or '失败'})
-                continue
-            snap['name'] = _name
-            snaps.append(snap)
+            for symbol in unique:
+                prefetched[(symbol, market)] = (fetched or {}).get(symbol) or []
+
+        def _compute_batch() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+            batch_snaps: list[dict[str, Any]] = []
+            batch_failed: list[dict[str, str]] = []
+            for symbol, name, market in universe:
+                if market in skipped_markets:
+                    continue
+                klines = prefetched.get((symbol, market)) or []
+                try:
+                    result = FactorService.compute_from_klines(klines, profile, weights=profile_cfg)
+                    snap = _snapshot_from_result(symbol, market, result, name)
+                except Exception as exc:
+                    batch_failed.append({'symbol': symbol, 'reason': str(exc)})
+                    continue
+                if not snap.get('ok'):
+                    batch_failed.append({'symbol': symbol, 'reason': snap.get('reason') or '失败'})
+                    continue
+                batch_snaps.append(snap)
+            return batch_snaps, batch_failed
+
+        extra_snaps, extra_failed = await asyncio.to_thread(_compute_batch)
+        snaps.extend(extra_snaps)
+        failed.extend(extra_failed)
         attach_cross_section_alphas(snaps)
+        factor_items: list[dict[str, Any]] = []
+        alpha_snaps: list[dict[str, Any]] = []
         for snap in snaps:
             score = snap.get('score') or {}
             symbol = snap.get('symbol')
             market = snap.get('market')
-            await QuantSnapshotDao.upsert_factor_snapshot(
-                db,
+            factor_items.append(
                 {
                     'symbol': symbol,
                     'market': market,
@@ -135,15 +143,16 @@ class SnapshotService:
                             'alpha158Top': snap.get('alpha158Top') or {},
                         }
                     ),
-                },
+                }
             )
-            await QuantSnapshotDao.replace_alpha_values(
-                db,
-                symbol=symbol,
-                market=market,
-                as_of=str(snap.get('asOf') or '')[:16],
-                alpha101=snap.get('alpha101') or {},
-                alpha158=snap.get('alpha158') or {},
+            alpha_snaps.append(
+                {
+                    'symbol': symbol,
+                    'market': market,
+                    'asOf': str(snap.get('asOf') or '')[:16],
+                    'alpha101': snap.get('alpha101') or {},
+                    'alpha158': snap.get('alpha158') or {},
+                }
             )
             ok_items.append(
                 {
@@ -158,6 +167,9 @@ class SnapshotService:
                     'alphaCsCount': snap.get('alphaCsCount') or 0,
                 }
             )
+        if snaps:
+            await QuantSnapshotDao.upsert_factor_snapshots_bulk(db, factor_items)
+            await QuantSnapshotDao.replace_alpha_values_bulk(db, alpha_snaps)
         ok_items.sort(key=lambda x: float(x.get('total') or 0), reverse=True)
         payload = {
             'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
@@ -322,7 +334,7 @@ class SnapshotService:
                 elif not settings.get('auto_trade_enabled'):
                     alert['content'] += '；本账户自动交易未开，仅记录'
                 alerts.append(alert)
-                recent = await TradeDao.list_risk_events(db, limit=80)
+                recent = await TradeDao.list_risk_events(db, limit=80, user_id=uid)
                 duplicate = any(
                     (row.symbol or '') == symbol
                     and str(getattr(row, 'review_status', '') or 'pending_review')
@@ -333,6 +345,7 @@ class SnapshotService:
                     await TradeDao.add_risk_event(
                         db,
                         {
+                            'user_id': uid,
                             'rule_id': None,
                             'event_level': 'danger',
                             'title': alert['title'],
@@ -455,6 +468,49 @@ class SnapshotService:
             )
         filename = f'factor_snapshots_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
         return filename, ('\ufeff' + buf.getvalue()).encode('utf-8')
+
+
+def _snapshot_from_result(
+    symbol: str,
+    market: str,
+    factor_result: dict[str, Any],
+    name: str | None = None,
+) -> dict[str, Any]:
+    if not factor_result.get('ok'):
+        snap = {
+            'ok': False,
+            'symbol': symbol,
+            'market': market,
+            'reason': factor_result.get('reason') or '计算失败',
+        }
+        if name is not None:
+            snap['name'] = name
+        return snap
+    score = factor_result.get('score') or {}
+    metrics = factor_result.get('metrics') or {}
+    alpha = metrics.get('alphaFactors') or {}
+    snap = {
+        'ok': True,
+        'symbol': symbol,
+        'market': market,
+        'asOf': metrics.get('tradeDate'),
+        'latestClose': metrics.get('latestClose'),
+        'score': score,
+        'alpha101Count': metrics.get('alpha101Count') or alpha.get('alpha101Count') or 0,
+        'alpha158Count': metrics.get('alpha158Count') or alpha.get('alpha158Count') or 0,
+        'alpha101': metrics.get('alpha101') or alpha.get('alpha101') or {},
+        'alpha158': metrics.get('alpha158') or alpha.get('alpha158') or {},
+        'alpha158Top': _top_alpha(metrics.get('alpha158') or alpha.get('alpha158') or {}),
+        'return20': metrics.get('return20'),
+        'rsi14': metrics.get('rsi14'),
+        'volumeRatio20': metrics.get('volumeRatio20'),
+        'distanceHigh20': metrics.get('distanceHigh20'),
+        'alpha006': (metrics.get('alpha101') or alpha.get('alpha101') or {}).get('alpha006')
+        or alpha.get('alpha006'),
+    }
+    if name is not None:
+        snap['name'] = name
+    return snap
 
 
 def _top_alpha(values: dict[str, Any], limit: int = 12) -> dict[str, float]:

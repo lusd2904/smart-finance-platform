@@ -1,10 +1,17 @@
 <template>
   <div class="app-container">
-    <div class="page-hero"><div><h2>策略回测</h2><p>基于 Influx 日K 的 MA5/MA20 简易交叉回测</p></div></div>
+    <div class="page-hero"><div><h2>策略回测</h2><p>用当前账户的 8 族因子档位对 Influx 日K 做多回测，只看本登录账户的历史</p></div></div>
     <el-form :inline="true" class="mb16">
       <el-form-item label="标的"><el-input v-model="form.symbol" style="width:120px"/></el-form-item>
       <el-form-item label="市场">
         <el-select v-model="form.market" style="width:100px"><el-option label="US" value="US"/><el-option label="HK" value="HK"/><el-option label="CN" value="CN"/></el-select>
+      </el-form-item>
+      <el-form-item label="档位">
+        <el-select v-model="form.strategyProfile" style="width:120px">
+          <el-option label="均衡" value="balanced"/>
+          <el-option label="保守" value="conservative"/>
+          <el-option label="进取" value="aggressive"/>
+        </el-select>
       </el-form-item>
       <el-form-item label="天数"><el-input-number v-model="form.days" :min="60" :max="500"/></el-form-item>
       <el-form-item><el-button type="primary" :loading="running" @click="run">运行回测</el-button></el-form-item>
@@ -14,7 +21,9 @@
         <el-card shadow="never"><template #header>历史回测</template>
           <el-table :data="list" size="small" @row-click="show">
             <el-table-column prop="symbol" label="标的" width="90"/>
+            <el-table-column prop="strategy" label="策略" min-width="140" show-overflow-tooltip/>
             <el-table-column prop="returnPct" label="收益%" width="90"/>
+            <el-table-column prop="maxDrawdown" label="回撤%" width="80"/>
             <el-table-column prop="trades" label="交易" width="70"/>
             <el-table-column prop="createTime" label="时间" min-width="140"/>
           </el-table>
@@ -23,7 +32,7 @@
       <el-col :md="14" :xs="24">
         <el-card shadow="never" v-loading="running"><template #header>权益曲线 · {{ current.symbol || '-' }} · {{ current.returnPct ?? '--' }}%</template>
           <div ref="chartRef" style="height:320px"></div>
-          <div class="meta" v-if="current.message">{{ current.message }} · 终值 {{ current.finalEquity }} · 交易 {{ current.trades }}</div>
+          <div class="meta" v-if="current.message">{{ current.message }} · 终值 {{ current.finalEquity }} · 交易 {{ current.trades }} · 胜率 {{ current.winRate ?? '--' }}%</div>
         </el-card>
       </el-col>
     </el-row>
@@ -31,10 +40,10 @@
 </template>
 <script setup name="TradeBacktest">
 import echarts from '@/utils/echarts'
-import { runBacktest, listBacktests, getBacktest } from '@/api/trade'
+import { runBacktest, listBacktests, getBacktest, listStrategyProfiles } from '@/api/trade'
 import { applyChartTheme } from '@/utils/echartsTheme'
 const {proxy}=getCurrentInstance()
-const form=ref({symbol:'AAPL', market:'US', days:120})
+const form=ref({symbol:'AAPL', market:'US', days:120, strategyProfile:'balanced'})
 const running=ref(false); const list=ref([]); const current=ref({}); const chartRef=ref(); let chart
 async function refreshList(){ const res=await listBacktests(); list.value=res.data||[] }
 async function run(){
@@ -61,7 +70,14 @@ function render(){
   })
   chart.setOption(opt, true)
 }
-onMounted(async()=>{ await refreshList(); window.addEventListener('resize', ()=>chart&&chart.resize()) })
+onMounted(async()=>{
+  try {
+    const pf = await listStrategyProfiles()
+    const active = (pf.data || []).find(p => p.active)
+    if (active && active.profileCode) form.value.strategyProfile = active.profileCode
+  } catch { /* 保持默认均衡 */ }
+  await refreshList(); window.addEventListener('resize', ()=>chart&&chart.resize())
+})
 onBeforeUnmount(()=>{ chart&&chart.dispose() })
 </script>
 <style scoped>

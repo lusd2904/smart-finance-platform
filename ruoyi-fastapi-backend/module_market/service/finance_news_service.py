@@ -17,6 +17,7 @@ from sqlalchemy import desc, select
 
 from module_market.dao.market_dao import FinanceBriefingDao
 from module_market.service.indicator_service import IndicatorService
+from module_market.service.symbol_news import payload_symbols, text_mentions_symbol
 from module_quant.entity.do.quant_do import QuantStrategyRun, QuantStrategySignal
 from utils.time_format_util import now_beijing
 from module_sentiment.entity.do.sentiment_do import SentimentNews
@@ -57,39 +58,60 @@ class FinanceNewsService:
 
     @classmethod
     async def get_briefings(
-        cls, query_db: AsyncSession, limit: int = 20, market: str | None = None, refresh: bool = False
+        cls,
+        query_db: AsyncSession,
+        limit: int = 20,
+        market: str | None = None,
+        refresh: bool = False,
+        symbol: str | None = None,
     ) -> dict[str, Any]:
         limit = max(1, min(int(limit or 20), 60))
         market = market.upper() if market else None
+        symbol = (symbol or '').strip().upper() or None
         upstream_message = None
         try:
             if refresh:
                 await cls.refresh_all_markets(query_db)
-            rows = await FinanceBriefingDao.get_latest(query_db, limit=limit, market=market)
+            fetch_limit = 60 if symbol else limit
+            rows = await FinanceBriefingDao.get_latest(query_db, limit=fetch_limit, market=market)
             # 若库空且未强制刷新，尝试生成一次
             if not rows and not refresh:
                 await cls.refresh_all_markets(query_db)
-                rows = await FinanceBriefingDao.get_latest(query_db, limit=limit, market=market)
+                rows = await FinanceBriefingDao.get_latest(query_db, limit=fetch_limit, market=market)
         except Exception as exc:
             logger.warning(f'[财经资讯] 简报聚合失败: {exc}')
             rows = []
             upstream_message = '财经资讯源暂时不可用，已返回空列表，请稍后重试'
 
-        data = [
-            {
-                'id': r.id,
-                'market': r.market,
-                'briefingType': r.briefing_type,
-                'headline': r.headline,
-                'summary': r.summary,
-                'sourceName': r.source_name,
-                'sourceLink': r.source_link,
-                'payload': cls._json_load(r.payload_json),
-                'generatedAt': r.generated_at.strftime('%Y-%m-%d %H:%M:%S') if r.generated_at else None,
-                'expiresAt': r.expires_at.strftime('%Y-%m-%d %H:%M:%S') if r.expires_at else None,
-            }
-            for r in rows
-        ]
+        data = []
+        for r in rows:
+            payload = cls._json_load(r.payload_json)
+            data.append(
+                {
+                    'id': r.id,
+                    'market': r.market,
+                    'briefingType': r.briefing_type,
+                    'headline': r.headline,
+                    'summary': r.summary,
+                    'sourceName': r.source_name,
+                    'sourceLink': r.source_link,
+                    'payload': payload,
+                    'symbols': payload_symbols(payload),
+                    'generatedAt': r.generated_at.strftime('%Y-%m-%d %H:%M:%S') if r.generated_at else None,
+                    'expiresAt': r.expires_at.strftime('%Y-%m-%d %H:%M:%S') if r.expires_at else None,
+                }
+            )
+        if symbol:
+            data = [
+                row
+                for row in data
+                if symbol in (row.get('symbols') or [])
+                or text_mentions_symbol(
+                    f"{row.get('headline') or ''} {row.get('summary') or ''}",
+                    symbol,
+                    market or 'US',
+                )
+            ][:limit]
         google_status = getattr(cls, '_last_google_status', None)
         if google_status and not google_status.get('ok'):
             upstream_message = upstream_message or google_status.get('message')
@@ -153,13 +175,23 @@ class FinanceNewsService:
         insight_bits: list[str] = []
         market_score = None
         loop = asyncio.get_running_loop()
-        for sym, name in benchmarks[:3]:
+        bench_pairs = benchmarks[:3]
+        grouped: dict[str, list] = {}
+        if bench_pairs:
             try:
-                # Influx同步网络IO，放线程池避免阻塞事件循环
-                klines = await loop.run_in_executor(None, InfluxUtil.query_klines, market, sym, '-30d', 'now()')
+                grouped = await loop.run_in_executor(
+                    None,
+                    InfluxUtil.query_klines_many,
+                    market,
+                    [sym for sym, _name in bench_pairs],
+                    '-30d',
+                    8,
+                )
             except Exception as exc:
-                logger.warning(f'[财经资讯] 读取指数K线失败 {sym}: {exc}')
-                klines = []
+                logger.warning(f'[财经资讯] 批量读取指数K线失败 {market}: {exc}')
+                grouped = {}
+        for sym, name in bench_pairs:
+            klines = grouped.get(sym) or []
             if len(klines) < _MIN_BARS_FOR_TREND:
                 continue
             prev, last = klines[-2], klines[-1]

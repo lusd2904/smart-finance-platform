@@ -8,6 +8,7 @@ from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPr
 from common.aspect.db_seesion import DBSessionDependency
 from common.constant import ApiNamespace
 from common.router import APIRouterPro
+from middlewares.cors_middleware import _cors_allow_origins
 from module_admin.service.open_access_service import OpenAccessService
 from module_sentiment.service.sentiment_service import SentimentService
 from utils.response_util import ResponseUtil
@@ -18,7 +19,15 @@ sentiment_widget_controller = APIRouterPro(
     tags=['对外-舆情大盘'],
 )
 
-_WIDGET_CORS_HEADERS = {'Access-Control-Allow-Origin': '*'}
+
+def _widget_cors_headers(request: Request) -> dict[str, str]:
+    origin = (request.headers.get('origin') or '').strip().rstrip('/')
+    if not origin:
+        return {}
+    allowed = _cors_allow_origins()
+    if origin in allowed or allowed == ['*']:
+        return {'Access-Control-Allow-Origin': origin, 'Vary': 'Origin'}
+    return {}
 
 
 class OpenTokenRequest(BaseModel):
@@ -38,7 +47,7 @@ async def sentiment_widget_token(
     body: OpenTokenRequest,
 ) -> Response:
     data = await OpenAccessService.issue_token(request, query_db, body.username, body.password)
-    return ResponseUtil.success(data=data, headers=_WIDGET_CORS_HEADERS)
+    return ResponseUtil.success(data=data, headers=_widget_cors_headers(request))
 
 
 @sentiment_widget_controller.get(
@@ -54,4 +63,4 @@ async def sentiment_widget_dashboard(
 ) -> Response:
     await OpenAccessService.verify_bearer(request, authorization)
     data = await SentimentService.get_widget_dashboard_services(query_db, trend_limit=trend_limit)
-    return ResponseUtil.success(data=data, headers=_WIDGET_CORS_HEADERS)
+    return ResponseUtil.success(data=data, headers=_widget_cors_headers(request))

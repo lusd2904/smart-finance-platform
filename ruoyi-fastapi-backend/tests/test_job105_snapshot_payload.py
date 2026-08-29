@@ -71,7 +71,7 @@ async def test_list_risk_events_empty_is_real_not_error() -> None:
             new=AsyncMock(return_value=[]),
         ),
     ):
-        items = await PlatformExtService.list_risk_events(db, limit=50)
+        items = await PlatformExtService.list_risk_events(db, limit=50, user_id=1)
 
     assert items == []
 
@@ -88,6 +88,6 @@ async def test_list_risk_events_db_error_returns_empty() -> None:
             new=AsyncMock(side_effect=RuntimeError('no such table')),
         ),
     ):
-        items = await PlatformExtService.list_risk_events(db, limit=50)
+        items = await PlatformExtService.list_risk_events(db, limit=50, user_id=1)
 
     assert items == []

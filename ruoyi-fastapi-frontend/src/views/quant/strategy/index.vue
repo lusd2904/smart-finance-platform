@@ -84,6 +84,7 @@
 <script setup name="QuantStrategy">
 import { runStrategy, listStrategyHistory } from '@/api/quant';
 import { listInstrument } from '@/api/market';
+import { listStrategyProfiles } from '@/api/trade';
 
 const { proxy } = getCurrentInstance();
 
@@ -168,9 +169,18 @@ function getHistory() {
   });
 }
 
+async function loadBoundProfile() {
+  try {
+    const res = await listStrategyProfiles()
+    const active = (res.data || []).find(p => p.active)
+    if (active && active.profileCode) profile.value = active.profileCode
+  } catch { /* 保持默认均衡 */ }
+}
+
 onMounted(() => {
   loadInstruments();
   getHistory();
+  loadBoundProfile();
 });
 </script>
 

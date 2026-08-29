@@ -98,7 +98,6 @@ DATASET_TABLES: dict[str, tuple[SyncTableSpec, ...]] = {
         SyncTableSpec('quant_daily_list_item', 'item_id', date_column='trade_date', market_column='market'),
         SyncTableSpec('quant_factor_snapshot', 'snapshot_id', date_column='create_time', market_column='market'),
         SyncTableSpec('quant_readmodel_snapshot', 'snapshot_id', date_column='create_time'),
-        SyncTableSpec('quant_watchlist', 'id', date_column='create_time', market_column='market'),
     ),
     'mysql.trade': (
         SyncTableSpec(

@@ -8,6 +8,21 @@
       <top-bar id="topbar-container" class="topbar-container" />
     </template>
 
+    <div v-if="appStore.device !== 'mobile' && tickerQuotes.length" class="nav-ticker" aria-label="指数行情">
+      <button
+        v-for="q in tickerQuotes"
+        :key="q.symbol"
+        type="button"
+        class="nav-tick"
+        :title="q.name"
+        @click="goHeat"
+      >
+        <span class="tick-name">{{ q.name }}</span>
+        <span class="tick-last">{{ fmtTickNum(q.last) }}</span>
+        <span class="tick-chg" :class="changeClass(q.changePct)">{{ fmtPct(q.changePct) }}</span>
+      </button>
+    </div>
+
     <div class="right-menu">
       <template v-if="appStore.device !== 'mobile'">
         <el-tooltip content="子系统门户" effect="dark" placement="bottom">
@@ -68,11 +83,34 @@ import HeaderSearch from '@/components/HeaderSearch'
 import useAppStore from '@/store/modules/app'
 import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
+import { getQuotesHub } from '@/composables/useMarketQuotesWs'
+import { changeClass, fmtPct } from '@/utils/format'
 
 const router = useRouter()
 const appStore = useAppStore()
 const userStore = useUserStore()
 const settingsStore = useSettingsStore()
+const tickerQuotes = ref([])
+let unsubTicker = null
+
+function fmtTickNum(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '--'
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function goHeat() {
+  router.push('/market/heat')
+}
+
+onMounted(() => {
+  unsubTicker = getQuotesHub().subscribeIndex((data) => {
+    tickerQuotes.value = ((data && data.items) || []).slice(0, 6)
+  })
+})
+onBeforeUnmount(() => {
+  if (unsubTicker) unsubTicker()
+})
 
 function toggleSideBar() {
   appStore.toggleSideBar()
@@ -189,6 +227,56 @@ async function toggleTheme(event) {
 
   .breadcrumb-container {
     flex-shrink: 0;
+  }
+
+  .nav-ticker {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    margin: 0 12px;
+    height: 100%;
+  }
+
+  .nav-tick {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 0 8px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    color: inherit;
+
+    &:hover {
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    .tick-name {
+      font-size: 11px;
+      color: var(--text-muted, #909399);
+    }
+
+    .tick-last {
+      font-size: 12px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .tick-chg {
+      font-size: 11px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+
+      &.up { color: var(--stat-up, #dc2626); }
+      &.down { color: var(--stat-down, #059669); }
+      &.flat { color: var(--text-muted, #909399); }
+    }
   }
 
   .topmenu-container {

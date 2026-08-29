@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import uuid
@@ -286,6 +287,46 @@ def match_position(positions: list[dict[str, Any]], symbol: str, market: str) ->
     return None
 
 
+def _opportunity_pairs(opportunities: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for opp in opportunities:
+        symbol = str(opp.get('symbol') or '')
+        market = str(opp.get('market') or 'US').upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        pairs.append((symbol, market))
+    return pairs
+
+
+def _positive_last(value: Any) -> float:
+    try:
+        last = float(value or 0)
+    except (TypeError, ValueError):
+        last = 0.0
+    return last if last > 0 else 0.0
+
+
+def _quote_last_for_symbol(
+    quotes: list[dict[str, Any]],
+    symbol: str,
+    market: str,
+    remaining_count: int,
+) -> float:
+    from module_quant.service.longbridge_quote import _symbol_match_keys
+
+    lb = LongbridgeService.to_longbridge_symbol(symbol, market)
+    keys = _symbol_match_keys(symbol) | _symbol_match_keys(lb)
+    matched = [row for row in quotes if keys & _symbol_match_keys(str(row.get('symbol') or ''))]
+    if not matched and remaining_count == 1:
+        matched = quotes
+    try:
+        return float(LongbridgeService.extract_last_price({'quotes': matched}, lb) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class AutoTradeService:
     """
     自选股 AI 自动交易与日内风控护栏服务。
@@ -445,24 +486,16 @@ class AutoTradeService:
         for row in heat_items:
             cls._append_target(items, seen, row['symbol'], row['market'])
 
-        from module_quant.dao.quant_dao import QuantWatchlistDao
+        from module_market.dao.market_dao import MarketWatchlistDao
 
-        rows = await QuantWatchlistDao.get_enabled_symbols(db, user_id=user_id)
-        for row in rows:
+        market_rows = await MarketWatchlistDao.get_enabled(db, user_id=user_id)
+        for row in market_rows:
             cls._append_target(
                 items,
                 seen,
                 str(getattr(row, 'symbol', '') or ''),
                 str(getattr(row, 'market', '') or 'US'),
             )
-        if items:
-            return items
-        from module_market.constant.instruments import TARGET_INSTRUMENTS
-
-        for symbol, _name, mkt, category in TARGET_INSTRUMENTS:
-            if category == 'index':
-                continue
-            cls._append_target(items, seen, symbol, mkt)
         return items
 
     @classmethod
@@ -547,6 +580,13 @@ class AutoTradeService:
             configured=configured,
             auto_trade_enabled=settings['auto_trade_enabled'],
         )
+        from module_trade.service.order_guard import halt_block_reason, read_halt
+
+        halt_snap = await read_halt()
+        halt_msg = await halt_block_reason()
+        if halt_msg:
+            submit_allowed = False
+            submit_block_reason = halt_msg
         net_assets = 0.0
         if configured:
             try:
@@ -566,16 +606,23 @@ class AutoTradeService:
                 f'日内买入上限为仓位的 {int(settings["daily_buy_ratio"] * 100)}%，'
                 f'单标的上限 {int(max_symbol_pct * 100)}%。'
             )
+        from module_trade.service.platform_ext_service import PlatformExtService
+
+        bound_profile = await PlatformExtService.get_bound_profile(db, settings['user_id'])
         return {
             'configured': configured,
             'autoTradeEnabled': settings['auto_trade_enabled'],
             'userId': settings['user_id'],
+            'strategyProfile': bound_profile,
             'message': status_message,
             'tradingEnabled': settings['auto_trade_enabled'],
             'submitAllowed': submit_allowed,
             'submitBlockReason': None if submit_allowed else submit_block_reason,
+            'halted': bool(halt_snap.get('halted')),
+            'haltReason': str(halt_snap.get('reason') or ''),
             'config': {
                 **cls.DEFAULT_CONFIG,
+                'strategy_profile': bound_profile,
                 'auto_execute': settings['auto_trade_enabled'],
                 'max_daily_notional_amount': max_daily,
                 'max_amount_per_symbol': max_per_symbol,
@@ -593,12 +640,54 @@ class AutoTradeService:
                 'dailyBuyRatio': settings['daily_buy_ratio'],
                 'tradingEnabled': settings['auto_trade_enabled'],
                 'autoTradeEnabled': settings['auto_trade_enabled'],
+                'halted': bool(halt_snap.get('halted')),
                 'isOrderLimitReached': today_orders_count >= cls.DEFAULT_CONFIG['max_daily_orders'],
                 'isAmountLimitReached': max_daily > 0 and today_notional_amount >= max_daily,
             },
             'recentRuns': [cls._serialize_log(log) for log in recent_logs],
             'recentDecisions': [cls._serialize_decision(d) for d in recent_decisions],
         }
+
+    @classmethod
+    async def _realtime_price_map(
+        cls,
+        opportunities: list[dict[str, Any]],
+    ) -> tuple[dict[str, float], dict[str, str]]:
+        """Hub last 优先，剩余一次批量 get_realtime_quote。"""
+        from module_market.service.quote_subscribe_hub import QuoteSubscribeHub
+
+        pairs = _opportunity_pairs(opportunities)
+        price_map: dict[str, float] = {}
+        quote_errors: dict[str, str] = {}
+        if not pairs:
+            return price_map, quote_errors
+
+        for item in QuoteSubscribeHub.latest_for(pairs):
+            last = _positive_last(item.get('last'))
+            symbol = str(item.get('symbol') or '')
+            if symbol and last:
+                price_map[symbol] = last
+
+        remaining = [(symbol, market) for symbol, market in pairs if symbol not in price_map]
+        if not remaining:
+            return price_map, quote_errors
+
+        lb_symbols = [LongbridgeService.to_longbridge_symbol(symbol, market) for symbol, market in remaining]
+        try:
+            quote = await asyncio.to_thread(LongbridgeService.get_realtime_quote, lb_symbols)
+        except Exception as exc:
+            logger.warning(f'[AI自动交易] 批量获取实时报价失败: {exc}')
+            reason = f'获取实时报价失败: {exc}'
+            quote_errors.update({symbol: reason for symbol, _market in remaining})
+            return price_map, quote_errors
+
+        quotes = list(quote.get('quotes') or [])
+        rest_n = len(remaining)
+        for symbol, market in remaining:
+            last = _quote_last_for_symbol(quotes, symbol, market, rest_n)
+            if last > 0:
+                price_map[symbol] = last
+        return price_map, quote_errors
 
     @classmethod
     async def run_watchlist_strategy_cycle(  # noqa: PLR0912, PLR0915
@@ -746,6 +835,13 @@ class AutoTradeService:
             configured=configured,
             auto_trade_enabled=settings['auto_trade_enabled'],
         )
+        from module_trade.service.order_guard import halt_block_reason
+
+        halt_msg = await halt_block_reason()
+        if halt_msg:
+            can_submit = False
+            submit_block = halt_msg
+            skipped_reasons.append({'symbol': '*', 'reason': halt_msg})
 
         submitted_decisions: list[dict[str, Any]] = []
         submitted_count = 0
@@ -834,7 +930,9 @@ class AutoTradeService:
         today_bought: set[str] = set()
         if can_submit and opportunities:
             today_bought = await cls._today_bought_symbols(db, target_user_id)
-            for opp in opportunities[: config['max_symbols']]:
+            candidates = opportunities[: config['max_symbols']]
+            price_map, quote_errors = await cls._realtime_price_map(candidates)
+            for opp in candidates:
                 symbol = str(opp.get('symbol') or '')
                 market = str(opp.get('market') or 'US')
                 side = str(opp.get('signal') or 'HOLD').upper()
@@ -850,17 +948,10 @@ class AutoTradeService:
                     skipped_reasons.append({'symbol': symbol, 'reason': limit_reason})
                     continue
 
-                try:
-                    quote = await LongbridgeService.get_realtime_quote_async(symbol, market)
-                    realtime_price = LongbridgeService.extract_last_price(quote, symbol)
-                except Exception as exc:
-                    logger.warning(f'[AI自动交易] 获取 {symbol} 实时报价失败: {exc}')
-                    skipped_reasons.append({'symbol': symbol, 'reason': f'获取实时报价失败: {exc}'})
-                    continue
-                if realtime_price <= 0:
-                    skipped_reasons.append(
-                        {'symbol': symbol, 'reason': '未能获取券商有效盘中实时报价，为防滑点拒绝下单'}
-                    )
+                realtime_price = price_map.get(symbol)
+                if realtime_price is None or realtime_price <= 0:
+                    reason = quote_errors.get(symbol) or '未能获取券商有效盘中实时报价，为防滑点拒绝下单'
+                    skipped_reasons.append({'symbol': symbol, 'reason': reason})
                     continue
 
                 if slippage_exceeded(signal_price, realtime_price, float(config['price_slippage_tolerance'])):

@@ -169,6 +169,12 @@ void main() {
       expect(s.recentDecisions.single.confidence, 88.0);
     });
 
+    test('halted 从 status 与 guardrails 解析', () {
+      expect(AutoTradeStatus.fromJson(const {'halted': true, 'haltReason': 'test'}).halted, isTrue);
+      expect(AutoTradeStatus.fromJson(const {'guardrails': {'halted': true}}).halted, isTrue);
+      expect(AutoTradeStatus.fromJson(const {}).halted, isFalse);
+    });
+
     test('autoTradeEnabled 与 tradingEnabled 互通', () {
       final a = AutoTradeStatus.fromJson(const {
         'configured': true,

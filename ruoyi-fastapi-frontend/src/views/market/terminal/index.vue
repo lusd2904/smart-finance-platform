@@ -65,9 +65,9 @@
             />
           </div>
         </el-tooltip>
-        <span class="live-flag" :class="liveMode ? 'on' : 'off'">{{ liveMode ? 'LIVE' : 'SIM' }}</span>
-        <el-tooltip :content="liveMode ? '刷新真实行情' : '重置行情模拟波动'" placement="bottom">
-          <el-button circle size="small" :icon="Refresh" @click="resetSimulation" />
+        <span class="live-flag" :class="liveMode ? 'on' : 'off'">{{ liveMode ? 'LIVE' : '无数据' }}</span>
+        <el-tooltip content="刷新真实行情" placement="bottom">
+          <el-button circle size="small" :icon="Refresh" @click="refreshLive" />
         </el-tooltip>
         <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏盯盘模式'" placement="bottom">
           <el-button circle size="small" :icon="FullScreen" @click="toggleFullscreen" />
@@ -134,6 +134,11 @@
 
         <!-- 自选标的列表 -->
         <div class="watchlist-body">
+          <el-empty
+            v-if="!sortedWatchStocks.length"
+            description="暂无自选，请先在自选清单添加标的"
+            :image-size="64"
+          />
           <div
             v-for="item in sortedWatchStocks"
             :key="item.symbol + '.' + item.market"
@@ -710,13 +715,8 @@ import echarts from '@/utils/echarts'
 import { isDarkTheme } from '@/utils/echartsTheme'
 import { formatBeijingTime } from '@/utils/beijingTime'
 import useSettingsStore from '@/store/modules/settings'
-import {
-  mockMarketIndices,
-  mockStockUniverse,
-  getStockIntraday,
-  getStockKline
-} from './mockData'
 import { shouldShowMarketChip, getMarketSessionStatus } from './sessionHours'
+import { bindMarketQuotesSocket, getQuotesHub } from '@/composables/useMarketQuotesWs'
 import { getMarketIndexQuotes, getMarketWatchlistOverview, listMarketWatchlist, getKline, getSymbolOverview, getSymbolContent, listInstrumentUniverse } from '@/api/market'
 import {
   getTradeAccount,
@@ -743,7 +743,7 @@ const currentGroup = ref('全部')
 const watchFilterKw = ref('')
 const sortField = ref('changeRate')
 const sortOrder = ref('desc')
-const activeSymbol = ref('AAPL')
+const activeSymbol = ref('')
 const currentPeriod = ref('daily')
 const mainIndicators = ref(['MA'])
 const subIndicator = ref('VOL')
@@ -761,8 +761,8 @@ const autoTradeSaving = ref(false)
 const sessionClock = ref(0)
 
 // 标的数据与大盘指数
-const marketIndices = ref([...mockMarketIndices])
-const stockUniverse = ref([blankStock({ symbol: 'AAPL', name: 'Apple', market: 'US' })])
+const marketIndices = ref([])
+const stockUniverse = ref([])
 
 // 价格跳动闪烁状态
 const priceFlashMap = ref({})
@@ -792,9 +792,9 @@ const mockPositions = ref([])
 // ECharts 实例引用
 const chartContainerRef = ref(null)
 let chartInstance = null
-let liveTickTimer = null
 let sessionTimer = null
 let bookTimer = null
+let unsubWatchQuotes = null
 let snapshotTimer = null
 let newsTimer = null
 let searchTimer = null
@@ -803,7 +803,7 @@ let watchlistInitDone = false
 
 // ====================== 计算属性 ======================
 const activeStock = computed(() => {
-  return stockUniverse.value.find(s => s.symbol === activeSymbol.value) || stockUniverse.value[0] || blankStock({ symbol: 'AAPL', market: 'US' })
+  return stockUniverse.value.find(s => s.symbol === activeSymbol.value) || stockUniverse.value[0] || blankStock({})
 })
 
 const activeSession = computed(() => getMarketSessionStatus(activeStock.value?.market || 'US'))
@@ -1023,6 +1023,7 @@ function handleSearchSelect(item) {
   }
   selectStock(target)
   searchKeyword.value = ''
+  syncWatchQuotes()
 }
 
 function fillOrderPrice(p) {
@@ -1546,30 +1547,17 @@ function normalizeTrades(rows) {
 async function loadLiveIndices() {
   try {
     const res = await getMarketIndexQuotes()
-    const items = res.data?.items || res.rows || []
-    if (!items.length) return
-    const mapped = items.map((q) => ({
-      symbol: q.symbol,
-      name: q.name || q.symbol,
-      price: pickNum(q.last, q.price, q.close),
-      change: pickNum(q.change),
-      changeRate: pickNum(q.changePct, q.changeRate),
-      market: String(q.market || 'US').toUpperCase()
-    }))
-    const liveUs = mapped.filter((x) => x.market === 'US')
-    const liveAsia = mapped.filter((x) => x.market !== 'US')
-    const fallbackUs = marketIndices.value.filter((x) => String(x.market || 'US').toUpperCase() === 'US')
-    marketIndices.value = [
-      ...(liveUs.length ? liveUs : fallbackUs),
-      ...liveAsia
-    ]
-  } catch { /* 保留 mock 指数 */ }
+    applyIndexSnapshot(res.data || { items: res.rows || [] })
+  } catch { /* 保留上次指数 */ }
 }
 
 function applyWatchlistItems(items) {
-  if (!items.length) return
-  const prev = activeStock.value
   liveMode.value = true
+  if (!items.length) {
+    stockUniverse.value = []
+    return
+  }
+  const prev = activeStock.value
   stockUniverse.value = items.map(mapWatchRow)
   const list = filteredStocks.value
   const inFiltered = list.some((s) => s.symbol === activeSymbol.value)
@@ -1591,18 +1579,78 @@ function applyWatchlistItems(items) {
     cur.liveBarsKind = prev.liveBarsKind
     applyBarsToQuote(cur, prev.liveBars)
   }
+  syncWatchQuotes()
+}
+
+function quoteMatches(q, sym, mkt) {
+  return String(q.symbol || '').toUpperCase() === String(sym || '').toUpperCase()
+    && String(q.market || 'US').toUpperCase() === String(mkt || 'US').toUpperCase()
+}
+
+function lastBarIsRecent(dateStr) {
+  const day = String(dateStr || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return true
+  const t = Date.parse(`${day}T00:00:00`)
+  if (!Number.isFinite(t)) return false
+  return Date.now() - t < 48 * 3600 * 1000
+}
+
+function patchActiveLastBar(quote) {
+  const last = Number(quote && quote.last)
+  const s = activeStock.value
+  const bars = s && s.liveBars
+  if (!Number.isFinite(last) || !Array.isArray(bars) || !bars.length) return false
+  const idx = bars.length - 1
+  const row = bars[idx]
+  if (!row) return false
+  const dateStr = String(row.date || row.time || row.tradeDate || '')
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr) && !lastBarIsRecent(dateStr)) return false
+  const prev = Number(row.close ?? row.c ?? row.price ?? row.last)
+  if (prev === last) return false
+  const low = Math.min(Number(row.low ?? row.l), last)
+  const high = Math.max(Number(row.high ?? row.h), last)
+  bars.splice(idx, 1, { ...row, close: last, high, low })
+  applyBarsToQuote(s, bars)
+  return true
+}
+
+function syncWatchQuotes() {
+  if (unsubWatchQuotes) {
+    unsubWatchQuotes()
+    unsubWatchQuotes = null
+  }
+  const list = stockUniverse.value || []
+  const active = activeStock.value
+  const pairs = []
+  if (active?.symbol) pairs.push({ symbol: active.symbol, market: active.market || 'US' })
+  for (const s of list) {
+    if (s?.symbol) pairs.push({ symbol: s.symbol, market: s.market || 'US' })
+  }
+  if (!pairs.length) return
+  unsubWatchQuotes = getQuotesHub().subscribeQuotes(pairs, (payload) => {
+    let chartDirty = false
+    for (const q of payload.items || []) {
+      const s = (stockUniverse.value || []).find(
+        (x) => x.symbol === q.symbol && String(x.market || '').toUpperCase() === String(q.market || '').toUpperCase()
+      )
+      if (s) applyQuoteMath(s, q)
+      const cur = activeStock.value
+      if (cur && quoteMatches(q, cur.symbol, cur.market) && patchActiveLastBar(q)) chartDirty = true
+    }
+    if (chartDirty) renderECharts()
+  })
 }
 
 async function loadLiveWatchlist() {
   try {
     const lite = await listMarketWatchlist({ pageNum: 1, pageSize: 200, enabled: '1' })
     const rows = lite.rows || lite.data?.rows || []
-    if (Array.isArray(rows) && rows.length) applyWatchlistItems(rows)
+    if (Array.isArray(rows)) applyWatchlistItems(rows)
   } catch { /* 无轻量清单时走总览 */ }
   try {
     const res = await getMarketWatchlistOverview({ timeout: 20000 })
     const items = res.data?.items || []
-    if (items.length) applyWatchlistItems(items)
+    if (Array.isArray(items) && items.length) applyWatchlistItems(items)
   } catch { /* 保留已有自选 */ }
 }
 
@@ -1890,14 +1938,15 @@ async function loadSymbolNews() {
     const res = await getSymbolContent(s.symbol, {
       market: s.market || 'US',
       type: 'news',
-      limit: 12
+      limit: 12,
+      related: true
     })
     const items = res.data?.items || []
     if (!items.length) return
     s.news = items.map((n) => ({
       id: n.id || n.sourceItemId || n.title,
       title: n.title,
-      source: n.sourceName || '长桥',
+      source: n.sourceName || (n.bind === 'briefing' ? '简报' : n.bind === 'sentiment' ? '舆情' : '长桥'),
       time: toBeijingDisplay(n.publishedAt || n.fetchedAt, '{m}-{d} {h}:{i}') || toBeijingDisplay(n.publishedAt || n.fetchedAt),
       sentiment: guessNewsSentiment(n.title)
     }))
@@ -1920,23 +1969,17 @@ function toggleFullscreen() {
   })
 }
 
-function resetSimulation() {
-  if (liveMode.value) {
-    Promise.all([loadLiveIndices(), loadLiveWatchlist(), loadLiveKline()]).then(() => {
-      loadLiveBook()
-      loadLiveDepth()
-      loadSymbolOverview()
-      loadRangeStats()
-      loadBrokerSnapshot()
-      loadSymbolNews()
-      renderECharts()
-      ElMessage.success('已刷新真实行情')
-    })
-    return
-  }
-  stockUniverse.value = JSON.parse(JSON.stringify(mockStockUniverse))
-  ElMessage.success('行情模拟数据已重置')
-  renderECharts()
+function refreshLive() {
+  Promise.all([loadLiveIndices(), loadLiveWatchlist(), loadLiveKline()]).then(() => {
+    loadLiveBook()
+    loadLiveDepth()
+    loadSymbolOverview()
+    loadRangeStats()
+    loadBrokerSnapshot()
+    loadSymbolNews()
+    renderECharts()
+    ElMessage.success(liveMode.value ? '已刷新真实行情' : '暂无行情数据')
+  })
 }
 
 // ====================== ECharts 图表渲染引擎 (双套主题自适应) ======================
@@ -1962,14 +2005,12 @@ function renderECharts() {
     tipText: isDark ? '#e2e8f0' : '#303133'
   }
 
-  const symbol = activeStock.value.symbol
-
-  // 分时：选「分时」时用收盘价画折线（1 分钟 OHLC 亦可）。LIVE 无分钟线时改画真实日K，禁止 mock。
+  // 分时：只画真实分钟/分时 bar，没有就空图。
   const liveIntra = currentPeriod.value === 'intraday'
     ? liveIntradayFromBars(activeStock.value.liveBars, activeStock.value.liveBarsKind)
     : null
-  if (currentPeriod.value === 'intraday' && (liveIntra && liveIntra.length || !liveMode.value)) {
-    const rawData = liveIntra && liveIntra.length ? liveIntra : getStockIntraday(symbol)
+  if (currentPeriod.value === 'intraday' && liveIntra && liveIntra.length) {
+    const rawData = liveIntra
     const times = rawData.map(d => d.time)
     const prices = rawData.map(d => d.price)
     const avgPrices = rawData.map(d => d.avgPrice)
@@ -2084,11 +2125,9 @@ function renderECharts() {
     return
   }
 
-  // K线模式（LIVE 无真实 bar 时宁可不画，也不用 mock 蜡烛）
+  // K线模式：没有真实 bar 就不画，禁止编造蜡烛
   const liveK = liveKlinesFromBars(activeStock.value.liveBars)
-  const klines = liveK && liveK.length
-    ? liveK
-    : (liveMode.value ? [] : getStockKline(symbol, currentPeriod.value))
+  const klines = liveK && liveK.length ? liveK : []
   if (!klines.length) {
     chartInstance && chartInstance.clear()
     return
@@ -2247,68 +2286,67 @@ function handleResize() {
   chartInstance && chartInstance.resize()
 }
 
-function updateSparklines() {
-  stockUniverse.value.forEach(s => {
-    if (s.sparkline && s.sparkline.length) {
-      s.sparkline[s.sparkline.length - 1] = s.price
-    }
-  })
+function applyIndexSnapshot(data) {
+  const items = (data && data.items) || []
+  if (!items.length) return
+  const mapped = items.map((q) => ({
+    symbol: q.symbol,
+    name: q.name || q.symbol,
+    price: pickNum(q.last, q.price, q.close),
+    change: pickNum(q.change),
+    changeRate: pickNum(q.changePct, q.changeRate),
+    market: String(q.market || 'US').toUpperCase()
+  }))
+  const liveUs = mapped.filter((x) => x.market === 'US')
+  const liveAsia = mapped.filter((x) => x.market !== 'US')
+  const fallbackUs = marketIndices.value.filter((x) => String(x.market || 'US').toUpperCase() === 'US')
+  marketIndices.value = [
+    ...(liveUs.length ? liveUs : fallbackUs),
+    ...liveAsia
+  ]
 }
 
-// ====================== 真实行情波动模拟器 ======================
-function startLiveSimulator() {
-  liveTickTimer = setInterval(() => {
-    stockUniverse.value.forEach(s => {
-      const isTarget = s.symbol === activeSymbol.value
-      const deltaPercent = (Math.random() - 0.48) * (isTarget ? 0.003 : 0.0015)
-      const oldPrice = s.price
-      const newPrice = Number((s.price * (1 + deltaPercent)).toFixed(3))
-      s.price = newPrice
-      s.change = Number((newPrice - s.prevClose).toFixed(3))
-      s.changeRate = Number(((s.change / s.prevClose) * 100).toFixed(2))
-      s.high = Math.max(s.high, newPrice)
-      s.low = Math.min(s.low, newPrice)
-
-      // 闪烁动效
-      if (newPrice !== oldPrice) {
-        priceFlashMap.value[s.symbol] = newPrice > oldPrice ? 'flash-up' : 'flash-down'
-        setTimeout(() => {
-          priceFlashMap.value[s.symbol] = ''
-        }, 600)
-      }
-
-      if (isTarget) {
-        heroFlashState.value = newPrice > oldPrice ? 'flash-up' : 'flash-down'
-        setTimeout(() => {
-          heroFlashState.value = ''
-        }, 600)
-
-        // 追加逐笔
-        const now = new Date()
-        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-        s.trades.unshift({
-          time: timeStr,
-          price: newPrice,
-          volume: Math.floor(Math.random() * 800 + 100),
-          side: newPrice >= oldPrice ? 'buy' : 'sell'
-        })
-        if (s.trades.length > 25) s.trades.pop()
-
-        // 盘口微调
-        s.bids[0].price = Number((newPrice - 0.05).toFixed(2))
-        s.asks[0].price = Number((newPrice + 0.05).toFixed(2))
-      }
-    })
-
-    // 大盘指数微调
-    marketIndices.value.forEach(idx => {
-      const d = (Math.random() - 0.48) * 0.001
-      idx.price = Number((idx.price * (1 + d)).toFixed(2))
-    })
-
-    updateSparklines()
-  }, 2400)
+function bookPollMs() {
+  return liveMode.value ? 30000 : 120000
 }
+
+function snapshotPollMs() {
+  return liveMode.value ? 90000 : 180000
+}
+
+function startLiveTimers() {
+  stopLiveTimers()
+  bookTimer = setInterval(() => {
+    if (document.hidden) return
+    loadLiveBook()
+    loadLiveKline().then(() => renderECharts())
+  }, bookPollMs())
+  snapshotTimer = setInterval(() => {
+    if (!document.hidden) loadBrokerSnapshot()
+  }, snapshotPollMs())
+  newsTimer = setInterval(() => {
+    if (!document.hidden && liveMode.value) loadSymbolNews()
+  }, 300000)
+}
+
+function stopLiveTimers() {
+  if (bookTimer) {
+    clearInterval(bookTimer)
+    bookTimer = null
+  }
+  if (snapshotTimer) {
+    clearInterval(snapshotTimer)
+    snapshotTimer = null
+  }
+  if (newsTimer) {
+    clearInterval(newsTimer)
+    newsTimer = null
+  }
+}
+
+watch(liveMode, () => {
+  if (bookTimer || snapshotTimer || newsTimer) startLiveTimers()
+})
 
 // 监听深浅色皮肤切换，自动无缝重绘 ECharts
 watch(
@@ -2330,13 +2368,19 @@ function afterPaint(fn, delay = 0) {
 }
 
 // ====================== 生命周期 ======================
+const indexSocket = bindMarketQuotesSocket({
+  onData: applyIndexSnapshot,
+  intervalSec: 15
+})
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', handleTerminalVisibility)
   sessionTimer = setInterval(() => {
     sessionClock.value = Date.now()
   }, 30000)
 
-  loadLiveIndices()
+  indexSocket.start()
   loadLiveAccount()
   loadAutoTradeStatus()
   const firstKline = loadLiveKline().then(() => {
@@ -2347,29 +2391,41 @@ onMounted(() => {
   const firstWatch = loadLiveWatchlist()
 
   Promise.allSettled([firstKline, firstWatch]).then(() => {
-    if (!liveMode.value) {
-      stockUniverse.value = JSON.parse(JSON.stringify(mockStockUniverse))
-      startLiveSimulator()
-      return
-    }
-    liveTickTimer = setInterval(() => {
-      loadLiveIndices()
-    }, 15000)
-    bookTimer = setInterval(() => {
-      if (!liveMode.value) return
-      loadLiveBook()
-      loadLiveKline().then(() => renderECharts())
-    }, 30000)
-    snapshotTimer = setInterval(() => {
-      if (liveMode.value) loadBrokerSnapshot()
-    }, 90000)
-    newsTimer = setInterval(() => {
-      if (liveMode.value) loadSymbolNews()
-    }, 300000)
+    startLiveTimers()
     afterPaint(() => loadLiveBook(), 200)
     afterPaint(() => loadSymbolNews(), 800)
   })
 })
+
+onActivated(() => {
+  indexSocket.start()
+  startLiveTimers()
+  syncWatchQuotes()
+})
+
+onDeactivated(() => {
+  indexSocket.stop()
+  stopLiveTimers()
+  if (unsubWatchQuotes) {
+    unsubWatchQuotes()
+    unsubWatchQuotes = null
+  }
+})
+
+function handleTerminalVisibility() {
+  if (document.visibilityState === 'visible') {
+    indexSocket.start()
+    startLiveTimers()
+    loadLiveWatchlist()
+  } else {
+    indexSocket.stop()
+    stopLiveTimers()
+    if (unsubWatchQuotes) {
+      unsubWatchQuotes()
+      unsubWatchQuotes = null
+    }
+  }
+}
 
 watch(rightTopTab, (tab) => {
   if (tab === 'depth' || tab === 'trades') loadLiveDepth()
@@ -2377,11 +2433,11 @@ watch(rightTopTab, (tab) => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  if (liveTickTimer) clearInterval(liveTickTimer)
+  document.removeEventListener('visibilitychange', handleTerminalVisibility)
+  indexSocket.stop()
+  stopLiveTimers()
+  if (unsubWatchQuotes) unsubWatchQuotes()
   if (sessionTimer) clearInterval(sessionTimer)
-  if (bookTimer) clearInterval(bookTimer)
-  if (snapshotTimer) clearInterval(snapshotTimer)
-  if (newsTimer) clearInterval(newsTimer)
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null

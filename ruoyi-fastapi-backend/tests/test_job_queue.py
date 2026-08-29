@@ -30,6 +30,11 @@ def test_encode_decode_roundtrip() -> None:
     assert 'enqueuedAt' in job
 
 
+def test_mysql_to_influx_is_market_job() -> None:
+    assert group_for('mysql_to_influx') == 'market'
+    assert 'mysql_to_influx' in HANDLERS
+
+
 def test_unknown_job_rejected() -> None:
     with pytest.raises(ValueError):
         JobQueue.encode('not-a-job', {})

@@ -2,7 +2,7 @@ import math
 from datetime import date, datetime, time
 from typing import Any
 
-from sqlalchemy import delete, desc, select, update
+from sqlalchemy import and_, delete, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
@@ -55,23 +55,18 @@ class QuantWatchlistDao:
         return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
 
     @classmethod
-    async def get_enabled_symbols(cls, db: AsyncSession, user_id: int | None = None) -> list[QuantWatchlist]:
-        """获取启用的自选标的；user_id 为空时返回全部（定时任务按用户分组前使用）"""
-        query = select(QuantWatchlist).where(QuantWatchlist.enabled == '1')
-        if user_id is not None:
-            query = query.where(QuantWatchlist.user_id == user_id)
-        rows = (await db.execute(query)).scalars().all()
-        return list(rows)
+    async def get_enabled_symbols(cls, db: AsyncSession, user_id: int | None = None) -> list[Any]:
+        """启用自选：以行情自选为真源。"""
+        from module_market.dao.market_dao import MarketWatchlistDao
+
+        return await MarketWatchlistDao.get_enabled(db, user_id=user_id)
 
     @classmethod
     async def distinct_users(cls, db: AsyncSession) -> list[int]:
         """有启用自选的账号ID列表（定时任务逐用户跑策略用）"""
-        rows = (
-            (await db.execute(select(QuantWatchlist.user_id).where(QuantWatchlist.enabled == '1').distinct()))
-            .scalars()
-            .all()
-        )
-        return [int(u) for u in rows if u]
+        from module_market.dao.market_dao import MarketWatchlistDao
+
+        return await MarketWatchlistDao.distinct_users(db)
 
     @classmethod
     async def get_by_symbol(
@@ -123,24 +118,26 @@ class QuantStrategyDao:
 
     @classmethod
     async def get_run_list(
-        cls, db: AsyncSession, query_object: QuantStrategyRunPageQueryModel, is_page: bool = False
+        cls,
+        db: AsyncSession,
+        query_object: QuantStrategyRunPageQueryModel,
+        is_page: bool = False,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
         """获取策略运行记录分页列表"""
-        query = (
-            select(QuantStrategyRun)
-            .where(
-                QuantStrategyRun.strategy_profile == query_object.strategy_profile
-                if query_object.strategy_profile
-                else True,
+        conds = []
+        if query_object.strategy_profile:
+            conds.append(QuantStrategyRun.strategy_profile == query_object.strategy_profile)
+        if query_object.begin_time and query_object.end_time:
+            conds.append(
                 QuantStrategyRun.create_time.between(
                     datetime.combine(datetime.strptime(query_object.begin_time, '%Y-%m-%d'), time(0, 0, 0)),
                     datetime.combine(datetime.strptime(query_object.end_time, '%Y-%m-%d'), time(23, 59, 59)),
                 )
-                if query_object.begin_time and query_object.end_time
-                else True,
             )
-            .order_by(desc(QuantStrategyRun.create_time))
-        )
+        if user_id:
+            conds.append(QuantStrategyRun.user_id == int(user_id))
+        query = select(QuantStrategyRun).where(*conds).order_by(desc(QuantStrategyRun.create_time))
         return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
 
     @classmethod
@@ -227,18 +224,15 @@ class QuantStrategyDao:
 
     @classmethod
     async def get_scan_runs(
-        cls, db: AsyncSession, limit: int = 20
+        cls, db: AsyncSession, limit: int = 20, user_id: int | None = None
     ) -> list[QuantStrategyRun]:
-        """扫描运行台账列表（最近 N 条）"""
+        """扫描运行台账列表（最近 N 条，按账户隔离）"""
         limit = max(1, min(int(limit or 20), 100))
+        stmt = select(QuantStrategyRun)
+        if user_id:
+            stmt = stmt.where(QuantStrategyRun.user_id == int(user_id))
         rows = (
-            (
-                await db.execute(
-                    select(QuantStrategyRun)
-                    .order_by(desc(QuantStrategyRun.create_time))
-                    .limit(limit)
-                )
-            )
+            (await db.execute(stmt.order_by(desc(QuantStrategyRun.create_time)).limit(limit)))
             .scalars()
             .all()
         )
@@ -254,17 +248,19 @@ class QuantLongbridgeConfigDao:
     """
 
     @classmethod
-    def _resolve_user_id(cls, user_id: int | None, config: dict | None = None) -> int:
+    def _resolve_user_id(cls, user_id: int | None, config: dict | None = None) -> int | None:
         if user_id is not None:
             return int(user_id)
         if config and config.get('user_id') is not None:
             return int(config['user_id'])
-        return ADMIN_LONGBRIDGE_USER_ID
+        return None
 
     @classmethod
     async def get_config(cls, db: AsyncSession, user_id: int | None = None) -> QuantLongbridgeConfig | None:
-        """获取指定用户的长桥凭据。user_id 为空时回退管理员（user_id=1）。"""
+        """获取指定用户的长桥凭据。user_id 为空则不回退管理员。"""
         target_id = cls._resolve_user_id(user_id)
+        if target_id is None:
+            return None
         return (
             (
                 await db.execute(
@@ -282,6 +278,8 @@ class QuantLongbridgeConfigDao:
     async def save_config(cls, db: AsyncSession, config: dict, user_id: int | None = None) -> QuantLongbridgeConfig:
         """按 user_id 保存长桥凭据（存在则更新，不存在则新增）。"""
         target_id = cls._resolve_user_id(user_id, config)
+        if target_id is None:
+            raise ValueError('长桥凭据必须指定 user_id')
         config = {**config, 'user_id': target_id}
         existing = await cls.get_config(db, target_id)
         if existing:
@@ -357,6 +355,61 @@ class QuantLongbridgeConfigDao:
         return row
 
 
+def _apply_factor_snapshot_fields(row: QuantFactorSnapshot, item: dict[str, Any], now: datetime) -> None:
+    row.as_of = item.get('as_of')
+    row.score_total = item.get('score_total')
+    row.risk_level = item.get('risk_level')
+    row.trend_direction = item.get('trend_direction')
+    row.alpha101_count = item.get('alpha101_count') or 0
+    row.alpha158_count = item.get('alpha158_count') or 0
+    row.score_json = item.get('score_json')
+    row.alpha_json = item.get('alpha_json')
+    row.create_time = now
+
+
+def _symbol_market_clause(model: Any, pairs: list[tuple[str, str]]) -> Any:
+    by_market: dict[str, list[str]] = {}
+    for symbol, market in pairs:
+        by_market.setdefault(market or 'US', []).append(symbol)
+    return or_(
+        *[
+            and_(model.market == market, model.symbol.in_(list(dict.fromkeys(symbols))))
+            for market, symbols in by_market.items()
+        ]
+    )
+
+
+def _alpha_value_rows(
+    model: Any,
+    symbol: str,
+    market: str,
+    as_of_key: str,
+    payload: dict[str, Any] | None,
+    now: datetime,
+) -> list[Any]:
+    rows = []
+    for key, raw in (payload or {}).items():
+        if isinstance(raw, dict):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(value):
+            continue
+        rows.append(
+            model(
+                symbol=symbol,
+                market=market or 'US',
+                as_of=as_of_key,
+                factor_key=str(key)[:32],
+                factor_value=value,
+                create_time=now,
+            )
+        )
+    return rows
+
+
 class QuantSnapshotDao:
     """因子快照与读模型聚合快照。"""
 
@@ -376,21 +429,52 @@ class QuantSnapshotDao:
         )
         now = datetime.now()
         if existing:
-            existing.as_of = item.get('as_of')
-            existing.score_total = item.get('score_total')
-            existing.risk_level = item.get('risk_level')
-            existing.trend_direction = item.get('trend_direction')
-            existing.alpha101_count = item.get('alpha101_count') or 0
-            existing.alpha158_count = item.get('alpha158_count') or 0
-            existing.score_json = item.get('score_json')
-            existing.alpha_json = item.get('alpha_json')
-            existing.create_time = now
+            _apply_factor_snapshot_fields(existing, item, now)
             await db.flush()
             return existing
         row = QuantFactorSnapshot(create_time=now, **item)
         db.add(row)
         await db.flush()
         return row
+
+    @classmethod
+    async def upsert_factor_snapshots_bulk(
+        cls, db: AsyncSession, items: list[dict[str, Any]]
+    ) -> list[QuantFactorSnapshot]:
+        if not items:
+            return []
+        keyed: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in items:
+            keyed[(item['symbol'], item['market'])] = item
+        uniq = list(keyed.values())
+        existing_rows = (
+            (
+                await db.execute(
+                    select(QuantFactorSnapshot).where(
+                        _symbol_market_clause(QuantFactorSnapshot, list(keyed.keys()))
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        existing_map = {(row.symbol, row.market): row for row in existing_rows}
+        now = datetime.now()
+        result: list[QuantFactorSnapshot] = []
+        new_rows: list[QuantFactorSnapshot] = []
+        for item in uniq:
+            existing = existing_map.get((item['symbol'], item['market']))
+            if existing:
+                _apply_factor_snapshot_fields(existing, item, now)
+                result.append(existing)
+                continue
+            row = QuantFactorSnapshot(create_time=now, **item)
+            new_rows.append(row)
+            result.append(row)
+        if new_rows:
+            db.add_all(new_rows)
+        await db.flush()
+        return result
 
     @classmethod
     async def get_factor_snapshot(
@@ -441,7 +525,6 @@ class QuantSnapshotDao:
         return row
 
     @classmethod
-    @classmethod
     async def replace_alpha_values(
         cls,
         db: AsyncSession,
@@ -458,31 +541,30 @@ class QuantSnapshotDao:
             (QuantAlpha101Value, alpha101),
             (QuantAlpha158Value, alpha158),
         ):
-            await db.execute(
-                delete(model).where(model.symbol == symbol, model.market == market)
-            )
-            rows = []
-            for key, raw in (payload or {}).items():
-                if isinstance(raw, dict):
-                    continue
-                try:
-                    value = float(raw)
-                except (TypeError, ValueError):
-                    continue
-                if math.isnan(value):
-                    continue
-                rows.append(
-                    model(
-                        symbol=symbol,
-                        market=market or 'US',
-                        as_of=as_of_key,
-                        factor_key=str(key)[:32],
-                        factor_value=value,
-                        create_time=now,
-                    )
-                )
+            await db.execute(delete(model).where(model.symbol == symbol, model.market == market))
+            rows = _alpha_value_rows(model, symbol, market, as_of_key, payload, now)
             if rows:
                 db.add_all(rows)
+        await db.flush()
+
+    @classmethod
+    async def replace_alpha_values_bulk(cls, db: AsyncSession, snaps: list[dict[str, Any]]) -> None:
+        if not snaps:
+            return
+        keyed: dict[tuple[str, str], dict[str, Any]] = {}
+        for snap in snaps:
+            keyed[(snap['symbol'], snap.get('market') or 'US')] = snap
+        pairs = list(keyed.keys())
+        now = datetime.now()
+        for model in (QuantAlpha101Value, QuantAlpha158Value):
+            await db.execute(delete(model).where(_symbol_market_clause(model, pairs)))
+        rows: list[Any] = []
+        for (symbol, market), snap in keyed.items():
+            as_of_key = (snap.get('asOf') or datetime.now().strftime('%Y-%m-%d'))[:16]
+            rows.extend(_alpha_value_rows(QuantAlpha101Value, symbol, market, as_of_key, snap.get('alpha101'), now))
+            rows.extend(_alpha_value_rows(QuantAlpha158Value, symbol, market, as_of_key, snap.get('alpha158'), now))
+        if rows:
+            db.add_all(rows)
         await db.flush()
 
     @classmethod

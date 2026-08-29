@@ -5,21 +5,24 @@ measurement: daily_kline  tag: symbol,market  field: open,high,low,close,volume
 """
 
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
-from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.client.write_api import WriteOptions
 
 from config.env import InfluxConfig
 from utils.log_util import logger
 from utils.time_format_util import format_utc_as_beijing
 
 _client: InfluxDBClient | None = None
+_batch_client: InfluxDBClient | None = None
 
 
 _MAX_QUERY_LIMIT = 5000
-_LATEST_KLINES_CHUNK = 80
+_LATEST_KLINES_CHUNK = 30
+_DEFAULT_KLINE_CHUNK = 10
 _TS_LEN_FULL = 19  # 'YYYY-MM-DD HH:MM:SS' 长度
 _TS_LEN_MIN = 16  # 'YYYY-MM-DD HH:MM' 长度
 
@@ -37,18 +40,85 @@ class InfluxQueryError(RuntimeError):
     """InfluxDB 查询失败（连接/语法/超时等）。与「无数据返回空」严格区分，避免上层把库故障当空行情。"""
 
 
+def _ms(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1000, parsed)
+
+
+def _short_timeout_ms() -> int:
+    return _ms(getattr(InfluxConfig, 'influx_timeout_ms', 8000), 8000)
+
+
+def _batch_timeout_ms() -> int:
+    return max(_short_timeout_ms(), _ms(getattr(InfluxConfig, 'influx_batch_timeout_ms', 45000), 45000))
+
+
+def kline_chunk_size() -> int:
+    raw = getattr(InfluxConfig, 'influx_kline_chunk', _DEFAULT_KLINE_CHUNK)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = _DEFAULT_KLINE_CHUNK
+    return max(1, min(n, 40))
+
+
+def _new_client(timeout_ms: int) -> InfluxDBClient:
+    return InfluxDBClient(
+        url=InfluxConfig.influx_url,
+        token=InfluxConfig.influx_token,
+        org=InfluxConfig.influx_org,
+        timeout=timeout_ms,
+    )
+
+
 def get_client() -> InfluxDBClient:
-    """获取（懒加载）全局InfluxDB客户端。"""
+    """短超时客户端：单标的查询 / 写入。库宕机时尽快失败，避免 API worker 被 60s 堵住。"""
     global _client  # noqa: PLW0603 - 模块级单例客户端，懒加载初始化
     if _client is None:
-        _client = InfluxDBClient(
-            url=InfluxConfig.influx_url,
-            token=InfluxConfig.influx_token,
-            org=InfluxConfig.influx_org,
-            # 库宕机/重启时 60s 会占满单 worker，nginx 表现为 502。查询失败应尽快返回。
-            timeout=8_000,
-        )
+        _client = _new_client(_short_timeout_ms())
     return _client
+
+
+def get_batch_client() -> InfluxDBClient:
+    """批量 K 线客户端。质检 75 只 × 260 根在 8s 内会整批失败。"""
+    global _batch_client  # noqa: PLW0603
+    if _batch_timeout_ms() <= _short_timeout_ms():
+        return get_client()
+    if _batch_client is None:
+        _batch_client = _new_client(_batch_timeout_ms())
+    return _batch_client
+
+
+def _symbol_or_clause(safe_symbols: list[str]) -> str:
+    """Flux 里 contains() 对日 K 极慢（1 只约 30s）；等值 or 与单标的查询同量级。"""
+    parts = [f'r.symbol == "{s}"' for s in safe_symbols]
+    return ' or '.join(parts)
+
+
+def _tables_to_bars(tables: Any) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for table in tables or []:
+        for record in table.records:
+            sym = str(record.values.get('symbol') or '')
+            if not sym:
+                continue
+            ts = record.get_time()
+            grouped.setdefault(sym, []).append(
+                {
+                    'date': ts.strftime('%Y-%m-%d') if ts else '',
+                    'open': record.values.get('open'),
+                    'high': record.values.get('high'),
+                    'low': record.values.get('low'),
+                    'close': record.values.get('close'),
+                    'volume': record.values.get('volume'),
+                }
+            )
+    for bars in grouped.values():
+        bars.sort(key=lambda x: x.get('date') or '')
+    return grouped
 
 
 def bucket_for_market(market: str) -> str:
@@ -115,9 +185,20 @@ class InfluxUtil:
                 .time(ts, WritePrecision.S)
             )
             points.append(p)
-        write_api = get_client().write_api(write_options=SYNCHRONOUS)
-        write_api.write(bucket=bucket, record=points)
+        cls._write_points(bucket, points)
         return len(points)
+
+    @classmethod
+    def _write_points(cls, bucket: str, points: list[Point]) -> None:
+        """批量异步写入后 flush，避免 SYNCHRONOUS 逐点堵 worker。"""
+        write_api = get_client().write_api(
+            write_options=WriteOptions(batch_size=500, flush_interval=1_000, jitter_interval=0)
+        )
+        try:
+            write_api.write(bucket=bucket, record=points)
+            write_api.flush()
+        finally:
+            write_api.close()
 
     @classmethod
     def write_minute_klines(cls, market: str, rows: list[dict[str, Any]]) -> int:
@@ -155,8 +236,7 @@ class InfluxUtil:
             )
         if not points:
             return 0
-        write_api = get_client().write_api(write_options=SYNCHRONOUS)
-        write_api.write(bucket=bucket, record=points)
+        cls._write_points(bucket, points)
         return len(points)
 
     @classmethod
@@ -254,42 +334,100 @@ from(bucket: "{bucket}")
         if start_clause is None:
             return {}
         limit = max(1, min(int(n or 2), 10))
-        set_literal = ', '.join(f'"{s}"' for s in safe_symbols)
+        symbol_clause = _symbol_or_clause(safe_symbols)
         try:
             bucket = bucket_for_market(market)
             flux = f'''
 from(bucket: "{bucket}")
-  |> range(start: {start_clause})
+  |> range(start: {start_clause}, stop: now())
   |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
-  |> filter(fn: (r) => contains(value: r.symbol, set: [{set_literal}]))
+  |> filter(fn: (r) => {symbol_clause})
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> group(columns: ["symbol"])
   |> sort(columns: ["_time"])
   |> tail(n: {limit})
 '''
-            tables = get_client().query_api().query(flux)
-            grouped: dict[str, list[dict[str, Any]]] = {}
-            for table in tables:
-                for record in table.records:
-                    sym = str(record.values.get('symbol') or '')
-                    if not sym:
-                        continue
-                    grouped.setdefault(sym, []).append(
-                        {
-                            'date': record.get_time().strftime('%Y-%m-%d'),
-                            'open': record.values.get('open'),
-                            'high': record.values.get('high'),
-                            'low': record.values.get('low'),
-                            'close': record.values.get('close'),
-                            'volume': record.values.get('volume'),
-                        }
-                    )
-            for bars in grouped.values():
-                bars.sort(key=lambda x: x.get('date') or '')
-            return grouped
+            tables = get_batch_client().query_api().query(flux)
+            return _tables_to_bars(tables)
         except Exception as exc:
             logger.error(f'[Influx] 批量最新K线失败 market={market}: {exc}')
             raise InfluxQueryError(f'InfluxDB 批量查询失败: {market}') from exc
+
+    @classmethod
+    def query_klines_many(
+        cls,
+        market: str,
+        symbols: list[str],
+        start: str = '-1y',
+        limit: int = 320,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """批量拉日 K（tail limit）。分片 + 长超时 + 单片失败不丢整批。"""
+        safe_symbols = [_safe_symbol(raw) for raw in (symbols or [])]
+        safe_symbols = [s for s in safe_symbols if s]
+        if not safe_symbols:
+            return {}
+        cap = max(1, min(int(limit or 320), _MAX_QUERY_LIMIT))
+        start_clause = _safe_time_clause(start)
+        if start_clause is None:
+            return {}
+        chunk_size = kline_chunk_size()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        failures = 0
+        chunks = 0
+        for i in range(0, len(safe_symbols), chunk_size):
+            chunk = safe_symbols[i : i + chunk_size]
+            chunks += 1
+            symbol_clause = _symbol_or_clause(chunk)
+            bucket = bucket_for_market(market)
+            flux = f'''
+from(bucket: "{bucket}")
+  |> range(start: {start_clause}, stop: now())
+  |> filter(fn: (r) => r._measurement == "{cls.MEASUREMENT}")
+  |> filter(fn: (r) => {symbol_clause})
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> group(columns: ["symbol"])
+  |> sort(columns: ["_time"])
+  |> tail(n: {cap})
+'''
+            last_exc: Exception | None = None
+            for attempt in (1, 2):
+                t0 = time.monotonic()
+                try:
+                    tables = get_batch_client().query_api().query(flux)
+                    piece = _tables_to_bars(tables)
+                    for sym, bars in piece.items():
+                        grouped.setdefault(sym, []).extend(bars)
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    elapsed = time.monotonic() - t0
+                    logger.warning(
+                        f'[Influx] 批量K线分片失败 market={market} '
+                        f'chunk={i // chunk_size + 1} attempt={attempt} n={len(chunk)} {elapsed:.1f}s: {exc}'
+                    )
+                    # 读超时再重试只会再堵 45s；只对连接瞬间失败重试。
+                    if elapsed >= 3:
+                        break
+            if last_exc is not None:
+                failures += 1
+        for bars in grouped.values():
+            bars.sort(key=lambda x: x.get('date') or '')
+            # 分片重试可能重复追加
+            seen: set[str] = set()
+            uniq: list[dict[str, Any]] = []
+            for bar in bars:
+                key = str(bar.get('date') or '')
+                if key in seen:
+                    continue
+                seen.add(key)
+                uniq.append(bar)
+            bars[:] = uniq
+        if failures and not grouped:
+            raise InfluxQueryError(f'InfluxDB 批量K线失败: {market}')
+        if failures:
+            logger.warning(f'[Influx] 批量K线部分失败 market={market} failed={failures}/{chunks} got={len(grouped)}')
+        return grouped
 
     @classmethod
     def query_minute_klines(

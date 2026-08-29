@@ -5,7 +5,7 @@
   "scripts": {
     "smoke:pages": "node scripts/page_smoke.mjs",
     "e2e:web": "node scripts/web_e2e.mjs",
-    "desktop": "npm start --prefix desktop"
+    "test:ws-url": "node --test scripts/test_market_quotes_ws.mjs scripts/test_adaptive_poll.mjs"
   },
   "devDependencies": {
     "playwright": "^1.50.0"

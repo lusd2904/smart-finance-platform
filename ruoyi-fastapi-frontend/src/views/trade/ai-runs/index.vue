@@ -271,7 +271,7 @@ async function handleTriggerRun(execute = false) {
   }
   triggering.value = true
   try {
-    const res = await runAutoTrade({ strategyProfile: 'balanced', execute: Boolean(execute) })
+    const res = await runAutoTrade({ execute: Boolean(execute) })
     ElMessage.success(res.msg || (execute ? '扫描完成（已按护栏决定是否下单）' : '扫描完成，未下单'))
     await loadData()
   } catch (err) {

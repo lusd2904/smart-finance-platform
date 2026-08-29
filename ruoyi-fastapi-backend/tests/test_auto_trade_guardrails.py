@@ -4,8 +4,12 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
+os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from module_market.service.quote_subscribe_hub import QuoteSubscribeHub
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.service.auto_trade_service import (
     AutoTradeService,
@@ -27,6 +31,14 @@ from module_trade.service.auto_trade_service import (
     symbol_position_cap,
     total_position_market_value,
 )
+
+
+def setup_function() -> None:
+    QuoteSubscribeHub.reset_for_tests()
+
+
+def teardown_function() -> None:
+    QuoteSubscribeHub.reset_for_tests()
 
 
 def test_default_config_is_scan_only() -> None:
@@ -156,7 +168,7 @@ def _trade_settings(**overrides):
     return data
 
 
-async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None):
+async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None, quote_result=None):
     from module_quant.service.strategy_service import StrategyService
     from module_trade.dao.trade_dao import TradeDao
     from module_trade.service.auto_trade_service import AutoTradeService
@@ -165,6 +177,7 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None):
     db.commit = AsyncMock()
     submit = AsyncMock(return_value={'ok': True, 'orderId': 'SIM-1'})
     add_decision = AsyncMock()
+    quotes = quote_result if quote_result is not None else {'quotes': [{'symbol': 'AAPL.US', 'lastDone': 100}]}
     with (
         patch.object(AutoTradeService, '_resolve_targets', AsyncMock(return_value=[{'symbol': 'AAPL', 'market': 'US'}])),
         patch.object(StrategyService, 'run_strategy_cycle_async', AsyncMock(return_value=BUY_SIGNAL)),
@@ -192,8 +205,7 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None):
                 }
             ),
         ),
-        patch.object(LongbridgeService, 'get_realtime_quote_async', AsyncMock(return_value={'quotes': [{'lastDone': 100}]})),
-        patch.object(LongbridgeService, 'extract_last_price', return_value=100.0),
+        patch.object(LongbridgeService, 'get_realtime_quote', return_value=quotes),
         patch.object(LongbridgeService, 'submit_order_async', submit),
         patch.object(LongbridgeService, 'extract_order_id', return_value='SIM-1'),
     ):
@@ -326,7 +338,7 @@ def test_resolve_targets_drops_cn_and_uses_heat() -> None:
         with (
             patch('module_market.dao.heat_dao.MarketHeatDao.get_latest_heat', AsyncMock(side_effect=[heat, None])),
             patch('module_market.dao.heat_dao.MarketHeatDao.list_top50', AsyncMock(return_value=rows)),
-            patch('module_quant.dao.quant_dao.QuantWatchlistDao.get_enabled_symbols', AsyncMock(return_value=watch)),
+            patch('module_market.dao.market_dao.MarketWatchlistDao.get_enabled', AsyncMock(return_value=watch)),
         ):
             items = await AutoTradeService._resolve_targets(db, None, user_id=1)
         markets = {item['market'] for item in items}
@@ -386,5 +398,60 @@ def test_save_auto_trade_requires_keys() -> None:
                 assert '未配置长桥账户 Key' in exc.message
                 return
             raise AssertionError('expected ServiceException')
+
+    asyncio.run(_run())
+
+
+def test_realtime_price_map_prefers_hub_then_batches_rest() -> None:
+    QuoteSubscribeHub.ingest_push(
+        'AAPL.US', {'last_done': 190.5, 'prev_close': 180, 'timestamp': '2026-08-29 10:00:00'}
+    )
+    opps = [
+        {'symbol': 'AAPL', 'market': 'US'},
+        {'symbol': 'MSFT', 'market': 'US'},
+        {'symbol': 'NVDA', 'market': 'US'},
+    ]
+    batch = {
+        'quotes': [
+            {'symbol': 'MSFT.US', 'lastDone': 420.0},
+            {'symbol': 'NVDA.US', 'lastDone': 0},
+        ]
+    }
+
+    async def _run() -> tuple[dict, dict]:
+        with patch.object(LongbridgeService, 'get_realtime_quote', return_value=batch) as fetch:
+            prices, errors = await AutoTradeService._realtime_price_map(opps)
+            fetch.assert_called_once()
+            assert fetch.call_args.args[0] == ['MSFT.US', 'NVDA.US']
+        return prices, errors
+
+    prices, errors = asyncio.run(_run())
+    assert prices['AAPL'] == 190.5
+    assert prices['MSFT'] == 420.0
+    assert 'NVDA' not in prices
+    assert errors == {}
+
+
+def test_realtime_price_map_records_batch_failure_reason() -> None:
+    opps = [{'symbol': 'AAPL', 'market': 'US'}]
+
+    async def _run() -> tuple[dict, dict]:
+        with patch.object(LongbridgeService, 'get_realtime_quote', side_effect=RuntimeError('quote down')):
+            return await AutoTradeService._realtime_price_map(opps)
+
+    prices, errors = asyncio.run(_run())
+    assert prices == {}
+    assert '获取实时报价失败' in errors['AAPL']
+    assert 'quote down' in errors['AAPL']
+
+
+def test_cycle_skips_when_realtime_quote_missing() -> None:
+    async def _run() -> None:
+        result, submit, add_decision = await _run_buy_cycle(quote_result={'quotes': []})
+        submit.assert_not_called()
+        add_decision.assert_not_called()
+        assert result['submittedOrdersCount'] == 0
+        reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
+        assert '未能获取券商有效盘中实时报价' in reasons
 
     asyncio.run(_run())

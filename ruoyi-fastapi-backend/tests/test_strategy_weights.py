@@ -50,10 +50,12 @@ def test_list_strategy_profiles_prefers_user_overlay() -> None:
             patch.object(PlatformExtService, 'ensure_seed_data', AsyncMock()),
             patch.object(TradeDao, 'list_strategy_profiles', AsyncMock(return_value=[default])),
             patch.object(TradeDao, 'list_user_strategy_profiles', AsyncMock(return_value=[overlay])),
+            patch.object(TradeDao, 'get_user_strategy_bind', AsyncMock(return_value=None)),
         ):
             rows = await PlatformExtService.list_strategy_profiles(MagicMock(), user_id=101)
         assert rows[0]['config']['buyThreshold'] == 70
         assert rows[0]['accountOwned'] is True
+        assert rows[0]['active'] is True  # 未绑定时默认 balanced
 
         with (
             patch.object(PlatformExtService, 'ensure_seed_data', AsyncMock()),

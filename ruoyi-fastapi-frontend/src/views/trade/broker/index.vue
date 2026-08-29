@@ -10,7 +10,7 @@
           <el-tag :type="configured?'success':'info'">{{ configured?'已配置':'未配置' }}</el-tag>
           <div class="acts">
             <el-button size="small" @click="test">连通测试</el-button>
-            <el-button size="small" type="primary" @click="$router.push('/trade/trading')">进入交易台</el-button>
+            <el-button size="small" type="primary" @click="$router.push('/trade/terminal')">进入交易台</el-button>
           </div>
         </el-card>
       </el-col>

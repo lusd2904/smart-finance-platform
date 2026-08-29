@@ -12,6 +12,24 @@
       </div>
     </div>
 
+    <el-card shadow="never" class="mb12" v-loading="sheetLoading">
+      <template #header>
+        <div class="hdr">
+          <span>组合收益指标</span>
+          <span class="muted">持仓加权 · Influx 日K · Sharpe / 回撤 / VaR</span>
+        </div>
+      </template>
+      <el-row :gutter="12" v-if="sheet && sheet.days">
+        <el-col :xs="12" :sm="8" :md="4" v-for="card in sheetCards" :key="card.label">
+          <div class="metric-card">
+            <div class="metric-label">{{ card.label }}</div>
+            <div class="metric-val">{{ card.value }}</div>
+          </div>
+        </el-col>
+      </el-row>
+      <el-empty v-else :description="sheet.message || '暂无持仓或日K不足'" :image-size="56" />
+    </el-card>
+
     <el-row :gutter="12" class="metric-row">
       <el-col :xs="12" :sm="8" :md="4" v-for="card in statusCards" :key="card.key">
         <div class="metric-card" :class="{ active: filter === card.key }" @click="filter = card.key">
@@ -149,7 +167,7 @@
 </template>
 
 <script setup name="TradeRisk">
-import { listRiskRules, saveRiskRule, deleteRiskRule, listRiskEvents, evaluateRisk, updateRiskEventStatus } from '@/api/trade'
+import { listRiskRules, saveRiskRule, deleteRiskRule, listRiskEvents, evaluateRisk, updateRiskEventStatus, getRiskTearsheet } from '@/api/trade'
 
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
@@ -165,6 +183,27 @@ const actionRow = ref({})
 const actionStatus = ref('')
 const actionRemark = ref('')
 const loadError = ref(false)
+const sheet = ref({})
+const sheetLoading = ref(false)
+
+function fmtSheetPct(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '--'
+  return `${(n * 100).toFixed(2)}%`
+}
+function fmtSheetNum(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '--'
+  return n.toFixed(2)
+}
+const sheetCards = computed(() => [
+  { label: 'Sharpe', value: fmtSheetNum(sheet.value.sharpe) },
+  { label: 'Sortino', value: fmtSheetNum(sheet.value.sortino) },
+  { label: '最大回撤', value: fmtSheetPct(sheet.value.maxDrawdown) },
+  { label: '年化波动', value: fmtSheetPct(sheet.value.volatility) },
+  { label: 'VaR 95', value: fmtSheetPct(sheet.value.var95) },
+  { label: '累计收益', value: fmtSheetPct(sheet.value.totalReturn) }
+])
 
 const ALLOWED = {
   pending_review: ['confirmed', 'ignored', 'need_review'],
@@ -221,9 +260,22 @@ function canAct(row, dest) {
   return (ALLOWED[src] || []).includes(dest)
 }
 
+async function loadSheet() {
+  sheetLoading.value = true
+  try {
+    const res = await getRiskTearsheet({ days: 120 })
+    sheet.value = res.data || {}
+  } catch {
+    sheet.value = { message: '组合指标暂不可用' }
+  } finally {
+    sheetLoading.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   loadError.value = false
+  loadSheet()
   try {
     const [r, e] = await Promise.all([listRiskRules(), listRiskEvents(200)])
     rules.value = r.data || []
@@ -293,7 +345,7 @@ async function submitAction() {
 }
 
 function openSymbol(symbol) {
-  proxy.$router.push({ path: '/trade/trading', query: { symbol } })
+  proxy.$router.push({ path: '/trade/terminal', query: { symbol } })
 }
 
 onMounted(load)

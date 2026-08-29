@@ -13,8 +13,8 @@ import 'package:flutter/material.dart';
 
 /// 品牌 / 语义色。亮度无关的基础值；随明暗的成套色走 [ColorScheme]。
 abstract final class AppColors {
-  /// 品牌主色锚点：对齐 Web 端 Element Plus 蓝，降低迁移认知成本。
-  static const brand = Color(0xFF409EFF);
+  /// 品牌主色锚点：对齐 Web 端 indigo `#6366f1`。
+  static const brand = Color(0xFF6366F1);
 
   /// 涨（A股红）
   static const up = Color(0xFFE5484D);
@@ -52,6 +52,14 @@ abstract final class AppDimens {
 
   static bool isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= wideBreakpoint;
+
+  /// 桌面壳：macOS/Windows/Linux 宽屏。iPad/折叠屏即使 ≥900 也走手机五栏。
+  static bool isDesktopShell(BuildContext context) {
+    final platform = Theme.of(context).platform;
+    final phoneOs =
+        platform == TargetPlatform.iOS || platform == TargetPlatform.android;
+    return !phoneOs && isWide(context);
+  }
 
   static bool isMac(BuildContext context) =>
       Theme.of(context).platform == TargetPlatform.macOS;

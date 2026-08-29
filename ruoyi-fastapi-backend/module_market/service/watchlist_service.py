@@ -79,16 +79,34 @@ def _resolve_watchlist_name(symbol: str, market: str, stored_name: str | None = 
     return symbol
 
 
-def parse_note_groups(note: str | None) -> list[str]:
-    """note 里用逗号分隔分组名（兼容中文逗号）。空 note 不算分组。"""
-    if not note:
+def parse_group_csv(raw: str | None) -> list[str]:
+    """逗号分隔分组名（兼容中文逗号）。空串不算分组。"""
+    if not raw:
         return []
-    parts = [p.strip() for p in str(note).replace('，', ',').split(',')]
+    parts = [p.strip() for p in str(raw).replace('，', ',').split(',')]
     seen: list[str] = []
     for part in parts:
         if part and part not in seen:
             seen.append(part)
     return seen
+
+
+def parse_note_groups(note: str | None) -> list[str]:
+    """兼容旧数据：note 里用逗号分隔分组名。"""
+    return parse_group_csv(note)
+
+
+def resolve_watchlist_groups(row: Any) -> list[str]:
+    """优先独立 groups 列，缺省回退 note（迁移前旧行）。"""
+    if isinstance(row, dict):
+        groups = parse_group_csv(row.get('groups'))
+        if groups:
+            return groups
+        return parse_group_csv(row.get('note'))
+    groups = parse_group_csv(getattr(row, 'groups', None))
+    if groups:
+        return groups
+    return parse_group_csv(getattr(row, 'note', None))
 
 
 def _serialize_market_watchlist_row(row: Any) -> dict[str, Any]:
@@ -100,7 +118,8 @@ def _serialize_market_watchlist_row(row: Any) -> dict[str, Any]:
             **row,
             'market': market,
             'name': row.get('name') or _resolve_watchlist_name(symbol, market),
-            'groups': parse_note_groups(note),
+            'groups': resolve_watchlist_groups(row),
+            'note': note,
         }
     symbol = row.symbol
     market = (row.market or 'US').upper()
@@ -112,7 +131,7 @@ def _serialize_market_watchlist_row(row: Any) -> dict[str, Any]:
         'market': market,
         'name': _resolve_watchlist_name(symbol, market, getattr(row, 'name', None)),
         'note': note,
-        'groups': parse_note_groups(note),
+        'groups': resolve_watchlist_groups(row),
         'enabled': row.enabled,
         'sortOrder': getattr(row, 'sort_order', 0) or 0,
         'createTime': _fmt_dt(row.create_time),
@@ -193,6 +212,52 @@ def _quote_from_mysql(q: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _quote_from_live_item(item: dict[str, Any]) -> dict[str, Any]:
+    change_rate = item.get('changeRate')
+    if change_rate is None:
+        change_rate = item.get('changePct')
+    return {
+        'last': item.get('last'),
+        'changeRate': change_rate,
+        'tradeDate': item.get('quoteTime') or item.get('tradeDate'),
+    }
+
+
+async def _seed_overview_live_quotes(pairs: list[tuple[str, str]]) -> tuple[dict[str, dict[str, Any]], int]:
+    quotes: dict[str, dict[str, Any]] = {}
+    live_hits = 0
+    try:
+        from module_market.service.live_quotes_service import LiveQuotesService
+
+        live_result = await LiveQuotesService.get_quotes(pairs)
+        for item in live_result.get('items') or []:
+            if not isinstance(item, dict) or item.get('last') is None:
+                continue
+            symbol = str(item.get('symbol') or '')
+            if not symbol:
+                continue
+            quotes[symbol] = _quote_from_live_item(item)
+            live_hits += 1
+    except Exception as exc:
+        logger.warning(f'[自选] 实时报价补价失败: {exc}')
+    return quotes, live_hits
+
+
+def _overview_quote_source(live_hits: int, mysql_hits: int, influx_hits: int, mysql_quotes: dict[str, Any]) -> str:
+    if live_hits:
+        extras: list[str] = []
+        if mysql_hits:
+            extras.append('mysql')
+        if influx_hits:
+            extras.append('influx')
+        return 'live+' + '+'.join(extras) if extras else 'live'
+    if influx_hits and mysql_quotes:
+        return 'mysql+influx'
+    if influx_hits:
+        return 'influx'
+    return 'mysql'
+
+
 class MarketWatchlistService:
     """行情自选清单服务。"""
 
@@ -245,6 +310,7 @@ class MarketWatchlistService:
                     'market': market,
                     'name': name,
                     'note': add_model.note,
+                    'groups': add_model.groups,
                     'enabled': '1',
                     'sort_order': 0,
                     'create_time': now,
@@ -317,12 +383,16 @@ class MarketWatchlistService:
         items = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
         pairs = [(r.symbol, r.market or 'US') for r in items]
         latest_map = await MarketWatchlistAnalysisDao.list_latest_by_symbols(query_db, pairs, user_id=user_id)
-        all_symbols = [row.symbol for row in items]
-        mysql_quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, all_symbols)
-        quotes: dict[str, dict[str, Any]] = {}
+        quotes, live_hits = await _seed_overview_live_quotes(pairs)
+        missing_symbols = [row.symbol for row in items if quotes.get(row.symbol, {}).get('last') is None]
+        mysql_quotes = await MarketInstrumentDao.get_latest_daily_quotes(query_db, missing_symbols)
+        mysql_hits = 0
         for symbol, raw in mysql_quotes.items():
+            if quotes.get(symbol, {}).get('last') is not None:
+                continue
             if raw.get('price') is not None:
                 quotes[symbol] = _quote_from_mysql(raw)
+                mysql_hits += 1
         by_market: dict[str, list[str]] = {}
         for row in items:
             if row.symbol not in quotes or quotes[row.symbol].get('last') is None:
@@ -347,12 +417,7 @@ class MarketWatchlistService:
                 if quote:
                     quotes[symbol] = quote
                     influx_hits += 1
-        if influx_hits and mysql_quotes:
-            quote_source = 'mysql+influx'
-        elif influx_hits:
-            quote_source = 'influx'
-        else:
-            quote_source = 'mysql'
+        quote_source = _overview_quote_source(live_hits, mysql_hits, influx_hits, mysql_quotes)
 
         rows = []
         stance_count = {'偏多': 0, '偏空': 0, '中性': 0}
@@ -366,7 +431,7 @@ class MarketWatchlistService:
             if analysis and analysis.get('analysisTime'):
                 candidates = [x for x in (last_time, analysis['analysisTime']) if x]
                 last_time = max(candidates) if candidates else last_time
-            groups = parse_note_groups(row.note)
+            groups = resolve_watchlist_groups(row)
             rows.append(
                 {
                     'id': row.id,
@@ -531,7 +596,7 @@ class MarketWatchlistService:
         rec = payload.get('recommendation')
         if rec in REC_SIGN:
             try:
-                from module_trade.dao.trade_dao import TradeDao  # noqa: PLC0415 - 避免跨模块循环导入
+                from module_trade.dao.trade_dao import TradeDao
 
                 await TradeDao.add_notification(
                     query_db,
@@ -544,6 +609,7 @@ class MarketWatchlistService:
                         ),
                         'level': 'warning' if rec in {'减仓', '卖出'} else 'success',
                         'category': 'watchlist',
+                        'user_id': int(user_id or 1),
                     },
                 )
             except Exception as exc:
@@ -620,9 +686,8 @@ class MarketWatchlistService:
                 refresh_content=bool(body.refresh_content),
             )
 
-        # 并发执行但限流，避免同时打满 Influx/LLM；AsyncSession 非并发安全，
-        # 因此共享会话的操作仍由 analyze_one 内部顺序使用，这里只并行 IO 密集部分
-        semaphore = asyncio.Semaphore(3)
+        # AsyncSession 非并发安全：分析串行。Influx/LLM 仍在 analyze_one 内做。
+        semaphore = asyncio.Semaphore(1)
 
         async def _bounded(t: dict[str, Any]) -> dict[str, Any]:
             async with semaphore:
@@ -660,9 +725,30 @@ class MarketWatchlistService:
         cls, query_db: AsyncSession, user_id: int, limit: int = 200
     ) -> dict[str, Any]:
         rows = await MarketWatchlistAnalysisDao.list_recent_by_user(query_db, user_id, limit=limit)
-        kline_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        items: list[dict[str, Any]] = []
+        scored_rows: list[Any] = []
+        needed: dict[str, list[str]] = {}
         for row in rows:
+            rec = row.recommendation or ''
+            sign = REC_SIGN.get(rec)
+            if not sign:
+                continue
+            market = (row.market or 'US').upper()
+            needed.setdefault(market, []).append(row.symbol)
+            scored_rows.append(row)
+        kline_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for market, symbols in needed.items():
+            unique = list(dict.fromkeys(symbols))
+            try:
+                grouped = await asyncio.to_thread(
+                    InfluxUtil.query_klines_many, market, unique, '-400d', 400
+                )
+            except Exception as exc:
+                logger.warning(f'[自选回测] 批量K线失败 market={market}: {exc}')
+                grouped = {}
+            for symbol, bars in (grouped or {}).items():
+                kline_cache[(symbol, market)] = bars
+        items: list[dict[str, Any]] = []
+        for row in scored_rows:
             rec = row.recommendation or ''
             sign = REC_SIGN.get(rec)
             if not sign:
@@ -670,12 +756,7 @@ class MarketWatchlistService:
             symbol = row.symbol
             market = (row.market or 'US').upper()
             as_of = _fmt_dt(row.analysis_time) or ''
-            cache_key = (symbol, market)
-            if cache_key not in kline_cache:
-                kline_cache[cache_key] = await asyncio.to_thread(
-                    InfluxUtil.query_klines, market, symbol, '-400d', 'now()', 400
-                )
-            fwds = forward_returns_from_klines(kline_cache[cache_key], as_of)
+            fwds = forward_returns_from_klines(kline_cache.get((symbol, market), []), as_of)
             fwd1 = fwds.get('fwd1')
             fwd5 = fwds.get('fwd5')
             signed1 = None if fwd1 is None else round(fwd1 * sign, 4)
@@ -715,7 +796,7 @@ class MarketWatchlistService:
 
     @classmethod
     async def run_hourly_job(cls, query_db: AsyncSession) -> dict[str, Any]:
-        from utils.longbridge_breaker import LongbridgeBreaker  # noqa: PLC0415 - 按需加载熔断器
+        from utils.longbridge_breaker import LongbridgeBreaker
 
         if not LongbridgeBreaker.allow():
             return {

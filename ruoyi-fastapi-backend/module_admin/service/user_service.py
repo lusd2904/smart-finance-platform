@@ -237,6 +237,10 @@ class UserService:
                                 query_db, UserPostModel(userId=page_object.user_id, postId=post)
                             )
                 await query_db.commit()
+                if page_object.type not in {'status', 'avatar'}:
+                    from module_admin.service.login_service import LoginService
+
+                    await LoginService.invalidate_current_user_cache(user_id=page_object.user_id)
                 return CrudResponseModel(is_success=True, message='更新成功')
             except Exception as e:
                 await query_db.rollback()
@@ -358,6 +362,9 @@ class UserService:
             reset_user['password'] = PwdUtil.get_password_hash(page_object.password)
             await UserDao.edit_user_dao(query_db, reset_user)
             await query_db.commit()
+            from module_admin.service.login_service import LoginService
+
+            await LoginService.invalidate_current_user_cache(user_id=page_object.user_id)
             return CrudResponseModel(is_success=True, message='重置成功')
         except Exception as e:
             await query_db.rollback()

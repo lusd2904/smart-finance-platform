@@ -118,7 +118,7 @@ class SymbolContentService:
     ) -> int:
         """从长桥刷新内容并写入缓存；正文不足时尝试抓取链接页面。凭据缺失返回 0。"""
         types = [cls.normalize_type(t) for t in (content_types or ['announcement', 'news', 'topic'])]
-        await LongbridgeService.ensure_credentials_from_db(query_db)
+        await LongbridgeService.ensure_credentials_from_db(query_db, allow_admin_fallback=True)
         if not LongbridgeService.is_configured():
             logger.info(f'[内容缓存] 长桥未配置，跳过 {symbol}')
             return 0

@@ -16,6 +16,7 @@ from module_trade.entity.do.trade_do import (
     PlatRiskRule,
     PlatStrategyProfile,
     PlatStrategyProfileUser,
+    PlatUserStrategyBind,
 )
 
 
@@ -57,6 +58,7 @@ class TradeDao:
     @classmethod
     async def add_notification(cls, db: AsyncSession, item: dict[str, Any]) -> PlatNotification:
         db_item = PlatNotification(
+            user_id=int(item.get('user_id') or 1),
             title=item.get('title', ''),
             content=item.get('content', ''),
             level=item.get('level', 'info'),
@@ -69,9 +71,14 @@ class TradeDao:
         return db_item
 
     @classmethod
-    async def list_notifications(cls, db: AsyncSession, limit: int = 50) -> list[PlatNotification]:
+    async def list_notifications(
+        cls, db: AsyncSession, limit: int = 50, user_id: int | None = None
+    ) -> list[PlatNotification]:
+        if user_id is None:
+            return []
         stmt = (
             select(PlatNotification)
+            .where(PlatNotification.user_id == int(user_id))
             .order_by(desc(PlatNotification.create_time))
             .limit(limit)
         )
@@ -79,17 +86,27 @@ class TradeDao:
         return list(res.scalars().all())
 
     @classmethod
-    async def mark_notifications_read(cls, db: AsyncSession, notice_id: int | None = None) -> int:
+    async def mark_notifications_read(
+        cls, db: AsyncSession, notice_id: int | None = None, user_id: int | None = None
+    ) -> int:
+        if user_id is None:
+            return 0
         if notice_id is not None:
             stmt = (
                 update(PlatNotification)
-                .where(PlatNotification.notice_id == notice_id)
+                .where(
+                    PlatNotification.notice_id == notice_id,
+                    PlatNotification.user_id == int(user_id),
+                )
                 .values(is_read='1')
             )
         else:
             stmt = (
                 update(PlatNotification)
-                .where(PlatNotification.is_read == '0')
+                .where(
+                    PlatNotification.is_read == '0',
+                    PlatNotification.user_id == int(user_id),
+                )
                 .values(is_read='1')
             )
         res = await db.execute(stmt)
@@ -99,10 +116,11 @@ class TradeDao:
     @classmethod
     async def add_backtest_run(cls, db: AsyncSession, item: dict[str, Any]) -> PlatBacktestRun:
         db_item = PlatBacktestRun(
+            user_id=int(item.get('user_id') or 1),
             symbol=item.get('symbol', ''),
             market=item.get('market', 'US'),
             days=int(item.get('days', 120)),
-            strategy=item.get('strategy', 'MA5/MA20 cross'),
+            strategy=item.get('strategy', 'factor-8family:balanced'),
             trades=int(item.get('trades', 0)),
             return_pct=float(item.get('return_pct', 0.0)),
             final_equity=float(item.get('final_equity', 0.0)),
@@ -117,9 +135,14 @@ class TradeDao:
         return db_item
 
     @classmethod
-    async def list_backtest_runs(cls, db: AsyncSession, limit: int = 50) -> list[PlatBacktestRun]:
+    async def list_backtest_runs(
+        cls, db: AsyncSession, limit: int = 50, user_id: int | None = None
+    ) -> list[PlatBacktestRun]:
+        if user_id is None:
+            return []
         stmt = (
             select(PlatBacktestRun)
+            .where(PlatBacktestRun.user_id == int(user_id))
             .order_by(desc(PlatBacktestRun.create_time))
             .limit(limit)
         )
@@ -127,8 +150,15 @@ class TradeDao:
         return list(res.scalars().all())
 
     @classmethod
-    async def get_backtest_run_by_id(cls, db: AsyncSession, run_id: int) -> PlatBacktestRun | None:
-        stmt = select(PlatBacktestRun).where(PlatBacktestRun.run_id == run_id)
+    async def get_backtest_run_by_id(
+        cls, db: AsyncSession, run_id: int, user_id: int | None = None
+    ) -> PlatBacktestRun | None:
+        if user_id is None:
+            return None
+        stmt = select(PlatBacktestRun).where(
+            PlatBacktestRun.run_id == run_id,
+            PlatBacktestRun.user_id == int(user_id),
+        )
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
@@ -195,6 +225,7 @@ class TradeDao:
                 """
                 CREATE TABLE IF NOT EXISTS plat_risk_event (
                   event_id BIGINT NOT NULL AUTO_INCREMENT COMMENT '事件ID',
+                  user_id BIGINT NOT NULL DEFAULT 1 COMMENT '用户ID',
                   rule_id BIGINT NULL COMMENT '关联规则ID',
                   event_level VARCHAR(16) NOT NULL DEFAULT 'warn' COMMENT '事件等级',
                   title VARCHAR(200) NOT NULL COMMENT '事件标题',
@@ -208,7 +239,8 @@ class TradeDao:
                   create_time DATETIME NULL COMMENT '触发时间',
                   PRIMARY KEY (event_id),
                   KEY ix_review_status (review_status),
-                  KEY ix_create_time (create_time)
+                  KEY ix_create_time (create_time),
+                  KEY ix_risk_event_user_time (user_id, create_time)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='风控触发事件表'
                 """
             )
@@ -224,6 +256,8 @@ class TradeDao:
             'ALTER TABLE plat_risk_event ADD COLUMN handle_remark VARCHAR(500) NULL',
             'ALTER TABLE plat_risk_event ADD COLUMN handled_by VARCHAR(64) NULL',
             'ALTER TABLE plat_risk_event ADD COLUMN handle_time DATETIME NULL',
+            'ALTER TABLE plat_risk_event ADD COLUMN user_id BIGINT NOT NULL DEFAULT 1',
+            'ALTER TABLE plat_risk_event ADD KEY ix_risk_event_user_time (user_id, create_time)',
         ]
         for sql in alters:
             try:
@@ -244,24 +278,31 @@ class TradeDao:
             await db.rollback()
 
     @classmethod
-    async def expire_overdue_risk_events(cls, db: AsyncSession, hours: int = 24) -> int:
+    async def expire_overdue_risk_events(
+        cls, db: AsyncSession, hours: int = 24, user_id: int | None = None
+    ) -> int:
         cutoff = datetime.now() - timedelta(hours=hours)
-        stmt = (
-            update(PlatRiskEvent)
-            .where(
-                PlatRiskEvent.review_status.in_(['pending_review', 'need_review']),
-                PlatRiskEvent.create_time <= cutoff,
-            )
-            .values(review_status='overdue')
-        )
+        cond = [
+            PlatRiskEvent.review_status.in_(['pending_review', 'need_review']),
+            PlatRiskEvent.create_time <= cutoff,
+        ]
+        if user_id is not None:
+            cond.append(PlatRiskEvent.user_id == int(user_id))
+        stmt = update(PlatRiskEvent).where(*cond).values(review_status='overdue')
         res = await db.execute(stmt)
         return res.rowcount or 0
 
     @classmethod
     async def list_risk_events(
-        cls, db: AsyncSession, limit: int = 50, status: str | None = None
+        cls,
+        db: AsyncSession,
+        limit: int = 50,
+        status: str | None = None,
+        user_id: int | None = None,
     ) -> list[PlatRiskEvent]:
-        stmt = select(PlatRiskEvent)
+        if user_id is None:
+            return []
+        stmt = select(PlatRiskEvent).where(PlatRiskEvent.user_id == int(user_id))
         if status:
             stmt = stmt.where(PlatRiskEvent.review_status == status)
         stmt = stmt.order_by(desc(PlatRiskEvent.create_time)).limit(limit)
@@ -269,14 +310,22 @@ class TradeDao:
         return list(res.scalars().all())
 
     @classmethod
-    async def get_risk_event(cls, db: AsyncSession, event_id: int) -> PlatRiskEvent | None:
-        stmt = select(PlatRiskEvent).where(PlatRiskEvent.event_id == event_id)
+    async def get_risk_event(
+        cls, db: AsyncSession, event_id: int, user_id: int | None = None
+    ) -> PlatRiskEvent | None:
+        if user_id is None:
+            return None
+        stmt = select(PlatRiskEvent).where(
+            PlatRiskEvent.event_id == event_id,
+            PlatRiskEvent.user_id == int(user_id),
+        )
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
     @classmethod
     async def add_risk_event(cls, db: AsyncSession, item: dict[str, Any]) -> PlatRiskEvent:
         db_item = PlatRiskEvent(
+            user_id=int(item.get('user_id') or 1),
             rule_id=item.get('rule_id'),
             event_level=item.get('event_level', 'warn'),
             title=item.get('title', ''),
@@ -307,6 +356,7 @@ class TradeDao:
         handle_remark: str | None = None,
         handled_by: str | None = None,
         handle_time: datetime | None = None,
+        user_id: int | None = None,
     ) -> bool:
         values: dict[str, Any] = {'handled': handled}
         if review_status is not None:
@@ -317,7 +367,13 @@ class TradeDao:
             values['handled_by'] = handled_by
         if handle_time is not None:
             values['handle_time'] = handle_time
-        stmt = update(PlatRiskEvent).where(PlatRiskEvent.event_id == event_id).values(**values)
+        if user_id is None:
+            return False
+        cond = [
+            PlatRiskEvent.event_id == event_id,
+            PlatRiskEvent.user_id == int(user_id),
+        ]
+        stmt = update(PlatRiskEvent).where(*cond).values(**values)
         res = await db.execute(stmt)
         return (res.rowcount or 0) > 0
 
@@ -392,6 +448,32 @@ class TradeDao:
             profile_code=code,
             profile_name=name,
             config_json=config_json,
+            update_time=now,
+        )
+        db.add(db_item)
+        await db.flush()
+        return db_item
+
+    @classmethod
+    async def get_user_strategy_bind(cls, db: AsyncSession, user_id: int) -> PlatUserStrategyBind | None:
+        stmt = select(PlatUserStrategyBind).where(PlatUserStrategyBind.user_id == int(user_id))
+        res = await db.execute(stmt)
+        return res.scalar_one_or_none()
+
+    @classmethod
+    async def upsert_user_strategy_bind(
+        cls, db: AsyncSession, user_id: int, profile_code: str
+    ) -> PlatUserStrategyBind:
+        existing = await cls.get_user_strategy_bind(db, user_id)
+        now = datetime.now()
+        if existing:
+            existing.profile_code = profile_code
+            existing.update_time = now
+            await db.flush()
+            return existing
+        db_item = PlatUserStrategyBind(
+            user_id=int(user_id),
+            profile_code=profile_code,
             update_time=now,
         )
         db.add(db_item)

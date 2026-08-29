@@ -253,7 +253,19 @@ async function handleQc() {
   qcLoading.value = true;
   try {
     const res = await runFactorQc('US');
-    applyQcPayload(res.data);
+    const jobId = res.data && res.data.jobId;
+    if (jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队');
+      const { pollMarketJob } = await import('@/api/market');
+      const ticket = await pollMarketJob(jobId);
+      if (ticket.status === 'failed') {
+        proxy.$modal.msgError(ticket.error || '质检失败');
+        return;
+      }
+    } else if (res.data && res.data.items) {
+      applyQcPayload(res.data);
+    }
+    loadQc();
     proxy.$modal.msgSuccess(res.msg || '质检完成');
   } finally {
     qcLoading.value = false;
@@ -321,6 +333,16 @@ async function handleScan() {
   scanLoading.value = true;
   try {
     const res = await runDailyFactorScan('balanced');
+    const jobId = res.data && res.data.jobId;
+    if (jobId) {
+      proxy.$modal.msgSuccess(res.msg || '已入队');
+      const { pollMarketJob } = await import('@/api/market');
+      const ticket = await pollMarketJob(jobId);
+      if (ticket.status === 'failed') {
+        proxy.$modal.msgError(ticket.error || '日扫失败');
+        return;
+      }
+    }
     proxy.$modal.msgSuccess(res.msg || '日扫完成');
     loadSnapshots();
   } finally {

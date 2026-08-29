@@ -37,6 +37,9 @@
               <div class="chart-title">
                 <span class="cur-name">{{ current ? current.name : '请选择标的' }}</span>
                 <span class="cur-symbol" v-if="current">{{ current.symbol }} · {{ marketLabel(current.market) }}</span>
+                <el-tag v-if="liveQuote" size="small" class="live-tag" effect="plain" :type="liveTone">
+                  LIVE {{ fmtLiveLast(liveQuote.last) }} {{ fmtLivePct(liveQuote.changePct) }}
+                </el-tag>
               </div>
               <div class="chart-actions">
                 <el-radio-group v-model="period" size="small" @change="loadKline">
@@ -123,6 +126,7 @@
 import echarts from '@/utils/echarts'
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { listInstrument, getKline, getIndicators, syncMarket, aiAnalyze, getLatestAi, pollMarketJob } from '@/api/market';
+import { getQuotesHub } from '@/composables/useMarketQuotesWs'
 
 const { proxy } = getCurrentInstance();
 const router = useRouter();
@@ -219,11 +223,63 @@ function loadInstruments() {
   });
 }
 
+const liveQuote = ref(null)
+const liveTone = computed(() => {
+  const n = Number(liveQuote.value && liveQuote.value.changePct)
+  if (!Number.isFinite(n)) return 'info'
+  return n >= 0 ? 'danger' : 'success'
+})
+let unsubQuotes = null
+function fmtLiveLast(v) { const n = Number(v); return Number.isFinite(n) ? n.toFixed(2) : '--' }
+function fmtLivePct(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return ''
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`
+}
+function quoteMatches(q, sym, mkt) {
+  return String(q.symbol || '').toUpperCase() === String(sym || '').toUpperCase()
+    && String(q.market || 'US').toUpperCase() === String(mkt || 'US').toUpperCase()
+}
+function lastBarIsRecent(dateStr) {
+  const day = String(dateStr || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return true
+  const t = Date.parse(`${day}T00:00:00`)
+  return Number.isFinite(t) && Date.now() - t < 48 * 3600 * 1000
+}
+function patchLastBar(quote) {
+  const last = Number(quote && quote.last)
+  const list = klineData.value || []
+  if (!Number.isFinite(last) || !list.length) return
+  const idx = list.length - 1
+  const row = list[idx]
+  if (!row) return
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(row.date || '')) && !lastBarIsRecent(row.date)) return
+  if (Number(row.close) === last) return
+  list.splice(idx, 1, { ...row, close: last, low: Math.min(Number(row.low), last), high: Math.max(Number(row.high), last) })
+  renderChart()
+}
+function dropQuoteSub() {
+  if (unsubQuotes) { unsubQuotes(); unsubQuotes = null }
+  liveQuote.value = null
+}
+function syncQuoteSub() {
+  dropQuoteSub()
+  const cur = current.value
+  if (!cur || !cur.symbol) return
+  unsubQuotes = getQuotesHub().subscribeQuotes([{ symbol: cur.symbol, market: cur.market || 'US' }], (payload) => {
+    const hit = ((payload && payload.items) || []).find(q => quoteMatches(q, current.value && current.value.symbol, current.value && current.value.market))
+    if (!hit) return
+    liveQuote.value = { last: hit.last, changePct: hit.changePct ?? hit.changeRate, quoteTime: hit.quoteTime }
+    patchLastBar(hit)
+  })
+}
+
 /** 选择标的 */
 function selectInstrument(item) {
   current.value = item;
   loadKline();
   loadIndicators();
+  syncQuoteSub();
 }
 
 /** 加载K线 */
@@ -466,6 +522,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  dropQuoteSub();
   if (resizeTimer) clearTimeout(resizeTimer);
   window.removeEventListener('resize', handleResize);
   if (chart) {
@@ -523,6 +580,7 @@ onBeforeUnmount(() => {
       gap: 8px;
       .cur-name { font-size: 17px; font-weight: 700; color: var(--text-emphasis, #303133); }
       .cur-symbol { margin-left: 10px; font-size: 13px; color: #909399; }
+      .live-tag { margin-left: 10px; vertical-align: middle; }
       .chart-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     }
     .indicator-bar {

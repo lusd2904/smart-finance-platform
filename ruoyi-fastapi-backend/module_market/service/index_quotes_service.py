@@ -8,24 +8,18 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from module_market.service.index_session import MARKET_TZ, is_in_session
-from utils.http_fetch import fetch
+from module_market.service.tencent_quote import fetch_tencent_batch, to_float
 from utils.json_cache import cache_get_json, cache_set_json
-from utils.time_format_util import now_beijing
 from utils.log_util import logger
+from utils.time_format_util import now_beijing
 
 CACHE_KEY = 'market:index:quotes:v3'
 CACHE_TTL = 30
-
-_UA = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Referer': 'https://finance.sina.com.cn',
-}
 
 _INDEX_SPECS: list[dict[str, str]] = [
     {'code': 'usINX', 'name': '标普500', 'market': 'US'},
@@ -38,10 +32,6 @@ _INDEX_SPECS: list[dict[str, str]] = [
     {'code': 'sz399006', 'name': '创业板指数', 'market': 'CN'},
     {'code': 'sh000688', 'name': '科创板指数', 'market': 'CN'},
 ]
-
-# 腾讯行情字段索引：3=现价 4=昨收 30=时间戳 31=涨跌额 32=涨跌幅
-_IDX_LAST, _IDX_PREV, _IDX_TIME, _IDX_CHG, _IDX_CHGPCT = 3, 4, 30, 31, 32
-_MIN_PARTS = 33
 
 
 def list_session_status(now: datetime | None = None) -> dict[str, dict[str, Any]]:
@@ -57,33 +47,6 @@ def list_session_status(now: datetime | None = None) -> dict[str, dict[str, Any]
             'timezone': tz_name,
         }
     return out
-
-
-def _to_float(value: Any) -> float | None:
-    if value is None or value in {'', '-'}:
-        return None
-    try:
-        return float(str(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _fetch_tencent_batch(codes: list[str]) -> dict[str, dict[str, Any]]:
-    url = f'https://qt.gtimg.cn/q={",".join(codes)}'
-    text = fetch(url, timeout_s=10, headers=_UA, encoding='gbk', retries=1)
-    quotes: dict[str, dict[str, Any]] = {}
-    for m in re.finditer(r'v_(\w+)="([^"]*)"', text):
-        parts = m.group(2).split('~')
-        if len(parts) < _MIN_PARTS:
-            continue
-        quotes[m.group(1)] = {
-            'name': parts[1],
-            'last': _to_float(parts[_IDX_LAST]),
-            'prevClose': _to_float(parts[_IDX_PREV]),
-            'quoteTime': parts[_IDX_TIME],
-            'changePct': _to_float(parts[_IDX_CHGPCT]),
-        }
-    return quotes
 
 
 class MarketIndexService:
@@ -102,7 +65,7 @@ class MarketIndexService:
     @classmethod
     def _fetch_items(cls) -> list[dict[str, Any]]:
         try:
-            quotes = _fetch_tencent_batch([spec['code'] for spec in _INDEX_SPECS])
+            quotes = fetch_tencent_batch([spec['code'] for spec in _INDEX_SPECS])
         except Exception as exc:
             logger.warning(f'[index-quotes] 批量行情失败: {exc}')
             return []
@@ -111,7 +74,7 @@ class MarketIndexService:
             quote = quotes.get(spec['code'])
             if not quote:
                 continue
-            last, prev = quote.get('last'), quote.get('prevClose')
+            last, prev = to_float(quote.get('last')), to_float(quote.get('prevClose'))
             if last is None:
                 continue
             change_pct = quote.get('changePct')

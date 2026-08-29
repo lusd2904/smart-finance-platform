@@ -29,6 +29,7 @@
           <div class="chg">
             {{ fmt(quote.change) }} / {{ fmtPct(quote.changeRate) }}
             <el-tag size="small" effect="plain" style="margin-left: 8px">{{ quote.source || 'history' }}</el-tag>
+            <el-tag v-if="quote.source === 'live' || quote.source === 'longbridge'" size="small" type="danger" effect="plain" style="margin-left: 6px">LIVE</el-tag>
           </div>
         </div>
       </div>
@@ -132,6 +133,9 @@
         <el-table-column label="标题" prop="title" min-width="220" show-overflow-tooltip />
         <el-table-column label="摘要" prop="summary" min-width="240" show-overflow-tooltip />
         <el-table-column label="来源" prop="sourceName" width="120" />
+        <el-table-column label="绑定" width="90">
+          <template #default="scope">{{ scope.row.bind === 'briefing' ? '简报' : scope.row.bind === 'sentiment' ? '舆情' : '标的' }}</template>
+        </el-table-column>
         <el-table-column label="时间" prop="publishedAt" width="170" />
         <el-table-column label="操作" width="110" align="center">
           <template #default="scope">
@@ -144,7 +148,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!contentLoading && contentList.length === 0" description="暂无内容（需配置长桥凭据）" :image-size="60" />
+      <el-empty v-if="!contentLoading && contentList.length === 0" description="暂无该标的资讯" :image-size="60" />
     </el-card>
 
     <el-drawer v-model="drawerOpen" size="50%" :title="drawerTitle || '内容详情'">
@@ -162,6 +166,7 @@
 <script setup name="MarketSymbolIndex">
 import echarts from '@/utils/echarts'
 import { listInstrument, getSymbolOverview, symbolAiAnalyze, getSymbolContent, getLatestAi, pollMarketJob } from '@/api/market'
+import { getQuotesHub } from '@/composables/useMarketQuotesWs'
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
@@ -266,11 +271,40 @@ function onSymbolChange(val) {
   loadAll()
 }
 
+let unsubQuotes = null
+function quoteMatches(q, sym, mkt) {
+  return String(q.symbol || '').toUpperCase() === String(sym || '').toUpperCase()
+    && String(q.market || 'US').toUpperCase() === String(mkt || 'US').toUpperCase()
+}
+function dropQuoteSub() {
+  if (unsubQuotes) { unsubQuotes(); unsubQuotes = null }
+}
+function syncQuoteSub() {
+  dropQuoteSub()
+  if (!symbol.value) return
+  unsubQuotes = getQuotesHub().subscribeQuotes([{ symbol: symbol.value, market: market.value || 'US' }], (payload) => {
+    const hit = ((payload && payload.items) || []).find(q => quoteMatches(q, symbol.value, market.value))
+    if (!hit || hit.last == null) return
+    const last = Number(hit.last)
+    const prev = Number(quote.value.prevClose || quote.value.preClose)
+    const chg = hit.changePct ?? hit.changeRate
+    quote.value = {
+      ...quote.value,
+      last,
+      changeRate: chg != null ? Number(chg) : (prev ? (last / prev - 1) * 100 : quote.value.changeRate),
+      change: prev ? last - prev : quote.value.change,
+      source: hit.source || 'live',
+      quoteTime: hit.quoteTime || quote.value.quoteTime
+    }
+  })
+}
+
 function applyCore(data) {
   overview.value = data || {}
   quote.value = data.quote || {}
   tech.value = data.techSnapshot || {}
   latestAi.value = data.latestAiAnalysis || null
+  syncQuoteSub()
 }
 
 function applyAll(data) {
@@ -357,7 +391,8 @@ function loadContent(refresh = false) {
     market: market.value,
     type: contentTab.value,
     limit: 20,
-    refresh: !!refresh
+    refresh: !!refresh,
+    related: contentTab.value === 'news'
   })
     .then(res => {
       contentList.value = (res.data && res.data.items) || []
@@ -403,6 +438,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 onBeforeUnmount(() => {
+  dropQuoteSub()
   window.removeEventListener('resize', handleResize)
   if (chart) {
     chart.dispose()

@@ -45,7 +45,7 @@ def decide_signal(
             thresholds['max_risk'] = str(custom_thresholds['max_risk'])
 
     total = float(score.get('total') or 0.0)
-    confidence = int(round(total))
+    confidence = round(total)
     risk_level = str(score.get('riskLevel') or 'low').lower()
     trend_direction = str(score.get('trendDirection') or 'sideways').lower()
     tags = score.get('tags') or []
@@ -84,13 +84,20 @@ class StrategyService:
         market: str = 'US',
         strategy_profile: str = 'balanced',
         custom_config: dict[str, Any] | None = None,
+        klines: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         对单个标的：拉K线 -> 算因子 -> 打分 -> 决策信号。
+        klines 预取时可跳过单标的 Influx。
 
         :return: {symbol, market, signal, score, confidence, reason, factor_json(dict)} 或 {ok:False}
         """
-        result = FactorService.compute_symbol(symbol, market, strategy_profile, weights=custom_config)
+        if klines is None:
+            result = FactorService.compute_symbol(symbol, market, strategy_profile, weights=custom_config)
+        else:
+            result = FactorService.compute_from_klines(klines, strategy_profile, weights=custom_config)
+            result['symbol'] = symbol
+            result['market'] = market
         if not result.get('ok'):
             logger.warning(f'[量化策略] {symbol}({market}) 因子计算跳过: {result.get("reason")}')
             return {
@@ -143,12 +150,27 @@ class StrategyService:
         if not items:
             return {'profile': profile, 'symbolsCount': 0, 'signalCount': 0, 'signals': []}
 
-        # 异步并发执行
-        tasks = [
-            asyncio.to_thread(cls.evaluate_symbol, sym, mkt, profile, custom_config)
-            for sym, mkt in items
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
+        by_market: dict[str, list[str]] = {}
+        for sym, mkt in items:
+            by_market.setdefault(mkt, []).append(sym)
+        prefetched: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        from utils.influx_util import InfluxUtil
+
+        for mkt, syms in by_market.items():
+            unique = list(dict.fromkeys(syms))
+            fetched = await asyncio.to_thread(InfluxUtil.query_klines_many, mkt, unique, '-1y', 320)
+            for sym in unique:
+                prefetched[(sym, mkt)] = fetched.get(sym) or []
+
+        sem = asyncio.Semaphore(8)
+
+        async def _one(sym: str, mkt: str) -> dict[str, Any]:
+            async with sem:
+                return await asyncio.to_thread(
+                    cls.evaluate_symbol, sym, mkt, profile, custom_config, prefetched.get((sym, mkt))
+                )
+
+        results = await asyncio.gather(*(_one(sym, mkt) for sym, mkt in items), return_exceptions=False)
         signals = [r for r in results if isinstance(r, dict)]
 
         # BUY/SELL 视为有效信号；按综合分降序
@@ -179,7 +201,11 @@ class StrategyService:
 
         if loop and loop.is_running():
             # 已在事件循环中（例如被同步上下文间接调用），使用本地多标的串行/列表推导保障安全
-            signals = []
+            from collections import defaultdict
+
+            from utils.influx_util import InfluxUtil
+
+            parsed: list[tuple[str, str]] = []
             for item in symbols or []:
                 if isinstance(item, dict):
                     sym = str(item.get('symbol') or '').strip()
@@ -188,7 +214,19 @@ class StrategyService:
                     sym = str(item or '').strip()
                     mkt = market
                 if sym:
-                    signals.append(cls.evaluate_symbol(sym, mkt, profile, custom_config))
+                    parsed.append((sym, mkt))
+            by_market: dict[str, list[str]] = defaultdict(list)
+            for sym, mkt in parsed:
+                by_market[mkt].append(sym)
+            prefetched: dict[tuple[str, str], list] = {}
+            for mkt, syms in by_market.items():
+                fetched = InfluxUtil.query_klines_many(mkt, list(dict.fromkeys(syms)), '-1y', 320)
+                for sym in dict.fromkeys(syms):
+                    prefetched[(sym, mkt)] = fetched.get(sym) or []
+            signals = [
+                cls.evaluate_symbol(sym, mkt, profile, custom_config, prefetched.get((sym, mkt)))
+                for sym, mkt in parsed
+            ]
             actionable = [s for s in signals if s.get('signal') in ('BUY', 'SELL')]
             signals.sort(key=lambda s: s.get('score') or 0.0, reverse=True)
             return {
@@ -197,5 +235,4 @@ class StrategyService:
                 'signalCount': len(actionable),
                 'signals': signals,
             }
-        else:
-            return asyncio.run(cls.run_strategy_cycle_async(symbols, profile, market, custom_config))
+        return asyncio.run(cls.run_strategy_cycle_async(symbols, profile, market, custom_config))

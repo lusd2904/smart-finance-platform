@@ -213,7 +213,7 @@ async function submitAction() {
 }
 
 function openSymbol(symbol) {
-  proxy.$router.push({ path: '/trade/trading', query: { symbol } })
+  proxy.$router.push({ path: '/trade/terminal', query: { symbol } })
 }
 
 onMounted(load)

@@ -2,7 +2,7 @@
 长桥凭据与运行时共享状态。
 
 设计要点：
-- 凭据来源优先级：当前用户 DB 行 >（无用户上下文时管理员 user_id=1）> LongbridgeConfig(env)。
+- 凭据来源优先级：当前用户 DB 行 > 请求用户 >（仅行情采集显式 allow_admin_fallback 时管理员）> env。
 - 请求级凭据存放在 ContextVar，避免并发请求互相覆盖。
 - 全局限频状态（锁 + 上次调用时间）供行情/交易两个客户端共用。
 """
@@ -60,14 +60,22 @@ def peek_request_user_id() -> int | None:
     return None
 
 
-def resolve_longbridge_user_id(user_id: int | None = None) -> int:
-    """解析长桥凭据所属用户：显式 user_id > 请求用户 > 管理员(1)。"""
+def resolve_longbridge_user_id(
+    user_id: int | None = None, *, allow_admin_fallback: bool = False
+) -> int | None:
+    """解析长桥凭据所属用户：显式 user_id > 请求用户。
+
+    下单/持仓路径禁止回退管理员。行情采集等无登录上下文的 jobs 可传
+    allow_admin_fallback=True，再用 env。
+    """
     if user_id is not None:
         return int(user_id)
     peeked = peek_request_user_id()
     if peeked is not None:
         return peeked
-    return ADMIN_LONGBRIDGE_USER_ID
+    if allow_admin_fallback:
+        return ADMIN_LONGBRIDGE_USER_ID
+    return None
 
 
 def decrypt_or_raw(value: str | None) -> str:
@@ -262,17 +270,22 @@ class CredentialsMixin:
         cls._cached_content_ctxs.clear()
 
     @classmethod
-    async def ensure_credentials_from_db(cls, query_db: Any, user_id: int | None = None) -> None:
+    async def ensure_credentials_from_db(
+        cls, query_db: Any, user_id: int | None = None, *, allow_admin_fallback: bool = False
+    ) -> None:
         """
         从 quant_longbridge_config 注入当前用户凭据（DB 优先）。
-        有登录用户时只读该用户行；无用户上下文时回退管理员 user_id=1，再交给 env。
+        无用户且未允许管理员回退时清空注入，后续走 env。
         """
         try:
             from module_quant.dao.quant_dao import (
                 QuantLongbridgeConfigDao,
             )
 
-            target_id = resolve_longbridge_user_id(user_id)
+            target_id = resolve_longbridge_user_id(user_id, allow_admin_fallback=allow_admin_fallback)
+            if target_id is None:
+                cls.set_credentials(None)
+                return
             config = await QuantLongbridgeConfigDao.get_config(query_db, target_id)
             if config and (config.app_key or config.app_secret or config.access_token):
                 cls.set_credentials(

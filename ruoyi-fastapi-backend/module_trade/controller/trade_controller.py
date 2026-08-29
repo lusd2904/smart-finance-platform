@@ -13,6 +13,7 @@ from common.enums import BusinessType
 from common.router import APIRouterPro
 from module_trade.dao.trade_dao import TradeDao
 from module_trade.service.platform_ext_service import PlatformExtService
+from module_trade.service.risk_metrics_service import RiskMetricsService
 from module_trade.service.trade_service import TradeService
 from utils.job_queue import JobQueue
 from utils.log_util import logger
@@ -183,6 +184,7 @@ async def trade_quote_kline(
 async def trade_submit(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict, Body()],
 ) -> Response:
     try:
@@ -198,8 +200,11 @@ async def trade_submit(
         order_type=str(body.get('orderType') or 'LO'),
         price=price,
         market=str(body.get('market') or 'US'),
+        user_id=_current_user_id(current_user),
     )
     logger.info(f'下单结果: {result}')
+    if result.get('ok') is False:
+        return ResponseUtil.failure(data=result, msg=result.get('message') or '下单失败')
     return ResponseUtil.success(data=result, msg=result.get('message') or '')
 
 
@@ -213,8 +218,11 @@ async def trade_cancel(
     request: Request,
     order_id: Annotated[str, Path()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await TradeService.cancel_order_services(query_db, order_id)
+    result = await TradeService.cancel_order_services(
+        query_db, order_id, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=result, msg=result.get('message') or '')
 
 
@@ -226,9 +234,12 @@ async def trade_cancel(
 async def trade_notifications(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query()] = 50,
 ) -> Response:
-    data = await TradeService.list_notifications_services(query_db, limit=limit)
+    data = await TradeService.list_notifications_services(
+        query_db, limit=limit, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data)
 
 
@@ -240,30 +251,42 @@ async def trade_notifications(
 async def trade_notifications_read(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     notice_id = body.get('id')
-    data = await TradeService.mark_notification_read_services(query_db, int(notice_id) if notice_id else None)
+    data = await TradeService.mark_notification_read_services(
+        query_db,
+        int(notice_id) if notice_id else None,
+        user_id=_current_user_id(current_user),
+    )
     return ResponseUtil.success(data=data)
 
 
 @trade_controller.post(
     '/backtest/run',
-    summary='运行简易回测',
+    summary='运行因子回测',
     dependencies=[UserInterfaceAuthDependency('trade:backtest:run')],
 )
 @Log(title='策略回测', business_type=BusinessType.OTHER)
 async def trade_backtest_run(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict, Body()],
 ) -> Response:
+    uid = _current_user_id(current_user)
+    profile = await PlatformExtService.resolve_profile(
+        query_db, uid, body.get('strategyProfile') or body.get('profile')
+    )
     data = await TradeService.run_backtest_services(
         query_db,
         symbol=str(body.get('symbol') or 'AAPL'),
         market=str(body.get('market') or 'US'),
         days=int(body.get('days') or 120),
+        user_id=uid,
+        strategy_profile=profile,
     )
     return ResponseUtil.success(data=data, msg=data.get('message') or '')
 
@@ -276,8 +299,11 @@ async def trade_backtest_run(
 async def trade_backtest_list(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    data = await TradeService.list_backtests_services(query_db)
+    data = await TradeService.list_backtests_services(
+        query_db, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data)
 
 
@@ -290,12 +316,56 @@ async def trade_backtest_detail(
     request: Request,
     run_id: Annotated[int, Path()],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    data = await TradeService.get_backtest_services(query_db, run_id)
+    data = await TradeService.get_backtest_services(
+        query_db, run_id, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data)
 
 
 from module_trade.service.auto_trade_service import AutoTradeService  # noqa: E402
+
+
+@trade_controller.get(
+    '/halt',
+    summary='紧急停机状态',
+    dependencies=[UserInterfaceAuthDependency(['trade:order:submit', 'trade:account:list', 'trade:aitrade:list'])],
+)
+async def trade_halt_status(request: Request) -> Response:
+    from module_trade.service.order_guard import read_halt
+
+    return ResponseUtil.success(data=await read_halt())
+
+
+@trade_controller.put(
+    '/halt',
+    summary='紧急停机开关',
+    description='打开后拦截所有新委托（手工/自动/次日清单），撤单不受影响。',
+    dependencies=[UserInterfaceAuthDependency(['trade:aitrade:run', 'trade:risk:edit'])],
+)
+@Log(title='交易紧急停机', business_type=BusinessType.UPDATE)
+async def trade_halt_set(
+    request: Request,
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    body: Annotated[dict | None, Body()] = None,
+) -> Response:
+    from module_trade.service.order_guard import write_halt
+
+    body = body or {}
+    raw = body.get('halted') if 'halted' in body else body.get('halt')
+    if isinstance(raw, bool):
+        halted = raw
+    elif isinstance(raw, (int, float)):
+        halted = raw != 0
+    else:
+        halted = str(raw or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    data = await write_halt(
+        halted=halted,
+        reason=str(body.get('reason') or ''),
+        user_id=_current_user_id(current_user),
+    )
+    return ResponseUtil.success(data=data, msg='已紧急停机，禁止新委托' if halted else '已解除停机')
 
 
 @trade_controller.get(
@@ -372,15 +442,19 @@ async def auto_trade_run(
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
+    uid = _current_user_id(current_user)
+    profile = await PlatformExtService.resolve_profile(
+        query_db, uid, body.get('strategyProfile') or body.get('strategy_profile')
+    )
     try:
         data = await AutoTradeService.run_watchlist_strategy_cycle(
             query_db,
             symbols=body.get('symbols'),
             source='manual_api',
             execute=bool(body.get('execute')),
-            strategy_profile=body.get('strategyProfile', 'balanced'),
+            strategy_profile=profile,
             custom_config=body.get('customConfig') if isinstance(body.get('customConfig'), dict) else None,
-            user_id=_current_user_id(current_user),
+            user_id=uid,
         )
     except Exception as exc:
         logger.exception('[自动交易] run 失败')
@@ -513,6 +587,41 @@ async def save_strategy_profile(
     return ResponseUtil.success(msg='已保存本账户策略档位')
 
 
+@trade_controller.put(
+    '/strategy-bind',
+    summary='绑定当前账户生效策略档位',
+    dependencies=[UserInterfaceAuthDependency('quant:strategy:list')],
+)
+@Log(title='策略绑定', business_type=BusinessType.UPDATE)
+async def bind_strategy_profile(
+    request: Request,
+    body: Annotated[dict, Body()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    code = await PlatformExtService.bind_user_strategy(
+        query_db,
+        _current_user_id(current_user),
+        str(body.get('profileCode') or body.get('profile') or ''),
+    )
+    return ResponseUtil.success(data={'profileCode': code}, msg='已绑定本账户生效策略')
+
+
+@trade_controller.get(
+    '/risk/tearsheet',
+    summary='持仓组合收益指标',
+    description='Sharpe / Sortino / 最大回撤 / VaR95 / CVaR，按当前持仓权重用 Influx 日K。',
+    dependencies=[UserInterfaceAuthDependency(['trade:risk:list', 'trade:position:list'])],
+)
+async def risk_tearsheet(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    days: Annotated[int, Query(ge=40, le=400)] = 120,
+) -> Response:
+    data = await RiskMetricsService.get_tearsheet_services(query_db, days=days)
+    return ResponseUtil.success(data=data, msg=data.get('message') or '操作成功')
+
+
 @trade_controller.get(
     '/risk/rules',
     summary='风控规则列表',
@@ -563,11 +672,14 @@ async def delete_risk_rule(
 async def risk_events(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query()] = 50,
     status: Annotated[str | None, Query()] = None,
 ) -> Response:
     try:
-        data = await PlatformExtService.list_risk_events(query_db, limit, status=status)
+        data = await PlatformExtService.list_risk_events(
+            query_db, limit, status=status, user_id=_current_user_id(current_user)
+        )
     except Exception as exc:
         logger.warning(f'[风控事件] API 降级空状态: {exc}')
         data = []
@@ -583,8 +695,11 @@ async def risk_events(
 async def risk_evaluate(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    data = await PlatformExtService.evaluate_risk(query_db)
+    data = await PlatformExtService.evaluate_risk(
+        query_db, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(data=data, msg=f"生成 {data.get('created', 0)} 条事件")
 
 
@@ -605,7 +720,11 @@ async def update_risk_event_status(
     if current_user.user is not None:
         operator = current_user.user.user_name
     data = await PlatformExtService.update_risk_event_review(
-        query_db, event_id, body or {}, operator=operator
+        query_db,
+        event_id,
+        body or {},
+        operator=operator,
+        user_id=_current_user_id(current_user),
     )
     return ResponseUtil.success(data=data, msg='更新风控状态成功')
 
@@ -618,9 +737,14 @@ async def update_risk_event_status(
 async def notices_db(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     limit: Annotated[int, Query()] = 50,
 ) -> Response:
-    return ResponseUtil.success(data=await PlatformExtService.list_notices_db(query_db, limit))
+    return ResponseUtil.success(
+        data=await PlatformExtService.list_notices_db(
+            query_db, limit, user_id=_current_user_id(current_user)
+        )
+    )
 
 
 @trade_controller.post(
@@ -631,11 +755,14 @@ async def notices_db(
 async def notices_read_db(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
     body: Annotated[dict | None, Body()] = None,
 ) -> Response:
     body = body or {}
     nid = body.get('id')
-    await PlatformExtService.mark_notice_read_db(query_db, int(nid) if nid else None)
+    await PlatformExtService.mark_notice_read_db(
+        query_db, int(nid) if nid else None, user_id=_current_user_id(current_user)
+    )
     return ResponseUtil.success(msg='ok')
 
 

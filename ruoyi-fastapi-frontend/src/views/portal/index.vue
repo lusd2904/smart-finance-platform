@@ -128,8 +128,9 @@ const subsystemGroups = [
     path: '/market/heat',
     icon: Histogram,
     links: [
-      { name: '专业交易终端 (Pro)', path: '/market/terminal' },
+      { name: '行情交易', path: '/trade/terminal' },
       { name: '市场热度', path: '/market/heat' },
+      { name: '资金与日历', path: '/market/flow' },
       { name: '行情台', path: '/market/board' },
       { name: '自选清单', path: '/market/watchlist' }
     ]
@@ -138,11 +139,10 @@ const subsystemGroups = [
     id: 'trade',
     name: '核心交易',
     desc: '报价下单、持仓订单、券商通道与通知',
-    path: '/trade/trading',
+    path: '/trade/terminal',
     icon: Money,
     links: [
-      { name: '专业交易终端 (Pro)', path: '/market/terminal' },
-      { name: '核心交易台', path: '/trade/trading' },
+      { name: '行情交易', path: '/trade/terminal' },
       { name: '持仓与订单', path: '/trade/positions' },
       { name: '券商账户', path: '/trade/broker' }
     ]

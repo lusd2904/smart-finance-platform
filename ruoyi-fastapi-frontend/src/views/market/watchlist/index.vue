@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div>
         <h2>自选清单</h2>
-        <p>按登录账号隔离。左侧分组来自备注（逗号分隔），中间看图，右侧看详情与分析。</p>
+        <p>按登录账号隔离。左侧按分组筛选，最新价走实时通道，中间看图，右侧看详情与分析。</p>
       </div>
       <div class="hero-actions">
         <el-button type="primary" icon="Plus" @click="handleAdd" v-hasPermi="['market:watchlist:add']">新增自选</el-button>
@@ -64,6 +64,17 @@
         </el-table-column>
       </el-table>
       <el-empty v-if="!(backtest.items || []).length && !backtestLoading" description="暂无买入/卖出类建议，分析后再回测" :image-size="56" />
+    </el-card>
+
+    <el-card shadow="never" class="panel mb16" v-loading="corrLoading">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">自选相关热力</span>
+          <span class="panel-sub">{{ corr.message || '日收益 Pearson，红=同向 青=对冲' }}</span>
+        </div>
+      </template>
+      <div ref="corrRef" class="corr-chart" v-show="(corr.symbols || []).length >= 2" />
+      <el-empty v-if="(corr.symbols || []).length < 2 && !corrLoading" :description="corr.message || '至少两只有日K的自选'" :image-size="56" />
     </el-card>
 
     <div class="watch-shell" v-loading="loading">
@@ -202,8 +213,11 @@
             <el-option v-for="it in instruments" :key="it.symbol + it.market" :label="`${it.name} (${it.symbol})`" :value="it.symbol + '|' + it.market" />
           </el-select>
         </el-form-item>
-        <el-form-item label="分组" prop="note">
-          <el-input v-model="form.note" placeholder="分组名，多个用逗号，如 七巨头,持仓" />
+        <el-form-item label="分组" prop="groups">
+          <el-input v-model="form.groups" placeholder="分组名，多个用逗号，如 七巨头,持仓" />
+        </el-form-item>
+        <el-form-item label="备注" prop="note">
+          <el-input v-model="form.note" placeholder="可选备注" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -216,6 +230,7 @@
 
 <script setup name="MarketWatchlist">
 import { useEChart } from '@/composables/useEChart'
+import { applyQuotePatch, getQuotesHub } from '@/composables/useMarketQuotesWs'
 import {
   getMarketWatchlistOverview,
   addMarketWatchlist,
@@ -223,6 +238,7 @@ import {
   analyzeMarketWatchlist,
   getMarketWatchlistAnalysis,
   getMarketWatchlistBacktest,
+  getWatchlistCorrelation,
   listInstrument,
   getKline,
   pollMarketJob
@@ -263,11 +279,16 @@ const instruments = ref([])
 const open = ref(false)
 const submitLoading = ref(false)
 const formRef = ref()
-const form = ref({ symbolKey: '', symbol: '', market: 'US', note: '' })
+const form = ref({ symbolKey: '', symbol: '', market: 'US', groups: '', note: '' })
 const rules = { symbolKey: [{ required: true, message: '请选择或输入标的', trigger: 'change' }] }
 const backtest = ref({})
 const backtestLoading = ref(false)
+const corr = ref({ symbols: [], names: [], matrix: [], message: '' })
+const corrLoading = ref(false)
+const corrRef = ref(null)
+const { setOption: setCorrOption } = useEChart(corrRef)
 let quoteTimer = null
+let unsubQuotes = null
 
 const statCards = computed(() => [
   { label: '自选数量', value: overview.value.count || 0, tone: 't-blue' },
@@ -399,9 +420,51 @@ async function loadOverview() {
       loadHistory(current.value)
       nextTick(loadChart)
     }
+    syncQuoteSub()
+    loadCorrelation()
   } finally {
     loading.value = false
   }
+}
+
+async function loadCorrelation() {
+  corrLoading.value = true
+  try {
+    const res = await getWatchlistCorrelation({ days: 60, limit: 12 })
+    corr.value = res.data || { symbols: [], matrix: [] }
+    await nextTick()
+    renderCorr()
+  } catch {
+    corr.value = { symbols: [], names: [], matrix: [], message: '相关矩阵暂不可用' }
+  } finally {
+    corrLoading.value = false
+  }
+}
+
+function renderCorr() {
+  const symbols = corr.value.symbols || []
+  const names = corr.value.names || symbols
+  const matrix = corr.value.matrix || []
+  if (symbols.length < 2) return
+  const labels = names.map((n, i) => n || symbols[i])
+  const data = []
+  matrix.forEach((row, i) => {
+    (row || []).forEach((v, j) => {
+      if (v == null) return
+      data.push([j, i, Number(v.toFixed ? v.toFixed(2) : v)])
+    })
+  })
+  setCorrOption({
+    tooltip: { formatter: (p) => `${labels[p.value[1]]} × ${labels[p.value[0]]}: ${p.value[2]}` },
+    grid: { left: 72, right: 24, top: 16, bottom: 48 },
+    xAxis: { type: 'category', data: labels, axisLabel: { rotate: 40, fontSize: 11 } },
+    yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+    visualMap: {
+      min: -1, max: 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+      inRange: { color: ['#26a69a', '#f8fafc', '#ef5350'] }
+    },
+    series: [{ type: 'heatmap', data, label: { show: symbols.length <= 8, formatter: (p) => p.value[2] } }]
+  })
 }
 
 function loadInstruments() {
@@ -411,7 +474,7 @@ function loadInstruments() {
 }
 
 function handleAdd() {
-  form.value = { symbolKey: '', symbol: '', market: 'US', note: '' }
+  form.value = { symbolKey: '', symbol: '', market: 'US', groups: '', note: '' }
   open.value = true
   nextTick(() => formRef.value && formRef.value.clearValidate())
 }
@@ -434,6 +497,7 @@ function submitForm() {
     addMarketWatchlist({
       symbol: form.value.symbol || String(form.value.symbolKey || '').split('|')[0],
       market: form.value.market,
+      groups: form.value.groups,
       note: form.value.note
     })
       .then(() => {
@@ -519,6 +583,25 @@ async function loadBacktest() {
   }
 }
 
+function applyLiveQuotes(payload) {
+  const items = applyQuotePatch(overview.value.items || [], (payload && payload.items) || [])
+  overview.value = { ...overview.value, items, quoteSource: 'live' }
+  if (current.value) {
+    const hit = items.find(r => r.id === current.value.id)
+    if (hit) current.value = hit
+  }
+}
+
+function syncQuoteSub() {
+  if (unsubQuotes) {
+    unsubQuotes()
+    unsubQuotes = null
+  }
+  const pairs = (overview.value.items || []).map(row => ({ symbol: row.symbol, market: row.market }))
+  if (!pairs.length) return
+  unsubQuotes = getQuotesHub().subscribeQuotes(pairs, applyLiveQuotes)
+}
+
 async function loadOverviewQuiet() {
   try {
     const res = await getMarketWatchlistOverview()
@@ -529,6 +612,7 @@ async function loadOverviewQuiet() {
       const hit = rows.find(r => r.id === current.value.id)
       if (hit) current.value = hit
     }
+    syncQuoteSub()
   } catch {
     /* ignore live poll errors */
   }
@@ -546,7 +630,7 @@ function stopQuoteTimer() {
 }
 function startQuoteTimer() {
   stopQuoteTimer()
-  quoteTimer = setInterval(loadOverviewQuiet, 8000)
+  quoteTimer = setInterval(loadOverviewQuiet, 60000)
 }
 function handleVisibility() {
   if (document.visibilityState === 'visible') {
@@ -556,6 +640,10 @@ function handleVisibility() {
     }
   } else {
     stopQuoteTimer()
+    if (unsubQuotes) {
+      unsubQuotes()
+      unsubQuotes = null
+    }
   }
 }
 
@@ -567,9 +655,21 @@ onMounted(() => {
   window.addEventListener('resize', onResize)
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => {
+  loadOverviewQuiet()
+  startQuoteTimer()
+})
+onDeactivated(() => {
+  stopQuoteTimer()
+  if (unsubQuotes) {
+    unsubQuotes()
+    unsubQuotes = null
+  }
+})
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   stopQuoteTimer()
+  if (unsubQuotes) unsubQuotes()
   window.removeEventListener('resize', onResize)
   disposeHist()
   disposeChart()
@@ -654,6 +754,8 @@ onBeforeUnmount(() => {
   b { font-size: 13px; font-weight: 600; }
 }
 .row-acts { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.corr-chart { height: 320px; width: 100%; }
+
 @media (max-width: 1100px) {
   .watch-shell { grid-template-columns: 240px minmax(0, 1fr); }
   .col-right { display: none; }

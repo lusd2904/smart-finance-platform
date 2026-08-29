@@ -43,11 +43,11 @@ class PortalPage extends ConsumerWidget {
     (
       '核心交易',
       '报价下单、持仓订单、券商通道与通知',
-      '/trade/trading',
+      '/trade/terminal',
       Icons.payments_outlined,
       [
         ('专业交易终端 (Pro)', '/trade/terminal'),
-        ('核心交易台', '/trade/trading'),
+        ('行情交易', '/trade/terminal'),
         ('持仓与订单', '/trade/positions'),
         ('券商账户', '/trade/broker'),
       ],
@@ -613,7 +613,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   ('行情台', '/market/board'),
                   ('行情交易', '/trade/terminal'),
                   ('自选', '/market/watchlist'),
-                  ('交易工作台', '/trade/desk'),
+                  ('行情交易', '/trade/terminal'),
                   ('策略配置', '/quant/strategy-config'),
                   ('舆情大盘', '/sentiment/dashboard'),
                   ('AI 对话', '/ai/chat'),

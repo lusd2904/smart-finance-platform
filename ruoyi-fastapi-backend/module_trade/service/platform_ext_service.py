@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 _SEEDS_DONE = False
 
+VALID_STRATEGY_PROFILES = frozenset({'conservative', 'balanced', 'aggressive'})
+DEFAULT_STRATEGY_PROFILE = 'balanced'
+
 DEFAULT_STRATEGY_PROFILES = {
     'conservative': {
         'name': '保守',
@@ -144,6 +147,38 @@ class PlatformExtService:
             return {}
         return cfg if isinstance(cfg, dict) else {}
 
+    @staticmethod
+    def normalize_strategy_profile(code: Any) -> str:
+        raw = str(code or '').strip().lower()
+        return raw if raw in VALID_STRATEGY_PROFILES else DEFAULT_STRATEGY_PROFILE
+
+    @classmethod
+    async def get_bound_profile(cls, db: AsyncSession, user_id: int | None) -> str:
+        if not user_id:
+            return DEFAULT_STRATEGY_PROFILE
+        row = await TradeDao.get_user_strategy_bind(db, int(user_id))
+        if row is None:
+            return DEFAULT_STRATEGY_PROFILE
+        return cls.normalize_strategy_profile(row.profile_code)
+
+    @classmethod
+    async def resolve_profile(
+        cls, db: AsyncSession, user_id: int | None, override: str | None = None
+    ) -> str:
+        raw = str(override or '').strip().lower()
+        if raw in VALID_STRATEGY_PROFILES:
+            return raw
+        return await cls.get_bound_profile(db, user_id)
+
+    @classmethod
+    async def bind_user_strategy(cls, db: AsyncSession, user_id: int, code: str) -> str:
+        raw = str(code or '').strip().lower()
+        if raw not in VALID_STRATEGY_PROFILES:
+            raise ServiceException(message='策略档位无效，请选择 conservative / balanced / aggressive')
+        await TradeDao.upsert_user_strategy_bind(db, int(user_id), raw)
+        await db.commit()
+        return raw
+
     @classmethod
     async def list_strategy_profiles(cls, db: AsyncSession, user_id: int | None = None) -> list[dict[str, Any]]:
         await cls.ensure_seed_data(db)
@@ -152,6 +187,7 @@ class PlatformExtService:
         if user_id:
             for item in await TradeDao.list_user_strategy_profiles(db, int(user_id)):
                 overlays[item.profile_code] = item
+        active = await cls.get_bound_profile(db, user_id) if user_id else ''
         out = []
         for r in rows:
             overlay = overlays.get(r.profile_code)
@@ -163,6 +199,7 @@ class PlatformExtService:
                     'config': cls._parse_profile_config(src.config_json),
                     'updateTime': src.update_time.strftime('%Y-%m-%d %H:%M:%S') if src.update_time else None,
                     'accountOwned': overlay is not None,
+                    'active': bool(user_id) and r.profile_code == active,
                 }
             )
         return out
@@ -251,14 +288,20 @@ class PlatformExtService:
 
     @classmethod
     async def list_risk_events(
-        cls, db: AsyncSession, limit: int = 50, status: str | None = None
+        cls,
+        db: AsyncSession,
+        limit: int = 50,
+        status: str | None = None,
+        user_id: int | None = None,
     ) -> list[dict[str, Any]]:
+        if user_id is None:
+            return []
         await cls.ensure_seed_data(db)
         try:
-            expired = await TradeDao.expire_overdue_risk_events(db)
+            expired = await TradeDao.expire_overdue_risk_events(db, user_id=user_id)
             if expired:
                 await db.commit()
-            rows = await TradeDao.list_risk_events(db, limit=limit, status=status)
+            rows = await TradeDao.list_risk_events(db, limit=limit, status=status, user_id=user_id)
         except Exception as exc:
             logger.warning(f'[风控事件] 列表降级空状态: {exc}')
             return []
@@ -294,9 +337,10 @@ class PlatformExtService:
         event_id: int,
         payload: dict[str, Any],
         operator: str | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         await cls.ensure_seed_data(db)
-        event = await TradeDao.get_risk_event(db, event_id)
+        event = await TradeDao.get_risk_event(db, event_id, user_id=user_id)
         if not event:
             raise ServiceException(message='风控事件不存在')
         await TradeDao.expire_overdue_risk_events(db)
@@ -323,6 +367,7 @@ class PlatformExtService:
             handle_remark=values['handle_remark'],
             handled_by=values['handled_by'],
             handle_time=values['handle_time'],
+            user_id=user_id,
         )
         if not ok:
             raise ServiceException(message='更新风控状态失败')
@@ -340,6 +385,7 @@ class PlatformExtService:
                     if values['review_status'] in {'need_review', 'pending_review', 'overdue'}
                     else 'info',
                     'category': 'risk',
+                    'user_id': int(user_id or getattr(event, 'user_id', 1) or 1),
                 },
             )
         except Exception as exc:
@@ -355,24 +401,23 @@ class PlatformExtService:
         }
 
     @classmethod
-    async def evaluate_risk(cls, db: AsyncSession) -> dict[str, Any]:
-        """基于规则 + 最近策略信号生成风险事件。"""
+    async def evaluate_risk(cls, db: AsyncSession, user_id: int | None = None) -> dict[str, Any]:
+        """基于规则 + 当前用户最近策略信号生成风险事件。"""
+        if user_id is None:
+            return {'created': 0, 'rules': 0, 'signalsChecked': 0, 'message': '无法识别当前用户'}
         await cls.ensure_seed_data(db)
         from sqlalchemy import desc, select
 
         from module_quant.entity.do.quant_do import QuantStrategySignal
-
         rules = await cls.list_risk_rules(db)
         enabled = [r for r in rules if str(r.get('enabled')) == '1']
-        sig_rows = (
-            (
-                await db.execute(
-                    select(QuantStrategySignal).order_by(desc(QuantStrategySignal.create_time)).limit(30)
-                )
-            )
-            .scalars()
-            .all()
+        sig_stmt = (
+            select(QuantStrategySignal)
+            .where(QuantStrategySignal.user_id == int(user_id))
+            .order_by(desc(QuantStrategySignal.create_time))
+            .limit(30)
         )
+        sig_rows = (await db.execute(sig_stmt)).scalars().all()
         created = 0
         for sig in sig_rows[:20]:
             score = float(sig.score or 0)
@@ -383,6 +428,7 @@ class PlatformExtService:
                     await TradeDao.add_risk_event(
                         db,
                         {
+                            'user_id': int(user_id),
                             'rule_id': rule['ruleId'],
                             'event_level': 'warn',
                             'title': f"{rule['ruleName']} · {symbol}",
@@ -396,24 +442,48 @@ class PlatformExtService:
                     break
         await db.commit()
         if created:
-            await cls.push_notice_db(db, f'风控扫描产生 {created} 条事件', '请查看风控事件列表', 'warning', 'risk')
+            await cls.push_notice_db(
+                db,
+                f'风控扫描产生 {created} 条事件',
+                '请查看风控事件列表',
+                'warning',
+                'risk',
+                user_id=user_id,
+            )
         return {'created': created, 'rules': len(enabled), 'signalsChecked': len(sig_rows)}
 
     # ---------- 通知落库 ----------
     @classmethod
     async def push_notice_db(
-        cls, db: AsyncSession, title: str, content: str, level: str = 'info', category: str = 'system'
+        cls,
+        db: AsyncSession,
+        title: str,
+        content: str,
+        level: str = 'info',
+        category: str = 'system',
+        user_id: int | None = None,
     ) -> None:
         await cls.ensure_seed_data(db)
         await TradeDao.add_notification(
-            db, {'title': title, 'content': content, 'level': level, 'category': category}
+            db,
+            {
+                'title': title,
+                'content': content,
+                'level': level,
+                'category': category,
+                'user_id': int(user_id or 1),
+            },
         )
         await db.commit()
 
     @classmethod
-    async def list_notices_db(cls, db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
+    async def list_notices_db(
+        cls, db: AsyncSession, limit: int = 50, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        if user_id is None:
+            return []
         await cls.ensure_seed_data(db)
-        rows = await TradeDao.list_notifications(db, limit=limit)
+        rows = await TradeDao.list_notifications(db, limit=limit, user_id=user_id)
         return [
             {
                 'id': r.notice_id,
@@ -428,9 +498,13 @@ class PlatformExtService:
         ]
 
     @classmethod
-    async def mark_notice_read_db(cls, db: AsyncSession, notice_id: int | None = None) -> int:
+    async def mark_notice_read_db(
+        cls, db: AsyncSession, notice_id: int | None = None, user_id: int | None = None
+    ) -> int:
+        if user_id is None:
+            return 0
         await cls.ensure_seed_data(db)
-        updated = await TradeDao.mark_notifications_read(db, notice_id=notice_id)
+        updated = await TradeDao.mark_notifications_read(db, notice_id=notice_id, user_id=user_id)
         await db.commit()
         return updated
 

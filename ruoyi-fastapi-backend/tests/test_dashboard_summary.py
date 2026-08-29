@@ -119,3 +119,43 @@ async def test_summary_refresh_rewrites_cache() -> None:
     assert cache_set.await_args.args[2] == dashboard_service.SUMMARY_CACHE_TTL
     assert result['cached'] is False
     assert result['generatedAt']
+
+
+def test_summary_cache_key_includes_user_and_perms() -> None:
+    from module_dashboard.service.dashboard_service import summary_cache_key
+
+    a = summary_cache_key(1, ['market:watchlist:list'])
+    b = summary_cache_key(2, ['market:watchlist:list'])
+    c = summary_cache_key(1, ['*:*:*'])
+    assert a.startswith('dashboard:summary:1:')
+    assert a != b
+    assert a != c
+
+
+@pytest.mark.asyncio
+async def test_summary_cache_does_not_leak_across_users() -> None:
+    cached_a = {'generatedAt': '2026-08-24 12:00:00', 'watchSignals': {'data': 'user-a'}}
+    seen: list[str] = []
+
+    async def fake_get(key: str):
+        seen.append(key)
+        if ':1:' in key:
+            return cached_a
+        return None
+
+    with (
+        patch('module_dashboard.service.dashboard_service.cache_get_json', new=fake_get),
+        patch.object(
+            DashboardService,
+            '_collect',
+            new=AsyncMock(return_value={'watchSignals': {'data': 'user-b'}}),
+        ) as collect,
+        patch('module_dashboard.service.dashboard_service.cache_set_json', new=AsyncMock()),
+    ):
+        first = await DashboardService.get_summary_services(AsyncMock(), 1, ['*:*:*'], use_cache=True)
+        second = await DashboardService.get_summary_services(AsyncMock(), 2, ['*:*:*'], use_cache=True)
+
+    assert first['watchSignals']['data'] == 'user-a'
+    collect.assert_awaited()
+    assert seen[0] != seen[1]
+    assert second['watchSignals']['data'] == 'user-b'

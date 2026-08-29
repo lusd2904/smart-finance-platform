@@ -32,7 +32,7 @@ class AiConsultantService:
         base_url = ai_model.base_url.rstrip('/')
         url = f'{base_url}/chat/completions' if not base_url.endswith('/chat/completions') else base_url
 
-        await LongbridgeService.ensure_credentials_from_db(db)
+        await LongbridgeService.ensure_credentials_from_db(db, allow_admin_fallback=True)
         acc_raw, pos_res = await asyncio.gather(
             LongbridgeService.get_account_balance_async(),
             LongbridgeService.get_positions_async(),

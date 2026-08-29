@@ -12,6 +12,8 @@ const HIDDEN_PAGE_ACTIVE_MENU = {
   '/market/symbol': '/market/board',
   '/market/tradingview': '/market/board',
   '/market/terminal': '/trade/terminal',
+  '/trade/trading': '/trade/terminal',
+  '/trade/desk': '/trade/terminal',
   '/market/stock-pool': '/market/board',
   '/market/dashboard': '/market/heat',
   '/market/coverage': '/market/board'

@@ -1,3 +1,4 @@
+import json
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,16 @@ from utils.message_util import message_service
 from utils.pwd_util import PwdUtil
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='login')
+
+CURRENT_USER_EPOCH_KEY = 'current_user_epoch'
+
+
+def _as_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode('utf-8')
+    return str(value)
 
 
 class CustomOAuth2PasswordRequestForm(OAuth2PasswordRequestForm):
@@ -191,6 +202,66 @@ class LoginService:
         return encoded_jwt
 
     @classmethod
+    def _current_user_cache_key(cls, user_id: int) -> str:
+        return f'{RedisInitKeyConfig.CURRENT_USER.key}:{int(user_id)}'
+
+    @classmethod
+    async def load_cached_current_user(cls, redis: Any, user_id: int) -> CurrentUserModel | None:
+        if redis is None or not user_id:
+            return None
+        try:
+            raw = await redis.get(cls._current_user_cache_key(user_id))
+            epoch = await redis.get(CURRENT_USER_EPOCH_KEY)
+            if not raw:
+                return None
+            data = json.loads(_as_text(raw) or '')
+            if not isinstance(data, dict):
+                return None
+            if str(data.get('epoch') or '0') != str(_as_text(epoch) or '0'):
+                return None
+            payload = data.get('user')
+            if not isinstance(payload, dict):
+                return None
+            return CurrentUserModel.model_validate(payload)
+        except Exception:
+            return None
+
+    @classmethod
+    async def cache_current_user(cls, redis: Any, user_id: int, current_user: CurrentUserModel) -> None:
+        if redis is None or not user_id:
+            return
+        try:
+            epoch = _as_text(await redis.get(CURRENT_USER_EPOCH_KEY)) or '0'
+            payload = json.dumps(
+                {'epoch': epoch, 'user': current_user.model_dump(mode='json', by_alias=True)},
+                ensure_ascii=False,
+                default=str,
+            )
+            await redis.set(
+                cls._current_user_cache_key(user_id),
+                payload,
+                ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
+            )
+        except Exception as exc:
+            logger.debug(f'[用户缓存] 写入失败 user={user_id}: {exc}')
+
+    @classmethod
+    async def invalidate_current_user_cache(cls, *, user_id: int | None = None, all_users: bool = False) -> None:
+        try:
+            from config.get_redis import RedisUtil
+
+            redis = RedisUtil.get_client()
+            if redis is None:
+                return
+            if all_users:
+                await redis.incr(CURRENT_USER_EPOCH_KEY)
+                return
+            if user_id:
+                await redis.delete(cls._current_user_cache_key(int(user_id)))
+        except Exception as exc:
+            logger.debug(f'[用户缓存] 失效失败 user={user_id}: {exc}')
+
+    @classmethod
     async def get_current_user(
         cls, request: Request = Request, token: str = Depends(oauth2_scheme), query_db: AsyncSession = Depends(get_db)
     ) -> CurrentUserModel:
@@ -225,64 +296,61 @@ class LoginService:
         except InvalidTokenError as e:
             logger.warning('用户token已失效，请重新登录')
             raise AuthException(data='', message='用户token已失效，请重新登录') from e
+        redis = request.app.state.redis
+        if AppConfig.app_same_time_login:
+            redis_token = _as_text(await redis.get(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}'))
+        else:
+            redis_token = _as_text(await redis.get(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{token_data.user_id}'))
+        if token != redis_token:
+            logger.warning('用户token已失效，请重新登录')
+            raise AuthException(data='', message='用户token已失效，请重新登录')
+        ttl = timedelta(minutes=JwtConfig.jwt_redis_expire_minutes)
+        if AppConfig.app_same_time_login:
+            await redis.set(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}', redis_token, ex=ttl)
+        else:
+            await redis.set(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{token_data.user_id}', redis_token, ex=ttl)
+
+        cached = await cls.load_cached_current_user(redis, token_data.user_id)
+        if cached is not None:
+            RequestContext.set_current_user(cached)
+            return cached
+
         query_user = await UserDao.get_user_by_id(query_db, user_id=token_data.user_id)
         if query_user.get('user_basic_info') is None:
             logger.warning('用户token不合法')
             raise AuthException(data='', message='用户token不合法')
-        if AppConfig.app_same_time_login:
-            redis_token = await request.app.state.redis.get(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}')
+
+        role_id_list = [item.role_id for item in query_user.get('user_role_info')]
+        if 1 in role_id_list:  # noqa: SIM108
+            permissions = ['*:*:*']
         else:
-            # 此方法可实现同一账号同一时间只能登录一次
-            redis_token = await request.app.state.redis.get(
-                f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{query_user.get("user_basic_info").user_id}'
-            )
-        if token == redis_token:
-            if AppConfig.app_same_time_login:
-                await request.app.state.redis.set(
-                    f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}',
-                    redis_token,
-                    ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-                )
-            else:
-                await request.app.state.redis.set(
-                    f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{query_user.get("user_basic_info").user_id}',
-                    redis_token,
-                    ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-                )
+            permissions = [row.perms for row in query_user.get('user_menu_info')]
+        post_ids = ','.join([str(row.post_id) for row in query_user.get('user_post_info')])
+        role_ids = ','.join([str(row.role_id) for row in query_user.get('user_role_info')])
+        roles = [row.role_key for row in query_user.get('user_role_info')]
+        is_default_modify_pwd = await cls.__init_password_is_modify(
+            request, query_user.get('user_basic_info').pwd_update_date
+        )
+        is_password_expired = await cls.__password_is_expired(
+            request, query_user.get('user_basic_info').pwd_update_date
+        )
 
-            role_id_list = [item.role_id for item in query_user.get('user_role_info')]
-            if 1 in role_id_list:  # noqa: SIM108
-                permissions = ['*:*:*']
-            else:
-                permissions = [row.perms for row in query_user.get('user_menu_info')]
-            post_ids = ','.join([str(row.post_id) for row in query_user.get('user_post_info')])
-            role_ids = ','.join([str(row.role_id) for row in query_user.get('user_role_info')])
-            roles = [row.role_key for row in query_user.get('user_role_info')]
-            is_default_modify_pwd = await cls.__init_password_is_modify(
-                request, query_user.get('user_basic_info').pwd_update_date
-            )
-            is_password_expired = await cls.__password_is_expired(
-                request, query_user.get('user_basic_info').pwd_update_date
-            )
-
-            current_user = CurrentUserModel(
-                permissions=permissions,
-                roles=roles,
-                user=UserInfoModel(
-                    **CamelCaseUtil.transform_result(query_user.get('user_basic_info')),
-                    postIds=post_ids,
-                    roleIds=role_ids,
-                    dept=CamelCaseUtil.transform_result(query_user.get('user_dept_info')),
-                    role=CamelCaseUtil.transform_result(query_user.get('user_role_info')),
-                ),
-                isDefaultModifyPwd=is_default_modify_pwd,
-                isPasswordExpired=is_password_expired,
-            )
-            # 设置当前用户信息到上下文
-            RequestContext.set_current_user(current_user)
-            return current_user
-        logger.warning('用户token已失效，请重新登录')
-        raise AuthException(data='', message='用户token已失效，请重新登录')
+        current_user = CurrentUserModel(
+            permissions=permissions,
+            roles=roles,
+            user=UserInfoModel(
+                **CamelCaseUtil.transform_result(query_user.get('user_basic_info')),
+                postIds=post_ids,
+                roleIds=role_ids,
+                dept=CamelCaseUtil.transform_result(query_user.get('user_dept_info')),
+                role=CamelCaseUtil.transform_result(query_user.get('user_role_info')),
+            ),
+            isDefaultModifyPwd=is_default_modify_pwd,
+            isPasswordExpired=is_password_expired,
+        )
+        await cls.cache_current_user(redis, token_data.user_id, current_user)
+        RequestContext.set_current_user(current_user)
+        return current_user
 
     @classmethod
     async def __init_password_is_modify(cls, request: Request, pwd_update_date: datetime) -> bool:
@@ -523,17 +591,22 @@ class LoginService:
         return CrudResponseModel(**result)
 
     @classmethod
-    async def logout_services(cls, request: Request, token_id: str) -> bool:
+    async def logout_services(cls, request: Request, token_id: str, user_id: int | str | None = None) -> bool:
         """
         退出登录services
 
         :param request: Request对象
         :param token_id: 令牌编号
+        :param user_id: 用户ID（用于清权限缓存）
         :return: 退出登录结果
         """
         await request.app.state.redis.delete(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{token_id}')
-        # await request.app.state.redis.delete(f'{current_user.user.user_id}_access_token')
-        # await request.app.state.redis.delete(f'{current_user.user.user_id}_session_id')
+        try:
+            uid = int(user_id) if user_id is not None else None
+        except (TypeError, ValueError):
+            uid = None
+        if uid:
+            await request.app.state.redis.delete(cls._current_user_cache_key(uid))
 
         return True
 

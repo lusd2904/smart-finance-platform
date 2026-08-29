@@ -646,7 +646,7 @@ class _MarketSymbolPageState extends ConsumerState<MarketSymbolPage> {
               ),
               OutlinedButton(
                 onPressed: () => widget.open?.call(
-                  '/trade/desk?symbol=${widget.symbol}&market=${widget.market}',
+                  '/trade/terminal?symbol=${widget.symbol}&market=${widget.market}',
                   title: '交易工作台',
                 ),
                 child: const Text('交易'),
@@ -842,7 +842,7 @@ class _MarketWatchlistPageState extends ConsumerState<MarketWatchlistPage> {
                                     const Spacer(),
                                     FilledButton(
                                       onPressed: () => widget.open?.call(
-                                        '/trade/desk?symbol=${_picked!.symbol}&market=${_picked!.market}',
+                                        '/trade/terminal?symbol=${_picked!.symbol}&market=${_picked!.market}',
                                         title: '交易工作台',
                                       ),
                                       child: const Text('去交易台'),

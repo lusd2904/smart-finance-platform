@@ -331,7 +331,7 @@ class MarketService:
             )
             how = {'5min': '5min', '15min': '15min'}.get(period)
             if how and klines:
-                klines = cls._resample_minute_bars(klines, how)
+                klines = await loop.run_in_executor(None, cls._resample_minute_bars, klines, how)
             return klines
         klines = await loop.run_in_executor(
             None,
@@ -800,9 +800,16 @@ class MarketService:
 
     @classmethod
     async def get_finance_briefings_services(
-        cls, query_db: AsyncSession, limit: int = 20, market: str | None = None, refresh: bool = False
+        cls,
+        query_db: AsyncSession,
+        limit: int = 20,
+        market: str | None = None,
+        refresh: bool = False,
+        symbol: str | None = None,
     ) -> dict[str, Any]:
-        return await FinanceNewsService.get_briefings(query_db, limit=limit, market=market, refresh=refresh)
+        return await FinanceNewsService.get_briefings(
+            query_db, limit=limit, market=market, refresh=refresh, symbol=symbol
+        )
 
     @classmethod
     async def get_symbol_content_services(
@@ -813,7 +820,36 @@ class MarketService:
         content_type: str = 'news',
         limit: int = 20,
         refresh: bool = False,
+        related: bool = True,
     ) -> dict[str, Any]:
-        return await SymbolContentService.get_content(
+        data = await SymbolContentService.get_content(
             query_db, symbol, market, content_type=content_type, limit=limit, refresh=refresh
         )
+        if content_type != 'news' or not related:
+            return data
+        try:
+            from module_market.service.symbol_news import related_news_items
+
+            extras = await related_news_items(
+                query_db, symbol, market, limit=limit, name=None
+            )
+        except Exception as exc:
+            logger.info(f'[标的资讯] 关联新闻跳过: {exc}')
+            extras = []
+        if not extras:
+            return data
+        items = list(data.get('items') or [])
+        seen = {str(item.get('title') or '') for item in items}
+        for extra in extras:
+            title = str(extra.get('title') or '')
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            extra.setdefault('bind', extra.get('bind') or 'related')
+            items.append(extra)
+            if len(items) >= limit:
+                break
+        items.sort(key=lambda item: str(item.get('publishedAt') or item.get('fetchedAt') or ''), reverse=True)
+        data['items'] = items[:limit]
+        data['related'] = True
+        return data

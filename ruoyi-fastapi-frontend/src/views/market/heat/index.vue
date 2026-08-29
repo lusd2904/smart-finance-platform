@@ -151,7 +151,7 @@
       </el-table>
     </el-card>
 
-    <!-- 全市场实时报价板（只读缓存，8s 静默刷新） -->
+    <!-- 全市场报价板：WS 最新价，60s REST 刷新名称/结构 -->
     <el-card shadow="never" v-loading="boardLoading">
       <template #header>
         <div class="panel-header">
@@ -165,7 +165,7 @@
             </el-radio-group>
             <span class="live-dot-wrap">
               <span class="live-dot"></span>
-              <span class="panel-sub">8s 自动刷新{{ boardStale ? ' · 缓存' : '' }}</span>
+              <span class="panel-sub">实时最新价{{ boardStale ? ' · 缓存' : '' }}</span>
             </span>
           </div>
         </div>
@@ -218,6 +218,7 @@ import {
   getBoardQuotes,
   addMarketWatchlist
 } from '@/api/market'
+import { applyQuotePatch, getQuotesHub } from '@/composables/useMarketQuotesWs'
 
 const route = useRoute()
 const router = useRouter()
@@ -246,6 +247,7 @@ const boardLoading = ref(false)
 const boardMarket = ref('')
 const boardRows = ref([])
 let quoteTimer = null
+let unsubQuotes = null
 
 // ---- 趋势图 ----
 const trendRef = ref(null)
@@ -431,9 +433,13 @@ async function loadDaily() {
     const payload = res.data || {}
     heat.value = payload.heat
     meta.value = payload.meta
-    top50.value = payload.top50 || []
+    top50.value = (payload.top50 || []).map((r) => ({
+      ...r,
+      market: normalizeMarket(r.market || market.value)
+    }))
     if (payload.tradeDate) tradeDate.value = payload.tradeDate
     await loadTrend()
+    syncQuoteSub()
   } finally {
     loading.value = false
   }
@@ -451,26 +457,81 @@ async function loadBoard(silent = false) {
     const res = await getBoardQuotes({ market: boardMarket.value || undefined })
     const payload = res.data || {}
     boardRows.value = (payload.rows || payload.quotes || []).map(normalizeQuote)
+    syncQuoteSub()
   } catch {
-    if (!silent) boardRows.value = []
+    if (!silent) {
+      boardRows.value = []
+      syncQuoteSub()
+    }
   } finally {
     if (!silent) boardLoading.value = false
   }
 }
 
+function normalizeMarket(m) {
+  const u = String(m || 'US').trim().toUpperCase()
+  if (u === 'HK' || u === 'HKEX') return 'HK'
+  if (u === 'CN' || u === 'A' || u === 'SH' || u === 'SZ' || u === 'CSI') return 'CN'
+  return 'US'
+}
+
+function isIndexRow(row) {
+  const cat = String((row && (row.category || row.kind || row.type)) || '').toLowerCase()
+  if (cat === 'index') return true
+  const sym = String((row && row.symbol) || '')
+  return sym.startsWith('^') || sym.startsWith('.')
+}
+
+function quotePairsFrom(list, fallbackMarket) {
+  const out = []
+  for (const row of list || []) {
+    if (!row || !row.symbol || isIndexRow(row)) continue
+    out.push({ symbol: row.symbol, market: normalizeMarket(row.market || fallbackMarket) })
+  }
+  return out
+}
+
+function dropQuoteSub() {
+  if (unsubQuotes) {
+    unsubQuotes()
+    unsubQuotes = null
+  }
+}
+
+function applyLiveQuotes(payload) {
+  const items = (payload && payload.items) || []
+  if (!items.length) return
+  top50.value = applyQuotePatch(top50.value, items)
+  boardRows.value = applyQuotePatch(boardRows.value, items).map(normalizeQuote)
+}
+
+function syncQuoteSub() {
+  dropQuoteSub()
+  const pairs = [
+    ...quotePairsFrom(top50.value, market.value),
+    ...quotePairsFrom(boardRows.value, boardMarket.value || market.value)
+  ]
+  if (!pairs.length) return
+  unsubQuotes = getQuotesHub().subscribeQuotes(pairs, applyLiveQuotes)
+}
+
 function normalizeQuote(item) {
-  const price = item.price == null ? null : Number(item.price)
-  const changeRate = item.changeRate == null ? item.change : item.changeRate
+  const rawPrice = item.last != null ? item.last : item.price
+  const price = rawPrice == null ? null : Number(rawPrice)
+  const changeRate = item.changePct != null ? item.changePct : (item.changeRate == null ? item.change : item.changeRate)
+  const nChange = Number(changeRate)
+  const hasChange = changeRate != null && !Number.isNaN(nChange)
   return {
     ...item,
+    market: normalizeMarket(item.market || boardMarket.value || market.value),
     price: price == null || Number.isNaN(price) ? null : price.toFixed(2),
-    changeRate: Number(changeRate),
-    changeText:
-      item.changeText ||
-      (changeRate == null || Number.isNaN(Number(changeRate))
-        ? '--'
-        : `${Number(changeRate) >= 0 ? '+' : ''}${Number(changeRate).toFixed(2)}%`),
-    up: item.up == null ? Number(changeRate) >= 0 : !!item.up
+    last: price == null || Number.isNaN(price) ? item.last : price,
+    changeRate: hasChange ? nChange : Number(changeRate),
+    changePct: hasChange ? nChange : item.changePct,
+    changeText: hasChange
+      ? `${nChange >= 0 ? '+' : ''}${nChange.toFixed(2)}%`
+      : (item.changeText || '--'),
+    up: hasChange ? nChange >= 0 : (item.up == null ? nChange >= 0 : !!item.up)
   }
 }
 
@@ -486,7 +547,6 @@ function withMarketQuery(row) {
   return { symbol: row.symbol, market: marketLabelKey(row) }
 }
 function marketLabelKey(row) {
-  // top50 行没有 market 字段，跟随当前页签；报价板行带小写市场值
   const m = String(row.market || market.value || 'CN').toUpperCase()
   return m === 'A' ? 'CN' : m === 'SH' || m === 'SZ' ? 'CN' : m
 }
@@ -503,7 +563,7 @@ function goAi(row) {
 async function addWatch(row) {
   adding.value = row.symbol
   try {
-    await addMarketWatchlist({ symbol: row.symbol, market: marketLabelKey(row), note: 'Top50' })
+    await addMarketWatchlist({ symbol: row.symbol, market: marketLabelKey(row), groups: 'Top50' })
     row.inWatchlist = true
   } finally {
     adding.value = ''
@@ -518,17 +578,15 @@ function stopQuoteTimer() {
 }
 function startQuoteTimer() {
   stopQuoteTimer()
-  quoteTimer = setInterval(() => loadBoard(true), 8000)
+  quoteTimer = setInterval(() => loadBoard(true), 60000)
 }
-// 后台标签页暂停轮询，回到前台立即刷新并恢复
 function handleVisibility() {
   if (document.visibilityState === 'visible') {
-    if (!quoteTimer) {
-      loadBoard(true)
-      startQuoteTimer()
-    }
+    if (!quoteTimer) startQuoteTimer()
+    syncQuoteSub()
   } else {
     stopQuoteTimer()
+    dropQuoteSub()
   }
 }
 
@@ -542,9 +600,19 @@ onMounted(async () => {
   startQuoteTimer()
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => {
+  startQuoteTimer()
+  if (!boardRows.value.length && !top50.value.length) loadBoard(true)
+  else syncQuoteSub()
+})
+onDeactivated(() => {
+  stopQuoteTimer()
+  dropQuoteSub()
+})
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   stopQuoteTimer()
+  dropQuoteSub()
   disposeTrend()
 })
 </script>

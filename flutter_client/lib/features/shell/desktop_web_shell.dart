@@ -62,11 +62,6 @@ class _DesktopWebShellState extends ConsumerState<DesktopWebShell> {
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setNavigationDelegate(
           NavigationDelegate(
-            onPageFinished: (url) {
-              _controller?.runJavaScript(
-                "document.cookie='Admin-Token=$token; path=/';",
-              );
-            },
             onWebResourceError: (err) {
               if (!mounted) return;
               if (!_ready) setState(() => _error = err.description);

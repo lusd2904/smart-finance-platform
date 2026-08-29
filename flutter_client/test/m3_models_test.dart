@@ -22,7 +22,13 @@ void main() {
             'ir': 0.28,
             'icPositiveRatio': 0.61,
             'sampleDates': 250,
-            'quantiles': {'q1': -1.2, 'q2': 0.3, 'q3': 0.5, 'q4': 0.9, 'q5': 2.1},
+            'quantiles': {
+              'q1': -1.2,
+              'q2': 0.3,
+              'q3': 0.5,
+              'q4': 0.9,
+              'q5': 2.1,
+            },
             'spread': 3.3,
             'ok': true,
           },
@@ -46,7 +52,10 @@ void main() {
 
   group('DailyListPayload / SignalItem', () {
     test('list 为 null 时保留 message（服务端无清单场景）', () {
-      final p = DailyListPayload.fromJson(const {'list': null, 'message': '尚未生成'});
+      final p = DailyListPayload.fromJson(const {
+        'list': null,
+        'message': '尚未生成',
+      });
       expect(p.list, isNull);
       expect(p.message, '尚未生成');
     });
@@ -103,8 +112,12 @@ void main() {
           },
         },
         'updateTime': '2026-08-24 10:00:00',
+        'active': true,
+        'accountOwned': true,
       });
       expect(p.weights, hasLength(8));
+      expect(p.active, isTrue);
+      expect(p.accountOwned, isTrue);
       expect(p.buyThreshold, 75);
       final values = p.radarValues;
       expect(values.length, 8);
@@ -113,7 +126,9 @@ void main() {
     });
 
     test('空权重不产生除零', () {
-      final p = StrategyProfile.fromJson(const {'config': {'weights': {}}});
+      final p = StrategyProfile.fromJson(const {
+        'config': {'weights': {}},
+      });
       expect(p.radarValues.every((v) => v == 0.0), isTrue);
     });
   });

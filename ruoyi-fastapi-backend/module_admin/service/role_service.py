@@ -162,6 +162,9 @@ class RoleService:
                 for menu in page_object.menu_ids:
                     await RoleDao.add_role_menu_dao(query_db, RoleMenuModel(roleId=role_id, menuId=menu))
             await query_db.commit()
+            from module_admin.service.login_service import LoginService
+
+            await LoginService.invalidate_current_user_cache(all_users=True)
             return CrudResponseModel(is_success=True, message='新增成功')
         except Exception as e:
             await query_db.rollback()
@@ -198,6 +201,9 @@ class RoleService:
                                 query_db, RoleMenuModel(roleId=page_object.role_id, menuId=menu)
                             )
                 await query_db.commit()
+                from module_admin.service.login_service import LoginService
+
+                await LoginService.invalidate_current_user_cache(all_users=True)
                 return CrudResponseModel(is_success=True, message='更新成功')
             except Exception as e:
                 await query_db.rollback()

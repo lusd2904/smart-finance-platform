@@ -69,6 +69,7 @@ class RedisInitKeyConfig(Enum):
         return self.value.get('remark')
 
     ACCESS_TOKEN = {'key': 'access_token', 'remark': '登录令牌信息'}
+    CURRENT_USER = {'key': 'current_user', 'remark': '当前用户权限缓存'}
     SYS_DICT = {'key': 'sys_dict', 'remark': '数据字典'}
     SYS_CONFIG = {'key': 'sys_config', 'remark': '配置信息'}
     API_CACHE = {'key': 'api_cache', 'remark': '接口响应缓存'}

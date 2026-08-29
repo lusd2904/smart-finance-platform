@@ -33,6 +33,7 @@ class PlatRiskEvent(Base):
     __table_args__ = {'comment': '风控触发事件表'}
 
     event_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='事件ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='用户ID')
     rule_id = Column(BigInteger, nullable=True, comment='关联规则ID')
     event_level = Column(String(16), nullable=False, server_default="'warn'", comment='事件等级')
     title = Column(String(200), nullable=False, comment='事件标题')
@@ -78,6 +79,17 @@ class PlatStrategyProfileUser(Base):
     update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
+class PlatUserStrategyBind(Base):
+    """登录账户当前生效的策略档位（conservative / balanced / aggressive）。"""
+
+    __tablename__ = 'plat_user_strategy_bind'
+    __table_args__ = {'comment': '用户生效策略绑定'}
+
+    user_id = Column(BigInteger, primary_key=True, nullable=False, comment='用户ID')
+    profile_code = Column(String(32), nullable=False, server_default='balanced', comment='生效策略编码')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+
 class PlatFeishuSubscription(Base):
     """飞书策略摘要订阅。"""
 
@@ -108,6 +120,7 @@ class PlatNotification(Base):
     __table_args__ = {'comment': '系统通知表'}
 
     notice_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='通知ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='用户ID')
     title = Column(String(200), nullable=False, comment='标题')
     content = Column(String(2000), nullable=True, comment='内容')
     level = Column(String(16), nullable=False, server_default="'info'", comment='级别(info/success/warning/danger)')
@@ -125,10 +138,11 @@ class PlatBacktestRun(Base):
     __table_args__ = {'comment': '量化回测运行记录表'}
 
     run_id = Column(BigInteger, primary_key=True, nullable=False, autoincrement=True, comment='回测ID')
+    user_id = Column(BigInteger, nullable=False, server_default='1', index=True, comment='用户ID')
     symbol = Column(String(32), nullable=False, index=True, comment='标的代码')
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场')
     days = Column(Integer, nullable=False, server_default='120', comment='回测天数')
-    strategy = Column(String(64), nullable=False, server_default="'MA5/MA20 cross'", comment='策略名称')
+    strategy = Column(String(64), nullable=False, server_default="'factor-8family:balanced'", comment='策略名称')
     trades = Column(Integer, nullable=False, server_default='0', comment='交易次数')
     return_pct = Column(Float, nullable=False, server_default='0', comment='收益率(%)')
     final_equity = Column(Float, nullable=False, server_default='0', comment='最终净值')

@@ -45,7 +45,7 @@ export function runDailyFactorScan(profile = 'balanced') {
     url: '/quant/scan/daily',
     method: 'post',
     params: { profile },
-    timeout: 180000
+    timeout: 20000
   })
 }
 
@@ -70,7 +70,7 @@ export function runFactorQc(market = 'US') {
     url: '/quant/factor/qc/run',
     method: 'post',
     params: { market },
-    timeout: 180000
+    timeout: 20000
   })
 }
 

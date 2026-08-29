@@ -6,13 +6,21 @@ scrape_configs:
   - job_name: 'smart-finance-backend'
     metrics_path: '/metrics'
     static_configs:
-      # docker-compose.sentiment.yml 容器内端口 9099
-      - targets: ['sentiment-backend:9099']
-      # 本机直接跑后端时
-      - targets: ['host.docker.internal:19099']
+      - targets:
+          - 'sentiment-backend:9099'
+          - 'sentiment-trade:9099'
+          - 'sentiment-market:9099'
+          - 'sentiment-quant:9099'
+          - 'sentiment-news:9099'
+          - 'sentiment-ai:9099'
+          - 'host.docker.internal:19099'
 
   - job_name: 'smart-finance-jobs'
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['sentiment-jobs:9098']
-      - targets: ['host.docker.internal:19098']
+      - targets:
+          - 'sentiment-jobs:9098'
+          - 'sentiment-jobs-market:9098'
+          - 'sentiment-jobs-quant:9098'
+          - 'sentiment-jobs-llm:9098'
+          - 'host.docker.internal:19098'

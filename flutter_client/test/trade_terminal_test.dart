@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_client/core/market/market_session.dart';
 import 'package:flutter_client/features/market/data/market_api.dart';
 import 'package:flutter_client/features/market/data/market_models.dart';
+import 'package:flutter_client/features/market/data/market_quotes_ws.dart';
 import 'package:flutter_client/features/trade/data/trade_api.dart';
 import 'package:flutter_client/features/trade/data/trade_models.dart';
 import 'package:flutter_client/features/web/trade_terminal_page.dart';
@@ -214,6 +215,21 @@ Future<void> _pumpTerminal(
       overrides: [
         marketApiProvider.overrideWith((ref) => market),
         tradeApiProvider.overrideWith((ref) => trade),
+        marketQuotesStreamProvider.overrideWith(
+          (ref) => Stream.value(
+            const MarketQuoteStream(
+              items: [
+                IndexQuote(
+                  symbol: 'usIXIC',
+                  name: '纳斯达克',
+                  market: 'US',
+                  last: 17800,
+                  changePct: 0.5,
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
       child: MaterialApp(
         home: Scaffold(body: TradeTerminalPage(sessionClock: clock)),
@@ -226,6 +242,37 @@ Future<void> _pumpTerminal(
 }
 
 void main() {
+  test('WS 忽略 quotes 通道，避免冲掉指数', () {
+    final index = parseMarketQuotesMessage(
+      '{"channel":"index","data":{"items":[{"symbol":"usIXIC","name":"纳斯达克","market":"US","last":1,"changePct":0.5}],"asOf":"t"}}',
+    );
+    expect(index, isNotNull);
+    expect(index!.items.single.symbol, 'usIXIC');
+    expect(
+      parseMarketQuotesMessage(
+        '{"channel":"quotes","quotes":{"items":[{"symbol":"AAPL","last":227}]}}',
+      ),
+      isNull,
+    );
+    expect(parseMarketQuotesMessage('pong'), isNull);
+  });
+
+  test('WS 个股 quotes 通道可解析并补丁自选价', () {
+    final quotes = parseLiveQuotesMessage(
+      '{"channel":"quotes","quotes":{"items":[{"symbol":"AAPL","market":"US","last":227.5,"changePct":1.2,"source":"longbridge"}]}}',
+    );
+    expect(quotes, isNotNull);
+    expect(quotes!.single.symbol, 'AAPL');
+    expect(quotes.single.last, 227.5);
+    expect(parseLiveQuotesMessage('{"channel":"index","data":{"items":[]}}'), isNull);
+    final patched = applyLiveQuote(
+      const WatchlistItem(symbol: 'AAPL', market: 'US', last: 1, changeRate: 0),
+      quotes.single,
+    );
+    expect(patched.last, 227.5);
+    expect(patched.changeRate, 1.2);
+  });
+
   test('自选分组过滤与组名收集', () {
     final watch = WatchlistOverview(
       items: _watchItems,

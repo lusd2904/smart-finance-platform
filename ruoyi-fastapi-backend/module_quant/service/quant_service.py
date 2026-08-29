@@ -16,7 +16,6 @@ from module_quant.dao.quant_dao import (
     QuantLongbridgeConfigDao,
     QuantSnapshotDao,
     QuantStrategyDao,
-    QuantWatchlistDao,
 )
 from module_quant.entity.vo.quant_vo import (
     AddQuantWatchlistModel,
@@ -82,6 +81,7 @@ class QuantService:
         market: str = 'US',
         profile: str = 'balanced',
         query_db: AsyncSession | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         """计算某标的因子值+打分"""
         if not symbol:
@@ -89,7 +89,7 @@ class QuantService:
         safe_profile = profile if profile in VALID_PROFILES else 'balanced'
         weights = None
         if query_db is not None:
-            weights = await cls.load_profile_config(query_db, safe_profile)
+            weights = await cls.load_profile_config(query_db, safe_profile, user_id=user_id)
         result = await asyncio.get_running_loop().run_in_executor(
             None,
             FactorService.compute_symbol,
@@ -136,8 +136,20 @@ class QuantService:
         is_page: bool = True,
         user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
-        """获取自选池分页列表（user_id 非空时按账号隔离）"""
-        return await QuantWatchlistDao.get_watchlist(query_db, query_object, is_page, user_id=user_id)
+        """获取自选池分页列表。真源是行情自选。"""
+        from module_market.entity.vo.market_vo import MarketWatchlistPageQueryModel
+        from module_market.service.watchlist_service import MarketWatchlistService
+
+        mapped = MarketWatchlistPageQueryModel(
+            symbol=query_object.symbol,
+            market=query_object.market,
+            enabled=query_object.enabled,
+            page_num=query_object.page_num,
+            page_size=query_object.page_size,
+        )
+        return await MarketWatchlistService.get_list_services(
+            query_db, mapped, is_page=is_page, user_id=user_id
+        )
 
     @classmethod
     async def add_watchlist_services(
@@ -150,45 +162,27 @@ class QuantService:
             raise ServiceException(message='标的代码不能为空')
         if not user_id:
             raise ServiceException(message='无法识别当前用户')
-        existing = await QuantWatchlistDao.get_by_symbol(query_db, symbol, market, user_id=user_id)
-        if existing:
-            raise ServiceException(message=f'{symbol}({market}) 已在自选池中')
-        try:
-            await QuantWatchlistDao.add_watchlist(
-                query_db,
-                {
-                    'user_id': user_id,
-                    'symbol': symbol,
-                    'market': market,
-                    'note': add_model.note,
-                    'enabled': '1',
-                    'create_time': datetime.now(),
-                },
-            )
-            await query_db.commit()
-            return CrudResponseModel(is_success=True, message='新增成功')
-        except Exception as e:
-            await query_db.rollback()
-            raise e
+        from module_market.entity.vo.market_vo import AddMarketWatchlistModel
+        from module_market.service.watchlist_service import MarketWatchlistService
+
+        return await MarketWatchlistService.add_services(
+            query_db,
+            AddMarketWatchlistModel(symbol=symbol, market=market, note=add_model.note),
+            user_id,
+        )
 
     @classmethod
     async def delete_watchlist_services(
         cls, query_db: AsyncSession, ids: str, user_id: int | None = None
     ) -> CrudResponseModel:
         """删除自选标的（user_id 非空时只能删自己的）"""
+        if not user_id:
+            raise ServiceException(message='无法识别当前用户')
         if not ids:
             raise ServiceException(message='传入ID为空')
-        try:
-            id_list = [int(i) for i in ids.split(',') if i.strip()]
-        except ValueError:
-            raise ServiceException(message='ID格式非法，应为逗号分隔的数字') from None
-        try:
-            await QuantWatchlistDao.delete_watchlist(query_db, id_list, user_id=user_id)
-            await query_db.commit()
-            return CrudResponseModel(is_success=True, message='删除成功')
-        except Exception as e:
-            await query_db.rollback()
-            raise e
+        from module_market.service.watchlist_service import MarketWatchlistService
+
+        return await MarketWatchlistService.delete_services(query_db, ids, user_id)
 
     # ------------------------------------------------------------ 策略 ---
 
@@ -197,21 +191,29 @@ class QuantService:
         cls, query_db: AsyncSession, run_model: RunStrategyModel, user_id: int | None = None
     ) -> dict[str, Any]:
         """
-        跑一次策略并入库。symbols 不传则用当前用户自选池（未识别用户时退回全池）。
+        跑一次策略并入库。symbols 不传则用当前用户自选池；未识别用户且未指定标的时跳过。
         """
-        profile = run_model.profile if run_model.profile in VALID_PROFILES else 'balanced'
+        from module_trade.service.platform_ext_service import PlatformExtService
+
+        profile = await PlatformExtService.resolve_profile(query_db, user_id, run_model.profile)
         profile_cfg = await cls.load_profile_config(query_db, profile, user_id=user_id)
 
         # 确定标的列表
         if run_model.symbols:
             targets = [{'symbol': s.strip().upper(), 'market': 'US'} for s in run_model.symbols if s and s.strip()]
-        else:
-            watchlist = await QuantWatchlistDao.get_enabled_symbols(query_db, user_id=user_id)
+        elif user_id:
+            from module_market.dao.market_dao import MarketWatchlistDao
+
+            watchlist = await MarketWatchlistDao.get_enabled(query_db, user_id=user_id)
             targets = [{'symbol': w.symbol, 'market': w.market} for w in watchlist]
-            # 自选池为空则退回精选池（前端提示“留空则全市场”）
-            if not targets:
-                from module_market.constant.instruments import TARGET_INSTRUMENTS
-                targets = [{'symbol': it[0], 'market': it[2]} for it in TARGET_INSTRUMENTS]
+        else:
+            return {
+                'runId': None,
+                'symbolsCount': 0,
+                'signalCount': 0,
+                'signals': [],
+                'message': '未指定用户，跳过',
+            }
 
         if not targets:
             return {'runId': None, 'symbolsCount': 0, 'signalCount': 0, 'signals': [],
@@ -229,7 +231,7 @@ class QuantService:
                 query_db,
                 {
                     'cycle_id': cycle_id,
-                    'user_id': user_id or 1,
+                    'user_id': user_id,
                     'strategy_profile': profile,
                     'symbols_count': cycle_result['symbolsCount'],
                     'signal_count': cycle_result['signalCount'],
@@ -240,7 +242,7 @@ class QuantService:
             signal_rows = [
                 {
                     'run_id': run_id,
-                    'user_id': user_id or 1,
+                    'user_id': user_id,
                     'symbol': s['symbol'],
                     'signal': s['signal'],
                     'score': s.get('score'),
@@ -297,17 +299,23 @@ class QuantService:
 
     @classmethod
     async def get_strategy_history_services(
-        cls, query_db: AsyncSession, query_object: QuantStrategyRunPageQueryModel, is_page: bool = True
+        cls,
+        query_db: AsyncSession,
+        query_object: QuantStrategyRunPageQueryModel,
+        is_page: bool = True,
+        user_id: int | None = None,
     ) -> PageModel | list[dict[str, Any]]:
         """获取策略运行历史分页列表"""
-        return await QuantStrategyDao.get_run_list(query_db, query_object, is_page)
+        return await QuantStrategyDao.get_run_list(query_db, query_object, is_page, user_id=user_id)
 
     # ------------------------------------------------------------ 扫描运行台账 ---
 
     @classmethod
-    async def get_scan_runs_services(cls, query_db: AsyncSession, limit: int = 20) -> dict[str, Any]:
+    async def get_scan_runs_services(
+        cls, query_db: AsyncSession, limit: int = 20, user_id: int | None = None
+    ) -> dict[str, Any]:
         """只读扫描运行列表（最近 N 条）"""
-        runs = await QuantStrategyDao.get_scan_runs(query_db, limit=limit)
+        runs = await QuantStrategyDao.get_scan_runs(query_db, limit=limit, user_id=user_id)
         signals_by_run = await QuantStrategyDao.get_signals_by_runs(query_db, [r.run_id for r in runs])
         items = []
         opportunity_total = 0

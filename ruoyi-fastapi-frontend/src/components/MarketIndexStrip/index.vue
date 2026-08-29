@@ -17,8 +17,8 @@
 </template>
 
 <script setup name="MarketIndexStrip">
-import { getMarketIndexQuotes } from '@/api/market'
 import { changeClass, fmtPct } from '@/utils/format'
+import { bindMarketQuotesSocket } from '@/composables/useMarketQuotesWs'
 
 defineEmits(['select'])
 
@@ -36,50 +36,33 @@ function fmtNum(v) {
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-async function loadQuotes() {
-  try {
-    const res = await getMarketIndexQuotes()
-    quotes.value = (res.data && res.data.items) || []
-  } catch {
-    quotes.value = []
-  }
+function applyQuotes(data) {
+  quotes.value = (data && data.items) || []
+}
+
+const socket = bindMarketQuotesSocket({ onData: applyQuotes, intervalSec: 15 })
+
+function loadQuotes() {
+  socket.reload()
 }
 
 defineExpose({ loadQuotes })
 
-let pollTimer = null
-
-function stopPollTimer() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-function startPollTimer() {
-  stopPollTimer()
-  pollTimer = setInterval(loadQuotes, 60 * 1000)
-}
 function handleVisibility() {
-  if (document.visibilityState === 'visible') {
-    if (!pollTimer) {
-      loadQuotes()
-      startPollTimer()
-    }
-  } else {
-    stopPollTimer()
-  }
+  if (document.visibilityState === 'visible') socket.start()
+  else socket.stop()
 }
 
 onMounted(() => {
-  loadQuotes()
-  // 后端 30s 缓存，前端 60s 轮询错开；空列表整体不渲染（不开盘全隐藏）
-  startPollTimer()
+  socket.start()
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => socket.start())
+onDeactivated(() => socket.stop())
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
-  stopPollTimer()
+  socket.stop()
 })
 </script>
 

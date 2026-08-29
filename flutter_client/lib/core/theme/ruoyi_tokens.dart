@@ -9,8 +9,8 @@ abstract final class WebTokens {
   static const sidebarSub = Color(0xFF0B0E15);
   static const sidebarHover = Color(0xFF1C2230);
   static const sidebarText = Color(0xFF9AA4B5);
-  static const sidebarActive = Color(0xFF409EFF);
-  static const primary = Color(0xFF409EFF);
+  static const sidebarActive = Color(0xFF6366F1);
+  static const primary = Color(0xFF6366F1);
   static const navbarBg = Color(0xFF12161F);
   static const contentBg = Color(0xFF10141C);
   static const contentBgLight = Color(0xFFF5F6FA);

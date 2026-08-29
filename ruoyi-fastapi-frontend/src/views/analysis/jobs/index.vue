@@ -139,8 +139,10 @@
 </template>
 
 <script setup name="AnalysisJobsIndex">
-import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, getCurrentInstance, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref } from 'vue'
 import { changeAnalysisJobStatus, getAnalysisOverview, listAnalysisJobLogs, runAnalysisJob } from '@/api/analysis/scheduler'
+import { startAdaptivePoll } from '@/composables/useAdaptivePoll'
+import { bindJobsSocket } from '@/composables/useJobsWs'
 
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
@@ -154,7 +156,6 @@ const logs = ref([])
 const logTotal = ref(0)
 const logLoading = ref(false)
 const logQuery = reactive({ pageNum: 1, pageSize: 20 })
-let timer = null
 
 const alive = computed(() => Boolean(overview.value.schedulerAlive))
 const jobs = computed(() => overview.value.jobs || [])
@@ -255,35 +256,52 @@ async function loadLogs() {
   }
 }
 
-function stopTimer() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
+const jobsWsLive = ref(false)
+function jobsBusy() {
+  if (jobsWsLive.value) return false
+  return (overview.value.queueDepth || 0) > 0 || (overview.value.running || []).length > 0
+}
+
+function applyOverview(data) {
+  if (data && typeof data === 'object') overview.value = { ...overview.value, ...data }
+}
+
+const httpPoll = startAdaptivePoll({
+  tick: loadOverviewQuiet,
+  isBusy: jobsBusy,
+  busyMs: 3000,
+  idleMs: 30000,
+  hiddenStop: true
+})
+
+const jobsSocket = bindJobsSocket({
+  intervalSec: 5,
+  onData: applyOverview,
+  onUp: () => { jobsWsLive.value = true },
+  onDown: () => {
+    jobsWsLive.value = false
+    loadOverviewQuiet()
+    httpPoll.start()
   }
-}
-function startTimer() {
-  stopTimer()
-  timer = setInterval(loadOverviewQuiet, 10000)
-}
-function handleVisibility() {
-  if (document.visibilityState === 'visible') {
-    if (!timer) {
-      loadOverviewQuiet()
-      startTimer()
-    }
-  } else {
-    stopTimer()
-  }
-}
+})
 
 onMounted(() => {
   loadOverview()
-  startTimer()
-  document.addEventListener('visibilitychange', handleVisibility)
+  httpPoll.start()
+  jobsSocket.start()
+})
+onActivated(() => {
+  loadOverviewQuiet()
+  httpPoll.start()
+  jobsSocket.start()
+})
+onDeactivated(() => {
+  jobsSocket.stop()
+  httpPoll.stop()
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', handleVisibility)
-  stopTimer()
+  jobsSocket.stop()
+  httpPoll.stop()
 })
 </script>
 

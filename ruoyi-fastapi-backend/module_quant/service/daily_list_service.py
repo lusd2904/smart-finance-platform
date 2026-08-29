@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from exceptions.exception import ServiceException
 from module_market.dao.market_dao import MarketWatchlistDao
-from module_quant.dao.quant_dao import QuantDailyListDao, QuantWatchlistDao
+from module_quant.dao.quant_dao import QuantDailyListDao
 from module_quant.service.longbridge_service import LongbridgeService
 from module_quant.service.quant_service import QuantService
 from module_quant.service.strategy_service import StrategyService
@@ -179,14 +179,16 @@ class DailyListService:
         return serialize_list(row, items)
 
     @classmethod
-    async def scan_all_users(cls, db: AsyncSession, profile: str = 'balanced') -> dict[str, Any]:
+    async def scan_all_users(cls, db: AsyncSession, profile: str | None = None) -> dict[str, Any]:
         if not is_cn_trading_day():
             return {'skipped': True, 'reason': 'non_trading_day', 'message': '非交易日跳过'}
         users = await QuantDailyListDao.distinct_watchlist_users(db)
+        from module_trade.service.platform_ext_service import PlatformExtService
 
         async def _scan_one(uid: int) -> dict[str, Any]:
             try:
-                return await cls.scan_user(db, uid, profile)
+                code = await PlatformExtService.resolve_profile(db, uid, profile)
+                return await cls.scan_user(db, uid, code)
             except Exception as exc:
                 logger.warning(f'[次日清单] user={uid} 扫描失败: {exc}')
                 return {'userId': uid, 'error': str(exc)}
@@ -299,6 +301,11 @@ class DailyListService:
         ready, reason = await cls._account_trade_ready(db, user_id)
         if not ready:
             return {'skipped': True, 'reason': 'account_auto_disabled', 'message': reason}
+        from module_trade.service.order_guard import halt_block_reason
+
+        halt_msg = await halt_block_reason()
+        if halt_msg:
+            return {'skipped': True, 'reason': 'halted', 'message': halt_msg}
         await LongbridgeService.ensure_credentials_from_db(db, user_id)
         items = [it for it in await QuantDailyListDao.list_items(db, latest.list_id) if it.auto_trade == '1']
         wanted = {(it.symbol.upper(), (it.market or 'US').upper()) for it in items}
@@ -336,19 +343,15 @@ class DailyListService:
 
     @classmethod
     async def _join_quant(cls, db: AsyncSession, symbol: str, market: str, user_id: int | None = None) -> None:
-        existing = await QuantWatchlistDao.get_by_symbol(db, symbol, market, user_id=user_id)
-        if existing:
+        if not user_id:
             return
-        await QuantWatchlistDao.add_watchlist(
+        from module_market.entity.vo.market_vo import AddMarketWatchlistModel
+        from module_market.service.watchlist_service import MarketWatchlistService
+
+        await MarketWatchlistService.add_services(
             db,
-            {
-                'user_id': user_id or 1,
-                'symbol': symbol,
-                'market': market,
-                'note': '次日清单自动交易',
-                'enabled': '1',
-                'create_time': datetime.now(),
-            },
+            AddMarketWatchlistModel(symbol=symbol, market=market, note='次日清单自动交易'),
+            user_id,
         )
 
     @classmethod
@@ -373,6 +376,13 @@ class DailyListService:
             row.status = 'skipped'
             row.error = '仓位不足或无法计算数量'
             return {'itemId': row.item_id, 'ok': False, 'message': row.error}
+        from module_trade.service.order_guard import halt_block_reason
+
+        halt_msg = await halt_block_reason()
+        if halt_msg:
+            row.status = 'skipped'
+            row.error = halt_msg
+            return {'itemId': row.item_id, 'ok': False, 'message': halt_msg}
         result = await LongbridgeService.submit_order_async(
             row.symbol, 'buy', qty, order_type='MO', market=row.market
         )

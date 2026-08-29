@@ -190,6 +190,7 @@ todos.md
 _mac_*
 _sfp-*.sql
 *.tgz
+/backups/
 
 # Python
 .venv/

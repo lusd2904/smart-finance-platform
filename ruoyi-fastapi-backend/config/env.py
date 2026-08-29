@@ -74,9 +74,9 @@ class JwtSettings(BaseSettings):
     # 库内敏感数据（券商凭据等）加密密钥，与 JWT secret 独立以便单独轮换；未配置时回退 JWT secret（生产强制要求独立配置）
     credential_encryption_key: str = ''
     jwt_algorithm: str = 'HS256'
-    # token 有效期从 24h 收紧到 8h；Redis 会话仍随请求滑动续期
+    # token 有效期从 24h 收紧到 8h；Redis 会话与 JWT 同长，请求时滑动续期
     jwt_expire_minutes: int = 480
-    jwt_redis_expire_minutes: int = 30
+    jwt_redis_expire_minutes: int = 480
 
     def validate_security(self) -> None:
         """
@@ -149,6 +149,12 @@ class InfluxSettings(BaseSettings):
     influx_org: str = 'longbridge'
     influx_bucket_us: str = 'market_us'
     influx_bucket_cn: str = 'market_data'
+    # 单标的/探活查询超时（毫秒）。过长会堵 API worker。
+    influx_timeout_ms: int = 8000
+    # 批量 K 线（质检/策略/回测）超时。75 只 × 260 根在 8s 内会整批失败。
+    influx_batch_timeout_ms: int = 45000
+    # 批量 Flux 每片标的数
+    influx_kline_chunk: int = 10
 
 
 class KlineSettings(BaseSettings):
