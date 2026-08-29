@@ -10,6 +10,12 @@ os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.quote_subscribe_hub import QuoteSubscribeHub
+from module_quant.service.longbridge.fx import (
+    FALLBACK_USD_HKD,
+    FxRates,
+    pick_available_cash_usd,
+    pick_net_assets_usd,
+)
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.service.auto_trade_service import (
     AutoTradeService,
@@ -124,6 +130,50 @@ def test_daily_limits_and_slippage() -> None:
     assert slim['score'] == {'total': 88}
 
 
+def test_fx_converts_hkd_balances_to_usd_nav() -> None:
+    fx = FxRates(usd_hkd=7.8, usd_cny=7.2, sources={'USDHKD': 'test', 'USDCNH': 'test'})
+    account = {
+        'configured': True,
+        'balances': [{'currency': 'HKD', 'netAssets': 3_865_000, 'availableCash': 500_000, 'totalCash': 500_000}],
+    }
+    nav_usd = pick_net_assets_usd(account, fx)
+    cash_usd = pick_available_cash_usd(account, fx)
+    assert nav_usd == round(3_865_000 / 7.8, 2)
+    assert cash_usd == round(500_000 / 7.8, 2)
+    assert symbol_position_cap(nav_usd, 0.10) == round(nav_usd * 0.10, 2)
+    # 错误行为：把 HKD 当 USD 会得到 386500 的单票上限
+    assert symbol_position_cap(3_865_000, 0.10) > 300_000
+
+
+def test_fx_mixed_hkd_usd_balances_sum_in_usd() -> None:
+    fx = FxRates(usd_hkd=7.8, usd_cny=7.2)
+    account = {
+        'configured': True,
+        'balances': [
+            {'currency': 'HKD', 'netAssets': 780_000, 'availableCash': 78_000, 'totalCash': 78_000},
+            {'currency': 'USD', 'netAssets': 10_000, 'availableCash': 5_000, 'totalCash': 5_000},
+        ],
+    }
+    assert pick_net_assets_usd(account, fx) == 110_000.0
+    assert pick_available_cash_usd(account, fx) == 15_000.0
+
+
+def test_position_market_value_converts_hkd_to_usd() -> None:
+    from module_trade.service.auto_trade_service import existing_position_market_value
+
+    fx = FxRates(usd_hkd=7.8)
+    pos = {'symbol': '00700.HK', 'currency': 'HKD', 'quantity': 100, 'costPrice': 390}
+    assert existing_position_market_value(pos, 400.0, fx) == round(40_000 / 7.8, 2)
+
+
+def test_fx_hk_order_amount_from_usd_cap() -> None:
+    fx = FxRates(usd_hkd=7.8)
+    cap_usd = symbol_position_cap(10_000, 0.10)
+    hkd_budget = fx.from_usd(cap_usd, 'HKD')
+    assert hkd_budget == 7_800.0
+    assert int(hkd_budget / 400) == 19
+
+
 def test_symbol_and_order_id_helpers() -> None:
     assert parse_symbol_market('NVDA.US') == ('NVDA', 'US')
     assert parse_symbol_market('0700.HK') == ('0700', 'HK')
@@ -168,7 +218,17 @@ def _trade_settings(**overrides):
     return data
 
 
-async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None, quote_result=None):
+async def _run_buy_cycle(
+    *,
+    positions=None,
+    today_bought=None,
+    settings=None,
+    account_balance=None,
+    fx=None,
+    signal=None,
+    targets=None,
+    quote_result=None,
+):
     from module_quant.service.strategy_service import StrategyService
     from module_trade.dao.trade_dao import TradeDao
     from module_trade.service.auto_trade_service import AutoTradeService
@@ -177,10 +237,17 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None, qu
     db.commit = AsyncMock()
     submit = AsyncMock(return_value={'ok': True, 'orderId': 'SIM-1'})
     add_decision = AsyncMock()
+    fx_rates = fx or FxRates(usd_hkd=FALLBACK_USD_HKD, usd_cny=7.2, sources={'USDHKD': 'test', 'USDCNH': 'test'})
+    balance = account_balance or {
+        'configured': True,
+        'balances': [{'currency': 'USD', 'netAssets': 10000, 'availableCash': 8000, 'totalCash': 8000}],
+    }
+    scan_signal = signal or BUY_SIGNAL
+    target_items = targets or [{'symbol': 'AAPL', 'market': 'US'}]
     quotes = quote_result if quote_result is not None else {'quotes': [{'symbol': 'AAPL.US', 'lastDone': 100}]}
     with (
-        patch.object(AutoTradeService, '_resolve_targets', AsyncMock(return_value=[{'symbol': 'AAPL', 'market': 'US'}])),
-        patch.object(StrategyService, 'run_strategy_cycle_async', AsyncMock(return_value=BUY_SIGNAL)),
+        patch.object(AutoTradeService, '_resolve_targets', AsyncMock(return_value=target_items)),
+        patch.object(StrategyService, 'run_strategy_cycle_async', AsyncMock(return_value=scan_signal)),
         patch.object(AutoTradeService, '_today_stats', AsyncMock(return_value=(0, 0.0))),
         patch.object(AutoTradeService, '_today_bought_symbols', AsyncMock(return_value=set(today_bought or []))),
         patch.object(TradeDao, 'add_ai_trade_run_log', AsyncMock()),
@@ -195,22 +262,90 @@ async def _run_buy_cycle(*, positions=None, today_bought=None, settings=None, qu
             'get_positions_async',
             AsyncMock(return_value={'configured': True, 'positions': positions or []}),
         ),
-        patch.object(
-            LongbridgeService,
-            'get_account_balance_async',
-            AsyncMock(
-                return_value={
-                    'configured': True,
-                    'balances': [{'currency': 'USD', 'netAssets': 10000, 'availableCash': 8000, 'totalCash': 8000}],
-                }
-            ),
-        ),
+        patch.object(LongbridgeService, 'get_account_balance_async', AsyncMock(return_value=balance)),
+        patch('module_trade.service.auto_trade_service.load_fx_rates_async', AsyncMock(return_value=fx_rates)),
         patch.object(LongbridgeService, 'get_realtime_quote', return_value=quotes),
         patch.object(LongbridgeService, 'submit_order_async', submit),
         patch.object(LongbridgeService, 'extract_order_id', return_value='SIM-1'),
     ):
         result = await AutoTradeService.run_watchlist_strategy_cycle(db, execute=True)
     return result, submit, add_decision
+
+
+def test_cycle_hkd_only_nav_does_not_size_us_buys_as_usd() -> None:
+    async def _run() -> None:
+        fx = FxRates(usd_hkd=7.8, usd_cny=7.2, sources={'USDHKD': 'test', 'USDCNH': 'test'})
+        account = {
+            'configured': True,
+            'balances': [
+                {'currency': 'HKD', 'netAssets': 3_865_000, 'availableCash': 3_865_000, 'totalCash': 3_865_000},
+            ],
+        }
+        result, submit, _ = await _run_buy_cycle(
+            account_balance=account,
+            fx=fx,
+            settings=_trade_settings(daily_buy_ratio=0.2, max_symbol_position_pct=0.1),
+        )
+        submit.assert_called_once()
+        nav_usd = round(3_865_000 / 7.8, 2)
+        per_symbol_cap = round(nav_usd * 0.10, 2)
+        qty = submit.call_args.kwargs.get('quantity')
+        assert qty == int(per_symbol_cap / 100)
+        assert qty < 600
+        assert result['guardrailSnapshot']['netAssetsUsd'] == nav_usd
+        assert result['guardrailSnapshot']['balanceByCurrency'][0]['currency'] == 'HKD'
+        assert result['guardrailSnapshot']['fxRates']['USDHKD'] == 7.8
+
+    asyncio.run(_run())
+
+
+def test_cycle_hk_stock_order_qty_uses_hkd_notional() -> None:
+    hk_signal = {
+        'signals': [
+            {
+                'symbol': '0700',
+                'market': 'HK',
+                'signal': 'BUY',
+                'confidence': 88,
+                'score': 88,
+                'price': 400,
+                'reason': 'ok',
+                'factor_json': {},
+            }
+        ]
+    }
+
+    async def _run() -> None:
+        fx = FxRates(usd_hkd=7.8, usd_cny=7.2)
+        result, submit, _ = await _run_buy_cycle(
+            fx=fx,
+            signal=hk_signal,
+            targets=[{'symbol': '0700', 'market': 'HK'}],
+            quote_result={'quotes': [{'symbol': '0700.HK', 'lastDone': 400.0}]},
+        )
+        submit.assert_called_once()
+        assert submit.call_args.kwargs.get('market') == 'HK'
+        assert submit.call_args.kwargs.get('quantity') == 19
+
+    asyncio.run(_run())
+
+
+def test_cycle_mixed_hkd_usd_nav_sizes_from_converted_total() -> None:
+    async def _run() -> None:
+        fx = FxRates(usd_hkd=7.8, usd_cny=7.2)
+        account = {
+            'configured': True,
+            'balances': [
+                {'currency': 'HKD', 'netAssets': 780_000, 'availableCash': 780_000, 'totalCash': 780_000},
+                {'currency': 'USD', 'netAssets': 10_000, 'availableCash': 10_000, 'totalCash': 10_000},
+            ],
+        }
+        result, submit, _ = await _run_buy_cycle(account_balance=account, fx=fx)
+        submit.assert_called_once()
+        assert result['guardrailSnapshot']['netAssetsUsd'] == 110_000.0
+        assert submit.call_args.kwargs.get('quantity') == 110
+
+    asyncio.run(_run())
 
 
 def test_cycle_never_submits_when_execute_false() -> None:
@@ -261,6 +396,7 @@ def test_cycle_never_submits_when_execute_false() -> None:
                 }
             ),
             ),
+            patch('module_trade.service.auto_trade_service.load_fx_rates_async', AsyncMock(return_value=FxRates())),
             patch.object(LongbridgeService, 'submit_order_async', AsyncMock()) as submit,
         ):
             result = await AutoTradeService.run_watchlist_strategy_cycle(db, execute=False)
