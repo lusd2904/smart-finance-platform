@@ -4,16 +4,43 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/utils/format.dart';
-import '../../../shared/widgets/stat_grid.dart';
-import '../../../shared/widgets/page_header.dart';
-import '../../../shared/widgets/quote_text.dart';
+import '../../../shared/widgets/quote_row.dart';
 import '../data/market_api.dart';
 import '../data/market_models.dart';
 import '../data/market_quotes_ws.dart';
 
-/// 行情 tab 首页：市场热度看板。
-/// 结构（自上而下）：市场切换 → 盘中指数条 → 统计卡行 → 热度摘要 → 热度 Top50 列表，
-/// 整体支持下拉刷新。
+/// 按榜单对 Top50 快照排序；返回副本，最多 50 条。null 排最后。
+List<TopPickRow> sortHeatBoard(List<TopPickRow> rows, String board) {
+  final copy = List<TopPickRow>.of(rows);
+  switch (board) {
+    case 'up':
+      copy.sort((a, b) => _cmpDescNullsLast(a.changePct, b.changePct));
+    case 'down':
+      copy.sort((a, b) => _cmpAscNullsLast(a.changePct, b.changePct));
+    case 'turnover':
+      copy.sort((a, b) => _cmpDescNullsLast(a.turnover, b.turnover));
+    default:
+      copy.sort((a, b) => a.rankNo.compareTo(b.rankNo));
+  }
+  if (copy.length > 50) return copy.sublist(0, 50);
+  return copy;
+}
+
+int _cmpAscNullsLast(double? a, double? b) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a.compareTo(b);
+}
+
+int _cmpDescNullsLast(double? a, double? b) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return b.compareTo(a);
+}
+
+/// 行情 tab 首页：指数条 + 涨跌统计 + 热度/涨幅/跌幅/成交榜。
 class MarketTab extends ConsumerStatefulWidget {
   const MarketTab({super.key, this.onOpenSymbol});
 
@@ -28,19 +55,38 @@ class _MarketTabState extends ConsumerState<MarketTab> {
   /// 市场代码 → 展示名，顺序即切换条顺序。
   static const _markets = {'US': '美股', 'HK': '港股', 'CN': 'A股'};
 
+  static const _boards = {
+    'heat': '热度',
+    'up': '涨幅',
+    'down': '跌幅',
+    'turnover': '成交',
+  };
+
   /// 当前市场，保存在本组件内；切换时重拉数据。
   String _market = 'US';
+
+  String _board = 'heat';
 
   /// 主数据源：heatDaily 的本地 AsyncValue（Future + setState 管理）。
   AsyncValue<HeatDailyData> _daily = const AsyncLoading();
 
   List<IndexQuote> _indexes = const [];
 
+  final Map<String, LiveStockQuote> _live = {};
+  VoidCallback? _unsubQuotes;
+  String _subSig = '';
+
   @override
   void initState() {
     super.initState();
     _loadIndexes();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _unsubQuotes?.call();
+    super.dispose();
   }
 
   Future<void> _loadIndexes() async {
@@ -74,6 +120,29 @@ class _MarketTabState extends ConsumerState<MarketTab> {
     if (live != null && live.isNotEmpty) return live;
     return _indexes;
   }
+
+  void _syncQuotes(List<TopPickRow> rows) {
+    final sig = rows.map((r) => '$_market:${r.symbol}').join(',');
+    if (sig == _subSig) return;
+    _subSig = sig;
+    _unsubQuotes?.call();
+    _unsubQuotes = null;
+    if (rows.isEmpty) return;
+    _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
+      [for (final row in rows) (symbol: row.symbol, market: _market)],
+      (quotes) {
+        if (!mounted) return;
+        setState(() {
+          for (final q in quotes) {
+            _live[q.key] = q;
+          }
+        });
+      },
+    );
+  }
+
+  LiveStockQuote? _liveFor(TopPickRow row) =>
+      _live['${_market.toUpperCase()}:${row.symbol.toUpperCase()}'];
 
   @override
   Widget build(BuildContext context) {
@@ -116,351 +185,174 @@ class _MarketTabState extends ConsumerState<MarketTab> {
     return RefreshIndicator(onRefresh: _refresh, child: body);
   }
 
-  /// 正常内容：看板各区块 + Top50。
+  /// 正常内容：指数条、涨跌统计、摘要、榜单。
   Widget _buildContent(HeatDailyData data) {
+    _syncQuotes(data.top50);
     final heat = data.heat ?? const HeatSummary();
     final quotes = _liveOrPolledIndexes;
     final strip = heatStripQuotes(quotes, _market);
     final statQ = heatStatQuote(quotes, _market);
-    final statPct = _market == 'US' ? statQ?.changePct : (statQ?.changePct ?? heat.indexChangePct);
+    final statPct = _market == 'US'
+        ? statQ?.changePct
+        : (statQ?.changePct ?? heat.indexChangePct);
+    final ranked = sortHeatBoard(data.top50, _board);
+    final marketLabel = _markets[_market] ?? _market;
+    final scheme = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const PageHeader(
-          title: '行情',
-          subtitle: '市场热度看板',
+        _underlineTabs(
+          context,
+          entries: _markets.entries,
+          selected: _market,
+          onSelect: (next) {
+            if (next == _market) return;
+            setState(() => _market = next);
+            _load();
+          },
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppDimens.pagePadding,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SegmentedButton<String>(
-                segments: [
-                  for (final e in _markets.entries)
-                    ButtonSegment(value: e.key, label: Text(e.value)),
-                ],
-                selected: {_market},
-                onSelectionChanged: (selection) {
-                  final next = selection.first;
-                  if (next == _market) return;
-                  setState(() => _market = next);
-                  _load();
-                },
-              ),
-              const SizedBox(height: 10),
-              _filterRuleBanner(context, data),
-              const SizedBox(height: 12),
-              _IndexStrip(items: strip),
-              const SizedBox(height: 16),
-              StatGrid(
-                cells: [
-                  StatCellData(
-                    label: kHeatStatIndex[_market]?.$2 ??
-                        (heat.indexName.isEmpty ? '指数涨跌' : heat.indexName),
-                    value: PctText(statPct),
-                  ),
-                  StatCellData(
-                    label: '成交额',
-                    value: Text(formatAmountCn(heat.totalTurnover)),
-                  ),
-                  StatCellData(
-                    label: '涨跌家数',
-                    value: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${heat.advanceCount}',
-                          style: const TextStyle(color: AppColors.up),
-                        ),
-                        Text(
-                          '/${heat.declineCount}',
-                          style: const TextStyle(color: AppColors.down),
-                        ),
-                        Text(
-                          '/${heat.flatCount}',
-                          style: const TextStyle(color: AppColors.flat),
-                        ),
-                      ],
-                    ),
-                  ),
-                  StatCellData(
-                    label: '热度分',
-                    value: Text(heat.heatScore?.toStringAsFixed(1) ?? '--'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _summaryCard(context, heat),
-              const SizedBox(height: 14),
-              SectionCard(
-                title: '热度 Top50',
-                subtitle: '按当日热度排序 · 点击行查看 K 线详情',
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < data.top50.length; i++) ...[
-                      if (i > 0)
-                        Divider(
-                          height: 1,
-                          indent: 46,
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                      _topRow(context, data.top50[i]),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
+        Divider(height: 1, color: scheme.outlineVariant),
+        IndexMiniStrip(
+          items: [
+            for (final q in strip)
+              (name: indexDisplayName(q), last: q.last, changePct: q.changePct),
+          ],
         ),
+        Divider(height: 1, color: scheme.outlineVariant),
+        _heatStatsLine(heat, statPct, data),
+        _underlineTabs(
+          context,
+          entries: _boards.entries,
+          selected: _board,
+          onSelect: (next) {
+            if (next == _board) return;
+            setState(() => _board = next);
+          },
+        ),
+        Divider(height: 1, color: scheme.outlineVariant),
+        const QuoteListHeader(),
+        for (var i = 0; i < ranked.length; i++) ...[
+          Divider(height: 1, color: scheme.outlineVariant),
+          QuoteListRow(
+            name: ranked[i].name.isEmpty ? ranked[i].symbol : ranked[i].name,
+            symbol: ranked[i].symbol,
+            marketLabel: marketLabel,
+            last: _liveFor(ranked[i])?.last ?? ranked[i].last,
+            changePct: _liveFor(ranked[i])?.changePct ?? ranked[i].changePct,
+            rank: _board == 'heat' ? ranked[i].rankNo : i + 1,
+            onTap: widget.onOpenSymbol == null
+                ? null
+                : () => widget.onOpenSymbol!(
+                    ranked[i].symbol,
+                    _market,
+                    ranked[i].name,
+                  ),
+          ),
+        ],
       ],
     );
   }
 
-  Widget _filterRuleBanner(BuildContext context, HeatDailyData data) {
-    final raw = data.filterRuleFor(_market);
-    if (raw.isEmpty) return const SizedBox.shrink();
-    final text = raw.contains('市值') ? raw : '市值 $raw';
+  Widget _heatStatsLine(HeatSummary heat, double? statPct, HeatDailyData data) {
+    final indexName =
+        kHeatStatIndex[_market]?.$2 ??
+        (heat.indexName.isEmpty ? '指数' : heat.indexName);
+    final rule = data.filterRuleFor(_market);
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(AppDimens.radiusControl),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.filter_alt_outlined, size: 16, color: scheme.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '筛选规则：$text',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 热度摘要卡；staleHint 非空时以警示色提示数据延迟。
-  Widget _summaryCard(BuildContext context, HeatSummary heat) {
-    final theme = Theme.of(context);
-    return SectionCard(
-      title: '今日热度',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            heat.heatSummary.isEmpty ? '暂无热度摘要' : heat.heatSummary,
-            style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
-          ),
-          if (heat.staleHint.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(
-                color: AppColors.warn.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(AppDimens.radiusControl),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.warning_amber_rounded,
-                    size: 15,
-                    color: AppColors.warn,
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      heat.staleHint,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.warn,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Top50 行：排名徽标 + 标的 + 涨跌幅 + 市值/成交额 + 自选星标。
-  Widget _topRow(BuildContext context, TopPickRow row) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return InkWell(
-      onTap: widget.onOpenSymbol == null
-          ? null
-          : () => widget.onOpenSymbol!(row.symbol, _market, row.name),
-      borderRadius: BorderRadius.circular(AppDimens.radiusControl),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        child: Row(
+    const base = TextStyle(fontSize: 12, height: 1.35);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      child: Text.rich(
+        TextSpan(
+          style: base.copyWith(color: scheme.onSurface),
           children: [
-            _rankBadge(context, row.rankNo),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          row.symbol,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          row.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '市值 ${formatAmountCn(row.marketCap)} · 成交 ${formatAmountCn(row.turnover)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+            const TextSpan(text: '涨 '),
+            TextSpan(
+              text: '${heat.advanceCount}',
+              style: const TextStyle(
+                color: AppColors.up,
+                fontFeatures: AppNum.fontFeatures,
               ),
             ),
-            if (row.inWatchlist)
-              const Padding(
-                padding: EdgeInsets.only(left: 6),
-                child: Icon(
-                  Icons.star_rounded,
-                  size: 17,
-                  color: AppColors.warn,
+            const TextSpan(text: ' 跌 '),
+            TextSpan(
+              text: '${heat.declineCount}',
+              style: const TextStyle(
+                color: AppColors.down,
+                fontFeatures: AppNum.fontFeatures,
+              ),
+            ),
+            const TextSpan(text: ' 平 '),
+            TextSpan(
+              text: '${heat.flatCount}',
+              style: const TextStyle(
+                color: AppColors.flat,
+                fontFeatures: AppNum.fontFeatures,
+              ),
+            ),
+            TextSpan(text: ' · 成交 ${formatAmountCn(heat.totalTurnover)}'),
+            TextSpan(text: ' · $indexName ${formatPct(statPct)}'),
+            if (rule.isNotEmpty)
+              TextSpan(
+                text: ' · ${rule.contains('市值') ? rule : '市值 $rule'}',
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            if (heat.staleHint.isNotEmpty)
+              TextSpan(
+                text: ' · ${heat.staleHint}',
+                style: const TextStyle(color: AppColors.warn),
+              ),
+          ],
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  Widget _underlineTabs(
+    BuildContext context, {
+    required Iterable<MapEntry<String, String>> entries,
+    required String selected,
+    required ValueChanged<String> onSelect,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          for (final e in entries)
+            Expanded(
+              child: InkWell(
+                onTap: () => onSelect(e.key),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          e.value,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: selected == e.key
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: selected == e.key
+                                ? AppColors.brand
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      height: 2,
+                      color: selected == e.key
+                          ? AppColors.brand
+                          : Colors.transparent,
+                    ),
+                  ],
                 ),
               ),
-            const SizedBox(width: 8),
-            PctText(
-              row.changePct,
-              bold: true,
-              style: theme.textTheme.titleSmall,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 排名徽标：前三名品牌色圆底高亮，其余中性。
-  Widget _rankBadge(BuildContext context, int rankNo) {
-    final top3 = rankNo > 0 && rankNo <= 3;
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 26,
-      height: 26,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: top3
-            ? scheme.primary.withValues(alpha: 0.14)
-            : scheme.surfaceContainerHighest,
-        shape: BoxShape.circle,
-      ),
-      child: Text(
-        '$rankNo',
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w800,
-          fontFeatures: AppNum.fontFeatures,
-          color: top3 ? scheme.primary : scheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
-/// 当前市场指数条。空列表（该市场暂无报价）整条隐藏。
-class _IndexStrip extends StatelessWidget {
-  const _IndexStrip({required this.items});
-
-  final List<IndexQuote> items;
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 10.0;
-        final n = items.length;
-        final cols = n <= 2 ? n : 2;
-        final cellW = cols <= 1
-            ? constraints.maxWidth
-            : (constraints.maxWidth - gap * (cols - 1)) / cols;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final q in items)
-              SizedBox(
-                width: cellW,
-                child: _indexCard(context, q),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _indexCard(BuildContext context, IndexQuote q) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(AppDimens.radiusCard),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            indexDisplayName(q),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 5),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: PriceText(
-              q.last,
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(height: 2),
-          PctText(q.changePct, bold: true),
         ],
       ),
     );

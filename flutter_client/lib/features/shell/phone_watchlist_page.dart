@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../shared/utils/format.dart';
-import '../../shared/widgets/quote_text.dart';
+import '../../shared/widgets/quote_row.dart';
 import '../auth/logic/session_controller.dart';
 import '../market/data/market_api.dart';
 import '../market/data/market_models.dart';
@@ -12,8 +11,7 @@ import '../market/presentation/universe_page.dart';
 import '../trade/data/trade_api.dart';
 import '../watchlist/logic/watchlist_providers.dart';
 
-/// 反重力设计稿图 04：自选盯盘首页。
-/// 顶栏资产胶囊 + 搜索 + 指数色块 + 分组 + 报价卡（代码/名称/迷你走势/现价涨跌）。
+/// 自选盯盘首页：顶栏资产 + 搜索 + 指数迷你条 + 分组 + 富途式密排报价。
 class PhoneWatchlistPage extends ConsumerStatefulWidget {
   const PhoneWatchlistPage({
     super.key,
@@ -97,22 +95,27 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
           },
           child: CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(child: _TopBar(
-                onSearch: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => UniverseBrowsePage(onOpenSymbol: widget.onOpenSymbol),
+              SliverToBoxAdapter(
+                child: _TopBar(
+                  onSearch: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          UniverseBrowsePage(onOpenSymbol: widget.onOpenSymbol),
+                    ),
                   ),
+                  onMine: widget.onOpenMine,
+                  onNotice: widget.onOpenNotice,
                 ),
-                onMine: widget.onOpenMine,
-                onNotice: widget.onOpenNotice,
-              )),
+              ),
               const SliverToBoxAdapter(child: _IndexStrip()),
-              SliverToBoxAdapter(child: _GroupBar(
-                selected: _group,
-                count: data.count,
-                groups: data.groups,
-                onSelect: (g) => setState(() => _group = g),
-              )),
+              SliverToBoxAdapter(
+                child: _GroupBar(
+                  selected: _group,
+                  count: data.count,
+                  groups: data.groups,
+                  onSelect: (g) => setState(() => _group = g),
+                ),
+              ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -125,6 +128,7 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
                   ),
                 ),
               ),
+              const SliverToBoxAdapter(child: QuoteListHeader()),
               if (items.isEmpty)
                 const SliverFillRemaining(
                   hasScrollBody: false,
@@ -132,20 +136,28 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  padding: const EdgeInsets.only(bottom: 24),
                   sliver: SliverList.separated(
                     itemCount: items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (_, i) => _QuoteCard(
-                      item: _patched(items[i]),
-                      onTap: widget.onOpenSymbol == null
-                          ? null
-                          : () => widget.onOpenSymbol!(
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final item = _patched(items[i]);
+                      return QuoteListRow(
+                        name: item.name.isEmpty ? item.symbol : item.name,
+                        symbol: item.symbol,
+                        marketLabel: _marketLabel(item.market),
+                        last: item.last,
+                        changePct: item.changeRate,
+                        leadingExtra: _recTag(item.recommendation),
+                        onTap: widget.onOpenSymbol == null
+                            ? null
+                            : () => widget.onOpenSymbol!(
                                 items[i].symbol,
                                 items[i].market,
                                 items[i].name,
                               ),
-                    ),
+                      );
+                    },
                   ),
                 ),
             ],
@@ -170,7 +182,9 @@ class _TopBar extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final assets = account?.netAssets ?? account?.totalCash;
     final ccy = (account?.currency ?? '').toUpperCase();
-    final prefix = ccy == 'CNY' ? '¥' : (ccy == 'HKD' ? 'HK\$' : (ccy.isEmpty ? '' : '\$'));
+    final prefix = ccy == 'CNY'
+        ? '¥'
+        : (ccy == 'HKD' ? 'HK\$' : (ccy.isEmpty ? '' : '\$'));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
@@ -203,7 +217,10 @@ class _TopBar extends ConsumerWidget {
                   ),
                   Text(
                     assets == null ? '未绑定券商' : '净资产',
-                    style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -218,17 +235,27 @@ class _TopBar extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(22),
                 onTap: onSearch,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
                   child: Row(
                     children: [
-                      Icon(Icons.search, size: 18, color: scheme.onSurfaceVariant),
+                      Icon(
+                        Icons.search,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           '搜索代码或名称',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     ],
@@ -250,7 +277,11 @@ class _TopBar extends ConsumerWidget {
               backgroundColor: AppColors.brand,
               child: Text(
                 name.isEmpty ? 'U' : name.characters.first,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
@@ -261,7 +292,12 @@ class _TopBar extends ConsumerWidget {
 
   static String _money(double v) {
     final s = v.abs() >= 1000
-        ? v.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+\.)'), (m) => '${m[1]},')
+        ? v
+              .toStringAsFixed(2)
+              .replaceAllMapped(
+                RegExp(r'(\d)(?=(\d{3})+\.)'),
+                (m) => '${m[1]},',
+              )
         : v.toStringAsFixed(2);
     return s;
   }
@@ -279,52 +315,17 @@ class _IndexStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final items = _liveOrPolledIndexes(ref);
+    final items = _liveOrPolledIndexes(ref).take(6).toList();
     if (items.isEmpty) return const SizedBox(height: 8);
-    return SizedBox(
-      height: 58,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final q = items[i];
-          final up = (q.changePct ?? 0) >= 0;
-          final bg = up ? AppColors.up : AppColors.down;
-          return Container(
-            width: 108,
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  q.name.isEmpty ? q.symbol : q.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11, height: 1.1),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  formatPct(q.changePct),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    height: 1.1,
-                    fontFeatures: AppNum.fontFeatures,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+    return IndexMiniStrip(
+      items: [
+        for (final q in items)
+          (
+            name: q.name.isEmpty ? q.symbol : q.name,
+            last: q.last,
+            changePct: q.changePct,
+          ),
+      ],
     );
   }
 }
@@ -344,7 +345,10 @@ class _GroupBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = <(String, int)>[('全部', count), for (final g in groups) (g.name, g.count)];
+    final tabs = <(String, int)>[
+      ('全部', count),
+      for (final g in groups) (g.name, g.count),
+    ];
     return SizedBox(
       height: 40,
       child: ListView.separated(
@@ -365,7 +369,9 @@ class _GroupBar extends StatelessWidget {
                   style: TextStyle(
                     fontWeight: on ? FontWeight.w800 : FontWeight.w500,
                     fontSize: 15,
-                    color: on ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: on
+                        ? Theme.of(context).colorScheme.onSurface
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -383,111 +389,36 @@ class _GroupBar extends StatelessWidget {
   }
 }
 
-class _QuoteCard extends StatelessWidget {
-  const _QuoteCard({required this.item, this.onTap});
-  final WatchlistItem item;
-  final VoidCallback? onTap;
+String _marketLabel(String m) => switch (m.toUpperCase()) {
+  'US' => '美股',
+  'HK' => '港股',
+  'CN' => 'A股',
+  _ => m,
+};
 
-  static String _marketLabel(String m) => switch (m.toUpperCase()) {
-        'US' => '美股',
-        'HK' => '港股',
-        'CN' => 'A股',
-        _ => m,
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final chg = item.changeRate ?? 0;
-    final up = chg >= 0;
-    final recColor = () {
-      final t = item.recommendation;
-      if (t.contains('买') || t.contains('多')) return AppColors.up;
-      if (t.contains('卖') || t.contains('空')) return AppColors.down;
-      return AppColors.flat;
-    }();
-    return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.name.isEmpty ? item.symbol : item.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${item.symbol}  ${_marketLabel(item.market)}',
-                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      PriceText(item.last, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: (up ? AppColors.up : AppColors.down).withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: PctText(item.changeRate, bold: true, style: const TextStyle(fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              if (item.recommendation.isNotEmpty || item.summary.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (item.recommendation.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(right: 8, top: 1),
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: recColor.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          item.recommendation,
-                          style: TextStyle(fontSize: 11, color: recColor, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    if (item.summary.isNotEmpty)
-                      Expanded(
-                        child: Text(
-                          item.summary,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.35),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
+Widget? _recTag(String rec) {
+  if (rec.isEmpty) return null;
+  final color = rec.contains('买') || rec.contains('多')
+      ? AppColors.up
+      : rec.contains('卖') || rec.contains('空')
+      ? AppColors.down
+      : AppColors.flat;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.14),
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: Text(
+      rec,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 10,
+        color: color,
+        fontWeight: FontWeight.w700,
+        height: 1.1,
       ),
-    );
-  }
+    ),
+  );
 }
