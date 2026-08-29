@@ -9,6 +9,13 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 
+from module_quant.service.longbridge.fx import (
+    FxRates,
+    account_guardrail_snapshot,
+    load_fx_rates_async,
+    pick_available_cash_usd,
+    pick_net_assets_usd,
+)
 from module_quant.service.longbridge_service import LongbridgeService
 from module_quant.service.strategy_service import StrategyService
 from module_trade.dao.trade_dao import TradeDao
@@ -125,10 +132,16 @@ def symbol_position_cap(net_assets: float, pct: float | None = None) -> float:
     return round(assets * clamp_max_symbol_position_pct(pct), 2)
 
 
-def existing_position_market_value(pos: dict[str, Any] | None, last_price: float = 0.0) -> float:  # noqa: PLR0912
-    """持仓市值：marketValue → 数量×最新价 → 数量×成本。"""
+def existing_position_market_value(
+    pos: dict[str, Any] | None,
+    last_price: float = 0.0,
+    fx: FxRates | None = None,
+) -> float:  # noqa: PLR0912
+    """持仓市值（美元基准）：marketValue → 数量×最新价 → 数量×成本；按持仓币种换算。"""
     if not pos:
         return 0.0
+    currency = str(pos.get('currency') or '').strip().upper() or None
+    local_mv = 0.0
     for key in ('marketValue', 'market_value'):
         raw = pos.get(key)
         if raw is None:
@@ -138,28 +151,39 @@ def existing_position_market_value(pos: dict[str, Any] | None, last_price: float
         except (TypeError, ValueError):
             value = 0.0
         if value > 0:
-            return value
-    qty = 0.0
-    for key in ('quantity', 'availableQuantity', 'available_quantity'):
-        try:
-            qty = float(pos.get(key) or 0)
-        except (TypeError, ValueError):
-            qty = 0.0
-        if qty > 0:
+            local_mv = value
             break
-    if qty <= 0:
+    if local_mv <= 0:
+        qty = 0.0
+        for key in ('quantity', 'availableQuantity', 'available_quantity'):
+            try:
+                qty = float(pos.get(key) or 0)
+            except (TypeError, ValueError):
+                qty = 0.0
+            if qty > 0:
+                break
+        if qty <= 0:
+            return 0.0
+        last = float(last_price or 0)
+        if last > 0:
+            local_mv = qty * last
+        else:
+            for key in ('costPrice', 'cost_price'):
+                try:
+                    cost = float(pos.get(key) or 0)
+                except (TypeError, ValueError):
+                    cost = 0.0
+                if cost > 0:
+                    local_mv = qty * cost
+                    break
+    if local_mv <= 0:
         return 0.0
-    last = float(last_price or 0)
-    if last > 0:
-        return qty * last
-    for key in ('costPrice', 'cost_price'):
-        try:
-            cost = float(pos.get(key) or 0)
-        except (TypeError, ValueError):
-            cost = 0.0
-        if cost > 0:
-            return qty * cost
-    return 0.0
+    if fx is None:
+        return local_mv
+    if not currency:
+        _, mkt = parse_symbol_market(str(pos.get('symbol') or ''))
+        currency = fx.order_currency(mkt)
+    return round(fx.to_usd(local_mv, currency), 2)
 
 
 def symbol_buy_room(net_assets: float, pct: float | None, existing_mv: float) -> float:
@@ -208,10 +232,16 @@ def should_skip_held_buy(pos: dict[str, Any] | None) -> bool:
     return position_quantity(pos) > 0
 
 
-def total_position_market_value(positions: list[dict[str, Any]] | None) -> float:
+def total_position_market_value(
+    positions: list[dict[str, Any]] | None,
+    fx: FxRates | None = None,
+    last_prices: dict[str, float] | None = None,
+) -> float:
     total = 0.0
     for pos in positions or []:
-        total += existing_position_market_value(pos)
+        symbol = str(pos.get('symbol') or '')
+        last = (last_prices or {}).get(symbol, 0.0)
+        total += existing_position_market_value(pos, last, fx)
     return round(total, 2)
 
 
@@ -222,28 +252,16 @@ def remaining_gross_room(net_assets: float, total_mv: float, max_pct: float = MA
     return round(cap - held, 2)
 
 
-def pick_available_cash(account_result: dict[str, Any] | None) -> float:
-    balances = (account_result or {}).get('balances') or []
-    if not balances:
-        flat = LongbridgeService.flatten_account(account_result or {})
-        return float(flat.get('availableCash') or flat.get('totalCash') or 0)
-    usd = next((b for b in balances if str(b.get('currency') or '').upper() == 'USD'), None)
-    chosen = usd or max(
-        balances,
-        key=lambda b: float(b.get('availableCash') or b.get('totalCash') or 0),
-    )
-    return float(chosen.get('availableCash') or chosen.get('totalCash') or 0)
+def pick_available_cash(account_result: dict[str, Any] | None, fx: FxRates | None = None) -> float:
+    """可用现金（美元基准）；各币种切片按长桥汇率汇总。"""
+    rates = fx or FxRates()
+    return pick_available_cash_usd(account_result, rates)
 
 
-def pick_net_assets(account_result: dict[str, Any] | None) -> float:
-    """优先用美元净资产，否则取各币种里净资产最大的一档。"""
-    balances = (account_result or {}).get('balances') or []
-    if not balances:
-        flat = LongbridgeService.flatten_account(account_result or {})
-        return float(flat.get('netAssets') or 0)
-    usd = next((b for b in balances if str(b.get('currency') or '').upper() == 'USD'), None)
-    chosen = usd or max(balances, key=lambda b: float(b.get('netAssets') or 0))
-    return float(chosen.get('netAssets') or chosen.get('availableCash') or 0)
+def pick_net_assets(account_result: dict[str, Any] | None, fx: FxRates | None = None) -> float:
+    """净资产（美元基准）；各币种切片按长桥汇率汇总。"""
+    rates = fx or FxRates()
+    return pick_net_assets_usd(account_result, rates)
 
 
 def slim_scan_row(item: dict[str, Any]) -> dict[str, Any]:
@@ -427,7 +445,6 @@ class AutoTradeService:
         }
 
     @classmethod
-    @classmethod
     def _append_target(
         cls, items: list[dict[str, str]], seen: set[tuple[str, str]], symbol: str, market: str
     ) -> None:
@@ -588,14 +605,24 @@ class AutoTradeService:
             submit_allowed = False
             submit_block_reason = halt_msg
         net_assets = 0.0
+        fx_rates = FxRates()
+        account_snapshot: dict[str, Any] | None = None
         if configured:
             try:
-                net_assets = pick_net_assets(await LongbridgeService.get_account_balance_async())
+                fx_rates = await load_fx_rates_async()
+                account_snapshot = await LongbridgeService.get_account_balance_async()
+                net_assets = pick_net_assets(account_snapshot, fx_rates)
             except Exception as exc:
                 logger.warning(f'[自动交易] 读取账户净资产失败: {exc}')
         max_daily = daily_buy_cap(net_assets, settings['daily_buy_ratio'])
         max_symbol_pct = clamp_max_symbol_position_pct(settings.get('max_symbol_position_pct'))
         max_per_symbol = symbol_position_cap(net_assets, max_symbol_pct)
+        account_fx_snapshot = account_guardrail_snapshot(account_snapshot, fx_rates) if configured else {
+            'balanceByCurrency': [],
+            'netAssetsUsd': 0.0,
+            'availableCashUsd': 0.0,
+            'fxRates': fx_rates.as_snapshot(),
+        }
         if not configured:
             status_message = '长桥凭据未配置，自动交易仅扫描、不会下单'
         elif not settings['auto_trade_enabled']:
@@ -637,6 +664,9 @@ class AutoTradeService:
                 'maxAmountPerSymbol': max_per_symbol,
                 'maxSymbolPositionPct': max_symbol_pct,
                 'netAssets': round(net_assets, 2),
+                'netAssetsUsd': account_fx_snapshot['netAssetsUsd'],
+                'balanceByCurrency': account_fx_snapshot['balanceByCurrency'],
+                'fxRates': account_fx_snapshot['fxRates'],
                 'dailyBuyRatio': settings['daily_buy_ratio'],
                 'tradingEnabled': settings['auto_trade_enabled'],
                 'autoTradeEnabled': settings['auto_trade_enabled'],
@@ -849,11 +879,13 @@ class AutoTradeService:
         net_assets = 0.0
         available_cash = 0.0
         account_snapshot: dict[str, Any] | None = None
+        fx_rates = FxRates()
         if configured:
             try:
+                fx_rates = await load_fx_rates_async()
                 account_snapshot = await LongbridgeService.get_account_balance_async()
-                net_assets = pick_net_assets(account_snapshot)
-                available_cash = pick_available_cash(account_snapshot)
+                net_assets = pick_net_assets(account_snapshot, fx_rates)
+                available_cash = pick_available_cash(account_snapshot, fx_rates)
             except Exception as exc:
                 logger.warning(f'[AI自动交易] 读取账户净资产失败: {exc}')
         buy_ratio = float(settings['daily_buy_ratio'])
@@ -866,6 +898,7 @@ class AutoTradeService:
         config['max_symbol_position_pct'] = max_symbol_pct
 
         today_orders_count, today_notional_amount = await cls._today_stats(db, target_user_id)
+        account_fx_snapshot = account_guardrail_snapshot(account_snapshot, fx_rates)
         guardrail_snapshot = {
             'todayOrdersCount': today_orders_count,
             'maxDailyOrders': config['max_daily_orders'],
@@ -875,9 +908,13 @@ class AutoTradeService:
             'maxAmountPerSymbol': max_per_symbol,
             'maxSymbolPositionPct': max_symbol_pct,
             'netAssets': round(net_assets, 2),
+            'netAssetsUsd': account_fx_snapshot['netAssetsUsd'],
+            'balanceByCurrency': account_fx_snapshot['balanceByCurrency'],
+            'fxRates': account_fx_snapshot['fxRates'],
             'dailyBuyRatio': buy_ratio,
             'maxGrossExposurePct': MAX_GROSS_EXPOSURE_PCT,
             'availableCash': round(available_cash, 2),
+            'availableCashUsd': account_fx_snapshot['availableCashUsd'],
             'autoTradeEnabled': settings['auto_trade_enabled'],
             'configured': configured,
             'submitAllowed': can_submit,
@@ -906,11 +943,12 @@ class AutoTradeService:
                 )
                 can_submit = False
 
-        total_mv = total_position_market_value(positions)
+        total_mv = total_position_market_value(positions, fx_rates)
         gross_room = remaining_gross_room(net_assets, total_mv)
         guardrail_snapshot['totalPositionMv'] = round(total_mv, 2)
         guardrail_snapshot['grossRoom'] = round(gross_room, 2)
         guardrail_snapshot['availableCash'] = round(available_cash, 2)
+        guardrail_snapshot['availableCashUsd'] = round(available_cash, 2)
         if can_submit and opportunities and gross_room < MIN_TARGET_AMOUNT_USD:
             skipped_reasons.append(
                 {
@@ -984,7 +1022,7 @@ class AutoTradeService:
                     if should_skip_held_buy(pos):
                         skipped_reasons.append({'symbol': symbol, 'reason': '已持有该标的，跳过重复买入'})
                         continue
-                    existing_mv = existing_position_market_value(pos, realtime_price)
+                    existing_mv = existing_position_market_value(pos, realtime_price, fx_rates)
                     room = symbol_buy_room(net_assets, max_symbol_pct, existing_mv)
                     if room < MIN_TARGET_AMOUNT_USD:
                         skipped_reasons.append(
@@ -1007,13 +1045,16 @@ class AutoTradeService:
                             }
                         )
                         continue
-                    quantity = max(1, int(target_amount / realtime_price))
+                    order_currency = fx_rates.order_currency(market)
+                    target_order_amount = fx_rates.from_usd(target_amount, order_currency)
+                    quantity = max(1, int(target_order_amount / realtime_price))
 
                 order_price = round_limit_price(realtime_price, market)
                 if order_price <= 0:
                     skipped_reasons.append({'symbol': symbol, 'reason': '委托价无效，跳过下单'})
                     continue
-                order_amount = quantity * order_price
+                order_currency = fx_rates.order_currency(market)
+                order_amount_usd = fx_rates.to_usd(quantity * order_price, order_currency)
                 try:
                     order_res = await LongbridgeService.submit_order_async(
                         symbol=symbol,
@@ -1051,13 +1092,13 @@ class AutoTradeService:
                 if ok:
                     submitted_count += 1
                     today_orders_count += 1
-                    today_notional_amount += order_amount
+                    today_notional_amount += order_amount_usd
                     if side == 'BUY':
                         code, _ = parse_symbol_market(symbol, market)
                         if code:
                             today_bought.add(code)
-                        total_mv += order_amount
-                        available_cash = max(0.0, available_cash - order_amount)
+                        total_mv += order_amount_usd
+                        available_cash = max(0.0, available_cash - order_amount_usd)
         elif should_execute and not can_submit and submit_block:
             skipped_reasons.append({'symbol': '*', 'reason': submit_block})
 
