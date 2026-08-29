@@ -9,6 +9,12 @@ String formatPct(double? v) {
   return '$sign${v.toStringAsFixed(2)}%';
 }
 
+String formatSigned(double? v, {int digits = 2}) {
+  if (v == null) return '--';
+  final sign = v > 0 ? '+' : '';
+  return '$sign${v.toStringAsFixed(digits)}';
+}
+
 String formatPrice(double? v) {
   if (v == null) return '--';
   return v.toStringAsFixed(v.abs() >= 100 ? 2 : 3);
@@ -156,7 +162,10 @@ DateTime? _parseLoose(String text) {
   if (_tzSuffix.hasMatch(raw)) {
     return _parseZoned(raw);
   }
-  final parts = text.split(RegExp(r'[ :\-T]')).where((p) => p.isNotEmpty).toList();
+  final parts = text
+      .split(RegExp(r'[ :\-T]'))
+      .where((p) => p.isNotEmpty)
+      .toList();
   if (parts.isNotEmpty && parts.last.contains('.')) {
     parts[parts.length - 1] = parts.last.split('.').first;
   }

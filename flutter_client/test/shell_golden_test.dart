@@ -26,18 +26,18 @@ import 'package:flutter_client/features/watchlist/logic/watchlist_providers.dart
 class _FakeSession extends SessionController {
   @override
   SessionState build() => const SessionState(
-        status: SessionStatus.authenticated,
-        user: UserInfo(userId: 1, userName: 'demo', nickName: '示例用户'),
-        roles: ['admin'],
-      );
+    status: SessionStatus.authenticated,
+    user: UserInfo(userId: 1, userName: 'demo', nickName: '示例用户'),
+    roles: ['admin'],
+  );
 }
 
 class _FakeGateway extends GatewayController {
   @override
   GatewayConfig build() => const GatewayConfig(
-        url: 'http://127.0.0.1:12580',
-        lastGoodUrl: 'http://127.0.0.1:12580',
-      );
+    url: 'http://127.0.0.1:12580',
+    lastGoodUrl: 'http://127.0.0.1:12580',
+  );
 }
 
 class _FakeMenuApi extends MenuApi {
@@ -45,41 +45,61 @@ class _FakeMenuApi extends MenuApi {
 
   @override
   Future<List<RouterNode>> getRouters() async => [
+    RouterNode(
+      path: '/market',
+      meta: const RouterMeta(title: '行情中心', icon: 'chart'),
+      children: const [
         RouterNode(
-          path: '/market',
-          meta: const RouterMeta(title: '行情中心', icon: 'chart'),
-          children: const [
-            RouterNode(path: 'heat', meta: RouterMeta(title: '市场热度')),
-            RouterNode(path: 'board', meta: RouterMeta(title: '行情台')),
-          ],
+          path: 'heat',
+          meta: RouterMeta(title: '市场热度'),
         ),
         RouterNode(
-          path: '/trade',
-          meta: const RouterMeta(title: '交易中心', icon: 'money'),
-          children: const [
-            RouterNode(path: 'desk', meta: RouterMeta(title: '交易工作台')),
-          ],
+          path: 'board',
+          meta: RouterMeta(title: '行情台'),
         ),
-      ];
+      ],
+    ),
+    RouterNode(
+      path: '/trade',
+      meta: const RouterMeta(title: '交易中心', icon: 'money'),
+      children: const [
+        RouterNode(
+          path: 'desk',
+          meta: RouterMeta(title: '交易工作台'),
+        ),
+      ],
+    ),
+  ];
 }
 
 class _FakeRuoyi extends RuoyiClient {
   _FakeRuoyi() : super(Dio());
 
   @override
-  Future<ApiResult> get(String path, {Map<String, dynamic>? query, Duration? timeout}) async =>
-      ApiResult.ok(data: const {});
+  Future<ApiResult> get(
+    String path, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+  }) async => ApiResult.ok(data: const {});
 
   @override
-  Future<ApiResult> post(String path, {dynamic data, Map<String, dynamic>? query, Duration? timeout}) async =>
-      ApiResult.ok(data: const {});
+  Future<ApiResult> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? query,
+    Duration? timeout,
+  }) async => ApiResult.ok(data: const {});
 
   @override
-  Future<ApiResult> put(String path, {dynamic data, Map<String, dynamic>? query}) async =>
-      ApiResult.ok(data: const {});
+  Future<ApiResult> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? query,
+  }) async => ApiResult.ok(data: const {});
 
   @override
-  Future<ApiResult> delete(String path, {dynamic data}) async => ApiResult.ok(data: const {});
+  Future<ApiResult> delete(String path, {dynamic data}) async =>
+      ApiResult.ok(data: const {});
 }
 
 Future<void> _pumpShell(WidgetTester tester, Size size) async {
@@ -96,18 +116,38 @@ Future<void> _pumpShell(WidgetTester tester, Size size) async {
         watchlistOverviewProvider.overrideWith(
           (ref) async => const WatchlistOverview(
             items: [
-              WatchlistItem(symbol: 'AAPL', name: '苹果', market: 'US', last: 226.4, changeRate: -0.42),
+              WatchlistItem(
+                symbol: 'AAPL',
+                name: '苹果',
+                market: 'US',
+                last: 226.4,
+                changeRate: -0.42,
+              ),
             ],
             count: 1,
           ),
         ),
         tradeAccountProvider.overrideWith(
-          (ref) async => const AccountInfo(netAssets: 48915.7, availableCash: 12000, currency: 'USD'),
+          (ref) async => const AccountInfo(
+            netAssets: 48915.7,
+            availableCash: 12000,
+            currency: 'USD',
+          ),
         ),
         indexQuotesProvider.overrideWith(
           (ref) async => const [
-            IndexQuote(symbol: '^IXIC', name: '纳斯达克', last: 17820, changePct: 1.04),
-            IndexQuote(symbol: '^GSPC', name: '标普500', last: 5620, changePct: 0.58),
+            IndexQuote(
+              symbol: '^IXIC',
+              name: '纳斯达克',
+              last: 17820,
+              changePct: 1.04,
+            ),
+            IndexQuote(
+              symbol: '^GSPC',
+              name: '标普500',
+              last: 5620,
+              changePct: 0.58,
+            ),
           ],
         ),
         sentimentBoardProvider.overrideWith(
@@ -156,14 +196,16 @@ void main() {
     );
   }, skip: !Platform.isMacOS);
 
-  testWidgets('phone shell uses securities-app tabs without admin drawer', (tester) async {
+  testWidgets('phone shell uses securities-app tabs without admin drawer', (
+    tester,
+  ) async {
     await _pumpShell(tester, const Size(390, 844));
     expect(find.byType(NavigationBar), findsOneWidget);
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
     expect(scaffold.drawer, isNull);
-    expect(find.text('舆情'), findsWidgets);
+    expect(find.text('自选'), findsWidgets);
+    expect(find.text('行情'), findsWidgets);
     expect(find.text('选股'), findsWidgets);
-    expect(find.text('热度'), findsWidgets);
     expect(find.text('持仓'), findsWidgets);
     expect(find.text('我的'), findsWidgets);
   });

@@ -31,7 +31,10 @@ void main() {
       expect(a.analysisId, 7);
       expect(a.newsCount, 32);
       expect(SentimentDirection.fromRaw(a.usDirection), SentimentDirection.up);
-      expect(SentimentDirection.fromRaw(a.hkDirection), SentimentDirection.down);
+      expect(
+        SentimentDirection.fromRaw(a.hkDirection),
+        SentimentDirection.down,
+      );
       expect(SentimentDirection.fromRaw(a.aDirection), SentimentDirection.flat);
       expect(a.overallScore, closeTo(53.67, 0.01));
       expect(a.overallDirection, SentimentDirection.flat); // 1:1:1 平票 → 中性
@@ -77,7 +80,14 @@ void main() {
 
     test('ApiResult 兼容 Cloudflare 纯文本 502 与业务 401', () {
       final plain = ApiException;
-      expect(isBusinessUnauthorized({'code': 401, 'data': '', 'msg': '用户未登录，请先完成登录'}), isTrue);
+      expect(
+        isBusinessUnauthorized({
+          'code': 401,
+          'data': '',
+          'msg': '用户未登录，请先完成登录',
+        }),
+        isTrue,
+      );
       expect(isBusinessUnauthorized({'code': 200}), isFalse);
       expect(asJsonList(''), isEmpty);
       expect(asJsonList('["a"]'), ['a']);
@@ -235,6 +245,27 @@ void main() {
     });
   });
 
+  group('formatSigned', () {
+    test('正数带加号，负数带减号，null 为占位', () {
+      expect(formatSigned(1.2), '+1.20');
+      expect(formatSigned(-1), '-1.00');
+      expect(formatSigned(null), '--');
+    });
+  });
+
+  group('TopPickRow', () {
+    test('last 兼容 last / price / close', () {
+      expect(TopPickRow.fromJson(const {'last': 190.5}).last, 190.5);
+      expect(TopPickRow.fromJson(const {'price': 12.3}).last, 12.3);
+      expect(TopPickRow.fromJson(const {'close': 8}).last, 8);
+      expect(
+        TopPickRow.fromJson(const {'last': 1, 'price': 2, 'close': 3}).last,
+        1,
+      );
+      expect(TopPickRow.fromJson(const {}).last, isNull);
+    });
+  });
+
   group('PositionQuote / UsdHkdFx', () {
     test('涨跌幅用 last 与 prevClose 自算，盈亏按数量', () {
       const q = PositionQuote(last: 110, prevClose: 100);
@@ -271,17 +302,53 @@ void main() {
       IndexQuote(symbol: 'usIXIC', name: '纳斯达克', market: 'US', changePct: 2),
       IndexQuote(symbol: 'usDJI', name: '道琼斯', market: 'US', changePct: 0.5),
       IndexQuote(symbol: 'r_hkHSI', name: '恒生指数', market: 'HK', changePct: -1),
-      IndexQuote(symbol: 'r_hkHSTECH', name: '恒生科技', market: 'HK', changePct: -2),
-      IndexQuote(symbol: 'r_hkHSCEI', name: '恒生国企', market: 'HK', changePct: -0.3),
-      IndexQuote(symbol: 'sh000001', name: '上证指数', market: 'CN', changePct: 0.1),
-      IndexQuote(symbol: 'sz399006', name: '创业板指数', market: 'CN', changePct: 0.2),
-      IndexQuote(symbol: 'sh000688', name: '科创板指数', market: 'CN', changePct: 0.3),
+      IndexQuote(
+        symbol: 'r_hkHSTECH',
+        name: '恒生科技',
+        market: 'HK',
+        changePct: -2,
+      ),
+      IndexQuote(
+        symbol: 'r_hkHSCEI',
+        name: '恒生国企',
+        market: 'HK',
+        changePct: -0.3,
+      ),
+      IndexQuote(
+        symbol: 'sh000001',
+        name: '上证指数',
+        market: 'CN',
+        changePct: 0.1,
+      ),
+      IndexQuote(
+        symbol: 'sz399006',
+        name: '创业板指数',
+        market: 'CN',
+        changePct: 0.2,
+      ),
+      IndexQuote(
+        symbol: 'sh000688',
+        name: '科创板指数',
+        market: 'CN',
+        changePct: 0.3,
+      ),
     ];
 
     test('三个市场互不串指数，美股统计卡用道琼斯', () {
-      expect(heatStripQuotes(all, 'US').map((q) => q.symbol), ['usINX', 'usIXIC']);
-      expect(heatStripQuotes(all, 'HK').map((q) => q.symbol), ['r_hkHSI', 'r_hkHSTECH', 'r_hkHSCEI']);
-      expect(heatStripQuotes(all, 'CN').map((q) => q.symbol), ['sh000001', 'sz399006', 'sh000688']);
+      expect(heatStripQuotes(all, 'US').map((q) => q.symbol), [
+        'usINX',
+        'usIXIC',
+      ]);
+      expect(heatStripQuotes(all, 'HK').map((q) => q.symbol), [
+        'r_hkHSI',
+        'r_hkHSTECH',
+        'r_hkHSCEI',
+      ]);
+      expect(heatStripQuotes(all, 'CN').map((q) => q.symbol), [
+        'sh000001',
+        'sz399006',
+        'sh000688',
+      ]);
       expect(heatStatQuote(all, 'US')?.symbol, 'usDJI');
       expect(indexDisplayName(heatStatQuote(all, 'US')!), '道琼斯');
     });
@@ -291,7 +358,8 @@ void main() {
       expect(const HeatDailyData().filterRuleFor('HK'), contains('港币'));
       expect(const HeatDailyData().filterRuleFor('CN'), contains('人民币'));
       expect(
-        const HeatDailyData(heat: HeatSummary(filterRule: '50亿-500亿港币')).filterRuleFor('HK'),
+        const HeatDailyData(heat: HeatSummary(filterRule: '50亿-500亿港币'))
+            .filterRuleFor('HK'),
         '50亿-500亿港币',
       );
     });

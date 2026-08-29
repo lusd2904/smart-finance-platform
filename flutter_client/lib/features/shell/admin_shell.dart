@@ -12,12 +12,13 @@ import '../../core/theme/ruoyi_tokens.dart';
 import '../../features/auth/logic/session_controller.dart';
 import '../../features/kline/presentation/symbol_detail_page.dart';
 import '../../features/market/presentation/market_tab.dart';
-import '../../features/sentiment/presentation/sentiment_page.dart';
+import '../../features/notice/presentation/notice_page.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 import 'page_registry.dart';
 import 'phone_pages.dart';
 import 'phone_picks_page.dart';
 import 'phone_trade_page.dart';
+import 'phone_watchlist_page.dart';
 
 /// 测试/程序化打开路由（不经过侧栏点击）。
 class ShellNavRequest {
@@ -29,7 +30,11 @@ class ShellNavRequest {
 final shellNavRequestProvider = StateProvider<ShellNavRequest?>((ref) => null);
 
 class TagTab {
-  const TagTab({required this.path, required this.title, this.query = const {}});
+  const TagTab({
+    required this.path,
+    required this.title,
+    this.query = const {},
+  });
   final String path;
   final String title;
   final Map<String, String> query;
@@ -53,9 +58,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   bool _sidebarOpen = true;
   int _phoneTab = 0;
   bool _phoneBootstrapped = false;
-  final List<TagTab> _tags = [
-    const TagTab(path: '/portal', title: '工作台'),
-  ];
+  final List<TagTab> _tags = [const TagTab(path: '/portal', title: '工作台')];
   int _active = 0;
   final Map<String, Widget> _cache = {};
   final Map<int, Widget> _phoneRoots = {};
@@ -68,7 +71,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     if (!AppDimens.isWide(context)) {
       _tags
         ..clear()
-        ..add(const TagTab(path: '/sentiment/dashboard', title: '舆情'));
+        ..add(const TagTab(path: '/market/watchlist', title: '自选'));
       _phoneTab = 0;
       _active = 0;
       _cache.clear();
@@ -78,7 +81,8 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   void _openSymbol(String symbol, String market, String name) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SymbolDetailPage(symbol: symbol, market: market, name: name),
+        builder: (_) =>
+            SymbolDetailPage(symbol: symbol, market: market, name: name),
       ),
     );
   }
@@ -88,7 +92,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final path = uri.path.isEmpty ? raw.split('?').first : uri.path;
     final query = Map<String, String>.from(uri.queryParameters);
     if (!AppDimens.isWide(context) &&
-        (path == '/market/kline' || path == '/market/symbol' || path == '/market/tradingview')) {
+        (path == '/market/kline' ||
+            path == '/market/symbol' ||
+            path == '/market/tradingview')) {
       _openSymbol(
         query['symbol'] ?? 'AAPL',
         query['market'] ?? 'US',
@@ -123,7 +129,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   }
 
   Widget _pageOf(TagTab tab) {
-    final allowed = visibleMenuPaths(ref.read(routersProvider).asData?.value ?? const []);
+    final allowed = visibleMenuPaths(
+      ref.read(routersProvider).asData?.value ?? const [],
+    );
     return _cache.putIfAbsent(
       tab.key,
       () => buildNativePage(tab.path, tab.query, _open, allowed: allowed),
@@ -143,7 +151,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final dark = ref.watch(themeModeController) != ThemeMode.light;
     final current = _tags[_active];
     final wide = AppDimens.isWide(context);
-    final menu = clientVisibleRouters(routers.asData?.value ?? const <RouterNode>[]);
+    final menu = clientVisibleRouters(
+      routers.asData?.value ?? const <RouterNode>[],
+    );
     final stack = ColoredBox(
       color: Theme.of(context).brightness == Brightness.dark
           ? WebTokens.contentBg
@@ -233,14 +243,16 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                     gateway: gateway.url,
                     dark: dark,
                     sidebarOpen: _sidebarOpen,
-                    onToggleSide: () => setState(() => _sidebarOpen = !_sidebarOpen),
+                    onToggleSide: () =>
+                        setState(() => _sidebarOpen = !_sidebarOpen),
                     onPortal: () => _open('/portal', title: '子系统门户'),
                     onIndex: menuAllows(visibleMenuPaths(menu), '/index')
                         ? () => _open('/index', title: '工作台首页')
                         : null,
                     onProfile: () => _open('/user/profile', title: '个人中心'),
                     onGateway: () => context.go('/gateway'),
-                    onTheme: () => ref.read(themeModeController.notifier).toggle(),
+                    onTheme: () =>
+                        ref.read(themeModeController.notifier).toggle(),
                     onLogout: logout,
                   ),
                   _TagsBar(
@@ -260,9 +272,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   }
 
   static const _phoneTabs = <(String path, String title, IconData icon)>[
-    ('/sentiment/dashboard', '舆情', Icons.analytics_outlined),
+    ('/market/watchlist', '自选', Icons.star_outline),
+    ('/market/heat', '行情', Icons.candlestick_chart_outlined),
     ('/market/recommendations', '选股', Icons.auto_awesome),
-    ('/market/heat', '热度', Icons.candlestick_chart_outlined),
     ('/trade/positions', '持仓', Icons.account_balance_wallet_outlined),
     ('/user/profile', '我的', Icons.person_outline),
   ];
@@ -273,11 +285,27 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     return _phoneRoots.putIfAbsent(index, () {
       switch (index) {
         case 0:
-          return const SentimentPage();
+          return PhoneWatchlistPage(
+            onOpenSymbol: _openSymbol,
+            onOpenMine: () {
+              setState(() {
+                _phoneTab = 4;
+                _tags
+                  ..clear()
+                  ..add(const TagTab(path: '/user/profile', title: '我的'));
+                _active = 0;
+              });
+            },
+            onOpenNotice: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const NoticePage()),
+              );
+            },
+          );
         case 1:
-          return PhonePicksPage(onOpenSymbol: _openSymbol);
-        case 2:
           return MarketTab(onOpenSymbol: _openSymbol);
+        case 2:
+          return PhonePicksPage(onOpenSymbol: _openSymbol);
         case 3:
           return PhoneTradePage(onOpenSymbol: _openSymbol);
         default:
@@ -373,66 +401,71 @@ class _Sidebar extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: Column(
-        children: [
-          InkWell(
-            onTap: onLogo,
-            child: SizedBox(
-              height: AppDimens.isMac(context) ? 52 : WebTokens.navbarHeight,
-              child: Padding(
-                padding: EdgeInsets.only(left: AppDimens.isMac(context) && open ? 72 : 0),
-                child: Center(
-                  child: Text(
-                    open ? '智慧金融分析平台' : (AppDimens.isMac(context) ? '' : '智'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
+          children: [
+            InkWell(
+              onTap: onLogo,
+              child: SizedBox(
+                height: AppDimens.isMac(context) ? 52 : WebTokens.navbarHeight,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: AppDimens.isMac(context) && open ? 72 : 0,
+                  ),
+                  child: Center(
+                    child: Text(
+                      open ? '智慧金融分析平台' : (AppDimens.isMac(context) ? '' : '智'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: loading
-                ? const Center(
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    children: [
-                      _leaf(
-                        icon: Icons.grid_view_outlined,
-                        title: '工作台',
-                        path: '/portal',
-                        selected: currentPath == '/portal',
+            Expanded(
+              child: loading
+                  ? const Center(
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       ),
-                      if (menuAllows(visibleMenuPaths(routers), '/index'))
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      children: [
                         _leaf(
-                          icon: Icons.dashboard_outlined,
-                          title: '工作台首页',
-                          path: '/index',
-                          selected: currentPath == '/index',
+                          icon: Icons.grid_view_outlined,
+                          title: '工作台',
+                          path: '/portal',
+                          selected: currentPath == '/portal',
                         ),
-                      for (final node in routers.where((n) => !n.hidden))
-                        _Node(
-                          node: node,
-                          parent: '',
-                          open: open,
-                          currentPath: currentPath,
-                          onSelect: onSelect,
-                        ),
-                    ],
-                  ),
-          ),
-        ],
-      ),
+                        if (menuAllows(visibleMenuPaths(routers), '/index'))
+                          _leaf(
+                            icon: Icons.dashboard_outlined,
+                            title: '工作台首页',
+                            path: '/index',
+                            selected: currentPath == '/index',
+                          ),
+                        for (final node in routers.where((n) => !n.hidden))
+                          _Node(
+                            node: node,
+                            parent: '',
+                            open: open,
+                            currentPath: currentPath,
+                            onSelect: onSelect,
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -450,16 +483,24 @@ class _Sidebar extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: open ? 16 : 0),
         color: selected ? WebTokens.sidebarHover : Colors.transparent,
         child: Row(
-          mainAxisAlignment: open ? MainAxisAlignment.start : MainAxisAlignment.center,
+          mainAxisAlignment: open
+              ? MainAxisAlignment.start
+              : MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 16, color: selected ? WebTokens.sidebarActive : WebTokens.sidebarText),
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? WebTokens.sidebarActive : WebTokens.sidebarText,
+            ),
             if (open) ...[
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
-                    color: selected ? WebTokens.sidebarActive : WebTokens.sidebarText,
+                    color: selected
+                        ? WebTokens.sidebarActive
+                        : WebTokens.sidebarText,
                     fontSize: 14,
                   ),
                 ),
@@ -500,12 +541,16 @@ class _Node extends StatelessWidget {
           padding: EdgeInsets.only(left: open ? 16 : 0),
           color: selected ? WebTokens.sidebarHover : Colors.transparent,
           child: Row(
-            mainAxisAlignment: open ? MainAxisAlignment.start : MainAxisAlignment.center,
+            mainAxisAlignment: open
+                ? MainAxisAlignment.start
+                : MainAxisAlignment.center,
             children: [
               Icon(
                 ruoyiIcon(node.meta.icon),
                 size: 16,
-                color: selected ? WebTokens.sidebarActive : WebTokens.sidebarText,
+                color: selected
+                    ? WebTokens.sidebarActive
+                    : WebTokens.sidebarText,
               ),
               if (open) ...[
                 const SizedBox(width: 10),
@@ -513,7 +558,9 @@ class _Node extends StatelessWidget {
                   child: Text(
                     node.title,
                     style: TextStyle(
-                      color: selected ? WebTokens.sidebarActive : WebTokens.sidebarText,
+                      color: selected
+                          ? WebTokens.sidebarActive
+                          : WebTokens.sidebarText,
                       fontSize: 14,
                     ),
                   ),
@@ -531,30 +578,40 @@ class _Node extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        initiallyExpanded: childSelected,
-        leading: Icon(ruoyiIcon(node.meta.icon), size: 16, color: WebTokens.sidebarText),
-        title: open
-            ? Text(node.title, style: const TextStyle(color: WebTokens.sidebarText, fontSize: 14))
-            : const SizedBox.shrink(),
-        iconColor: WebTokens.sidebarText,
-        collapsedIconColor: WebTokens.sidebarText,
-        tilePadding: EdgeInsets.symmetric(horizontal: open ? 8 : 0),
-        childrenPadding: EdgeInsets.only(left: open ? 12 : 0),
-        backgroundColor: WebTokens.sidebarSub,
-        collapsedBackgroundColor: Colors.transparent,
-        children: [
-          for (final c in visibleChildren)
-            _Node(
-              node: c,
-              parent: full,
-              open: open,
-              currentPath: currentPath,
-              onSelect: onSelect,
-            ),
-        ],
-      ),
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: childSelected,
+          leading: Icon(
+            ruoyiIcon(node.meta.icon),
+            size: 16,
+            color: WebTokens.sidebarText,
+          ),
+          title: open
+              ? Text(
+                  node.title,
+                  style: const TextStyle(
+                    color: WebTokens.sidebarText,
+                    fontSize: 14,
+                  ),
+                )
+              : const SizedBox.shrink(),
+          iconColor: WebTokens.sidebarText,
+          collapsedIconColor: WebTokens.sidebarText,
+          tilePadding: EdgeInsets.symmetric(horizontal: open ? 8 : 0),
+          childrenPadding: EdgeInsets.only(left: open ? 12 : 0),
+          backgroundColor: WebTokens.sidebarSub,
+          collapsedBackgroundColor: Colors.transparent,
+          children: [
+            for (final c in visibleChildren)
+              _Node(
+                node: c,
+                parent: full,
+                open: open,
+                currentPath: currentPath,
+                onSelect: onSelect,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -597,7 +654,9 @@ class _Navbar extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
         border: Border(
-          bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
         ),
       ),
       child: Row(
@@ -615,15 +674,29 @@ class _Navbar extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          IconButton(tooltip: '子系统门户', onPressed: onPortal, icon: const Icon(Icons.grid_view_outlined)),
+          IconButton(
+            tooltip: '子系统门户',
+            onPressed: onPortal,
+            icon: const Icon(Icons.grid_view_outlined),
+          ),
           if (onIndex != null)
-            IconButton(tooltip: '工作台首页', onPressed: onIndex, icon: const Icon(Icons.home_outlined)),
+            IconButton(
+              tooltip: '工作台首页',
+              onPressed: onIndex,
+              icon: const Icon(Icons.home_outlined),
+            ),
           IconButton(
             tooltip: dark ? '浅色' : '深色',
             onPressed: onTheme,
-            icon: Icon(dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined),
+            icon: Icon(
+              dark ? Icons.wb_sunny_outlined : Icons.dark_mode_outlined,
+            ),
           ),
-          IconButton(tooltip: '网关', onPressed: onGateway, icon: const Icon(Icons.dns_outlined)),
+          IconButton(
+            tooltip: '网关',
+            onPressed: onGateway,
+            icon: const Icon(Icons.dns_outlined),
+          ),
           PopupMenuButton<String>(
             tooltip: nickName,
             onSelected: (v) {
@@ -698,7 +771,9 @@ class _TagsBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
+                color: selected
+                    ? scheme.surfaceContainerLowest
+                    : Colors.transparent,
                 border: Border(
                   bottom: BorderSide(
                     color: selected ? WebTokens.primary : Colors.transparent,
@@ -708,7 +783,13 @@ class _TagsBar extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Text(tags[i].title, style: TextStyle(fontSize: 12, color: selected ? WebTokens.primary : null)),
+                  Text(
+                    tags[i].title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: selected ? WebTokens.primary : null,
+                    ),
+                  ),
                   if (tags.length > 1) ...[
                     const SizedBox(width: 4),
                     GestureDetector(

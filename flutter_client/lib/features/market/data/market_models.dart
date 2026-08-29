@@ -55,6 +55,7 @@ class TopPickRow {
     required this.name,
     this.marketCap,
     this.turnover,
+    this.last,
     this.changePct,
     this.inWatchlist = false,
   });
@@ -65,6 +66,10 @@ class TopPickRow {
     name: (json['name'] as String?) ?? '',
     marketCap: (json['marketCap'] as num?)?.toDouble(),
     turnover: (json['turnover'] as num?)?.toDouble(),
+    last:
+        (json['last'] as num?)?.toDouble() ??
+        (json['price'] as num?)?.toDouble() ??
+        (json['close'] as num?)?.toDouble(),
     changePct: (json['changePct'] as num?)?.toDouble(),
     inWatchlist: (json['inWatchlist'] as bool?) ?? false,
   );
@@ -74,6 +79,7 @@ class TopPickRow {
   final String name;
   final double? marketCap;
   final double? turnover;
+  final double? last;
   final double? changePct;
   final bool inWatchlist;
 }
@@ -148,7 +154,8 @@ const kIndexDisplayName = <String, String>{
 };
 
 String indexDisplayName(IndexQuote q) =>
-    kIndexDisplayName[q.symbol.toLowerCase()] ?? (q.name.isEmpty ? q.symbol : q.name);
+    kIndexDisplayName[q.symbol.toLowerCase()] ??
+    (q.name.isEmpty ? q.symbol : q.name);
 
 /// 按当前市场抽出指数条，缺代码时退回该 market 字段匹配的项。
 List<IndexQuote> heatStripQuotes(List<IndexQuote> all, String market) {
@@ -361,10 +368,7 @@ class WatchlistItem {
   final String summary;
   final String analysisTime;
 
-  WatchlistItem copyWith({
-    double? last,
-    double? changeRate,
-  }) {
+  WatchlistItem copyWith({double? last, double? changeRate}) {
     return WatchlistItem(
       id: id,
       symbol: symbol,

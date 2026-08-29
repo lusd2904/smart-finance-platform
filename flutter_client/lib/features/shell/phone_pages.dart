@@ -10,11 +10,11 @@ import '../../shared/widgets/ruoyi_ui.dart';
 import '../ai/presentation/ai_page.dart';
 import '../news/presentation/news_page.dart';
 import '../notice/presentation/notice_page.dart';
+import '../sentiment/presentation/sentiment_page.dart';
 import '../trade/data/trade_api.dart';
 import 'phone_quant_page.dart';
-import 'phone_watchlist_page.dart';
 
-/// 「我的」：次级入口。底栏是舆情 / 选股 / 热度 / 持仓。
+/// 「我的」：次级入口。底栏是自选 / 行情 / 选股 / 持仓。
 class PhoneMinePage extends ConsumerWidget {
   const PhoneMinePage({super.key, this.open, this.onOpenSymbol});
   final OpenRoute? open;
@@ -32,7 +32,10 @@ class PhoneMinePage extends ConsumerWidget {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => wrapped
-              ? Scaffold(appBar: AppBar(title: Text(title)), body: page)
+              ? Scaffold(
+                  appBar: AppBar(title: Text(title)),
+                  body: page,
+                )
               : page,
         ),
       );
@@ -48,9 +51,8 @@ class PhoneMinePage extends ConsumerWidget {
               padding: const EdgeInsets.only(left: 4, bottom: 8),
               child: Text(
                 title,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                style: Theme.of(context).textTheme.labelMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
             DecoratedBox(
@@ -66,13 +68,20 @@ class PhoneMinePage extends ConsumerWidget {
       );
     }
 
-    Widget tile(IconData icon, String title, VoidCallback onTap, {String? subtitle}) {
+    Widget tile(
+      IconData icon,
+      String title,
+      VoidCallback onTap, {
+      String? subtitle,
+    }) {
       return Material(
         color: Colors.transparent,
         child: ListTile(
           leading: Icon(icon, size: 22),
           title: Text(title),
-          subtitle: subtitle == null ? null : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: subtitle == null
+              ? null
+              : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
           trailing: const Icon(Icons.chevron_right, size: 18),
           onTap: onTap,
         ),
@@ -90,7 +99,11 @@ class PhoneMinePage extends ConsumerWidget {
                 backgroundColor: AppColors.brand,
                 child: Text(
                   name.isEmpty ? 'U' : name.characters.first,
-                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -98,11 +111,16 @@ class PhoneMinePage extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                    Text(
+                      name,
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       user?.userName ?? '',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -112,18 +130,36 @@ class PhoneMinePage extends ConsumerWidget {
         ),
         group('功能', [
           tile(
-            Icons.star_outline,
-            '自选',
-            () => push(
-              PhoneWatchlistPage(onOpenSymbol: onOpenSymbol),
-              title: '自选',
-            ),
+            Icons.analytics_outlined,
+            '舆情',
+            () => push(const SentimentPage(), title: '舆情', wrapped: false),
           ),
-          tile(Icons.article_outlined, '资讯', () => push(const NewsPage(), title: '资讯', wrapped: false)),
-          tile(Icons.notifications_outlined, '通知', () => push(const NoticePage(), title: '通知', wrapped: false)),
-          tile(Icons.psychology_outlined, 'AI 研判', () => push(const AiPage(), title: 'AI 研判', wrapped: false)),
-          tile(Icons.hub_outlined, '量化研究', () => push(PhoneQuantPage(onOpenSymbol: onOpenSymbol), title: '量化研究')),
-          tile(Icons.forum_outlined, '需求沟通', () => open?.call('/ai/req-chat', title: '需求沟通')),
+          tile(
+            Icons.article_outlined,
+            '资讯',
+            () => push(const NewsPage(), title: '资讯', wrapped: false),
+          ),
+          tile(
+            Icons.notifications_outlined,
+            '通知',
+            () => push(const NoticePage(), title: '通知', wrapped: false),
+          ),
+          tile(
+            Icons.psychology_outlined,
+            'AI 研判',
+            () => push(const AiPage(), title: 'AI 研判', wrapped: false),
+          ),
+          tile(
+            Icons.hub_outlined,
+            '量化研究',
+            () =>
+                push(PhoneQuantPage(onOpenSymbol: onOpenSymbol), title: '量化研究'),
+          ),
+          tile(
+            Icons.forum_outlined,
+            '需求沟通',
+            () => open?.call('/ai/req-chat', title: '需求沟通'),
+          ),
           tile(
             Icons.dns_outlined,
             '网关探测',
@@ -171,7 +207,8 @@ class _TradeSwitches extends ConsumerWidget {
             padding: const EdgeInsets.only(left: 4, bottom: 8),
             child: Text(
               '交易',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
           DecoratedBox(
@@ -188,18 +225,22 @@ class _TradeSwitches extends ConsumerWidget {
                     st == null
                         ? '读取中'
                         : (st.configured
-                            ? (st.autoTradeEnabled ? '扫描会向长桥下单' : '只扫描不下单')
-                            : '未配置长桥 Key'),
+                              ? (st.autoTradeEnabled ? '扫描会向长桥下单' : '只扫描不下单')
+                              : '未配置长桥 Key'),
                   ),
                   value: st?.autoTradeEnabled == true,
                   onChanged: (st == null || !st.configured || st.halted)
                       ? null
                       : (on) async {
                           try {
-                            await ref.read(tradeApiProvider).saveAutoTradeSettings(autoTradeEnabled: on);
+                            await ref
+                                .read(tradeApiProvider)
+                                .saveAutoTradeSettings(autoTradeEnabled: on);
                             ref.invalidate(tradeAutoStatusProvider);
                           } catch (e) {
-                            if (context.mounted) toast(context, describeApiError(e), error: true);
+                            if (context.mounted) {
+                              toast(context, describeApiError(e), error: true);
+                            }
                           }
                         },
                 ),
@@ -215,17 +256,24 @@ class _TradeSwitches extends ConsumerWidget {
                       ? null
                       : (on) async {
                           if (on) {
-                            final ok = await confirm(context, '打开后拦截全部新委托（手工/自动/次日清单），撤单仍可用。确认停机？');
+                            final ok = await confirm(
+                              context,
+                              '打开后拦截全部新委托（手工/自动/次日清单），撤单仍可用。确认停机？',
+                            );
                             if (!ok) return;
                           }
                           try {
-                            await ref.read(tradeApiProvider).setHalt(
+                            await ref
+                                .read(tradeApiProvider)
+                                .setHalt(
                                   halted: on,
                                   reason: on ? '手机端紧急停机' : '',
                                 );
                             ref.invalidate(tradeAutoStatusProvider);
                           } catch (e) {
-                            if (context.mounted) toast(context, describeApiError(e), error: true);
+                            if (context.mounted) {
+                              toast(context, describeApiError(e), error: true);
+                            }
                           }
                         },
                 ),
