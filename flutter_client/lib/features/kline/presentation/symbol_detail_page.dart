@@ -46,17 +46,40 @@ class _Pack {
   final DepthData? depth;
   final AiLatestAnalysis? ai;
   final List<Map<String, dynamic>> news;
+
+  _Pack copyWith({
+    List<KlineBar>? bars,
+    Map<String, dynamic>? overview,
+    DepthData? depth,
+    AiLatestAnalysis? ai,
+    List<Map<String, dynamic>>? news,
+  }) {
+    return _Pack(
+      bars: bars ?? this.bars,
+      overview: overview ?? this.overview,
+      depth: depth ?? this.depth,
+      ai: ai ?? this.ai,
+      news: news ?? this.news,
+    );
+  }
 }
 
 class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
   String _period = 'daily';
   bool _expanded = false;
-  late Future<_Pack> _future;
+  _Pack? _pack;
+  bool _loading = true;
+  Object? _error;
+  bool _klineLoading = false;
+  bool _klineFailed = false;
+  int _reqId = 0;
   LiveStockQuote? _live;
   VoidCallback? _unsubQuotes;
 
   static const _periodLabels = {
     'intraday': '分时',
+    '5min': '5分',
+    '15min': '15分',
     'daily': '日K',
     'weekly': '周K',
     'monthly': '月K',
@@ -65,8 +88,10 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
   @override
   void initState() {
     super.initState();
-    _future = _load();
-    Future<void>.microtask(_bindQuotes);
+    Future<void>.microtask(() {
+      _bindQuotes();
+      _load();
+    });
   }
 
   @override
@@ -80,13 +105,15 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
     _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
       [(symbol: widget.symbol, market: widget.market)],
       (quotes) {
-        if (!mounted || quotes.isEmpty) return;
+        if (!mounted || quotes.isEmpty) {
+          return;
+        }
         setState(() => _live = quotes.first);
       },
     );
   }
 
-  Future<_Pack> _load() async {
+  Future<_Pack> _fetchPack() async {
     final api = ref.read(marketApiProvider);
     final trade = ref.read(tradeApiProvider);
     final ai = ref.read(aiApiProvider);
@@ -131,7 +158,94 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
     );
   }
 
-  void _reload() => setState(() => _future = _load());
+  Future<void> _load() async {
+    final id = ++_reqId;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final pack = await _fetchPack();
+      if (!mounted || id != _reqId) {
+        return;
+      }
+      setState(() {
+        _pack = pack;
+        _loading = false;
+        _klineLoading = false;
+        _klineFailed = false;
+      });
+    } catch (e) {
+      if (!mounted || id != _reqId) {
+        return;
+      }
+      if (_pack != null) {
+        setState(() => _loading = false);
+        _toast('加载失败：${describeApiError(e)}');
+      } else {
+        setState(() {
+          _error = e;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _changePeriod(String p) async {
+    if (p == _period && !_klineFailed) {
+      return;
+    }
+    final id = ++_reqId;
+    setState(() {
+      _period = p;
+      _klineLoading = true;
+      _klineFailed = false;
+    });
+    try {
+      final bars = await ref
+          .read(marketApiProvider)
+          .kline(symbol: widget.symbol, market: widget.market, period: p);
+      if (!mounted || id != _reqId) {
+        return;
+      }
+      final pack = _pack;
+      setState(() {
+        _pack = pack == null ? _Pack(bars: bars) : pack.copyWith(bars: bars);
+        _klineLoading = false;
+        _klineFailed = false;
+      });
+    } catch (e) {
+      if (!mounted || id != _reqId) {
+        return;
+      }
+      setState(() {
+        _klineLoading = false;
+        _klineFailed = true;
+      });
+      _toast('K 线加载失败：${describeApiError(e)}');
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  double? _ticketLast() {
+    final live = _live?.last;
+    if (live != null) {
+      return live;
+    }
+    final bars = _pack?.bars;
+    if (bars != null && bars.isNotEmpty) {
+      return bars.last.close;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -155,11 +269,11 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
         title: Column(
           children: [
             Text(
-              widget.symbol,
+              titleName.isNotEmpty ? titleName : widget.symbol,
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
             ),
             if (titleName.isNotEmpty)
-              Text(titleName, style: Theme.of(context).textTheme.bodySmall),
+              Text(widget.symbol, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
         centerTitle: true,
@@ -167,86 +281,15 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
           IconButton(
             tooltip: watched ? '取消自选' : '加自选',
             icon: Icon(
-              watched ? Icons.favorite : Icons.favorite_border,
-              color: watched ? AppColors.up : null,
+              watched ? Icons.star : Icons.star_border,
+              color: watched ? AppColors.warn : null,
             ),
             onPressed: () => _toggleWatch(watched),
           ),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
-      body: FutureBuilder<_Pack>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(
-              child: TextButton(
-                onPressed: _reload,
-                child: Text('加载失败，点此重试\n${describeApiError(snap.error!)}'),
-              ),
-            );
-          }
-          final pack = snap.data!;
-          if (pack.bars.isEmpty) {
-            return const Center(child: Text('暂无 K 线数据'));
-          }
-          return CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: _QuoteBlock(
-                  bars: pack.bars,
-                  market: widget.market,
-                  live: _live,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _MetricGrid(
-                  bars: pack.bars,
-                  overview: pack.overview,
-                  expanded: _expanded,
-                  onToggle: () => setState(() => _expanded = !_expanded),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _PeriodBar(
-                  period: _period,
-                  onChanged: (p) {
-                    setState(() {
-                      _period = p;
-                      _future = _load();
-                    });
-                  },
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 220,
-                  child: InteractiveKlineChart(bars: pack.bars),
-                ),
-              ),
-              if (pack.depth != null && pack.depth!.available)
-                SliverToBoxAdapter(
-                  child: _DepthCard(
-                    depth: pack.depth!,
-                    onPrice: (px) => showFastTicket(
-                      context,
-                      symbol: widget.symbol,
-                      market: widget.market,
-                      name: widget.name,
-                    ),
-                  ),
-                ),
-              SliverToBoxAdapter(child: _AiCard(ai: pack.ai)),
-              if (pack.news.isNotEmpty)
-                SliverToBoxAdapter(child: _NewsCard(items: pack.news)),
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-            ],
-          );
-        },
-      ),
+      body: _buildBody(),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -263,6 +306,8 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
                     symbol: widget.symbol,
                     market: widget.market,
                     name: widget.name,
+                    side: 'buy',
+                    last: _ticketLast(),
                   ),
                   child: Text('买入 ${widget.symbol}'),
                 ),
@@ -279,6 +324,8 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
                     symbol: widget.symbol,
                     market: widget.market,
                     name: widget.name,
+                    side: 'sell',
+                    last: _ticketLast(),
                   ),
                   child: Text('卖出 ${widget.symbol}'),
                 ),
@@ -287,6 +334,96 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _pack == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _pack == null) {
+      return Center(
+        child: TextButton(
+          onPressed: _load,
+          child: Text('加载失败，点此重试\n${describeApiError(_error!)}'),
+        ),
+      );
+    }
+    final pack = _pack ?? const _Pack(bars: []);
+    return Column(
+      children: [
+        if (_loading) const LinearProgressIndicator(minHeight: 2),
+        Expanded(
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: _QuoteBlock(
+                  bars: pack.bars,
+                  market: widget.market,
+                  live: _live,
+                  overview: pack.overview,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _PeriodBar(
+                  period: _period,
+                  labels: _periodLabels,
+                  onChanged: _changePeriod,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    if (_klineLoading)
+                      const LinearProgressIndicator(minHeight: 2)
+                    else
+                      const SizedBox(height: 2),
+                    SizedBox(
+                      height: 300,
+                      child: pack.bars.isEmpty
+                          ? const Center(child: Text('暂无 K 线'))
+                          : InteractiveKlineChart(
+                              bars: pack.bars,
+                              area: _period == 'intraday',
+                              initialVisible: _period == 'intraday'
+                                  ? pack.bars.length
+                                  : 60,
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _MetricGrid(
+                  bars: pack.bars,
+                  overview: pack.overview,
+                  expanded: _expanded,
+                  onToggle: () => setState(() => _expanded = !_expanded),
+                ),
+              ),
+              if (pack.depth != null && pack.depth!.available)
+                SliverToBoxAdapter(
+                  child: _DepthCard(
+                    depth: pack.depth!,
+                    onPrice: (px) => showFastTicket(
+                      context,
+                      symbol: widget.symbol,
+                      market: widget.market,
+                      name: widget.name,
+                      side: 'buy',
+                      price: px,
+                      last: _ticketLast(),
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(child: _AiCard(ai: pack.ai)),
+              if (pack.news.isNotEmpty)
+                SliverToBoxAdapter(child: _NewsCard(items: pack.news)),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -314,27 +451,39 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
 }
 
 class _QuoteBlock extends StatelessWidget {
-  const _QuoteBlock({required this.bars, required this.market, this.live});
+  const _QuoteBlock({
+    required this.bars,
+    required this.market,
+    this.live,
+    this.overview = const {},
+  });
   final List<KlineBar> bars;
   final String market;
   final LiveStockQuote? live;
+  final Map<String, dynamic> overview;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final last = bars.last;
+    final last = bars.isNotEmpty ? bars.last : null;
     final prev = bars.length >= 2 ? bars[bars.length - 2] : null;
     final liveLast = live?.last;
-    final prevClose = prev?.close;
+    final q = overview['quote'];
+    final qmap = q is Map<String, dynamic> ? q : overview;
+    final ovLast = _asNum(qmap['last'] ?? qmap['price'] ?? qmap['close']);
+    final ovPrev = _asNum(qmap['prevClose'] ?? qmap['preClose']);
+    final ovChg = _asNum(qmap['change']);
+    final ovChgPct = _asNum(qmap['changePct'] ?? qmap['changeRate']);
+    final prevClose = prev?.close ?? ovPrev;
     final changeAmt = (liveLast != null && prevClose != null)
         ? liveLast - prevClose
-        : (prev != null ? last.close - prev.close : null);
+        : (prev != null && last != null ? last.close - prev.close : ovChg);
     final changeRate =
         live?.changePct ??
-        ((prev != null && prev.close != 0)
+        ((prev != null && last != null && prev.close != 0)
             ? (last.close - prev.close) / prev.close * 100
-            : null);
-    final price = liveLast ?? last.close;
+            : ovChgPct);
+    final price = liveLast ?? last?.close ?? ovLast;
     final color = switch (changeRate ?? changeAmt) {
       null => AppColors.flat,
       > 0 => AppColors.up,
@@ -417,30 +566,44 @@ class _MetricGrid extends StatelessWidget {
   final VoidCallback onToggle;
 
   String _ov(List<String> keys) {
-    for (final k in keys) {
-      final v = overview[k];
-      if (v == null) continue;
-      if (v is num) {
-        return v.abs() >= 1000
-            ? formatAmountCn(v.toDouble())
-            : formatPrice(v.toDouble());
+    final quote = overview['quote'];
+    final maps = <Map<String, dynamic>>[
+      overview,
+      if (quote is Map<String, dynamic>) quote,
+    ];
+    for (final map in maps) {
+      for (final k in keys) {
+        final v = map[k];
+        if (v == null) {
+          continue;
+        }
+        if (v is num) {
+          return v.abs() >= 1000
+              ? formatAmountCn(v.toDouble())
+              : formatPrice(v.toDouble());
+        }
+        final s = '$v';
+        if (s.isNotEmpty && s != 'null') {
+          return s;
+        }
       }
-      final s = '$v';
-      if (s.isNotEmpty && s != 'null') return s;
     }
     return '--';
   }
 
   @override
   Widget build(BuildContext context) {
-    final last = bars.last;
-    final prev = bars.length >= 2 ? bars[bars.length - 2] : last;
+    final last = bars.isNotEmpty ? bars.last : null;
+    final prev = bars.length >= 2 ? bars[bars.length - 2] : null;
     final cells = <(String, String)>[
-      ('最高', formatPrice(last.high)),
-      ('最低', formatPrice(last.low)),
-      ('今开', formatPrice(last.open)),
-      ('昨收', formatPrice(prev.close)),
-      ('成交量', formatAmountCn(last.volume)),
+      ('最高', last != null ? formatPrice(last.high) : _ov(['high'])),
+      ('最低', last != null ? formatPrice(last.low) : _ov(['low'])),
+      ('今开', last != null ? formatPrice(last.open) : _ov(['open'])),
+      (
+        '昨收',
+        prev != null ? formatPrice(prev.close) : _ov(['prevClose', 'preClose']),
+      ),
+      ('成交量', last != null ? formatAmountCn(last.volume) : _ov(['volume'])),
       ('成交额', _ov(['turnover', 'amount', 'value'])),
     ];
     if (expanded) {
@@ -458,7 +621,9 @@ class _MetricGrid extends StatelessWidget {
         ('Beta', _ov(['beta'])),
         ('股息', _ov(['dividendTtm', 'dividend'])),
       ]) {
-        if (extra.$2 != '--') cells.add(extra);
+        if (extra.$2 != '--') {
+          cells.add(extra);
+        }
       }
     }
     return Padding(
@@ -505,50 +670,65 @@ class _MetricGrid extends StatelessWidget {
 }
 
 class _PeriodBar extends StatelessWidget {
-  const _PeriodBar({required this.period, required this.onChanged});
+  const _PeriodBar({
+    required this.period,
+    required this.labels,
+    required this.onChanged,
+  });
   final String period;
+  final Map<String, String> labels;
   final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 40,
-      child: Row(
-        children: [
-          for (final e in _SymbolDetailPageState._periodLabels.entries)
-            Expanded(
-              child: InkWell(
-                onTap: () => onChanged(e.key),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          e.value,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: period == e.key
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: period == e.key
-                                ? AppColors.brand
-                                : scheme.onSurfaceVariant,
+      height: 36,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const minItem = 56.0;
+          final n = labels.length;
+          final even = constraints.maxWidth / n;
+          final itemW = even >= minItem ? even : minItem;
+          return ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              for (final e in labels.entries)
+                InkWell(
+                  onTap: () => onChanged(e.key),
+                  child: SizedBox(
+                    width: itemW,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              e.value,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: period == e.key
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: period == e.key
+                                    ? AppColors.brand
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        Container(
+                          height: 2,
+                          color: period == e.key
+                              ? AppColors.brand
+                              : Colors.transparent,
+                        ),
+                      ],
                     ),
-                    Container(
-                      height: 2,
-                      color: period == e.key
-                          ? AppColors.brand
-                          : Colors.transparent,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -561,8 +741,15 @@ class _DepthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bids = depth.bids.take(4).toList();
-    final asks = depth.asks.take(4).toList();
+    final bids = depth.bids.take(5).toList();
+    final asks = depth.asks.take(5).toList();
+    var maxVol = 1;
+    for (final r in [...bids, ...asks]) {
+      final v = r.volume ?? r.size ?? 0;
+      if (v > maxVol) {
+        maxVol = v;
+      }
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Column(
@@ -575,8 +762,9 @@ class _DepthCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _col('买', bids, AppColors.up, onPrice)),
-              Expanded(child: _col('卖', asks, AppColors.down, onPrice)),
+              Expanded(child: _col('买', bids, AppColors.up, onPrice, maxVol)),
+              const SizedBox(width: 12),
+              Expanded(child: _col('卖', asks, AppColors.down, onPrice, maxVol)),
             ],
           ),
         ],
@@ -589,6 +777,7 @@ class _DepthCard extends StatelessWidget {
     List<DepthLevel> rows,
     Color color,
     ValueChanged<double>? onPrice,
+    int maxVol,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -605,14 +794,55 @@ class _DepthCard extends StatelessWidget {
           InkWell(
             onTap: r.price == null ? null : () => onPrice?.call(r.price!),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text(
-                '${formatPrice(r.price)}  ${r.volume ?? r.size ?? '--'}',
-                style: TextStyle(
-                  color: color,
-                  fontFeatures: AppNum.fontFeatures,
-                  fontSize: 12,
-                ),
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 52,
+                    child: Text(
+                      formatPrice(r.price),
+                      style: TextStyle(
+                        color: color,
+                        fontFeatures: AppNum.fontFeatures,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final vol = (r.volume ?? r.size ?? 0).toDouble();
+                        final w = maxVol <= 0
+                            ? 0.0
+                            : c.maxWidth * (vol / maxVol);
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            height: 10,
+                            width: w,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.22),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      '${r.volume ?? r.size ?? '--'}',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: color,
+                        fontFeatures: AppNum.fontFeatures,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -744,4 +974,11 @@ class _NewsCard extends StatelessWidget {
       ),
     );
   }
+}
+
+double? _asNum(Object? v) {
+  if (v is num) {
+    return v.toDouble();
+  }
+  return null;
 }

@@ -124,6 +124,7 @@ class MarketApi {
     final p = period.toLowerCase();
     if (p == 'intraday' || p == '1min') return '-1d';
     if (p == '5min' || p == 'm5') return '-5d';
+    if (p == '15min' || p == 'm15') return '-10d';
     if (p == 'weekly') return '-2y';
     if (p == 'monthly') return '-5y';
     return '-${limit}d';
@@ -148,7 +149,9 @@ class MarketApi {
         },
       ),
     );
-    return asJsonList(result.dataAsMap?['items']).whereType<Map<String, dynamic>>().toList();
+    return asJsonList(result.dataAsMap?['items'])
+        .whereType<Map<String, dynamic>>()
+        .toList();
   }
 
   /// 标的详情概览。
@@ -170,11 +173,7 @@ class MarketApi {
   Future<List<WatchlistItem>> watchlistRows({int pageSize = 200}) async {
     final response = await _dio.get<dynamic>(
       '/market/watchlist/list',
-      queryParameters: {
-        'pageNum': 1,
-        'pageSize': pageSize,
-        'enabled': '1',
-      },
+      queryParameters: {'pageNum': 1, 'pageSize': pageSize, 'enabled': '1'},
       options: Options(receiveTimeout: const Duration(seconds: 8)),
     );
     final body = response.data;
@@ -183,10 +182,15 @@ class MarketApi {
       if (body['rows'] is List) {
         raw = body['rows'] as List<dynamic>;
       } else if (body['data'] is Map<String, dynamic>) {
-        raw = ((body['data'] as Map<String, dynamic>)['rows'] as List?) ?? const [];
+        raw =
+            ((body['data'] as Map<String, dynamic>)['rows'] as List?) ??
+            const [];
       }
     }
-    return raw.whereType<Map<String, dynamic>>().map(WatchlistItem.fromJson).toList();
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(WatchlistItem.fromJson)
+        .toList();
   }
 
   /// 自选概览（含分组与最新报价）
@@ -244,6 +248,9 @@ final indexQuotesProvider = FutureProvider.autoDispose<List<IndexQuote>>(
 );
 
 /// 最新选股单。market 空字符串表示全市场。
-final picksLatestProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
-  (ref, market) => ref.read(marketApiProvider).picksLatest(market: market.isEmpty ? null : market),
-);
+final picksLatestProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>(
+      (ref, market) => ref
+          .read(marketApiProvider)
+          .picksLatest(market: market.isEmpty ? null : market),
+    );

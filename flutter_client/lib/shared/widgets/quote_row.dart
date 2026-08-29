@@ -46,6 +46,42 @@ class ChgPill extends StatelessWidget {
   }
 }
 
+/// 报价表头排序字段。null 表示保持接口顺序。
+enum QuoteSort { name, last, changePct }
+
+/// 报价比较：空值永远排最后；[ascending] 为 false 时名称/数值都倒序。
+int compareQuotes({
+  required QuoteSort field,
+  required bool ascending,
+  required String nameA,
+  required String nameB,
+  double? lastA,
+  double? lastB,
+  double? changePctA,
+  double? changePctB,
+}) {
+  if (field == QuoteSort.name) {
+    final r = nameA.toLowerCase().compareTo(nameB.toLowerCase());
+    if (r == 0) {
+      return 0;
+    }
+    return ascending ? r : -r;
+  }
+  final a = field == QuoteSort.last ? lastA : changePctA;
+  final b = field == QuoteSort.last ? lastB : changePctB;
+  if (a == null && b == null) {
+    return 0;
+  }
+  if (a == null) {
+    return 1;
+  }
+  if (b == null) {
+    return -1;
+  }
+  final r = a.compareTo(b);
+  return ascending ? r : -r;
+}
+
 /// 报价列表行：左名称代码，右最新价 + 涨跌胶囊。无卡片底。
 class QuoteListRow extends StatelessWidget {
   const QuoteListRow({
@@ -57,7 +93,10 @@ class QuoteListRow extends StatelessWidget {
     this.changePct,
     this.rank,
     this.leadingExtra,
+    this.subtitle = '',
+    this.trailing,
     this.onTap,
+    this.onLongPress,
   });
 
   final String name;
@@ -67,7 +106,10 @@ class QuoteListRow extends StatelessWidget {
   final double? changePct;
   final int? rank;
   final Widget? leadingExtra;
+  final String subtitle;
+  final Widget? trailing;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +119,7 @@ class QuoteListRow extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
@@ -129,6 +172,17 @@ class QuoteListRow extends StatelessWidget {
                         height: 1.2,
                       ),
                     ),
+                    if (subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                          height: 1.2,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -141,6 +195,7 @@ class QuoteListRow extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               ChgPill(changePct),
+              if (trailing != null) ...[const SizedBox(width: 4), trailing!],
             ],
           ),
         ),
@@ -204,29 +259,86 @@ class IndexMiniStrip extends StatelessWidget {
   }
 }
 
-/// 列表表头：名称 · 最新 / 涨跌幅。
+/// 列表表头：名称 · 最新 / 涨跌幅。传入 [onSort] 时可点按切换排序。
 class QuoteListHeader extends StatelessWidget {
-  const QuoteListHeader({super.key});
+  const QuoteListHeader({
+    super.key,
+    this.sort,
+    this.ascending = false,
+    this.onSort,
+    this.trailingWidth = 0,
+  });
+
+  final QuoteSort? sort;
+  final bool ascending;
+  final ValueChanged<QuoteSort>? onSort;
+
+  /// 右侧额外控件占位（例如加自选按钮），与 [QuoteListRow.trailing] 对齐。
+  final double trailingWidth;
 
   @override
   Widget build(BuildContext context) {
-    final muted = TextStyle(
-      fontSize: 11,
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    );
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          Text('名称', style: muted),
+          _label(context, '名称', QuoteSort.name, muted, align: TextAlign.left),
           const Spacer(),
-          Text('最新', style: muted),
+          _label(context, '最新', QuoteSort.last, muted, align: TextAlign.right),
           const SizedBox(width: 8),
           SizedBox(
             width: 72,
-            child: Text('涨跌幅', style: muted, textAlign: TextAlign.center),
+            child: _label(
+              context,
+              '涨跌幅',
+              QuoteSort.changePct,
+              muted,
+              align: TextAlign.center,
+            ),
           ),
+          if (trailingWidth > 0) SizedBox(width: trailingWidth),
         ],
+      ),
+    );
+  }
+
+  Widget _label(
+    BuildContext context,
+    String text,
+    QuoteSort field,
+    Color muted, {
+    required TextAlign align,
+  }) {
+    final on = sort == field;
+    final style = TextStyle(
+      fontSize: 11,
+      color: on ? Theme.of(context).colorScheme.onSurface : muted,
+      fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+    );
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: align == TextAlign.left
+          ? MainAxisAlignment.start
+          : align == TextAlign.center
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.end,
+      children: [
+        Text(text, style: style),
+        if (on)
+          Icon(
+            ascending ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+            size: 16,
+            color: style.color,
+          ),
+      ],
+    );
+    if (onSort == null) return row;
+    return InkWell(
+      onTap: () => onSort!(field),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: row,
       ),
     );
   }

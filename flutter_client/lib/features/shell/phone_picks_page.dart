@@ -128,9 +128,26 @@ class _PickRow extends StatelessWidget {
     final name = '${row['name'] ?? ''}';
     final market = '${row['market'] ?? 'US'}';
     final rec = '${row['recommendation'] ?? ''}';
+    final stance = '${row['stance'] ?? ''}';
+    final summary = '${row['summary'] ?? ''}';
+    final pickScore = row['pickScore'] as num?;
     final chg = (row['changePct'] as num?)?.toDouble();
     final last =
         (row['last'] as num?)?.toDouble() ?? (row['price'] as num?)?.toDouble();
+    final subtitleParts = <String>[];
+    if (pickScore != null) {
+      subtitleParts.add(
+        pickScore <= 1
+            ? (pickScore * 100).toStringAsFixed(0)
+            : pickScore.toStringAsFixed(0),
+      );
+    }
+    if (stance.isNotEmpty) {
+      subtitleParts.add(stance);
+    }
+    if (summary.isNotEmpty) {
+      subtitleParts.add(summary);
+    }
     final tone = () {
       final t = rec.toLowerCase();
       if (t.contains('买') ||
@@ -178,6 +195,7 @@ class _PickRow extends StatelessWidget {
       last: last,
       changePct: chg,
       leadingExtra: tag,
+      subtitle: subtitleParts.join(' · '),
       onTap: onOpen == null || symbol.isEmpty
           ? null
           : () => onOpen!(symbol, market, name),
