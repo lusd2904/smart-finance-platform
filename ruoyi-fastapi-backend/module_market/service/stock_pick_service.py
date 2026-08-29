@@ -35,12 +35,16 @@ from module_quant.service.strategy_service import decide_signal
 from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao
 from module_sentiment.entity.do.sentiment_do import SentimentNews
 from utils.crypto_util import CryptoUtil
+from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 MARKETS = ('CN', 'HK', 'US')
+MOOD_CACHE_KEY = 'market:stock-pick:mood:v1'
+MOOD_CACHE_TTL = 30
+INDEX_QUOTES_TIMEOUT_S = 5.0
 
 
 def _featured_for_market(market: str) -> list[dict[str, Any]]:
@@ -88,9 +92,35 @@ class StockPickService:
         ]
 
     @classmethod
+    async def _resolve_default_trade_date(cls, db: AsyncSession) -> str | None:
+        dates: list[str] = []
+        for market in MARKETS:
+            heat = await MarketHeatDao.get_latest_heat(db, market)
+            if heat and heat.trade_date:
+                dates.append(str(heat.trade_date)[:10])
+        heat_dates = await MarketHeatDao.list_distinct_trade_dates(db, limit=1)
+        if heat_dates:
+            dates.append(heat_dates[0])
+        latest_pick = await StockPickDao.get_latest(db)
+        if latest_pick and latest_pick.trade_date:
+            dates.append(str(latest_pick.trade_date)[:10])
+        return max(dates) if dates else None
+
+    @classmethod
     async def get_mood_services(cls, db: AsyncSession) -> dict[str, Any]:
+        cached = await cache_get_json(MOOD_CACHE_KEY)
+        if isinstance(cached, dict):
+            return {**cached, 'cached': True}
+
         sessions = list_session_status()
-        quotes = await MarketIndexService.get_in_session_quotes()
+        try:
+            quotes = await asyncio.wait_for(
+                MarketIndexService.get_in_session_quotes(),
+                timeout=INDEX_QUOTES_TIMEOUT_S,
+            )
+        except (TimeoutError, asyncio.TimeoutError, Exception) as exc:
+            logger.warning(f'[stock-pick-mood] index quotes failed: {exc}')
+            quotes = {'items': []}
         latest = await SentimentAnalysisDao.get_latest_analysis(db)
         sentiment = cls._serialize_sentiment(latest)
         heats: dict[str, Any] = {}
@@ -99,7 +129,7 @@ class StockPickService:
             if heat:
                 heats[market] = MarketHeatService._serialize_heat(heat)
         open_markets = [m for m, info in sessions.items() if info.get('open')]
-        return {
+        payload = {
             'asOf': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'sessions': sessions,
             'openMarkets': open_markets,
@@ -113,23 +143,47 @@ class StockPickService:
                 else '三市场均未开盘，已去掉实时指数，按指标+舆情分析。'
             ),
         }
+        await cache_set_json(MOOD_CACHE_KEY, payload, MOOD_CACHE_TTL)
+        return payload
 
     @classmethod
     async def list_dates_services(cls, db: AsyncSession, limit: int = 60) -> dict[str, Any]:
-        rows = await StockPickDao.list_dates(db, limit=limit)
-        dates = [
-            {
-                'id': row.pick_id,
-                'tradeDate': row.trade_date,
-                'status': row.status,
-                'pickedCount': row.picked_count,
-                'aiCount': row.ai_count,
-                'modelName': row.model_name,
-                'updatedAt': row.update_time.strftime('%Y-%m-%d %H:%M:%S') if row.update_time else None,
-            }
-            for row in rows
-        ]
-        return {'dates': dates}
+        cap = max(1, min(int(limit or 60), 120))
+        pick_rows = await StockPickDao.list_dates(db, limit=cap)
+        pick_by_date = {str(row.trade_date)[:10]: row for row in pick_rows}
+        heat_dates = await MarketHeatDao.list_distinct_trade_dates(db, limit=cap)
+        all_dates = sorted(set(pick_by_date) | set(heat_dates), reverse=True)[:cap]
+        default_trade_date = max(all_dates) if all_dates else await cls._resolve_default_trade_date(db)
+        dates: list[dict[str, Any]] = []
+        for trade_day in all_dates:
+            row = pick_by_date.get(trade_day)
+            if row:
+                dates.append(
+                    {
+                        'id': row.pick_id,
+                        'tradeDate': row.trade_date,
+                        'status': row.status,
+                        'pickedCount': row.picked_count,
+                        'aiCount': row.ai_count,
+                        'modelName': row.model_name,
+                        'updatedAt': row.update_time.strftime('%Y-%m-%d %H:%M:%S') if row.update_time else None,
+                        'hasPickSheet': True,
+                    }
+                )
+            else:
+                dates.append(
+                    {
+                        'id': None,
+                        'tradeDate': trade_day,
+                        'status': 'empty',
+                        'pickedCount': 0,
+                        'aiCount': 0,
+                        'modelName': None,
+                        'updatedAt': None,
+                        'hasPickSheet': False,
+                    }
+                )
+        return {'dates': dates, 'defaultTradeDate': default_trade_date}
 
     @classmethod
     async def get_latest_services(
@@ -139,19 +193,22 @@ class StockPickService:
         user_id: int | None = None,
         trade_date: str | None = None,
     ) -> dict[str, Any]:
-        run = await StockPickDao.get_by_date(db, trade_date) if trade_date else await StockPickDao.get_latest(db)
+        if trade_date:
+            target_date = str(trade_date)[:10]
+            run = await StockPickDao.get_by_date(db, target_date)
+        else:
+            target_date = await cls._resolve_default_trade_date(db)
+            run = await StockPickDao.get_by_date(db, target_date) if target_date else None
         if not run:
-            mood = await cls.get_mood_services(db)
             message = (
                 '该交易日暂无选股单'
-                if trade_date
+                if trade_date or target_date
                 else '还没有选股单。可手动生成，或等收盘后的定时任务。'
             )
             return {
                 'empty': True,
                 'message': message,
-                'tradeDate': trade_date,
-                'mood': mood,
+                'tradeDate': target_date or trade_date,
                 'items': [],
             }
         items = await StockPickDao.list_items(db, run.pick_id, market=market)

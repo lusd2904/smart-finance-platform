@@ -282,14 +282,17 @@ export function getMarketHeatConfig() {
 export function getStockPickMood() {
   return request({
     url: '/market/picks/mood',
-    method: 'get'
+    method: 'get',
+    timeout: 20000,
+    silent: true
   })
 }
 
 export function refreshStockPickMood() {
   return request({
     url: '/market/picks/mood/refresh',
-    method: 'post'
+    method: 'post',
+    timeout: 15000
   })
 }
 
@@ -297,7 +300,9 @@ export function getStockPickLatest(query) {
   return request({
     url: '/market/picks/latest',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 30000,
+    silent: true
   })
 }
 
@@ -305,7 +310,8 @@ export function getStockPickDates(query) {
   return request({
     url: '/market/picks/dates',
     method: 'get',
-    params: query
+    params: query,
+    timeout: 15000
   })
 }
 

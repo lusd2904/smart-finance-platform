@@ -8,7 +8,7 @@
           <el-tag v-if="latest.updatedAt" size="small" effect="plain" class="asof-tag">{{ latest.updatedAt }}</el-tag>
         </div>
       </div>
-      <div class="hero-actions">
+      <div class="hero-actions toolbar-uniform">
         <el-select
           v-model="tradeDate"
           clearable
@@ -17,9 +17,9 @@
           :loading="datesLoading"
           @change="loadLatest"
         >
-          <el-option v-for="d in dateOptions" :key="d.tradeDate" :label="d.tradeDate" :value="d.tradeDate" />
+          <el-option v-for="d in dateOptions" :key="d.tradeDate" :label="formatDateLabel(d)" :value="d.tradeDate" />
         </el-select>
-        <el-radio-group v-model="market" size="small" @change="loadLatest">
+        <el-radio-group v-model="market" @change="loadLatest">
           <el-radio-button label="">全部</el-radio-button>
           <el-radio-button label="CN">A股</el-radio-button>
           <el-radio-button label="HK">港股</el-radio-button>
@@ -31,7 +31,13 @@
       </div>
     </div>
 
-    <el-alert class="mb16" type="info" show-icon :closable="false" :title="mood.hint || '定时任务可在「任务中心 / 自动分析任务」改 cron 与启停。'" />
+    <el-alert
+      class="mb16"
+      :type="moodFailed ? 'warning' : 'info'"
+      show-icon
+      :closable="false"
+      :title="mood.hint || (moodFailed ? '舆情加载超时，可点击「刷新情绪」重试。' : '定时任务可在「任务中心 / 自动分析任务」改 cron 与启停。')"
+    />
 
     <el-row :gutter="12" class="mb16">
       <el-col :xs="24" :sm="8" v-for="card in marketCards" :key="card.market">
@@ -138,7 +144,9 @@ const dateOptions = ref([])
 const datesLoading = ref(false)
 const loading = ref(false)
 const moodLoading = ref(false)
+const moodFailed = ref(false)
 const runLoading = ref(false)
+const EMPTY_MOOD = { sessions: {}, sentiment: {}, indices: [], headlines: [], openMarkets: [], hint: '' }
 const mood = ref({ sessions: {}, sentiment: {}, indices: [], headlines: [], openMarkets: [], hint: '' })
 const latest = ref({ items: [], message: '', empty: true })
 const adding = ref('')
@@ -226,17 +234,39 @@ async function addWatch(row) {
   }
 }
 
+function formatDateLabel(d) {
+  if (!d?.tradeDate) return ''
+  return d.hasPickSheet === false ? `${d.tradeDate}（无单）` : d.tradeDate
+}
+
 async function loadMood() {
-  const res = await getStockPickMood()
-  mood.value = res.data || mood.value
+  moodLoading.value = true
+  try {
+    const res = await getStockPickMood()
+    mood.value = res.data || mood.value
+    moodFailed.value = false
+  } catch {
+    moodFailed.value = true
+    if (!Object.keys(mood.value.sessions || {}).length) {
+      mood.value = { ...EMPTY_MOOD, hint: '舆情加载失败，可点击「刷新情绪」重试。' }
+    }
+  } finally {
+    moodLoading.value = false
+  }
 }
 
 async function loadDates() {
   datesLoading.value = true
   try {
     const res = await getStockPickDates({ limit: 60 })
-    dateOptions.value = res.data?.dates || []
-    if (!tradeDate.value && dateOptions.value.length) {
+    const rows = res.data?.dates || []
+    dateOptions.value = [...rows].sort((a, b) => String(b.tradeDate || '').localeCompare(String(a.tradeDate || '')))
+    const defaultDate = res.data?.defaultTradeDate || dateOptions.value[0]?.tradeDate
+    if (!tradeDate.value && defaultDate) {
+      tradeDate.value = defaultDate
+    }
+  } catch {
+    if (!tradeDate.value && dateOptions.value[0]?.tradeDate) {
       tradeDate.value = dateOptions.value[0].tradeDate
     }
   } finally {
@@ -247,12 +277,17 @@ async function loadDates() {
 async function loadLatest() {
   loading.value = true
   try {
+    const requestedDate = tradeDate.value
     const res = await getStockPickLatest({
       market: market.value || undefined,
       tradeDate: tradeDate.value || undefined
     })
     latest.value = res.data || { items: [], empty: true }
-    if (latest.value.tradeDate) tradeDate.value = latest.value.tradeDate
+    if (latest.value.tradeDate && (latest.value.items?.length || !requestedDate)) {
+      tradeDate.value = latest.value.tradeDate
+    }
+  } catch {
+    latest.value = { items: [], empty: true, message: '选股单加载失败，请重试。' }
   } finally {
     loading.value = false
   }
@@ -260,7 +295,7 @@ async function loadLatest() {
 
 async function loadAll() {
   await loadDates()
-  await Promise.all([loadMood(), loadLatest()])
+  await Promise.allSettled([loadMood(), loadLatest()])
 }
 
 async function refreshMood() {
@@ -268,6 +303,7 @@ async function refreshMood() {
   try {
     const res = await refreshStockPickMood()
     proxy?.$modal?.msgSuccess?.(res.msg || '已排队刷新舆情')
+    moodFailed.value = false
     setTimeout(loadMood, 2500)
   } finally {
     moodLoading.value = false
@@ -307,6 +343,20 @@ onMounted(loadAll)
   .asof-tag { border: none; background: rgba(255,255,255,.18); color: #fff; }
 }
 .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar-uniform {
+  :deep(.el-select .el-select__wrapper),
+  :deep(.el-radio-button__inner),
+  :deep(.el-button) {
+    height: 32px;
+    min-height: 32px;
+    line-height: 30px;
+    box-sizing: border-box;
+  }
+  :deep(.el-radio-button__inner) {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
 .session-card {
   background: var(--surface-card, #fff); border: 1px solid var(--border-soft, #eef2ff);
   border-radius: 14px; padding: 14px 16px;
