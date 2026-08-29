@@ -9,6 +9,7 @@ import '../../ai/data/ai_api.dart';
 import '../../ai/data/ai_models.dart';
 import '../../market/data/market_api.dart';
 import '../../market/data/market_models.dart';
+import '../../market/data/market_quotes_ws.dart';
 import '../../shell/phone_trade_page.dart';
 import '../../trade/data/trade_api.dart';
 import '../../trade/data/trade_models.dart';
@@ -38,17 +39,21 @@ class _Pack {
     this.overview = const {},
     this.depth,
     this.ai,
+    this.news = const [],
   });
   final List<KlineBar> bars;
   final Map<String, dynamic> overview;
   final DepthData? depth;
   final AiLatestAnalysis? ai;
+  final List<Map<String, dynamic>> news;
 }
 
 class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
   String _period = 'daily';
   bool _expanded = false;
   late Future<_Pack> _future;
+  LiveStockQuote? _live;
+  VoidCallback? _unsubQuotes;
 
   static const _periodLabels = {
     'intraday': '分时',
@@ -61,6 +66,24 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
   void initState() {
     super.initState();
     _future = _load();
+    Future<void>.microtask(_bindQuotes);
+  }
+
+  @override
+  void dispose() {
+    _unsubQuotes?.call();
+    super.dispose();
+  }
+
+  void _bindQuotes() {
+    _unsubQuotes?.call();
+    _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
+      [(symbol: widget.symbol, market: widget.market)],
+      (quotes) {
+        if (!mounted || quotes.isEmpty) return;
+        setState(() => _live = quotes.first);
+      },
+    );
   }
 
   Future<_Pack> _load() async {
@@ -71,10 +94,12 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
     final ovF = api.symbolOverview(symbol: widget.symbol, market: widget.market);
     final dpF = trade.depth(symbol: widget.symbol, market: widget.market);
     final aiF = ai.latest(symbol: widget.symbol, market: widget.market);
+    final newsF = api.symbolContent(symbol: widget.symbol, market: widget.market);
     final bars = await barsF;
     Map<String, dynamic> ov = const {};
     DepthData? depth;
     AiLatestAnalysis? latest;
+    List<Map<String, dynamic>> news = const [];
     try {
       ov = await ovF;
     } catch (_) {}
@@ -84,7 +109,10 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
     try {
       latest = await aiF;
     } catch (_) {}
-    return _Pack(bars: bars, overview: ov, depth: depth, ai: latest);
+    try {
+      news = await newsF;
+    } catch (_) {}
+    return _Pack(bars: bars, overview: ov, depth: depth, ai: latest, news: news);
   }
 
   void _reload() => setState(() => _future = _load());
@@ -132,7 +160,7 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
           }
           return CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(child: _QuoteBlock(bars: pack.bars, market: widget.market)),
+              SliverToBoxAdapter(child: _QuoteBlock(bars: pack.bars, market: widget.market, live: _live)),
               SliverToBoxAdapter(
                 child: _MetricGrid(
                   bars: pack.bars,
@@ -166,6 +194,7 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
                   ),
                 ),
               SliverToBoxAdapter(child: _AiCard(ai: pack.ai)),
+              if (pack.news.isNotEmpty) SliverToBoxAdapter(child: _NewsCard(items: pack.news)),
               const SliverToBoxAdapter(child: SizedBox(height: 16)),
             ],
           );
@@ -234,16 +263,20 @@ class _SymbolDetailPageState extends ConsumerState<SymbolDetailPage> {
 }
 
 class _QuoteBlock extends StatelessWidget {
-  const _QuoteBlock({required this.bars, required this.market});
+  const _QuoteBlock({required this.bars, required this.market, this.live});
   final List<KlineBar> bars;
   final String market;
+  final LiveStockQuote? live;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final last = bars.last;
     final prev = bars.length >= 2 ? bars[bars.length - 2] : null;
-    final changeRate = (prev != null && prev.close != 0) ? (last.close - prev.close) / prev.close * 100 : null;
+    final liveLast = live?.last;
+    final changeRate = live?.changePct ??
+        ((prev != null && prev.close != 0) ? (last.close - prev.close) / prev.close * 100 : null);
+    final price = liveLast ?? last.close;
     final color = switch (changeRate) {
       null => AppColors.flat,
       > 0 => AppColors.up,
@@ -258,7 +291,7 @@ class _QuoteBlock extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              PriceText(last.close, style: theme.textTheme.quoteDisplay.copyWith(color: color)),
+              PriceText(price, style: theme.textTheme.quoteDisplay.copyWith(color: color)),
               const SizedBox(width: 10),
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
@@ -278,6 +311,7 @@ class _QuoteBlock extends StatelessWidget {
                 _ => market,
               }),
               if (last.date.isNotEmpty) _chip(last.date),
+              if (live != null) _chip('LIVE'),
             ],
           ),
         ],
@@ -521,6 +555,58 @@ class _AiCard extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewsCard extends StatelessWidget {
+  const _NewsCard({required this.items});
+  final List<Map<String, dynamic>> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('相关资讯', style: TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              for (final row in items.take(8))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${row['title'] ?? ''}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        [
+                          if ((row['sourceName'] ?? '').toString().isNotEmpty) row['sourceName'],
+                          if ((row['publishedAt'] ?? '').toString().isNotEmpty) row['publishedAt'],
+                        ].join(' · '),
+                        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

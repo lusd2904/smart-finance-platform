@@ -240,7 +240,7 @@ class _WeightsPanel extends ConsumerStatefulWidget {
 }
 
 class _WeightsPanelState extends ConsumerState<_WeightsPanel> {
-  String _selectedCode = 'balanced';
+  String? _selectedCode;
 
   @override
   Widget build(BuildContext context) {
@@ -271,9 +271,17 @@ class _WeightsPanelState extends ConsumerState<_WeightsPanel> {
               ),
             );
           }
+          String? boundCode;
+          for (final p in list) {
+            if (p.active) {
+              boundCode = p.profileCode;
+              break;
+            }
+          }
+          final selectedCode = _selectedCode ?? boundCode ?? 'balanced';
           StrategyProfile current = list.first;
           for (final p in list) {
-            if (p.profileCode == _selectedCode) current = p;
+            if (p.profileCode == selectedCode) current = p;
           }
           return Column(
             children: [
@@ -283,9 +291,13 @@ class _WeightsPanelState extends ConsumerState<_WeightsPanel> {
                   for (final p in list)
                     ChoiceChip(
                       label: Text(
-                        p.profileName.isEmpty ? p.profileCode : p.profileName,
+                        p.active
+                            ? '${p.profileName.isEmpty ? p.profileCode : p.profileName} · 生效'
+                            : (p.profileName.isEmpty
+                                  ? p.profileCode
+                                  : p.profileName),
                       ),
-                      selected: p.profileCode == _selectedCode,
+                      selected: p.profileCode == selectedCode,
                       visualDensity: VisualDensity.compact,
                       onSelected: (_) =>
                           setState(() => _selectedCode = p.profileCode),

@@ -3,14 +3,14 @@
     <div class="page-hero">
       <div><h2>订单</h2><p>今日 / 历史委托</p></div>
       <div>
-        <el-radio-group v-model="scope" @change="load" style="margin-right:10px">
+        <el-radio-group v-model="scope" @change="loadAndPoll" style="margin-right:10px">
           <el-radio-button label="today">今日</el-radio-button>
           <el-radio-button label="history">历史</el-radio-button>
         </el-radio-group>
-        <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
+        <el-button type="primary" :loading="loading" @click="loadAndPoll">刷新</el-button>
       </div>
     </div>
-    <el-table v-loading="loading" :data="list" stripe>
+    <el-table v-loading="loading" :data="list" stripe empty-text="暂无委托">
       <el-table-column prop="orderId" label="订单号" width="180"/>
       <el-table-column prop="symbol" label="标的" width="110"/>
       <el-table-column prop="side" label="方向" width="80"/>
@@ -34,49 +34,37 @@
 </template>
 <script setup name="TradeOrders">
 import { getTradeOrders, cancelTradeOrder } from '@/api/trade'
+import { startAdaptivePoll } from '@/composables/useAdaptivePoll'
 const {proxy}=getCurrentInstance()
 const scope=ref('today'); const loading=ref(false); const list=ref([])
-async function load(){
-  loading.value=true
-  try{ const res=await getTradeOrders(scope.value); list.value=(res.data&&res.data.orders)||[] } finally{ loading.value=false }
+const OPEN_STATUS=new Set(['submitted','new','wait_to_new','waittonew','partial_filled','partialfilled','wait_to_cancel','waittocancel','pending','partial','open','not_reported','notreported'])
+const OPEN_LABEL=new Set(['已提交','待成交','待报','待撤','部分成交'])
+function orderLooksOpen(row){
+  if(!row) return false
+  if(row.open===true) return true
+  const status=String(row.status||'').trim()
+  const compact=status.toLowerCase().replace(/[\s-]/g,'_')
+  if(OPEN_STATUS.has(compact)||OPEN_STATUS.has(compact.replace(/_/g,''))) return true
+  return OPEN_LABEL.has(String(row.statusLabel||'').trim())
 }
+function ordersBusy(){ return (list.value||[]).some(orderLooksOpen) }
+async function load(silent=false){
+  if(!silent) loading.value=true
+  try{ const res=await getTradeOrders(scope.value); list.value=(res.data&&res.data.orders)||[] } finally{ if(!silent) loading.value=false }
+}
+const poll=startAdaptivePoll({ tick:()=>load(true), isBusy:ordersBusy, busyMs:5000, idleMs:30000, hiddenStop:true })
+async function loadAndPoll(silent=false){ try{ await load(silent) } finally{ poll.start() } }
 async function cancel(row){
   await proxy.$modal.confirm('确认撤单 '+row.orderId+'？')
   const res=await cancelTradeOrder(row.orderId)
   const d=res.data||{}
   if(d.ok) proxy.$modal.msgSuccess(d.message||'已撤'); else proxy.$modal.msgError(d.message||'失败')
-  load()
+  loadAndPoll()
 }
-let timer = null
-function stopTimer() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-function startTimer() {
-  stopTimer()
-  timer = setInterval(load, 15000)
-}
-function handleVisibility() {
-  if (document.visibilityState === 'visible') {
-    if (!timer) {
-      load()
-      startTimer()
-    }
-  } else {
-    stopTimer()
-  }
-}
-onMounted(() => {
-  load()
-  startTimer()
-  document.addEventListener('visibilitychange', handleVisibility)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', handleVisibility)
-  stopTimer()
-})
+onMounted(()=>loadAndPoll())
+onActivated(()=>loadAndPoll(true))
+onDeactivated(()=>poll.stop())
+onBeforeUnmount(()=>poll.stop())
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

@@ -24,7 +24,7 @@ class UserModel(BaseModel):
     用户表对应pydantic模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     user_id: int | None = Field(default=None, description='用户ID')
     dept_id: int | None = Field(default=None, description='部门ID')
@@ -98,7 +98,7 @@ class UserInfoModel(UserModel):
 
 
 class CurrentUserModel(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     permissions: list = Field(description='权限信息')
     roles: list = Field(description='角色信息')

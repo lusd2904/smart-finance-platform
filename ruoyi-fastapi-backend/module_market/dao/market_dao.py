@@ -458,6 +458,15 @@ class MarketWatchlistDao:
         return await PageUtil.paginate(db, query, query_object.page_num, query_object.page_size, is_page)
 
     @classmethod
+    async def distinct_users(cls, db: AsyncSession) -> list[int]:
+        rows = (
+            (await db.execute(select(MarketWatchlist.user_id).where(MarketWatchlist.enabled == '1').distinct()))
+            .scalars()
+            .all()
+        )
+        return [int(u) for u in rows if u]
+
+    @classmethod
     async def get_enabled(cls, db: AsyncSession, user_id: int | None = None) -> list[MarketWatchlist]:
         query = select(MarketWatchlist).where(MarketWatchlist.enabled == '1')
         if user_id is not None:

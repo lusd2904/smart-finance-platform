@@ -151,13 +151,34 @@ class _PhoneTradePageState extends ConsumerState<PhoneTradePage> {
           const SizedBox(height: 12),
           Text('当日委托', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          ...?orders.asData?.value.take(5).map(
+          ...?orders.asData?.value.take(8).map(
                 (o) => ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text('${o.side.toUpperCase()} ${o.symbol}'),
                   subtitle: Text(
                     '${o.quantity ?? '--'} @ ${formatPrice(o.price)} · ${o.statusLabel.isEmpty ? o.status : o.statusLabel}',
                   ),
+                  trailing: (o.open && (o.orderId ?? '').isNotEmpty)
+                      ? TextButton(
+                          onPressed: () async {
+                            final ok = await confirm(context, '撤销 ${o.symbol} 委托？');
+                            if (!ok) return;
+                            try {
+                              final r = await ref.read(tradeApiProvider).cancelOrder(o.orderId!);
+                              if (context.mounted) {
+                                toast(context, (r['message'] as String?)?.trim().isNotEmpty == true
+                                    ? r['message'] as String
+                                    : '已提交撤单');
+                              }
+                              ref.invalidate(tradeOrdersProvider('today'));
+                              ref.invalidate(tradePositionsProvider);
+                            } catch (e) {
+                              if (context.mounted) toast(context, describeApiError(e), error: true);
+                            }
+                          },
+                          child: const Text('撤'),
+                        )
+                      : null,
                 ),
               ),
         ],

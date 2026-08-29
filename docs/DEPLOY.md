@@ -85,6 +85,29 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 
 Redis 只有在仍是 `redis:latest`、且还没有 `sentiment-redis-data` 时，才单独 `up ruoyi-redis`。第一次挂新卷会清空登录态，用户要重新登录。不需要就别动。
 
+日常备份（本机/云机均可，产物不要进 git）：
+
+```bash
+bash scripts/backup_data.sh
+# 或 BACKUP_DIR=/var/backups/sfp bash scripts/backup_data.sh
+```
+
+生产用 compose 服务 `sfp-backup`（容器 `sentiment-backup`）：启动立刻跑 `scripts/backup_loop.sh`，随后每 86400 秒再备份。不要 `compose down`。容器内设 `SKIP_CD=1`，脚本不 `cd` 仓库根。
+
+```bash
+docker compose -f docker-compose.sentiment.yml up -d --no-deps sfp-backup
+```
+
+### 备份（必做，Influx 卷没有副本）
+
+数据在本机 Docker 卷里：`ruoyi-mysql-data`、`sentiment-redis-data`、`sentiment-influxdb-data`。**没有定时备份就会在磁盘故障时丢掉行情历史。** 备份产物不要放进 git。不要另写 mysqldump / `influx backup` 流程，一律：
+
+```bash
+bash scripts/backup_data.sh
+```
+
+自动循环即上面的 `sfp-backup`。恢复前停业务容器、不要 `compose down -v`。Redis 512mb + `noeviction` 写满会拒绝写入（会话/任务票失败），监控内存水位，不要改成 `volatile-lru` 除非接受踢会话。
+
 更细的队列 / Influx / 客户端行为见下面 [§2.1](#21-本次改动注意事项队列--influx--redis--客户端)。
 
 ---
@@ -148,6 +171,7 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 - 新增增量脚本：放进 `ruoyi-fastapi-backend/sql/*.sql`（kebab-case 命名、幂等可重放），下次 apply 自动消费；
   细节见 `ruoyi-fastapi-backend/sql/README.md`。
 - 服务层不再运行时建表：代码依赖的表（如 `market_price_history_daily`）缺失时按日志提示执行迁移即可。
+- 量化读写已走 `market_watchlist`，旧表 `quant_watchlist` 保留只读历史（不 DROP）。
 
 ## 2.1 本次改动注意事项（队列 / Influx / Redis / 客户端）
 
@@ -179,7 +203,7 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment
 
 ### Redis（要单独重建才换镜像/策略）
 
-compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy noeviction`、卷 `sentiment-redis-data`。
+compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy noeviction`、卷 `sentiment-redis-data`。
 
 - **正在跑的** `sentiment-redis` 若仍是 `redis:latest`、无数据卷，则上述配置**尚未生效**。需要时才：
 
@@ -188,7 +212,7 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 256mb`、`maxmemory-policy no
   ```
 
 - 第一次挂上新卷会是**空库**：会话、验证码、任务队列、ticket 全没。MySQL / Influx **不受影响**。重建后用户需重新登录；排队中的 Grok/采集任务会丢，可在任务中心再跑一次。
-- `noeviction`：内存到 256mb 后 **写入失败**，而不是踢掉 JWT / ticket。看到 Redis OOM 或 `OOM command not allowed` 时加内存或清缓存，不要改回 `volatile-lru`（会先淘汰带 TTL 的登录态和 job ticket）。
+- `noeviction`：内存到 512mb 后 **写入失败**，而不是踢掉 JWT / ticket。看到 Redis OOM 或 `OOM command not allowed` 时加内存或清缓存，不要改回 `volatile-lru`（会先淘汰带 TTL 的登录态和 job ticket）。
 
 ### 队列与 HTTP
 

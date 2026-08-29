@@ -5,6 +5,122 @@
 
 ## [Unreleased]
 
+### 🎯 量化策略按登录账户绑定
+- 每个账户可选一个生效档位（保守 / 均衡 / 进取），写入 `plat_user_strategy_bind`；权重覆盖仍是本账户自己的
+- 定时策略运行、自动交易扫描、次日清单、因子计算、回测默认用该账户绑定档；页面显式选档仍可单次覆盖
+- 策略历史 / 扫描台账只看当前账户；未指定用户不再把所有自选混在一起跑
+- 策略配置页「设为生效」；Vue / Flutter 自动交易与次日清单不再写死 balanced
+- 增量 SQL：`ruoyi-fastapi-backend/sql/user-strategy-bind.sql`（`python3 scripts/sql_migrate.py apply`）
+
+### ⚡ 实时价短路与批量路径
+- 行情 hub 已覆盖全部订阅标的时，`get_quotes` 不再打 Redis / 长桥 / 腾讯
+- 自选 overview 先填实时价；热度报价改走同一 LiveQuotes 路径
+- 自动交易一批拉实时价；重型 snapshot 有 hub 价则跳过 `ctx.quote`
+- 因子日扫快照与 Alpha 明细改为批量 upsert / delete+insert
+- 交易台用 quotes WS 补最后一根；看板/热度订阅 TopN，REST 拉长到 60s
+- Flutter 手机指数条优先行情 WS；通知未读 5s / 已读 30s 轮询
+
+### 📡 实时价铺开 + 资讯按标的过滤
+- Vue K 线 / 标的详情 / 持仓订阅现有行情 WS，最后一根和现价随 LIVE 更新；委托/持仓空表有提示
+- Flutter 终端、手机自选、自选 tab 发送 `{type:subscribe}` 并吃 `channel=quotes`；个股详情显示 LIVE 价和相关资讯
+- 财经简报支持 `?symbol=` 过滤
+
+### 📡 长桥订阅进行情 WS + 标的绑定新闻
+- 行情 WS `{type:subscribe}` 把标的并入进程内 `QuoteContext.subscribe`；推送覆盖内存最新价，腾讯仍补缺口；有推送时提前唤醒 quotes 通道
+- 标的资讯（`type=news`）叠加财经简报 / 舆情里提到该代码或名称的条目；简报列表带 `symbols`
+
+### 🔐 通知 / 风控 / 回测按账号隔离
+- `plat_notification` / `plat_risk_event` / `plat_backtest_run` 增加 `user_id`；列表、已读、复核、扫描只看当前登录账户，缺 user 时空列表
+- 止损监控、自选分析通知、队列 `user_notice` 写入时带所属用户；别人的信号不会再被扫进本账户风控
+- 回测信号改走现有 8 族因子 + 策略档位阈值（`factor-8family:{profile}`），不再用 MA5/MA20 金叉
+
+### 🛡 手工下单护栏与紧急停机
+- `POST /trade/order` 买入走与自动交易相同的日内名义本金 / 单票仓位 / 总敞口 / 可用现金检查；卖出校验可用持仓；拦截不打长桥
+- `GET/PUT /trade/halt` 紧急停机：拦住手工单、自动扫描、次日清单；撤单不受影响
+- 策略配置页与手机「我的」可开停机和自动交易；手机持仓当日委托可撤在途单
+
+### 🧭 平台测评后补齐（对照 KLineChart / OpenBB 日历 / QuantStats）
+- 行情中心「资金与日历」：A 股板块资金 treemap、涨停池、龙虎榜（东财公开接口）+ Nasdaq 宏观/财报日历；失败空列表不 502
+- 自选清单「相关热力」：当前账号自选日收益 Pearson 矩阵（Influx 日 K，最多 16 只）
+- 风控页组合指标：Sharpe / Sortino / 最大回撤 / VaR95 / CVaR（持仓加权，不引入 QuantStats 依赖）
+- 高级图表改 KLineChart（Apache-2.0）：趋势线 / 水平线 / 射线 / 矩形 / 斐波那契，最后一根仍走行情 WS
+- 顶栏菜单搜索支持 ⌘K / Ctrl+K（Bloomberg 命令栏习惯）
+
+### ⚡ 本轮（GitHub 对照后的剩余项）
+- 盘中个股优先长桥实时价，腾讯只补缺口/收盘；因子日扫按市场 `query_klines_many` 再内存计算
+- 策略/自动交易用户池改读 `market_watchlist`；任务进度 `WS /ws/jobs`（platform），行情 WS 核 Redis 会话
+- 委托/通知/任务自适应轮询；交易台收盘拉长间隔；高级图表订阅最新价并补最后一根
+- nginx gzip；DEPLOY Redis 512mb；`sfp-backup` 日备循环
+
+### 🛠 备份与 Redis 文档
+- 自动备份循环 `sfp-backup` / `scripts/backup_loop.sh`：启动即备份，随后每 86400s；`SKIP_CD=1` 供容器内执行
+- `docs/DEPLOY.md` Redis `maxmemory` 与 compose 对齐 512mb；备份只走 `bash scripts/backup_data.sh` 与上述循环
+- 量化读写已走 `market_watchlist`，旧表 `quant_watchlist` 保留只读历史（不 DROP）
+
+### 📡 行情推送（对照 Open-Terminal / Gloomberg）
+- 一条行情 WS：登录顶栏共用连接；自选/交易台 `{type:subscribe}` 后推个股最新价（腾讯批量，Redis 5s）
+- 个股价走 `channel=quotes`，不用 `data.items`，避免 Flutter 把股票当成指数
+- 自选页不再 8 秒打 overview；看板/热度 30 秒读 Redis 缓存
+- 分析任务忙时 3 秒、空闲 30 秒轮询；`pollMarketJob` 指数退避
+- 财经资讯基准指数一次 `query_klines_many`
+
+### ✅ 全量测试（2026-08-28）
+- 后端产品测试 354、CLI 218、Flutter 90、WS URL 2、desktop gateway、Playwright 14 页全部通过
+- CLI 帮助用例隔离 `FORCE_COLOR`；Flutter 桌面 golden 随品牌色更新
+- `scripts/web_e2e.mjs` 支持 `E2E_TOKEN`，断言对齐现文案（行情台 / 市场分析）
+
+### 🔧 Influx 批量查询
+- 单标的仍 8s 超时；质检/策略/回测走 45s 批量客户端
+- Flux 不用 `contains()`（1 只约 30s），改等值 `or`；分片 10，瞬时失败才重试
+- 线上质检 75 只约 3 秒完成并落库（asOf 2026-08-25，21 条）
+
+### 🔧 测试后优化（续）
+- 因子质检 HTTP 入队；K 线改 `query_klines_many`
+- 自选回测按市场批量拉 K
+- 登录后 `CurrentUser` 进 Redis，改用户/角色/菜单时失效
+- 业务表校对统一 `utf8mb4_general_ci`；隐藏量化自选侧栏
+- Flutter 交易终端指数走 WS；`IndexedStack` 后台停定时器
+- 行情 WS 不再接受 query `token=`
+
+### 🔧 测试后优化
+- Vue 行情 WS 开帧 `{type:auth,token}`，与 Flutter 一致；URL 仍不带 token
+- JWT / Cookie / Redis 会话统一 8 小时（idle 不再 30 分钟 401）
+- `/market/terminal` 移出登录白名单；快捷导航/资产条/持仓/风控入口并到 `/trade/terminal`
+- 次日清单「加入量化」写入 `market_watchlist`；终端去掉与 WS 重复的 15s 指数 REST
+- 需求沟通 keep-alive 离开页签停 2.5s 轮询
+
+### 🧭 交易台 / 自选合一
+- `/trade/trading`、`/trade/desk` 重定向到 `/trade/terminal`；侧栏隐藏旧入口
+- 量化自选读写行情 `market_watchlist`；存量 `quant_watchlist` 迁入
+- 策略空池不再扫全市场精选池；Influx 按市场批量拉 K，并发上限 8
+- Electron 归档；客户端版本空 URL 指向 GitHub Releases
+
+### 💹 交易台只走真实行情
+- 去掉前端随机假价模拟器（`mockData` + `Math.random` 跳价）；拉不到自选/K 线显示空态，右上角 `LIVE` / `无数据`
+- 指数条与交易台顶栏接 `WS /ws/market/quotes`（Cookie 鉴权，断线 REST 回退）
+- 行情/自选/委托等页签 `onDeactivated` 停轮询，不再只看浏览器 tab
+
+### 🔐 隔离与入队
+- 工作台 `dashboard:summary` 缓存按用户 + 权限指纹隔离
+- 工作台各块改为顺序使用同一 AsyncSession
+- `POST /quant/scan/daily`、`POST /market/sync/mysql-to-influx` 入队立即回 ticket
+- 舆情 Widget CORS 回显白名单 Origin，不再 `*`
+
+### 📱 客户端
+- iPad/Android 宽屏不再进桌面 WebView，继续原生五栏
+- 桌面 WebView 不再用 JS 写入 JWT Cookie
+- Cookie 有效期与 JWT 8 小时对齐
+- 「我的」挂上自选 / 资讯 / 通知 / AI 研判
+- 品牌色对齐 Web indigo `#6366f1`
+
+### 🗂 自选与自动交易
+- `market_watchlist.groups` 独立列；表单分组与备注分开
+- 自动交易扫描叠加行情自选（不再只扫量化池后回落到精选池）
+
+### 🛠 运维
+- 版本检查 SQL 纳入 `sql_migrate.py`；Prometheus 刮齐 API/jobs；调度默认 `coalesce`
+- Electron 标明过渡归档；DEPLOY 补充 MySQL/Influx 备份；前后端 `.dockerignore`
+
 ### 📖 部署
 - `docs/DEPLOY.md` 增加「云主机怎么部署」：拉 `main`、只滚业务容器、不要 down、不要动 grok2api / Influx 卷
 

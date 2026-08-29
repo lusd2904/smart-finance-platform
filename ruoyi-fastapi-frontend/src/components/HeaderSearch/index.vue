@@ -14,7 +14,7 @@
         size="large"
         @input="querySearch"
         prefix-icon="Search"
-        placeholder="菜单搜索，支持标题、URL模糊查询"
+        placeholder="搜索菜单（⌘K / Ctrl+K）"
         clearable
         @keyup.enter="selectActiveResult"
         @keydown.up.prevent="navigateResult('up')"
@@ -187,8 +187,18 @@ function selectActiveResult() {
   }
 }
 
+function onHotkey(e) {
+  if (!(e.metaKey || e.ctrlKey) || String(e.key || '').toLowerCase() !== 'k') return
+  e.preventDefault()
+  click()
+}
+
 onMounted(() => {
   searchPool.value = generateRoutes(routes.value)
+  window.addEventListener('keydown', onHotkey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onHotkey)
 })
 
 watch(searchPool, (list) => {

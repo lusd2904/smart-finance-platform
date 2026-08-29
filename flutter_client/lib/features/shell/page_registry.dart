@@ -92,12 +92,8 @@ Widget buildNativePage(
       return QuantWatchlistPage(open: open);
 
     case '/trade/desk':
-      return const TradeDeskHost();
     case '/trade/trading':
-      return TradeTradingPage(
-        symbol: query['symbol'] ?? 'AAPL',
-        market: query['market'] ?? 'US',
-      );
+      return const TradeTerminalPage();
     case '/trade/positions':
       return TradePositionsPage(open: open);
     case '/trade/orders':

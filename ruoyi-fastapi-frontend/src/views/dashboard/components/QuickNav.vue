@@ -11,17 +11,16 @@
 const router = useRouter()
 
 const navItems = [
-  { title: '专业终端 (Pro)', path: '/market/terminal', icon: 'Monitor' },
+  { title: '交易终端', path: '/trade/terminal', icon: 'Monitor' },
   { title: '舆情大盘', path: '/sentiment/dashboard', icon: 'DataAnalysis' },
   { title: '资讯列表', path: '/sentiment/news', icon: 'Reading' },
   { title: '行情中心', path: '/market/heat', icon: 'TrendCharts' },
+  { title: '资金与日历', path: '/market/flow', icon: 'Money' },
   { title: '行情台', path: '/market/board', icon: 'DataLine' },
   { title: '财经简报', path: '/market/finance-news', icon: 'Notebook' },
   { title: '量化策略', path: '/quant/strategy', icon: 'Cpu' },
-  { title: '自选池', path: '/quant/watchlist', icon: 'Star' },
-  { title: '行情自选', path: '/market/watchlist', icon: 'Aim' },
+  { title: '自选清单', path: '/market/watchlist', icon: 'Star' },
   { title: '市场分析', path: '/market/review', icon: 'Notebook' },
-  { title: '交易终端', path: '/trade/trading', icon: 'SwitchButton' },
   { title: '自动分析', path: '/analysis/jobs', icon: 'Clock' }
 ]
 

@@ -2,11 +2,15 @@ import os
 import sys
 from unittest.mock import AsyncMock, patch
 
+os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
+os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
+
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from module_market.service.heat_service import MarketHeatService
+from module_market.service.live_quotes_service import LiveQuotesService
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.longbridge_breaker import LongbridgeBreaker
 
@@ -132,3 +136,18 @@ async def test_collect_market_continues_when_influx_index_kline_fails() -> None:
     db.commit.assert_awaited()
     payload = upsert.await_args.args[1]
     assert payload['index_change_pct'] == 0.85
+
+
+def test_quote_map_uses_live_fetch_items() -> None:
+    items = [{'symbol': 'AAPL', 'market': 'US', 'last': 150.0, 'changeRate': 1.2, 'source': 'longbridge'}]
+    with patch.object(LiveQuotesService, '_fetch_items', return_value=items) as fetch:
+        mapping = MarketHeatService._quote_map_from_longbridge('US', ['AAPL'])
+    fetch.assert_called_once_with([('AAPL', 'US')])
+    assert mapping['AAPL']['last'] == 150.0
+    assert mapping['AAPL']['lastDone'] == 150.0
+    assert mapping['AAPL.US']['last'] == 150.0
+
+
+def test_quote_map_empty_when_fetch_empty() -> None:
+    with patch.object(LiveQuotesService, '_fetch_items', return_value=[]):
+        assert MarketHeatService._quote_map_from_longbridge('US', ['AAPL']) == {}

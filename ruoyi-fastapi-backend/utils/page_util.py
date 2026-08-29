@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.vo import PageModel
 from utils.common_util import CamelCaseUtil
 
+# 未分页查询硬顶，避免漏传 is_page 时全表倒出
+UNPAGED_MAX_ROWS = 2000
+
 
 class PageUtil:
     """
@@ -69,6 +72,7 @@ class PageUtil:
                 hasNext=has_next,
             )
         else:
+            query = query.limit(UNPAGED_MAX_ROWS)
             query_result = await db.execute(query)
             no_paginated_data: list[Row] = []
             for row in query_result:

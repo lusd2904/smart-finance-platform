@@ -85,6 +85,17 @@ class TradeApi {
 
   Future<AutoTradeStatus> getAutoTradeStatus() => autoStatus();
 
+  /// 紧急停机。PUT /trade/halt
+  Future<Map<String, dynamic>> setHalt({required bool halted, String reason = ''}) async {
+    final result = ApiResult.from(
+      await _dio.put<void>(
+        '/trade/halt',
+        data: <String, dynamic>{'halted': halted, 'reason': reason},
+      ),
+    );
+    return result.dataAsMap ?? <String, dynamic>{'halted': halted};
+  }
+
   /// 保存本账户自动交易开关。PUT /trade/auto/settings
   Future<AutoTradeStatus> saveAutoTradeSettings({
     required bool autoTradeEnabled,

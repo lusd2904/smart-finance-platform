@@ -57,6 +57,31 @@ def test_momentum_ic_positive_on_trending_panel() -> None:
     assert by_h[1]['spread'] is not None and by_h[1]['spread'] > 0
 
 
+def test_load_close_volume_uses_batch_query(monkeypatch) -> None:
+    from module_quant.service import factor_qc_service as qc
+
+    captured: dict = {}
+
+    def fake_many(market, symbols, start='-1y', limit=320):
+        captured['market'] = market
+        captured['symbols'] = list(symbols)
+        captured['start'] = start
+        captured['limit'] = limit
+        return {
+            'AAPL': [{'date': '2024-01-02', 'close': 10, 'volume': 1}],
+            'MSFT': [{'date': '2024-01-02', 'close': 20, 'volume': 2}],
+        }
+
+    monkeypatch.setattr(qc.InfluxUtil, 'query_klines_many', fake_many)
+    monkeypatch.setattr(qc.FactorQcService, 'universe', classmethod(lambda cls, market='US': [('AAPL', 'US'), ('MSFT', 'US')]))
+    close, volume = qc.FactorQcService.load_close_volume('US', start='-400d', limit=260)
+    assert captured['market'] == 'US'
+    assert captured['symbols'] == ['AAPL', 'MSFT']
+    assert captured['limit'] == 260
+    assert list(close.columns) == ['AAPL', 'MSFT']
+    assert volume.loc['2024-01-02', 'MSFT'] == 2
+
+
 def test_factor_specs_cover_core_families() -> None:
     keys = {s['key'] for s in factor_specs()}
     assert {'mom20', 'reversal5', 'rsi14', 'ma_spread', 'vol_ratio20', 'cs_mom20', 'cs_vol_ratio'} <= keys

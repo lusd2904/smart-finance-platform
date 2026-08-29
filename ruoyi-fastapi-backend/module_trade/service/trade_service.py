@@ -1,4 +1,4 @@
-"""交易服务：封装长桥资金/持仓/订单，并提供异步持久化通知与专业动量回测。"""
+"""交易服务：封装长桥资金/持仓/订单，并提供异步持久化通知与 8 族因子回测。"""
 
 from __future__ import annotations
 
@@ -29,8 +29,6 @@ if TYPE_CHECKING:
 # 回测最少K线数量与默认回看天数
 _BACKTEST_MIN_BARS = 30
 _BACKTEST_MIN_DAYS = 30
-# 计算胜率所需的最少成交记录数（一买一卖记 2）
-_MIN_TRADES_FOR_WINRATE = 2
 _CLOSED_DAILY_KLINE_MSG = '已收盘，显示当日日K'
 
 
@@ -311,8 +309,31 @@ class TradeService:
         order_type: str = 'LO',
         price: float | None = None,
         market: str = 'US',
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         await cls._ensure(query_db)
+        from module_trade.service.order_guard import evaluate_manual_order
+
+        guard = await evaluate_manual_order(
+            query_db,
+            user_id=user_id,
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            price=price,
+            market=market,
+        )
+        if not guard.get('ok'):
+            message = str(guard.get('message') or '下单被护栏拦截')
+            await cls.push_notification_db(
+                query_db,
+                title='下单已拦截',
+                content=f'{side} {symbol} x {quantity} · {message}',
+                level='warning',
+                category='trade',
+                user_id=user_id,
+            )
+            return {'ok': False, 'blocked': True, 'message': message}
         result = await LongbridgeService.submit_order_async(
             symbol=symbol,
             side=side,
@@ -327,11 +348,14 @@ class TradeService:
             content=f'{side} {symbol} x {quantity} · {result.get("message")}',
             level='success' if result.get('ok') else 'danger',
             category='trade',
+            user_id=user_id,
         )
         return result
 
     @classmethod
-    async def cancel_order_services(cls, query_db: AsyncSession, order_id: str) -> dict[str, Any]:
+    async def cancel_order_services(
+        cls, query_db: AsyncSession, order_id: str, user_id: int | None = None
+    ) -> dict[str, Any]:
         await cls._ensure(query_db)
         result = await LongbridgeService.cancel_order_async(order_id)
         await cls.push_notification_db(
@@ -340,6 +364,7 @@ class TradeService:
             content=f'订单 {order_id} · {result.get("message")}',
             level='warning' if result.get('ok') else 'danger',
             category='trade',
+            user_id=user_id,
         )
         return result
 
@@ -352,11 +377,18 @@ class TradeService:
         content: str,
         level: str = 'info',
         category: str = 'system',
+        user_id: int | None = None,
     ) -> dict[str, Any]:
         try:
             item = await TradeDao.add_notification(
                 query_db,
-                {'title': title, 'content': content, 'level': level, 'category': category},
+                {
+                    'title': title,
+                    'content': content,
+                    'level': level,
+                    'category': category,
+                    'user_id': int(user_id or 1),
+                },
             )
             await query_db.commit()
             return {
@@ -381,8 +413,10 @@ class TradeService:
             }
 
     @classmethod
-    async def list_notifications_services(cls, query_db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
-        rows = await TradeDao.list_notifications(query_db, limit=limit)
+    async def list_notifications_services(
+        cls, query_db: AsyncSession, limit: int = 50, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = await TradeDao.list_notifications(query_db, limit=limit, user_id=user_id)
         return [
             {
                 'id': r.notice_id,
@@ -398,9 +432,12 @@ class TradeService:
 
     @classmethod
     async def mark_notification_read_services(
-        cls, query_db: AsyncSession, notice_id: int | None = None
+        cls,
+        query_db: AsyncSession,
+        notice_id: int | None = None,
+        user_id: int | None = None,
     ) -> dict[str, Any]:
-        updated = await TradeDao.mark_notifications_read(query_db, notice_id)
+        updated = await TradeDao.mark_notifications_read(query_db, notice_id, user_id=user_id)
         await query_db.commit()
         return {'updated': updated}
 
@@ -415,8 +452,15 @@ class TradeService:
         initial_capital: float = 100000.0,
         fee_rate: float = 0.0005,
         slippage: float = 0.0002,
+        user_id: int | None = None,
+        strategy_profile: str = 'balanced',
     ) -> dict[str, Any]:
+        from module_quant.service.quant_service import VALID_PROFILES, QuantService
+        from module_trade.service.backtest_engine import factor_signals, simulate_long_only
         from utils.influx_util import InfluxUtil
+
+        if user_id is None:
+            return {'ok': False, 'message': '无法识别当前用户', 'symbol': symbol}
 
         klines = await asyncio.to_thread(
             InfluxUtil.query_klines, market, symbol, f'-{max(days, _BACKTEST_MIN_DAYS)}d', 'now()'
@@ -428,80 +472,47 @@ class TradeService:
                 'symbol': symbol,
             }
 
-        closes = [float(k.get('close') or 0) for k in klines]
-        cash = initial_capital
-        pos = 0.0
-        equity_curve: list[dict[str, Any]] = []
-        trades = 0
-        winning_trades = 0
-        last_buy_price = 0.0
-        peak_equity = initial_capital
-        max_drawdown = 0.0
-
-        for i in range(20, len(closes)):
-            ma5 = sum(closes[i - 5 : i]) / 5
-            ma20 = sum(closes[i - 20 : i]) / 20
-            price = closes[i]
-            if price <= 0:
-                continue
-
-            # 金叉买入 (MA5 > MA20)
-            if ma5 > ma20 and pos == 0 and cash > 0:
-                exec_price = price * (1 + slippage)
-                cost_with_fee = exec_price * (1 + fee_rate)
-                pos = cash / cost_with_fee
-                last_buy_price = exec_price
-                cash = 0.0
-                trades += 1
-            # 死叉卖出 (MA5 < MA20)
-            elif ma5 < ma20 and pos > 0:
-                exec_price = price * (1 - slippage)
-                gross_proceeds = pos * exec_price
-                cash = gross_proceeds * (1 - fee_rate)
-                if exec_price > last_buy_price:
-                    winning_trades += 1
-                pos = 0.0
-                trades += 1
-
-            current_equity = cash + pos * price
-            peak_equity = max(peak_equity, current_equity)
-            dd = (peak_equity - current_equity) / peak_equity if peak_equity > 0 else 0.0
-            max_drawdown = max(max_drawdown, dd)
-
-            equity_curve.append({
-                'date': klines[i].get('date'),
-                'equity': round(current_equity, 2),
-            })
-
-        final_equity = cash + pos * closes[-1]
-        ret_pct = round((final_equity / initial_capital - 1) * 100, 2)
-        win_rate = round((winning_trades / (trades // 2) * 100), 2) if (trades >= _MIN_TRADES_FOR_WINRATE) else 0.0
-        max_dd_pct = round(max_drawdown * 100, 2)
-
-        # 持久化到 DB
+        profile = strategy_profile if strategy_profile in VALID_PROFILES else 'balanced'
+        weights = await QuantService.load_profile_config(query_db, profile, user_id=user_id)
+        signals = await asyncio.to_thread(
+            factor_signals, klines, profile=profile, weights=weights or None
+        )
+        sim = simulate_long_only(
+            klines,
+            signals,
+            initial_capital=initial_capital,
+            fee_rate=fee_rate,
+            slippage=slippage,
+        )
+        equity_curve = sim.get('equity') or []
+        strategy_name = f'factor-8family:{profile}'
         db_record = {
+            'user_id': int(user_id or 1),
             'symbol': symbol,
             'market': market,
             'days': days,
-            'strategy': 'MA5/MA20 cross',
-            'trades': trades,
-            'return_pct': ret_pct,
-            'final_equity': round(final_equity, 2),
-            'max_drawdown': max_dd_pct,
-            'win_rate': win_rate,
+            'strategy': strategy_name,
+            'trades': sim.get('trades') or 0,
+            'return_pct': sim.get('returnPct') or 0,
+            'final_equity': sim.get('finalEquity') or 0,
+            'max_drawdown': sim.get('maxDrawdown') or 0,
+            'win_rate': sim.get('winRate') or 0,
             'equity_curve_json': json.dumps(equity_curve[-60:], ensure_ascii=False),
-            'message': '回测完成（标准动量双均线策略）',
+            'message': f'回测完成（{strategy_name}）',
         }
         saved = await TradeDao.add_backtest_run(query_db, db_record)
         await query_db.commit()
 
-        # 推送持久化通知
         await cls.push_notification_db(
             query_db,
             title=f'回测完成 {symbol}',
-            content=f'收益 {ret_pct}% · 最大回撤 {max_dd_pct}% · 交易 {trades} 次',
+            content=(
+                f'{strategy_name} · 收益 {sim.get("returnPct")}% · '
+                f'最大回撤 {sim.get("maxDrawdown")}% · 交易 {sim.get("trades")} 次'
+            ),
             level='success',
             category='backtest',
+            user_id=user_id,
         )
 
         return {
@@ -509,11 +520,11 @@ class TradeService:
             'symbol': symbol,
             'market': market,
             'days': days,
-            'trades': trades,
-            'returnPct': ret_pct,
-            'finalEquity': round(final_equity, 2),
-            'maxDrawdown': max_dd_pct,
-            'winRate': win_rate,
+            'trades': sim.get('trades') or 0,
+            'returnPct': sim.get('returnPct') or 0,
+            'finalEquity': sim.get('finalEquity') or 0,
+            'maxDrawdown': sim.get('maxDrawdown') or 0,
+            'winRate': sim.get('winRate') or 0,
             'equity': equity_curve[-60:],
             'createTime': saved.create_time.strftime('%Y-%m-%d %H:%M:%S') if saved.create_time else '',
             'strategy': saved.strategy,
@@ -522,8 +533,10 @@ class TradeService:
         }
 
     @classmethod
-    async def list_backtests_services(cls, query_db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
-        rows = await TradeDao.list_backtest_runs(query_db, limit=limit)
+    async def list_backtests_services(
+        cls, query_db: AsyncSession, limit: int = 50, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        rows = await TradeDao.list_backtest_runs(query_db, limit=limit, user_id=user_id)
         result = []
         for r in rows:
             curve = []
@@ -549,8 +562,10 @@ class TradeService:
         return result
 
     @classmethod
-    async def get_backtest_services(cls, query_db: AsyncSession, run_id: int) -> dict[str, Any] | None:
-        r = await TradeDao.get_backtest_run_by_id(query_db, run_id)
+    async def get_backtest_services(
+        cls, query_db: AsyncSession, run_id: int, user_id: int | None = None
+    ) -> dict[str, Any] | None:
+        r = await TradeDao.get_backtest_run_by_id(query_db, run_id, user_id=user_id)
         if not r:
             return None
         curve = []

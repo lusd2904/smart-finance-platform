@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/gateway/gateway_controller.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/auth/logic/session_controller.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
+import '../ai/presentation/ai_page.dart';
+import '../news/presentation/news_page.dart';
+import '../notice/presentation/notice_page.dart';
+import '../trade/data/trade_api.dart';
 import 'phone_quant_page.dart';
+import 'phone_watchlist_page.dart';
 
 /// 「我的」：次级入口。底栏是舆情 / 选股 / 热度 / 持仓。
 class PhoneMinePage extends ConsumerWidget {
@@ -105,6 +111,17 @@ class PhoneMinePage extends ConsumerWidget {
           ),
         ),
         group('功能', [
+          tile(
+            Icons.star_outline,
+            '自选',
+            () => push(
+              PhoneWatchlistPage(onOpenSymbol: onOpenSymbol),
+              title: '自选',
+            ),
+          ),
+          tile(Icons.article_outlined, '资讯', () => push(const NewsPage(), title: '资讯', wrapped: false)),
+          tile(Icons.notifications_outlined, '通知', () => push(const NoticePage(), title: '通知', wrapped: false)),
+          tile(Icons.psychology_outlined, 'AI 研判', () => push(const AiPage(), title: 'AI 研判', wrapped: false)),
           tile(Icons.hub_outlined, '量化研究', () => push(PhoneQuantPage(onOpenSymbol: onOpenSymbol), title: '量化研究')),
           tile(Icons.forum_outlined, '需求沟通', () => open?.call('/ai/req-chat', title: '需求沟通')),
           tile(
@@ -114,6 +131,7 @@ class PhoneMinePage extends ConsumerWidget {
             subtitle: gateway.url.isEmpty ? '未配置' : gateway.url,
           ),
         ]),
+        _TradeSwitches(scheme: scheme),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
           child: OutlinedButton(
@@ -132,6 +150,90 @@ class PhoneMinePage extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TradeSwitches extends ConsumerWidget {
+  const _TradeSwitches({required this.scheme});
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auto = ref.watch(tradeAutoStatusProvider);
+    final st = auto.asData?.value;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              '交易',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppDimens.radiusCard),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('自动交易'),
+                  subtitle: Text(
+                    st == null
+                        ? '读取中'
+                        : (st.configured
+                            ? (st.autoTradeEnabled ? '扫描会向长桥下单' : '只扫描不下单')
+                            : '未配置长桥 Key'),
+                  ),
+                  value: st?.autoTradeEnabled == true,
+                  onChanged: (st == null || !st.configured || st.halted)
+                      ? null
+                      : (on) async {
+                          try {
+                            await ref.read(tradeApiProvider).saveAutoTradeSettings(autoTradeEnabled: on);
+                            ref.invalidate(tradeAutoStatusProvider);
+                          } catch (e) {
+                            if (context.mounted) toast(context, describeApiError(e), error: true);
+                          }
+                        },
+                ),
+                SwitchListTile(
+                  title: const Text('紧急停机'),
+                  subtitle: Text(
+                    st?.halted == true
+                        ? (st!.haltReason.isEmpty ? '已拦截全部新委托' : st.haltReason)
+                        : '新委托正常提交',
+                  ),
+                  value: st?.halted == true,
+                  onChanged: st == null
+                      ? null
+                      : (on) async {
+                          if (on) {
+                            final ok = await confirm(context, '打开后拦截全部新委托（手工/自动/次日清单），撤单仍可用。确认停机？');
+                            if (!ok) return;
+                          }
+                          try {
+                            await ref.read(tradeApiProvider).setHalt(
+                                  halted: on,
+                                  reason: on ? '手机端紧急停机' : '',
+                                );
+                            ref.invalidate(tradeAutoStatusProvider);
+                          } catch (e) {
+                            if (context.mounted) toast(context, describeApiError(e), error: true);
+                          }
+                        },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

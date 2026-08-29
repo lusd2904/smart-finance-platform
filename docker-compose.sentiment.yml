@@ -440,7 +440,7 @@ services:
         "--appendonly",
         "yes",
         "--maxmemory",
-        "256mb",
+        "512mb",
         "--maxmemory-policy",
         "noeviction",
       ]
@@ -449,10 +449,36 @@ services:
     networks:
       - sentiment-network
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi | grep PONG",
+        ]
       interval: 5s
       timeout: 10s
       retries: 30
+
+  # 日备：立刻 dump MySQL+Influx，随后每 86400s。不暴露端口、不 down 栈。
+  sfp-backup:
+    image: docker:27-cli
+    container_name: sentiment-backup
+    restart: unless-stopped
+    command: ["sh", "/scripts/backup_loop.sh"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SKIP_CD: "1"
+      BACKUP_DIR: /backups
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts:/scripts:ro
+      - ./backups:/backups
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
+    networks:
+      - sentiment-network
 
 volumes:
   sentiment-mysql-data:

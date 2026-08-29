@@ -8,17 +8,42 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ## 🌟 核心功能一览
 
-- 📈 **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、智能选股（指标 + 舆情 + 开盘指数）、行情台、自选三栏、财经资讯、AI 研判。大盘指数每市场三条（美股标普/纳指/道琼斯，港股恒指/恒科/国企，A 股上证/创业板/科创板）。
-- ⭐ **自选按账号隔离**：行情自选只走 `market_watchlist` + `user_id`；量化扫描池继续用 `quant_watchlist`，两套不混。分组先写在 `note`（逗号可多组）。
-- 📰 **舆情分析**：中文资讯采集、大盘影响研判、分析历史；列表页不叠长桥实时价。macOS Widget 可通过 Token 拉取只读大盘聚合。
-- 🧮 **量化研究**：因子、Alphalens 风格 IC/IR/分层收益、策略信号、扫描台账、策略档位与 8 族权重。
-- 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、持仓叠实时价自算盈亏、自动交易、风控规则与事件、通知中心。配了什么长桥账户（模拟或真实）就下到哪，平台不再套一层纸账户。美股下单覆盖盘前 / 盘后 / 夜盘（长桥 `outside_rth`）；长桥模拟账户本身仍仅常规盘撮合。
+- 📈 **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、智能选股（指标 + 舆情 + 开盘指数）、行情台、自选三栏、财经资讯、AI 研判、资金与日历（板块资金 / 涨停 / 龙虎榜 / 宏观与财报日历）。大盘指数每市场三条（美股标普/纳指/道琼斯，港股恒指/恒科/国企，A 股上证/创业板/科创板）。一条行情 WS 推指数与个股最新价；高级图表为 KLineChart 画线工作区。
+- ⭐ **自选按账号隔离**：行情与量化扫描池统一走 `market_watchlist` + `user_id`（旧表 `quant_watchlist` 只读保留，不 DROP）。分组可独立。
+- 📰 **舆情分析**：中文资讯采集、大盘影响研判、分析历史；财经简报可按标的过滤。macOS Widget 可通过 Token 拉取只读大盘聚合。
+- 🧮 **量化研究**：因子、Alphalens 风格 IC/IR/分层收益、策略信号、扫描台账。每个登录账户绑定一个生效策略档（保守 / 均衡 / 进取）及本账户权重；定时扫描、自动交易、次日清单、回测默认走该档。
+- 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、持仓叠实时价自算盈亏、自动交易、风控规则与事件、通知中心。配了什么长桥账户（模拟或真实）就下到哪。手工单与自动交易共用仓位护栏；紧急停机拦新单、撤单仍可用。美股下单覆盖盘前 / 盘后 / 夜盘（长桥 `outside_rth`）；长桥模拟账户本身仍仅常规盘撮合。
 - 🔐 **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
-- 🖥️ **桌面端（过渡）**：Electron 启动先配前端网关再登录，本机 Docker 与云上域名可切换。
+- 🖥️ **桌面端**：以 `flutter_client/` 为准；`desktop/` Electron 壳已归档，不再构建。
 - 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。Debug 默认本机 Docker（`127.0.0.1:12580`，Android 模拟器 `10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
+
+## 🚀 0829 迭代更新日志（策略按账户绑定、实时价、账号隔离）
+
+明细见 [CHANGELOG.md](./CHANGELOG.md) `[Unreleased]`。增量 SQL 用 `python3 scripts/sql_migrate.py apply`（含 `user-strategy-bind.sql`）。**不要 `compose down`，不要重建 MySQL / Redis / Influx。**
+
+### 1. 🎯 量化策略与登录账户绑定
+- 策略配置页为当前账户选一个生效档（保守 / 均衡 / 进取），写入 `plat_user_strategy_bind`；三档权重覆盖仍是本账户自己的。
+- 定时策略运行、自动交易扫描、次日清单、因子计算、回测默认用绑定档；页面上单次另选档仍可覆盖这一次。
+- 策略历史 / 扫描台账只看当前账户；未指定用户不再把所有自选混在一起跑。
+
+### 2. 📡 行情实时价
+- 登录后一条行情 WS：指数走 `channel=index`，个股 `{type:subscribe}` 后走 `channel=quotes`。
+- 进程内长桥 `QuoteContext.subscribe` 并集；内存最新价优先，腾讯补缺口。
+- Vue K 线 / 标的 / 持仓 / 交易台、Flutter 终端与手机自选吃 LIVE 最后一根；看板 / 热度订阅 TopN。
+
+### 3. 🔐 账号隔离与下单护栏
+- 通知 / 风控事件 / 回测带 `user_id`，列表只看本账户。
+- 手工买入与自动交易共用日内名义本金 / 单票仓位 / 总敞口检查；`GET/PUT /trade/halt` 紧急停机拦新单，撤单仍可用。
+- 回测改走 8 族因子 + 策略档阈值，不再用 MA5/MA20 金叉。
+
+### 4. 🛠 其它
+- 量化读写已走 `market_watchlist`；`sfp-backup` 日备循环；nginx gzip；Redis `maxmemory` 512mb。
+- 资金与日历、自选相关热力、组合 Sharpe/Sortino/回撤、KLineChart 画线、顶栏 ⌘K。
+
+---
 
 ## 🚀 0826 V11 迭代更新日志（手机原生五栏、桌面 WebView 壳、实时持仓）
 
@@ -265,11 +290,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
   touch logs/kline_sync.stop   # 下一只标的前退出
   ```
 
-- **方案 2：Electron 桌面端（过渡）**
-  ```bash
-  cd desktop && npm install && npm start
-  ```
-  先填前端网关再登录：本机 `http://127.0.0.1:12580`，云上填已部署域名。不要填后端 `19099`。
+- **方案 2：桌面端**用 `flutter_client/`（见方案 3）。`desktop/` Electron 已归档，不要再构建。
 
 - **方案 3：Flutter 四端客户端**
   ```bash
@@ -301,20 +322,20 @@ smart-finance-platform/
 ├── ruoyi-fastapi-frontend/        # Vue3 管理端
 ├── ruoyi-fastapi-app/             # 移动端 H5 / 小程序基线（双轨保留）
 ├── flutter_client/                # 四端 Flutter（iOS / Android / macOS / Windows）
-└── desktop/                       # Electron（过渡）
+└── desktop/                       # Electron 壳（已归档，勿构建）
 ```
 
 - **Web 前端**：Vue 3 · Element Plus · Vite · ECharts · Pinia
 - **后端**：Python ≥3.10 · FastAPI · SQLAlchemy async · JWT
 - **数据**：MySQL 8（业务）· Redis（会话 / 队列 / 缓存）· InfluxDB 2.x（K 线）
-- **客户端**：Flutter 3.13+（Riverpod · Dio · go_router · flutter_secure_storage）；Electron 34（过渡）
+- **客户端**：Flutter 3.13+（Riverpod · Dio · go_router · flutter_secure_storage）
 - **券商**：Longbridge OpenAPI（可选）
 
 ## 🛡️ 隐私与数据安全说明
 
 - 仓库只有 `.env.*.example`，不含生产密钥。
 - 不要提交 `DB_PASSWORD` / `JWT_SECRET` / `INFLUX_TOKEN` / 长桥 Token / RSA 私钥。
-- 长桥交易开关与纸面保护在服务端，前端关不掉实盘拦截。
+- 自动交易开关与紧急停机在服务端，前端关不掉实盘拦截。
 - Widget 接口空 token 即关闭；管理端口默认只绑本机回环。
 
 ## 💻 常用维护命令

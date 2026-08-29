@@ -141,6 +141,7 @@ class MarketWatchlist(Base):
     market = Column(String(10), nullable=False, server_default="'US'", comment='市场 US/HK/CN')
     name = Column(String(100), nullable=True, comment='名称')
     note = Column(String(255), nullable=True, comment='备注')
+    groups = Column('groups', String(255), nullable=True, comment='分组，逗号分隔')
     enabled = Column(CHAR(1), nullable=False, server_default='1', comment='是否启用（0否 1是）')
     sort_order = Column(Integer, nullable=False, server_default='0', comment='排序')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='加入时间')

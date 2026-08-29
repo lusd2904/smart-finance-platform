@@ -7,6 +7,7 @@ import '../../shared/widgets/quote_text.dart';
 import '../auth/logic/session_controller.dart';
 import '../market/data/market_api.dart';
 import '../market/data/market_models.dart';
+import '../market/data/market_quotes_ws.dart';
 import '../market/presentation/universe_page.dart';
 import '../trade/data/trade_api.dart';
 import '../watchlist/logic/watchlist_providers.dart';
@@ -31,6 +32,45 @@ class PhoneWatchlistPage extends ConsumerStatefulWidget {
 
 class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
   String _group = '全部';
+  final Map<String, LiveStockQuote> _live = {};
+  VoidCallback? _unsubQuotes;
+  String _subSig = '';
+
+  @override
+  void dispose() {
+    _unsubQuotes?.call();
+    super.dispose();
+  }
+
+  void _syncQuotes(List<WatchlistItem> items) {
+    final sig = items.map((i) => '${i.market}:${i.symbol}').join(',');
+    if (sig == _subSig) return;
+    _subSig = sig;
+    _unsubQuotes?.call();
+    _unsubQuotes = null;
+    if (items.isEmpty) return;
+    _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
+      [
+        for (final it in items)
+          (symbol: it.symbol, market: it.market.isEmpty ? 'US' : it.market),
+      ],
+      (quotes) {
+        if (!mounted) return;
+        setState(() {
+          for (final q in quotes) {
+            _live[q.key] = q;
+          }
+        });
+      },
+    );
+  }
+
+  WatchlistItem _patched(WatchlistItem item) {
+    final key =
+        '${(item.market.isEmpty ? 'US' : item.market).toUpperCase()}:${item.symbol.toUpperCase()}';
+    final live = _live[key];
+    return live == null ? item : applyLiveQuote(item, live);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +84,7 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
         ),
       ),
       data: (data) {
+        _syncQuotes(data.items);
         final items = _group == '全部'
             ? data.items
             : data.items.where((i) => i.groups.contains(_group)).toList();
@@ -96,7 +137,7 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
                     itemCount: items.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, i) => _QuoteCard(
-                      item: items[i],
+                      item: _patched(items[i]),
                       onTap: widget.onOpenSymbol == null
                           ? null
                           : () => widget.onOpenSymbol!(
@@ -229,10 +270,16 @@ class _TopBar extends ConsumerWidget {
 class _IndexStrip extends ConsumerWidget {
   const _IndexStrip();
 
+  /// WS 有指数快照时用实时流，否则回退 REST（首帧 / 断线 / 测试覆盖）。
+  List<IndexQuote> _liveOrPolledIndexes(WidgetRef ref) {
+    final live = ref.watch(marketQuotesStreamProvider).asData?.value.items;
+    if (live != null && live.isNotEmpty) return live;
+    return ref.watch(indexQuotesProvider).asData?.value ?? const <IndexQuote>[];
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(indexQuotesProvider);
-    final items = async.asData?.value ?? const <IndexQuote>[];
+    final items = _liveOrPolledIndexes(ref);
     if (items.isEmpty) return const SizedBox(height: 8);
     return SizedBox(
       height: 58,

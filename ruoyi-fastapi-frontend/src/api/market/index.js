@@ -82,10 +82,11 @@ function sleep(ms) {
 
 /** 轮询任务票直到 done/failed；间隔 2s，超时约 3 分钟。拦截器抛错不中断，记为失败。 */
 export async function pollMarketJob(jobId, options = {}) {
-  const intervalMs = options.intervalMs ?? 2000
   const timeoutMs = options.timeoutMs ?? 180000
   if (!jobId) return { status: 'failed', error: '缺少任务 ID' }
   const started = Date.now()
+  let delay = options.intervalMs ?? 1000
+  const maxDelay = options.maxIntervalMs ?? 5000
   for (;;) {
     try {
       const res = await getMarketJob(jobId)
@@ -100,7 +101,8 @@ export async function pollMarketJob(jobId, options = {}) {
         return { status: 'failed', error: (e && e.message) || '任务等待超时' }
       }
     }
-    await sleep(intervalMs)
+    await sleep(delay)
+    delay = Math.min(maxDelay, Math.round(delay * 1.4))
   }
 }
 
@@ -162,6 +164,16 @@ export function getFinanceBriefings(query) {
   })
 }
 
+export function getLiveQuotes(symbols) {
+  const list = Array.isArray(symbols) ? symbols : [symbols]
+  return request({
+    url: '/market/quotes/live',
+    method: 'get',
+    params: { symbols: list.filter(Boolean).join(',') },
+    timeout: 8000
+  })
+}
+
 export function getMarketWatchlistOverview(options = {}) {
   return request({
     url: '/market/watchlist/overview',
@@ -215,6 +227,24 @@ export function getMarketWatchlistBacktest(query) {
     url: '/market/watchlist/backtest',
     method: 'get',
     params: query
+  })
+}
+
+export function getMarketFlowBoard(query) {
+  return request({
+    url: '/market/flow/board',
+    method: 'get',
+    params: query,
+    timeout: 20000
+  })
+}
+
+export function getWatchlistCorrelation(query) {
+  return request({
+    url: '/market/watchlist/correlation',
+    method: 'get',
+    params: query,
+    timeout: 30000
   })
 }
 

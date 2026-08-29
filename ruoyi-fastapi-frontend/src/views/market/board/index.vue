@@ -11,7 +11,7 @@
         </el-select>
         <el-input v-model="keyword" clearable placeholder="代码/名称" style="width:160px" />
         <el-button type="primary" :loading="loading" icon="Refresh" @click="() => loadAll(false)">刷新</el-button>
-        <el-button type="success" icon="Monitor" @click="router.push('/market/terminal')">专业交易终端 (Pro)</el-button>
+        <el-button type="success" icon="Monitor" @click="router.push('/trade/terminal')">专业交易终端</el-button>
       </div>
     </div>
     <el-row :gutter="12" class="mb16">
@@ -43,6 +43,7 @@
 </template>
 <script setup name="MarketBoard">
 import { getBoardQuotes } from '@/api/market'
+import { applyQuotePatch, getQuotesHub } from '@/composables/useMarketQuotesWs'
 const router=useRouter()
 const loading=ref(false)
 const rows=ref([])
@@ -52,6 +53,7 @@ const keyword=ref('')
 const sortProp=ref('change')
 const sortOrder=ref('descending')
 let quoteTimer=null
+let unsubQuotes=null
 const sorted=computed(()=>{
   const kw=String(keyword.value||'').trim().toUpperCase()
   let arr=[...rows.value]
@@ -68,16 +70,46 @@ function onSort({prop,order}){ sortProp.value=prop; sortOrder.value=order }
 function goKline(r){ router.push({path:'/market/kline', query:{symbol:r.symbol, market:r.market||'US'}}) }
 function goDetail(r){ router.push({path:'/market/symbol', query:{symbol:r.symbol, market:r.market||'US'}}) }
 function goAi(r){ router.push({path:'/market/ai-workbench', query:{symbol:r.symbol, market:r.market||'US'}}) }
+function normalizeMarket(m){
+  const u=String(m||'US').trim().toUpperCase()
+  if(u==='HK'||u==='HKEX') return 'HK'
+  if(u==='CN'||u==='A'||u==='SH'||u==='SZ'||u==='CSI') return 'CN'
+  return 'US'
+}
+function isIndexRow(row){
+  const cat=String(row&&(row.category||row.kind||row.type)||'').toLowerCase()
+  if(cat==='index') return true
+  const sym=String(row&&row.symbol||'')
+  return sym.startsWith('^')||sym.startsWith('.')
+}
 function formatQuote(item){
-  const price = item.price == null ? null : Number(item.price)
-  const change = item.changeRate == null ? item.change : item.changeRate
+  const rawPrice=item.last!=null?item.last:item.price
+  const price=rawPrice==null?null:Number(rawPrice)
+  const change=item.changePct!=null?item.changePct:(item.changeRate==null?item.change:item.changeRate)
+  const nChange=Number(change)
+  const hasChange=change!=null&&!Number.isNaN(nChange)
   return {
     ...item,
-    price: price == null || Number.isNaN(price) ? null : price.toFixed(2),
-    change,
-    changeText: item.changeText || (change == null ? '--' : `${change >= 0 ? '+' : ''}${Number(change).toFixed(2)}%`),
-    up: item.up == null ? true : !!item.up
+    market:normalizeMarket(item.market),
+    price:price==null||Number.isNaN(price)?null:price.toFixed(2),
+    last:price==null||Number.isNaN(price)?item.last:price,
+    change:hasChange?nChange:change,
+    changeRate:hasChange?nChange:item.changeRate,
+    changePct:hasChange?nChange:item.changePct,
+    changeText:hasChange?`${nChange>=0?'+':''}${nChange.toFixed(2)}%`:(item.changeText||'--'),
+    up:hasChange?nChange>=0:(item.up==null?true:!!item.up)
   }
+}
+function dropQuoteSub(){
+  if(unsubQuotes){ unsubQuotes(); unsubQuotes=null }
+}
+function syncQuoteSub(){
+  dropQuoteSub()
+  const pairs=(rows.value||[]).filter(r=>r&&r.symbol&&!isIndexRow(r)).map(r=>({symbol:r.symbol, market:normalizeMarket(r.market)}))
+  if(!pairs.length) return
+  unsubQuotes=getQuotesHub().subscribeQuotes(pairs, (payload)=>{
+    rows.value=applyQuotePatch(rows.value, (payload&&payload.items)||[]).map(formatQuote)
+  })
 }
 async function loadAll(silent=false){
   if(!silent) loading.value=true
@@ -86,6 +118,7 @@ async function loadAll(silent=false){
     const payload=res.data||{}
     indices.value=(payload.indices||[]).map(formatQuote)
     rows.value=(payload.rows||payload.quotes||[]).map(formatQuote)
+    syncQuoteSub()
   } finally { if(!silent) loading.value=false }
 }
 function stopQuoteTimer(){
@@ -93,13 +126,15 @@ function stopQuoteTimer(){
 }
 function startQuoteTimer(){
   stopQuoteTimer()
-  quoteTimer=setInterval(()=>loadAll(true), 8000)
+  quoteTimer=setInterval(()=>loadAll(true), 60000)
 }
 function handleVisibility(){
   if(document.visibilityState==='visible'){
-    if(!quoteTimer){ loadAll(true); startQuoteTimer() }
+    if(!quoteTimer) startQuoteTimer()
+    syncQuoteSub()
   } else {
     stopQuoteTimer()
+    dropQuoteSub()
   }
 }
 onMounted(()=>{
@@ -107,9 +142,16 @@ onMounted(()=>{
   startQuoteTimer()
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(()=>{
+  startQuoteTimer()
+  if(!rows.value.length) loadAll(true)
+  else syncQuoteSub()
+})
+onDeactivated(()=>{ stopQuoteTimer(); dropQuoteSub() })
 onBeforeUnmount(()=>{
   document.removeEventListener('visibilitychange', handleVisibility)
   stopQuoteTimer()
+  dropQuoteSub()
 })
 </script>
 <style scoped>

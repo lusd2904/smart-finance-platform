@@ -39,7 +39,6 @@ ALLOWED_TABLES = frozenset(
         'quant_daily_list_item',
         'quant_factor_snapshot',
         'quant_readmodel_snapshot',
-        'quant_watchlist',
         'plat_auto_trade_decision',
         'plat_ai_trade_run_log',
     }

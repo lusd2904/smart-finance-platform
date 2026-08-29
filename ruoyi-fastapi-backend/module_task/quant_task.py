@@ -15,18 +15,23 @@ async def run_strategy_job(*args, **kwargs) -> None:
     """
     定时对自选池跑一次策略（异步任务）。
 
-    可选参数：第一个位置参数或 kwargs['profile'] 指定策略档位，默认 balanced。
+    可选参数：第一个位置参数或 kwargs['profile'] 覆盖策略档位；不传则各账户用自己绑定的档位。
     kwargs['userId'] 可指定用户（不传则对全部启用自选的用户逐个跑）。
     建议在每个交易日收盘后调度。
     """
-    profile = 'balanced'
+    profile = None
     if args and isinstance(args[0], str) and args[0].strip():
         profile = args[0].strip()
     elif kwargs.get('profile'):
         profile = str(kwargs['profile']).strip()
     user_id = int(kwargs.get('userId') or 0) or None
+    payload: dict = {}
+    if profile:
+        payload['profile'] = profile
+    if user_id:
+        payload['userId'] = user_id
 
-    if await JobQueue.enqueue('strategy_run', {'profile': profile, 'userId': user_id}):
+    if await JobQueue.enqueue('strategy_run', payload):
         logger.info(f'[量化定时任务] 已入队 profile={profile} userId={user_id}')
         return
     logger.error('[量化定时任务] 入队失败，跳过本轮（不在 scheduler 内联执行）')
@@ -50,9 +55,12 @@ async def run_position_monitor_job(*args, **kwargs) -> None:
 
 
 async def run_daily_list_scan_job(*args, **kwargs) -> None:
-    """A股收盘后扫描次日策略清单。"""
-    profile = str(kwargs.get('profile') or (args[0] if args else 'balanced') or 'balanced')
-    if await JobQueue.enqueue('daily_list_scan', {'profile': profile}):
+    """A股收盘后扫描次日策略清单。不传 profile 时各账户用绑定档位。"""
+    raw = kwargs.get('profile') or (args[0] if args else None)
+    payload: dict = {}
+    if raw:
+        payload['profile'] = str(raw)
+    if await JobQueue.enqueue('daily_list_scan', payload):
         logger.info('[次日清单] 扫描已入队')
         return
     logger.error('[次日清单] 入队失败，跳过本轮（不在 scheduler 内联执行）')

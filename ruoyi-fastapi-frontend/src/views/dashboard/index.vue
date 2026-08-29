@@ -142,6 +142,10 @@ onMounted(() => {
   startPollTimer()
   document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => {
+  startPollTimer()
+})
+onDeactivated(() => stopPollTimer())
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibility)

@@ -79,7 +79,7 @@ async function load() {
 async function handleScan() {
   scanLoading.value = true
   try {
-    const res = await scanDailyList({ profile: 'balanced' })
+    const res = await scanDailyList()
     proxy.$modal.msgSuccess(res.msg || '已提交扫描')
     await load()
   } finally {

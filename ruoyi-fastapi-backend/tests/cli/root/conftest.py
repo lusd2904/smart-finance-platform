@@ -14,6 +14,21 @@ def backend_dir() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _cli_test_env() -> dict[str, str]:
+    # Isolate from the parent TTY / CI FORCE_COLOR so Typer+Rich help stays
+    # byte-stable ("Usage: ruoyi ...") instead of ANSI-per-character boxes.
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() not in {'FORCE_COLOR', 'CLICOLOR_FORCE'}
+    }
+    env['NO_COLOR'] = '1'
+    env['CLICOLOR'] = '0'
+    env['TERM'] = 'dumb'
+    env.setdefault('COLUMNS', '80')
+    return env
+
+
 @pytest.fixture
 def run_cli_command(backend_dir: Path) -> Callable[..., subprocess.CompletedProcess[str]]:
     def _run_cli_command(*args: str) -> subprocess.CompletedProcess[str]:
@@ -23,6 +38,7 @@ def run_cli_command(backend_dir: Path) -> Callable[..., subprocess.CompletedProc
             capture_output=True,
             text=True,
             check=False,
+            env=_cli_test_env(),
         )
 
     return _run_cli_command
@@ -55,7 +71,7 @@ def run_cli_completion_command(
             text=True,
             check=False,
             env={
-                **os.environ,
+                **_cli_test_env(),
                 'COMP_WORDS': comp_words,
                 'COMP_CWORD': str(comp_cword),
                 '_RUOYI_COMPLETE': instruction,

@@ -147,6 +147,7 @@ class MarketWatchlistModel(BaseModel):
     market: str | None = Field(default=None, description='市场')
     name: str | None = Field(default=None, description='名称')
     note: str | None = Field(default=None, description='备注')
+    groups: str | None = Field(default=None, description='分组，逗号分隔')
     enabled: str | None = Field(default=None, description='是否启用')
     sort_order: int | None = Field(default=None, description='排序')
     create_time: datetime | None = Field(default=None, description='加入时间')
@@ -173,6 +174,7 @@ class AddMarketWatchlistModel(BaseModel):
     symbol: str = Field(description='标的代码')
     market: str = Field(default='US', description='市场 US/HK/CN')
     note: str | None = Field(default=None, description='备注')
+    groups: str | None = Field(default=None, description='分组，逗号分隔')
 
 
 class MarketWatchlistAnalyzeModel(BaseModel):

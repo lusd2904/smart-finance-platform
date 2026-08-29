@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -18,8 +19,7 @@ from utils.time_format_util import format_beijing_datetime, now_beijing
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-# 聚合结果缓存：工作台是高频首屏，30s 足够新且能扛住多人同时刷新
-SUMMARY_CACHE_KEY = 'dashboard:summary'
+# 聚合结果缓存：按用户 + 权限指纹隔离，避免自选/权限块串号
 SUMMARY_CACHE_TTL = 30
 # 单块超时必须低于前端 axios 10s，避免一块拖垮整页（nginx 499）
 SECTION_TIMEOUT_SEC = 5
@@ -39,6 +39,14 @@ SECTION_PERMS: dict[str, str] = {
     'briefings': 'market:finance:list',
     'health': 'monitor:job:list',
 }
+
+
+def summary_cache_key(user_id: int | None, permissions: list[str] | None) -> str:
+    """工作台缓存键：user_id + 权限集合哈希。"""
+    uid = int(user_id or 0)
+    perms = ','.join(sorted(str(p) for p in (permissions or []) if p))
+    digest = hashlib.sha256(perms.encode('utf-8')).hexdigest()[:16]
+    return f'dashboard:summary:{uid}:{digest}'
 
 
 def _empty(section: str, reason: str = 'unavailable') -> dict[str, Any]:
@@ -89,8 +97,9 @@ class DashboardService:
         :param use_cache: 是否读取 30s 聚合缓存（refresh=true 时跳过并回写）
         :return: 聚合响应
         """
+        cache_key = summary_cache_key(user_id, permissions)
         if use_cache:
-            cached = await cache_get_json(SUMMARY_CACHE_KEY)
+            cached = await cache_get_json(cache_key)
             if isinstance(cached, dict) and cached.get('generatedAt'):
                 return {**cached, 'cached': True}
 
@@ -102,7 +111,7 @@ class DashboardService:
             'sessions': _market_sessions(),
             **sections,
         }
-        await cache_set_json(SUMMARY_CACHE_KEY, summary, SUMMARY_CACHE_TTL)
+        await cache_set_json(cache_key, summary, SUMMARY_CACHE_TTL)
         return {**summary, 'cached': False}
 
     @classmethod
@@ -156,18 +165,10 @@ class DashboardService:
             ),
             ('health', cls._health_block(query_db) if has(SECTION_PERMS['health']) else cls._denied('health')),
         ]
-        results = await asyncio.gather(
-            *(cls._run_section(key, coro) for key, coro in jobs),
-            return_exceptions=True,
-        )
-        keys = [key for key, _ in jobs]
+        # AsyncSession 非并发安全：各块顺序执行。协程对象在列表里尚未调度。
         out: dict[str, Any] = {}
-        for key, value in zip(keys, results, strict=True):
-            if isinstance(value, BaseException):
-                logger.warning(f'[工作台] 数据块 {key} 异常降级: {value}')
-                out[key] = _empty(key)
-            else:
-                out[key] = value
+        for key, coro in jobs:
+            out[key] = await cls._run_section(key, coro)
         return out
 
     @staticmethod

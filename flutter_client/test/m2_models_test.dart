@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flutter_client/features/ai/data/ai_models.dart';
 import 'package:flutter_client/features/news/data/briefing_models.dart';
+import 'package:flutter_client/features/notice/data/notice_api.dart';
 import 'package:flutter_client/features/notice/data/notice_models.dart';
 import 'package:flutter_client/core/api/api_result.dart';
 import 'package:flutter_client/features/market/data/market_models.dart';
@@ -203,6 +204,13 @@ void main() {
       expect(n.read, isFalse);
       expect(n.level, 'warn');
       expect(n.category, 'risk');
+    });
+  });
+
+  group('pickNoticeDelay', () {
+    test('未读 5s，全已读/空 30s', () {
+      expect(pickNoticeDelay(true), const Duration(seconds: 5));
+      expect(pickNoticeDelay(false), const Duration(seconds: 30));
     });
   });
 

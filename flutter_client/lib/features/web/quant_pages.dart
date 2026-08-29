@@ -96,7 +96,10 @@ class QuantScanResultPage extends StatelessWidget {
         preferKeys: ['items'],
       );
     }
-    return JsonDetailPage(title: '扫描结果 $cycleId', path: '/quant/scan-runs/$cycleId');
+    return JsonDetailPage(
+      title: '扫描结果 $cycleId',
+      path: '/quant/scan-runs/$cycleId',
+    );
   }
 }
 
@@ -143,7 +146,9 @@ class _QuantDailyListPageState extends ConsumerState<QuantDailyListPage> {
   Future<void> _scan() async {
     setState(() => _busy = true);
     try {
-      await ref.read(ruoyiClientProvider).post(
+      await ref
+          .read(ruoyiClientProvider)
+          .post(
             '/quant/daily-list/scan',
             data: const {},
             timeout: const Duration(seconds: 180),
@@ -171,7 +176,10 @@ class _QuantDailyListPageState extends ConsumerState<QuantDailyListPage> {
             subtitle: cellText(_data['asOf'] ?? _data['tradeDate']),
             actions: [
               OutlinedButton(onPressed: _load, child: const Text('刷新')),
-              FilledButton(onPressed: _busy ? null : _scan, child: const Text('重新扫描')),
+              FilledButton(
+                onPressed: _busy ? null : _scan,
+                child: const Text('重新扫描'),
+              ),
             ],
           ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
@@ -190,7 +198,7 @@ class _QuantDailyListPageState extends ConsumerState<QuantDailyListPage> {
                 ],
                 rows: items,
                 onRowTap: (row) => widget.open?.call(
-                  '/trade/desk?symbol=${row['symbol']}&market=${row['market']}',
+                  '/trade/terminal?symbol=${row['symbol']}&market=${row['market']}',
                   title: '交易工作台',
                 ),
               ),
@@ -211,7 +219,8 @@ class QuantStrategyConfigPage extends ConsumerStatefulWidget {
       _QuantStrategyConfigPageState();
 }
 
-class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPage> {
+class _QuantStrategyConfigPageState
+    extends ConsumerState<QuantStrategyConfigPage> {
   bool _busy = true;
   bool _saving = false;
   String? _error;
@@ -266,12 +275,11 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
   Future<void> _toggle(bool on) async {
     setState(() => _saving = true);
     try {
-      await ref.read(ruoyiClientProvider).put(
+      await ref
+          .read(ruoyiClientProvider)
+          .put(
             '/trade/auto/settings',
-            data: {
-              'autoTradeEnabled': on,
-              'buyRatio': _buyRatio / 100,
-            },
+            data: {'autoTradeEnabled': on, 'buyRatio': _buyRatio / 100},
           );
       await _load();
     } catch (e) {
@@ -284,10 +292,25 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
     }
   }
 
+  Future<void> _bindProfile(Map<String, dynamic> p) async {
+    final code = cellText(p['profileCode'] ?? p['code']);
+    try {
+      await ref
+          .read(ruoyiClientProvider)
+          .put('/trade/strategy-bind', data: {'profileCode': code});
+      if (mounted) toast(context, '已绑定 $code');
+      await _load();
+    } catch (e) {
+      if (mounted) toast(context, describeApiError(e), error: true);
+    }
+  }
+
   Future<void> _saveProfile(Map<String, dynamic> p) async {
     final code = cellText(p['profileCode'] ?? p['code']);
     try {
-      await ref.read(ruoyiClientProvider).put(
+      await ref
+          .read(ruoyiClientProvider)
+          .put(
             '/trade/strategy-profiles/${Uri.encodeComponent(code)}',
             data: p['config'] ?? p,
           );
@@ -307,8 +330,10 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
         children: [
           PageHero(
             title: '策略配置',
-            subtitle: '本登录账户的交易开关与策略档位。开关和档位互不影响其他账号。',
-            actions: [OutlinedButton(onPressed: _load, child: const Text('刷新'))],
+            subtitle: '本登录账户的交易开关与生效策略。定时扫描、自动交易、次日清单走「生效」档。',
+            actions: [
+              OutlinedButton(onPressed: _load, child: const Text('刷新')),
+            ],
           ),
           if (_error != null) ErrorBanner(_error!, onRetry: _load),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
@@ -348,7 +373,8 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
                   onChangeEnd: (_) => _toggle(enabled),
                 ),
                 TextButton(
-                  onPressed: () => widget.open?.call('/quant/longbridge', title: '长桥配置'),
+                  onPressed: () =>
+                      widget.open?.call('/quant/longbridge', title: '长桥配置'),
                   child: const Text('去长桥配置'),
                 ),
               ],
@@ -367,9 +393,15 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
                       children: [
                         Expanded(
                           child: Text(
-                            '${cellText(p['profileName'])} (${cellText(p['profileCode'])})',
+                            '${cellText(p['profileName'])} (${cellText(p['profileCode'])})'
+                            '${p['active'] == true ? ' · 生效中' : ''}',
                           ),
                         ),
+                        if (p['active'] != true)
+                          TextButton(
+                            onPressed: () => _bindProfile(p),
+                            child: const Text('设为生效'),
+                          ),
                         FilledButton(
                           onPressed: () => _saveProfile(p),
                           child: const Text('保存档位'),
@@ -387,7 +419,8 @@ class _QuantStrategyConfigPageState extends ConsumerState<QuantStrategyConfigPag
                               width: 140,
                               child: Slider(
                                 value: _weightOf(p, f.$1),
-                                onChanged: (v) => setState(() => _setWeight(p, f.$1, v)),
+                                onChanged: (v) =>
+                                    setState(() => _setWeight(p, f.$1, v)),
                               ),
                             ),
                           ),
@@ -421,7 +454,8 @@ class QuantLongbridgePage extends ConsumerStatefulWidget {
   const QuantLongbridgePage({super.key});
 
   @override
-  ConsumerState<QuantLongbridgePage> createState() => _QuantLongbridgePageState();
+  ConsumerState<QuantLongbridgePage> createState() =>
+      _QuantLongbridgePageState();
 }
 
 class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
@@ -455,15 +489,20 @@ class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
       _error = null;
     });
     try {
-      final r = await ref.read(ruoyiClientProvider).get('/quant/longbridge/config');
+      final r = await ref
+          .read(ruoyiClientProvider)
+          .get('/quant/longbridge/config');
       final data = asMap(r.data);
       if (!mounted) return;
       setState(() {
         _appKey.text = cellText(data['appKey']);
         _appSecret.text = cellText(data['appSecret']);
         _token.text = cellText(data['accessToken']);
-        _region = cellText(data['region']).isEmpty ? 'hk' : cellText(data['region']);
-        _configured = data['configured'] == true || cellText(data['appKey']).isNotEmpty;
+        _region = cellText(data['region']).isEmpty
+            ? 'hk'
+            : cellText(data['region']);
+        _configured =
+            data['configured'] == true || cellText(data['appKey']).isNotEmpty;
         _busy = false;
       });
     } catch (e) {
@@ -478,7 +517,9 @@ class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await ref.read(ruoyiClientProvider).put(
+      await ref
+          .read(ruoyiClientProvider)
+          .put(
             '/quant/longbridge/config',
             data: {
               'appKey': _appKey.text.trim(),
@@ -499,7 +540,9 @@ class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
   Future<void> _testConn() async {
     setState(() => _test = '测试中…');
     try {
-      final r = await ref.read(ruoyiClientProvider).get('/quant/longbridge/test');
+      final r = await ref
+          .read(ruoyiClientProvider)
+          .get('/quant/longbridge/test');
       setState(() => _test = r.data?.toString() ?? r.msg);
     } catch (e) {
       setState(() => _test = describeApiError(e));
@@ -542,7 +585,9 @@ class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
                   TextField(
                     controller: _token,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Access Token'),
+                    decoration: const InputDecoration(
+                      labelText: 'Access Token',
+                    ),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
@@ -551,7 +596,10 @@ class _QuantLongbridgePageState extends ConsumerState<QuantLongbridgePage> {
                     items: const [
                       DropdownMenuItem(value: 'cn', child: Text('中国大陆 (cn)')),
                       DropdownMenuItem(value: 'hk', child: Text('香港 (hk)')),
-                      DropdownMenuItem(value: 'overseas', child: Text('海外 (overseas)')),
+                      DropdownMenuItem(
+                        value: 'overseas',
+                        child: Text('海外 (overseas)'),
+                      ),
                     ],
                     onChanged: (v) => setState(() => _region = v ?? 'hk'),
                   ),

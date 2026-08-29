@@ -10,6 +10,7 @@ import '../../core/theme/ruoyi_tokens.dart';
 import '../../features/kline/logic/kline_painter.dart';
 import '../../features/market/data/market_api.dart';
 import '../../features/market/data/market_models.dart';
+import '../../features/market/data/market_quotes_ws.dart';
 import '../../features/trade/data/trade_api.dart';
 import '../../features/trade/data/trade_models.dart';
 import '../../shared/utils/format.dart';
@@ -113,12 +114,13 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
   AutoTradeStatus? _auto;
   DepthData? _depth;
   List<TradeTick> _ticks = const [];
-  Timer? _poll;
   Timer? _sessionTick;
   Timer? _bookTick;
   Timer? _snapshotTick;
   Timer? _tapeDelay;
+  bool _timersOn = false;
   Map<String, dynamic> _snapshot = const {};
+  VoidCallback? _unsubQuotes;
 
   MarketSessionClock get _clock => widget.sessionClock ?? MarketSessionClock();
 
@@ -126,30 +128,48 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
   void initState() {
     super.initState();
     Future<void>.microtask(_bootstrap);
-    _poll = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) unawaited(_loadIndices());
-    });
-    _sessionTick = Timer.periodic(const Duration(seconds: 30), (_) {
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTimers(TickerMode.valuesOf(context).enabled);
+  }
+
+  void _syncTimers(bool on) {
+    if (on == _timersOn) return;
+    _timersOn = on;
+    if (!on) {
+      _sessionTick?.cancel();
+      _bookTick?.cancel();
+      _snapshotTick?.cancel();
+      _sessionTick = null;
+      _bookTick = null;
+      _snapshotTick = null;
+      return;
+    }
+    _sessionTick ??= Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) {
         setState(() {});
         unawaited(_loadKline(deferExtras: true));
       }
     });
-    _bookTick = Timer.periodic(const Duration(seconds: 60), (_) {
+    _bookTick ??= Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted) unawaited(_loadAccount());
     });
-    _snapshotTick = Timer.periodic(const Duration(seconds: 90), (_) {
+    _snapshotTick ??= Timer.periodic(const Duration(seconds: 90), (_) {
       if (mounted) unawaited(_loadSnapshot());
     });
   }
 
   @override
   void dispose() {
-    _poll?.cancel();
+    _timersOn = false;
     _sessionTick?.cancel();
     _bookTick?.cancel();
     _snapshotTick?.cancel();
     _tapeDelay?.cancel();
+    _unsubQuotes?.call();
     _qty.dispose();
     _price.dispose();
     super.dispose();
@@ -209,6 +229,36 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
     if (symbol != prevSymbol || market != prevMarket) {
       unawaited(_loadKline(deferExtras: true));
     }
+    _syncQuoteSub();
+  }
+
+  void _syncQuoteSub() {
+    _unsubQuotes?.call();
+    _unsubQuotes = null;
+    final items = _watch?.items ?? const <WatchlistItem>[];
+    if (items.isEmpty) return;
+    final hub = ref.read(stockQuotesHubProvider);
+    _unsubQuotes = hub.subscribe(
+      [
+        for (final it in items)
+          (symbol: it.symbol, market: it.market.isEmpty ? 'US' : it.market),
+      ],
+      (quotes) {
+        if (!mounted || _watch == null || quotes.isEmpty) return;
+        var next = _watch!.items;
+        for (final q in quotes) {
+          next = [
+            for (final it in next)
+              if (it.symbol.toUpperCase() == q.symbol &&
+                  (it.market.isEmpty ? 'US' : it.market.toUpperCase()) == q.market)
+                applyLiveQuote(it, q)
+              else
+                it,
+          ];
+        }
+        setState(() => _watch = _watch!.copyWithItems(next));
+      },
+    );
   }
 
   Future<void> _loadWatch() async {
@@ -422,6 +472,11 @@ class _TradeTerminalPageState extends ConsumerState<TradeTerminalPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(marketQuotesStreamProvider, (prev, next) {
+      final items = next.asData?.value.items;
+      if (items == null || !mounted) return;
+      setState(() => _indices = items);
+    });
     final scheme = Theme.of(context).colorScheme;
     return ColoredBox(
       color: Theme.of(context).brightness == Brightness.dark

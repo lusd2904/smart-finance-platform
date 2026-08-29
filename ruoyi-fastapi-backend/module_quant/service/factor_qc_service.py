@@ -245,17 +245,16 @@ class FactorQcService:
         return rows
 
     @classmethod
-    def load_close_volume(cls, market: str = 'US', start: str = '-400d', limit: int = 260) -> tuple[pd.DataFrame, pd.DataFrame]:
-        symbol_klines: dict[str, list[dict[str, Any]]] = {}
-        for symbol, mkt in cls.universe(market):
-            try:
-                bars = InfluxUtil.query_klines(mkt, symbol, start=start, limit=limit)
-            except Exception as exc:
-                logger.warning(f'[因子质检] {symbol} K线失败: {exc}')
-                continue
-            if bars:
-                symbol_klines[symbol] = bars
-        return klines_to_panels(symbol_klines)
+    def load_close_volume(cls, market: str = 'US', start: str = '-280d', limit: int = 260) -> tuple[pd.DataFrame, pd.DataFrame]:
+        symbols = [symbol for symbol, _mkt in cls.universe(market)]
+        if not symbols:
+            return pd.DataFrame(), pd.DataFrame()
+        try:
+            symbol_klines = InfluxUtil.query_klines_many(market, symbols, start=start, limit=limit)
+        except Exception as exc:
+            logger.warning(f'[因子质检] 批量K线失败 market={market}: {exc}')
+            return pd.DataFrame(), pd.DataFrame()
+        return klines_to_panels(symbol_klines or {})
 
     @classmethod
     def compute_qc_report(

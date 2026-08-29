@@ -28,8 +28,11 @@ from module_market.entity.vo.market_vo import (
     MarketWatchlistModel,
     MarketWatchlistPageQueryModel,
 )
+from module_market.service.correlation_service import WatchlistCorrelationService
+from module_market.service.flow_board_service import MarketFlowBoardService
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService
+from module_market.service.live_quotes_service import LiveQuotesService, parse_symbols_query
 from module_market.service.market_review_service import MarketReviewService
 from module_market.service.market_service import MarketService
 from module_market.service.stock_pick_service import StockPickService
@@ -283,12 +286,11 @@ async def migrate_mysql_to_influx(
     symbol: Annotated[str | None, Query(description='可选，指定标的')] = None,
     market: Annotated[str, Query(description='默认市场')] = 'US',
 ) -> Response:
-    result = await MarketService.migrate_mysql_to_influx_services(symbol=symbol, market=market)
-    logger.info(f'MySQL→Influx 迁移完成: {result}')
-    return ResponseUtil.success(
-        data=result,
-        msg=result.get('message') or f'迁移完成，写入 {result.get("total_points", 0)} 点',
-    )
+    ticket = await JobQueue.submit('mysql_to_influx', {'symbol': symbol, 'market': market})
+    if not ticket:
+        raise ServiceException(message='后台任务队列暂不可用，请稍后重试')
+    logger.info(f'MySQL→Influx 迁移已入队: {ticket}')
+    return ResponseUtil.success(data=ticket, msg='已加入后台队列，稍后刷新查看结果')
 
 
 @market_controller.post(
@@ -412,9 +414,16 @@ async def get_symbol_content(
     content_type: Annotated[str, Query(alias='type', description='announcement|news|topic')] = 'news',
     limit: Annotated[int, Query()] = 20,
     refresh: Annotated[bool, Query()] = False,
+    related: Annotated[bool, Query(description='资讯是否叠加简报/舆情中提到该标的的条目')] = True,
 ) -> Response:
     data = await MarketService.get_symbol_content_services(
-        query_db, symbol=symbol, market=market, content_type=content_type, limit=limit, refresh=refresh
+        query_db,
+        symbol=symbol,
+        market=market,
+        content_type=content_type,
+        limit=limit,
+        refresh=refresh,
+        related=related,
     )
     return ResponseUtil.success(data=data)
 
@@ -463,12 +472,13 @@ async def get_finance_briefings(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     market: Annotated[str | None, Query(description='US/CN/HK')] = None,
+    symbol: Annotated[str | None, Query(description='只保留标题/摘要提到该代码的简报')] = None,
     limit: Annotated[int, Query(ge=1, le=60)] = 20,
     refresh: Annotated[bool, Query()] = False,
 ) -> Response:
     try:
         data = await MarketService.get_finance_briefings_services(
-            query_db, limit=limit, market=market, refresh=refresh
+            query_db, limit=limit, market=market, refresh=refresh, symbol=symbol
         )
     except Exception as exc:
         logger.warning(f'[财经资讯] 接口降级空列表: {exc}')
@@ -664,6 +674,40 @@ async def get_market_heat_dates(
 
 
 @market_controller.get(
+    '/flow/board',
+    summary='A股资金与事件看板',
+    description='板块资金流、涨停池、龙虎榜（东财）+ 宏观/财报日历（Nasdaq）。失败降级空列表。',
+    dependencies=[UserInterfaceAuthDependency(['market:flow:list', 'market:heat:list'])],
+)
+async def get_market_flow_board(
+    request: Request,
+    sector_kind: Annotated[str, Query(alias='sectorKind', description='industry|concept')] = 'industry',
+    limit: Annotated[int, Query(ge=5, le=30)] = 20,
+) -> Response:
+    data = await MarketFlowBoardService.get_board_services(sector_kind=sector_kind, limit=limit)
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/watchlist/correlation',
+    summary='自选收益相关矩阵',
+    description='当前用户自选日收益 Pearson 相关，数据走 Influx 日K。',
+    dependencies=[UserInterfaceAuthDependency('market:watchlist:list')],
+)
+async def get_market_watchlist_correlation(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    days: Annotated[int, Query(ge=30, le=250)] = 60,
+    limit: Annotated[int, Query(ge=2, le=16)] = 16,
+) -> Response:
+    data = await WatchlistCorrelationService.get_correlation_services(
+        query_db, _current_user_id(current_user), days=days, limit=limit
+    )
+    return ResponseUtil.success(data=data, msg=data.get('message') or '操作成功')
+
+
+@market_controller.get(
     '/heat/config',
     summary='热度指标权重配置',
     dependencies=[UserInterfaceAuthDependency('market:heat:list')],
@@ -705,6 +749,25 @@ async def collect_market_heat(
 )
 async def get_market_index_quotes(request: Request) -> Response:
     data = await MarketIndexService.get_in_session_quotes()
+    return ResponseUtil.success(data=data)
+
+
+@market_controller.get(
+    '/quotes/live',
+    summary='订阅标的最新价快照',
+    description='个股最新价快照。盘中优先长桥订阅/快照，腾讯补缺口。symbols=AAPL:US,00700:HK，最多 80 只。',
+    dependencies=[
+        UserInterfaceAuthDependency(
+            ['sentiment:news:list', 'sentiment:analysis:list', 'market:heat:list', 'market:kline:list', 'market:watchlist:list']
+        )
+    ],
+)
+async def get_market_live_quotes(
+    request: Request,
+    symbols: Annotated[str | None, Query(description='逗号分隔 AAPL:US,00700:HK')] = None,
+) -> Response:
+    pairs = parse_symbols_query(symbols)
+    data = await LiveQuotesService.get_quotes(pairs)
     return ResponseUtil.success(data=data)
 
 

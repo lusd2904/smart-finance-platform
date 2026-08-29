@@ -6,11 +6,28 @@ os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from module_sentiment.controller.sentiment_widget_controller import _widget_cors_headers
 from module_sentiment.service.sentiment_service import SentimentService
+
+
+def test_widget_cors_echoes_allowlisted_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        'module_sentiment.controller.sentiment_widget_controller._cors_allow_origins',
+        lambda: ['https://fin.example.com'],
+    )
+    allowed = MagicMock()
+    allowed.headers.get.return_value = 'https://fin.example.com'
+    blocked = MagicMock()
+    blocked.headers.get.return_value = 'https://evil.example'
+    none = MagicMock()
+    none.headers.get.return_value = None
+    assert _widget_cors_headers(allowed)['Access-Control-Allow-Origin'] == 'https://fin.example.com'
+    assert _widget_cors_headers(blocked) == {}
+    assert _widget_cors_headers(none) == {}
 
 
 def test_normalize_direction() -> None:

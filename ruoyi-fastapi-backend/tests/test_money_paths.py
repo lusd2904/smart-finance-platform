@@ -306,7 +306,7 @@ def test_rebalance_skips_when_account_switch_off() -> None:
 
 
 def test_resolve_targets_scopes_to_user_watchlist() -> None:
-    from module_quant.dao.quant_dao import QuantWatchlistDao
+    from module_market.dao.market_dao import MarketWatchlistDao
 
     rows = [SimpleNamespace(symbol='AAPL', market='US'), SimpleNamespace(symbol='0700.HK', market='HK')]
 
@@ -314,7 +314,7 @@ def test_resolve_targets_scopes_to_user_watchlist() -> None:
         db = SimpleNamespace()
         with (
             patch.object(AutoTradeService, '_heat_scan_universe', AsyncMock(return_value=[])),
-            patch.object(QuantWatchlistDao, 'get_enabled_symbols', AsyncMock(return_value=rows)) as get_rows,
+            patch.object(MarketWatchlistDao, 'get_enabled', AsyncMock(return_value=rows)) as get_rows,
         ):
             items = await AutoTradeService._resolve_targets(db, None, user_id=42)
         get_rows.assert_awaited_once_with(db, user_id=42)

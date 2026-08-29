@@ -68,6 +68,14 @@ export function getAutoTradeStatus() {
   return request({ url: '/trade/auto/status', method: 'get' })
 }
 
+export function getTradeHalt() {
+  return request({ url: '/trade/halt', method: 'get' })
+}
+
+export function setTradeHalt(data) {
+  return request({ url: '/trade/halt', method: 'put', data })
+}
+
 export function saveAutoTradeSettings(data) {
   return request({ url: '/trade/auto/settings', method: 'put', data })
 }
@@ -88,6 +96,12 @@ export function listStrategyProfiles() {
 }
 export function saveStrategyProfile(code, data) {
   return request({ url: '/trade/strategy-profiles/' + encodeURIComponent(code), method: 'put', data })
+}
+export function bindStrategyProfile(profileCode) {
+  return request({ url: '/trade/strategy-bind', method: 'put', data: { profileCode } })
+}
+export function getRiskTearsheet(query) {
+  return request({ url: '/trade/risk/tearsheet', method: 'get', params: query, timeout: 30000 })
 }
 export function listRiskRules() {
   return request({ url: '/trade/risk/rules', method: 'get' })

@@ -3,7 +3,7 @@
     <div class="page-hero">
       <div>
         <h2>策略配置</h2>
-        <p>本登录账户的交易开关与策略档位。开关和档位互不影响其他账号；未配置长桥 Key 时默认关闭。</p>
+        <p>本登录账户的交易开关与生效策略。定时扫描、自动交易、次日清单使用「生效」档及其权重；未配置长桥 Key 时默认关闭自动交易。</p>
       </div>
       <el-button :loading="loading" @click="reloadAll">刷新</el-button>
     </div>
@@ -30,12 +30,23 @@
         <el-form-item label="自动交易">
           <el-switch
             :model-value="!!tradeStatus.autoTradeEnabled"
-            :disabled="savingSwitch || !tradeStatus.configured"
+            :disabled="savingSwitch || !tradeStatus.configured || !!tradeStatus.halted"
             :loading="savingSwitch"
             active-text="开"
             inactive-text="关"
             @change="onToggleAutoTrade"
           />
+        </el-form-item>
+        <el-form-item label="紧急停机">
+          <el-switch
+            :model-value="!!tradeStatus.halted"
+            :disabled="savingHalt"
+            :loading="savingHalt"
+            active-text="停机"
+            inactive-text="正常"
+            @change="onToggleHalt"
+          />
+          <div class="hint">打开后拦截本平台全部新委托（手工 / 自动 / 次日清单），撤单仍可用。</div>
         </el-form-item>
         <el-form-item label="日内买入仓位">
           <el-slider
@@ -69,11 +80,17 @@
             <div class="hdr">
               <span class="hdr-title">
                 {{ p.profileName }} ({{ p.profileCode }})
+                <el-tag size="small" :type="p.active ? 'warning' : 'info'" effect="plain">
+                  {{ p.active ? '生效中' : '未生效' }}
+                </el-tag>
                 <el-tag size="small" :type="p.accountOwned ? 'success' : 'info'" effect="plain">
-                  {{ p.accountOwned ? '本账户' : '系统默认' }}
+                  {{ p.accountOwned ? '本账户权重' : '系统默认' }}
                 </el-tag>
               </span>
-              <el-button size="small" type="primary" @click="save(p)">保存档位</el-button>
+              <span>
+                <el-button size="small" :disabled="p.active || binding" @click="bind(p)">设为生效</el-button>
+                <el-button size="small" type="primary" @click="save(p)">保存档位</el-button>
+              </span>
             </div>
           </template>
           <el-form label-width="90px" size="small">
@@ -92,12 +109,14 @@
 
 <script setup name="QuantStrategyConfig">
 import { ElMessageBox } from 'element-plus'
-import { listStrategyProfiles, saveStrategyProfile, getAutoTradeStatus, saveAutoTradeSettings } from '@/api/trade'
+import { listStrategyProfiles, saveStrategyProfile, bindStrategyProfile, getAutoTradeStatus, saveAutoTradeSettings, setTradeHalt } from '@/api/trade'
 
 const { proxy } = getCurrentInstance()
 const loading = ref(false)
 const tradeLoading = ref(false)
 const savingSwitch = ref(false)
+const savingHalt = ref(false)
+const binding = ref(false)
 const profiles = ref([])
 const tradeStatus = ref({})
 const buyRatioPct = ref(20)
@@ -163,6 +182,31 @@ function settingsPayload(enabled) {
   }
 }
 
+async function onToggleHalt(val) {
+  if (val) {
+    try {
+      await ElMessageBox.confirm(
+        '打开后本平台所有新委托都会被拦截（手工下单、自动交易、次日清单）。撤单不受影响。确认停机？',
+        '紧急停机',
+        { type: 'warning', confirmButtonText: '确认停机', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+  savingHalt.value = true
+  try {
+    const res = await setTradeHalt({ halted: Boolean(val), reason: val ? '策略配置页手动停机' : '' })
+    tradeStatus.value = { ...tradeStatus.value, halted: Boolean(res.data?.halted), haltReason: res.data?.reason || '' }
+    proxy.$modal.msgSuccess(res.msg || (val ? '已紧急停机' : '已解除停机'))
+  } catch (err) {
+    proxy.$modal.msgWarning(err.message || '停机开关保存失败')
+  } finally {
+    savingHalt.value = false
+    loadTrade()
+  }
+}
+
 async function onToggleAutoTrade(val) {
   if (val && !tradeStatus.value.configured) {
     proxy.$modal.msgWarning('未配置长桥账户 Key，无法打开自动交易')
@@ -206,6 +250,17 @@ async function save(p) {
   await saveStrategyProfile(p.profileCode, { profileName: p.profileName, config: p.config })
   proxy.$modal.msgSuccess('已保存本账户策略档位')
   loadProfiles()
+}
+
+async function bind(p) {
+  binding.value = true
+  try {
+    await bindStrategyProfile(p.profileCode)
+    proxy.$modal.msgSuccess('已绑定本账户生效策略：' + (p.profileName || p.profileCode))
+    await loadProfiles()
+  } finally {
+    binding.value = false
+  }
 }
 
 onMounted(reloadAll)

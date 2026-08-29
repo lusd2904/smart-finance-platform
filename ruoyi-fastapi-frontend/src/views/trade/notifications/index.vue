@@ -4,7 +4,7 @@
       <div><h2>通知中心</h2><p>交易、自选建议、风控事件与系统消息</p></div>
       <div>
         <el-button @click="markAll">全部已读</el-button>
-        <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
+        <el-button type="primary" :loading="loading" @click="loadAndPoll">刷新</el-button>
       </div>
     </div>
     <el-timeline v-if="list.length">
@@ -19,21 +19,19 @@
 </template>
 <script setup name="TradeNotifications">
 import { listNotifications, readNotifications } from '@/api/trade'
+import { startAdaptivePoll } from '@/composables/useAdaptivePoll'
 const loading=ref(false); const list=ref([])
 const typeMap={success:'success', danger:'danger', warning:'warning', info:'primary'}
-let pollTimer=null
+function noticesBusy(){ return (list.value||[]).some(n=>!n.read) }
 async function load(silent=false){ if(!silent) loading.value=true; try{ const res=await listNotifications(80); list.value=res.data||[] } finally{ if(!silent) loading.value=false } }
-async function mark(n){ await readNotifications(n.id); load() }
-async function markAll(){ await readNotifications(); load() }
-function stopPollTimer(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null } }
-function startPollTimer(){ stopPollTimer(); pollTimer=setInterval(()=>load(true), 15000) }
-function handleVisibility(){
-  if(document.visibilityState==='visible'){
-    if(!pollTimer){ load(true); startPollTimer() }
-  } else { stopPollTimer() }
-}
-onMounted(()=>{ load(); startPollTimer(); document.addEventListener('visibilitychange', handleVisibility) })
-onBeforeUnmount(()=>{ document.removeEventListener('visibilitychange', handleVisibility); stopPollTimer() })
+const poll=startAdaptivePoll({ tick:()=>load(true), isBusy:noticesBusy, busyMs:8000, idleMs:45000, hiddenStop:true })
+async function loadAndPoll(silent=false){ try{ await load(silent) } finally{ poll.start() } }
+async function mark(n){ await readNotifications(n.id); loadAndPoll() }
+async function markAll(){ await readNotifications(); loadAndPoll() }
+onMounted(()=>loadAndPoll())
+onActivated(()=>loadAndPoll(true))
+onDeactivated(()=>poll.stop())
+onBeforeUnmount(()=>poll.stop())
 </script>
 <style scoped>
 .page-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}

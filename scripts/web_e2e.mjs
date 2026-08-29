@@ -15,15 +15,15 @@ async function loginApi() {
   return json.token
 }
 
-const token = await loginApi()
+const token = process.env.E2E_TOKEN || await loginApi()
 const pages = [
-  { path: '/index', text: '快捷导航' },
+  { path: '/index', text: '市场分析' },
   { path: '/market/watchlist', text: '自选清单' },
   { path: '/quant/factor', text: '因子' },
   { path: '/quant/strategy-config', text: '策略配置' },
-  { path: '/trade/trading', text: '交易台' },
+  { path: '/trade/terminal', text: '交易台' },
   { path: '/trade/orders', text: '订单' },
-  { path: '/market/board', text: '全市场行情台' },
+  { path: '/market/board', text: '行情台' },
   { path: '/trade/notifications', text: '通知中心' },
   { path: '/market/stocks', text: '全部股票' },
   { path: '/sentiment/dashboard', text: '舆情' },

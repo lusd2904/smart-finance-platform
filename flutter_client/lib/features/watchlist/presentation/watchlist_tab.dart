@@ -5,6 +5,7 @@ import 'package:flutter_client/core/api/api_client.dart';
 import 'package:flutter_client/core/theme/app_theme.dart';
 import 'package:flutter_client/features/market/data/market_api.dart';
 import 'package:flutter_client/features/market/data/market_models.dart';
+import 'package:flutter_client/features/market/data/market_quotes_ws.dart';
 import 'package:flutter_client/features/watchlist/logic/watchlist_providers.dart';
 import 'package:flutter_client/shared/widgets/page_header.dart';
 import 'package:flutter_client/shared/widgets/stat_grid.dart';
@@ -24,6 +25,45 @@ class WatchlistTab extends ConsumerStatefulWidget {
 class _WatchlistTabState extends ConsumerState<WatchlistTab> {
   /// 当前选中分组名；null 表示「全部」。
   String? _selectedGroup;
+  final Map<String, LiveStockQuote> _live = {};
+  VoidCallback? _unsubQuotes;
+  String _subSig = '';
+
+  @override
+  void dispose() {
+    _unsubQuotes?.call();
+    super.dispose();
+  }
+
+  void _syncQuotes(List<WatchlistItem> items) {
+    final sig = items.map((i) => '${i.market}:${i.symbol}').join(',');
+    if (sig == _subSig) return;
+    _subSig = sig;
+    _unsubQuotes?.call();
+    _unsubQuotes = null;
+    if (items.isEmpty) return;
+    _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
+      [
+        for (final it in items)
+          (symbol: it.symbol, market: it.market.isEmpty ? 'US' : it.market),
+      ],
+      (quotes) {
+        if (!mounted) return;
+        setState(() {
+          for (final q in quotes) {
+            _live[q.key] = q;
+          }
+        });
+      },
+    );
+  }
+
+  WatchlistItem _patched(WatchlistItem item) {
+    final key =
+        '${(item.market.isEmpty ? 'US' : item.market).toUpperCase()}:${item.symbol.toUpperCase()}';
+    final live = _live[key];
+    return live == null ? item : applyLiveQuote(item, live);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +72,7 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => _buildError(error),
       data: (overview) {
+        _syncQuotes(overview.items);
         // 按选中分组过滤列表（全部时不过滤）。
         final items = _selectedGroup == null
             ? overview.items
@@ -268,7 +309,7 @@ class _WatchlistTabState extends ConsumerState<WatchlistTab> {
       padding: const EdgeInsets.all(12),
       itemCount: items.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) => _buildItemCard(items[index]),
+      itemBuilder: (context, index) => _buildItemCard(_patched(items[index])),
     );
   }
 

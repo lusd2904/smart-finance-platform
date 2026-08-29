@@ -97,6 +97,8 @@ JOB_GROUPS = {
     'ai_batch': 'llm',
     'listings_sync': 'market',
     'klines_slow': 'market',
+    'mysql_to_influx': 'market',
+    'user_notice': 'llm',
 }
 KNOWN_JOBS = frozenset(JOB_GROUPS)
 
@@ -599,20 +601,43 @@ async def _indicator_refresh(_payload: dict[str, Any]) -> dict[str, Any]:
         return await SnapshotService.run_indicator_refresh(db)
 
 
+def _optional_profile(payload: dict[str, Any] | None) -> str | None:
+    raw = (payload or {}).get('profile')
+    text = str(raw).strip() if raw else ''
+    return text or None
+
+
 async def _strategy_run(payload: dict[str, Any]) -> dict[str, Any]:
     from config.database import AsyncSessionLocal
+    from module_market.dao.market_dao import MarketWatchlistDao
     from module_quant.entity.vo.quant_vo import (
         RunStrategyModel,
     )
     from module_quant.service.quant_service import QuantService
+    from module_trade.service.platform_ext_service import PlatformExtService
 
-    profile = str(payload.get('profile') or 'balanced')
+    profile = _optional_profile(payload)
     symbols = payload.get('symbols')
     user_id = int(payload.get('userId') or 0) or None
     async with AsyncSessionLocal() as db:
-        return await QuantService.run_strategy_services(
-            db, RunStrategyModel(profile=profile, symbols=symbols), user_id=user_id
-        )
+        users = [user_id] if user_id else [int(u) for u in await MarketWatchlistDao.distinct_users(db) if u]
+        results = []
+        for uid in users:
+            code = await PlatformExtService.resolve_profile(db, uid, profile)
+            results.append(
+                await QuantService.run_strategy_services(
+                    db, RunStrategyModel(profile=code, symbols=symbols), user_id=uid
+                )
+            )
+        if user_id:
+            return results[0] if results else {
+                'runId': None,
+                'symbolsCount': 0,
+                'signalCount': 0,
+                'signals': [],
+                'message': '未指定用户，跳过',
+            }
+        return {'userCount': len(users), 'results': results}
 
 
 async def _position_monitor(_payload: dict[str, Any]) -> dict[str, Any]:
@@ -654,11 +679,14 @@ async def _daily_list_scan(payload: dict[str, Any]) -> dict[str, Any]:
         DailyListService,
     )
 
-    profile = str((payload or {}).get('profile') or 'balanced')
+    profile = _optional_profile(payload)
     user_id = int((payload or {}).get('userId') or 0)
     async with AsyncSessionLocal() as db:
         if user_id:
-            return await DailyListService.scan_user(db, user_id, profile)
+            from module_trade.service.platform_ext_service import PlatformExtService
+
+            code = await PlatformExtService.resolve_profile(db, user_id, profile)
+            return await DailyListService.scan_user(db, user_id, code)
         return await DailyListService.scan_all_users(db, profile)
 
 
@@ -675,7 +703,7 @@ async def _daily_list_open(payload: dict[str, Any]) -> dict[str, Any]:
 async def _auto_trade_scan(payload: dict[str, Any]) -> dict[str, Any]:
     from module_task.trade_task import run_auto_trade_scan_now
 
-    profile = str((payload or {}).get('profile') or 'balanced')
+    profile = _optional_profile(payload)
     user_id = int((payload or {}).get('userId') or 0) or None
     return await run_auto_trade_scan_now(profile=profile, user_id=user_id)
 
@@ -772,6 +800,30 @@ async def _klines_slow(payload: dict[str, Any]) -> dict[str, Any]:
     return await loop.run_in_executor(None, _run)
 
 
+async def _user_notice(payload: dict[str, Any]) -> dict[str, Any]:
+    from config.database import AsyncSessionLocal
+    from module_trade.dao.trade_dao import TradeDao
+
+    uid = payload.get('user_id')
+    if uid is None:
+        logger.warning('[job-queue] user_notice 缺少 user_id，跳过')
+        return {'ok': False, 'skipped': True, 'message': 'missing user_id'}
+    notice = {**payload, 'user_id': int(uid)}
+    async with AsyncSessionLocal() as db:
+        await TradeDao.add_notification(db, notice)
+        await db.commit()
+    return {'ok': True}
+
+
+async def _mysql_to_influx(payload: dict[str, Any]) -> dict[str, Any]:
+    from module_market.service.sync_service import MarketSyncService
+
+    symbol = payload.get('symbol')
+    market = str(payload.get('market') or 'US')
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, MarketSyncService.mysql_to_influx, symbol, market)
+
+
 HANDLERS = {
     'market_sync': _market_sync,
     'finance_briefings': _finance_briefings,
@@ -800,4 +852,6 @@ HANDLERS = {
     'ai_batch': _ai_batch,
     'listings_sync': _listings_sync,
     'klines_slow': _klines_slow,
+    'mysql_to_influx': _mysql_to_influx,
+    'user_notice': _user_notice,
 }

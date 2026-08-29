@@ -129,6 +129,28 @@ class MarketApi {
     return '-${limit}d';
   }
 
+  /// 标的资讯（长桥 + 简报/舆情绑定）。type=news 默认 related。
+  Future<List<Map<String, dynamic>>> symbolContent({
+    required String symbol,
+    required String market,
+    String type = 'news',
+    int limit = 12,
+    bool related = true,
+  }) async {
+    final result = ApiResult.from(
+      await _dio.get<void>(
+        '/market/symbols/${Uri.encodeComponent(symbol)}/content',
+        queryParameters: {
+          'market': market,
+          'type': type,
+          'limit': limit,
+          'related': related,
+        },
+      ),
+    );
+    return asJsonList(result.dataAsMap?['items']).whereType<Map<String, dynamic>>().toList();
+  }
+
   /// 标的详情概览。
   Future<Map<String, dynamic>> symbolOverview({
     required String symbol,

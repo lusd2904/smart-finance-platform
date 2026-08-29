@@ -25,7 +25,7 @@ class QuantWatchlistPageQueryModel(BaseModel):
     量化自选池分页查询模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     symbol: str | None = Field(default=None, description='标的代码')
     market: str | None = Field(default=None, description='市场')
@@ -54,7 +54,7 @@ class QuantStrategyRunPageQueryModel(BaseModel):
     量化策略运行记录分页查询模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     strategy_profile: str | None = Field(default=None, description='策略档位')
     begin_time: str | None = Field(default=None, description='开始时间')
@@ -105,7 +105,7 @@ class AddQuantWatchlistModel(BaseModel):
     新增自选标的模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     symbol: str = Field(description='标的代码')
     market: str = Field(default='US', description='市场（US/HK/CN）')
@@ -117,7 +117,9 @@ class RunStrategyModel(BaseModel):
     触发策略运行请求模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
-    profile: str = Field(default='balanced', description='策略档位（conservative/balanced/aggressive）')
+    profile: str | None = Field(
+        default=None, description='策略档位（conservative/balanced/aggressive）；空则用本账户绑定档位'
+    )
     symbols: list[str] | None = Field(default=None, description='标的列表，不传则使用自选池')

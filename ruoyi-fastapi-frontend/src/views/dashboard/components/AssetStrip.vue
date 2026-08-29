@@ -53,7 +53,7 @@ const cards = computed(() => [
     value: String(d.value.positionCount ?? 0),
     icon: 'Grid',
     cls: '',
-    path: '/trade/trading'
+    path: '/trade/terminal'
   },
   {
     key: 'pnl',
@@ -61,7 +61,7 @@ const cards = computed(() => [
     value: fmtAmount(d.value.totalUnrealizedPnl),
     icon: 'TrendCharts',
     cls: changeClass(d.value.totalUnrealizedPnl),
-    path: '/trade/trading'
+    path: '/trade/terminal'
   }
 ])
 

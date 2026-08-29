@@ -1,16 +1,7 @@
--- M5 发布工程：客户端版本检查基线（sys_config）。
--- 可重复执行（INSERT ... SELECT WHERE NOT EXISTS）。
--- 管理员后续在 Web「系统设置-参数设置」中直接修改即可，无需改代码。
---
--- 键名约定：app.version.{platform}.{latest|min|url|notes}
---   latest：最新发布版本（点分数字）
---   min   ：低于此版本强制升级（可缺省 = 全部可选升级）
---   url   ：下载地址（Android 直装 APK；桌面为安装包页）
---   notes ：升级说明
---
--- ⚠️ 占位 URL 需替换为真实分发地址后生效；
---    sys_config 有启动缓存，改动后通过参数设置页面保存会自动刷新缓存，
---    直接执行本 SQL 则需重启后端或在页面内任意保存一次配置触发重载。
+-- 已迁至 ruoyi-fastapi-backend/sql/app-version-config.sql，由 scripts/sql_migrate.py 扫描执行。
+-- 请勿在此追加语句。
+
+-- 以下为历史副本，sql_migrate 不扫描本目录。
 
 INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_by, create_time, remark)
 SELECT '客户端安卓最新版本', 'app.version.android.latest', '1.0.0', 'Y', 'admin', NOW(), 'M5 版本检查基线'

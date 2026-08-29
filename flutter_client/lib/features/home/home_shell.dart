@@ -12,7 +12,7 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (AppDimens.isWide(context)) {
+    if (AppDimens.isDesktopShell(context)) {
       return const DesktopWebShell();
     }
     return const AdminShell();

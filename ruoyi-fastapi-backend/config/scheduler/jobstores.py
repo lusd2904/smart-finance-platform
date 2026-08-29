@@ -25,7 +25,7 @@ redis_config = {
     'password': RedisConfig.redis_password,
     'db': RedisConfig.redis_database,
 }
-job_defaults = {'coalesce': False, 'max_instance': 1}
+job_defaults = {'coalesce': True, 'max_instance': 1}
 scheduler = AsyncIOScheduler()
 
 
