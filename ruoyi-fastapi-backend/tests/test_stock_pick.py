@@ -117,12 +117,25 @@ def test_list_dates_services_serializes_rows() -> None:
     ]
 
     async def _run() -> None:
-        with patch('module_market.service.stock_pick_service.StockPickDao.list_dates', new=AsyncMock(return_value=rows)):
+        with (
+            patch('module_market.service.stock_pick_service.StockPickDao.list_dates', new=AsyncMock(return_value=rows)),
+            patch(
+                'module_market.service.stock_pick_service.MarketHeatDao.list_distinct_trade_dates',
+                new=AsyncMock(return_value=['2026-08-28', '2026-08-21', '2026-08-20']),
+            ),
+            patch(
+                'module_market.service.stock_pick_service.StockPickService._resolve_default_trade_date',
+                new=AsyncMock(return_value='2026-08-28'),
+            ),
+        ):
             data = await StockPickService.list_dates_services(None, limit=60)
-        assert len(data['dates']) == 2
-        assert data['dates'][0]['tradeDate'] == '2026-08-21'
-        assert data['dates'][0]['pickedCount'] == 15
-        assert data['dates'][1]['updatedAt'] == '2026-08-20 18:00:00'
+        assert len(data['dates']) == 3
+        assert data['defaultTradeDate'] == '2026-08-28'
+        assert data['dates'][0]['tradeDate'] == '2026-08-28'
+        assert data['dates'][0]['hasPickSheet'] is False
+        assert data['dates'][1]['tradeDate'] == '2026-08-21'
+        assert data['dates'][1]['pickedCount'] == 15
+        assert data['dates'][2]['updatedAt'] == '2026-08-20 18:00:00'
 
     import asyncio
 
@@ -131,18 +144,13 @@ def test_list_dates_services_serializes_rows() -> None:
 
 def test_get_latest_services_missing_date_returns_empty_message() -> None:
     async def _run() -> None:
-        with (
-            patch('module_market.service.stock_pick_service.StockPickDao.get_by_date', new=AsyncMock(return_value=None)),
-            patch(
-                'module_market.service.stock_pick_service.StockPickService.get_mood_services',
-                new=AsyncMock(return_value={'hint': 'ok'}),
-            ),
-        ):
+        with patch('module_market.service.stock_pick_service.StockPickDao.get_by_date', new=AsyncMock(return_value=None)):
             data = await StockPickService.get_latest_services(None, trade_date='2026-08-01')
         assert data['empty'] is True
         assert data['tradeDate'] == '2026-08-01'
         assert data['message'] == '该交易日暂无选股单'
         assert data['items'] == []
+        assert 'mood' not in data
 
     import asyncio
 

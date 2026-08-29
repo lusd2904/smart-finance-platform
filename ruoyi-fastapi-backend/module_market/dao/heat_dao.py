@@ -82,6 +82,19 @@ class MarketHeatDao:
         return len(rows)
 
     @classmethod
+    async def list_distinct_trade_dates(cls, db: AsyncSession, limit: int = 60) -> list[str]:
+        cap = max(1, min(int(limit or 60), 120))
+        rows = (
+            await db.execute(
+                select(MarketHeatDaily.trade_date)
+                .group_by(MarketHeatDaily.trade_date)
+                .order_by(desc(MarketHeatDaily.trade_date))
+                .limit(cap)
+            )
+        ).scalars().all()
+        return [str(d)[:10] for d in rows if d]
+
+    @classmethod
     async def list_top50(cls, db: AsyncSession, market: str, trade_date: str) -> list[MarketTop50Snapshot]:
         rows = (
             await db.execute(
