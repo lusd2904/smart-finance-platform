@@ -149,17 +149,17 @@ def pick_available_cash_usd(account_result: dict[str, Any] | None, fx: FxRates) 
 
 def raw_balance_rows(account_result: dict[str, Any] | None) -> list[dict[str, Any]]:
     balances = (account_result or {}).get('balances') or []
-    rows: list[dict[str, Any]] = []
-    for row in balances:
-        rows.append(
-            {
-                'currency': row.get('currency'),
-                'totalCash': float(row.get('totalCash') or 0),
-                'availableCash': float(row.get('availableCash') or row.get('totalCash') or 0),
-                'netAssets': float(row.get('netAssets') or row.get('availableCash') or row.get('totalCash') or 0),
-            }
-        )
-    return rows
+    return [
+        {
+            'currency': row.get('currency'),
+            'totalCash': float(row.get('totalCash') or 0),
+            'availableCash': float(row.get('availableCash') or row.get('totalCash') or 0),
+            'netAssets': float(
+                row.get('netAssets') or row.get('availableCash') or row.get('totalCash') or 0
+            ),
+        }
+        for row in balances
+    ]
 
 
 def account_guardrail_snapshot(

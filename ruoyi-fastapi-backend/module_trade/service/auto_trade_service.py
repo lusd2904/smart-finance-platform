@@ -132,50 +132,41 @@ def symbol_position_cap(net_assets: float, pct: float | None = None) -> float:
     return round(assets * clamp_max_symbol_position_pct(pct), 2)
 
 
-def existing_position_market_value(
-    pos: dict[str, Any] | None,
-    last_price: float = 0.0,
-    fx: FxRates | None = None,
-) -> float:  # noqa: PLR0912
-    """持仓市值（美元基准）：marketValue → 数量×最新价 → 数量×成本；按持仓币种换算。"""
-    if not pos:
-        return 0.0
-    currency = str(pos.get('currency') or '').strip().upper() or None
-    local_mv = 0.0
-    for key in ('marketValue', 'market_value'):
-        raw = pos.get(key)
+def _first_positive_float(data: dict[str, Any], keys: tuple[str, ...]) -> float:
+    for key in keys:
+        raw = data.get(key)
         if raw is None:
             continue
         try:
             value = float(raw)
         except (TypeError, ValueError):
-            value = 0.0
+            continue
         if value > 0:
-            local_mv = value
-            break
+            return value
+    return 0.0
+
+
+def existing_position_market_value(
+    pos: dict[str, Any] | None,
+    last_price: float = 0.0,
+    fx: FxRates | None = None,
+) -> float:
+    """持仓市值（美元基准）：marketValue → 数量×最新价 → 数量×成本；按持仓币种换算。"""
+    if not pos:
+        return 0.0
+    currency = str(pos.get('currency') or '').strip().upper() or None
+    local_mv = _first_positive_float(pos, ('marketValue', 'market_value'))
     if local_mv <= 0:
-        qty = 0.0
-        for key in ('quantity', 'availableQuantity', 'available_quantity'):
-            try:
-                qty = float(pos.get(key) or 0)
-            except (TypeError, ValueError):
-                qty = 0.0
-            if qty > 0:
-                break
+        qty = _first_positive_float(pos, ('quantity', 'availableQuantity', 'available_quantity'))
         if qty <= 0:
             return 0.0
         last = float(last_price or 0)
         if last > 0:
             local_mv = qty * last
         else:
-            for key in ('costPrice', 'cost_price'):
-                try:
-                    cost = float(pos.get(key) or 0)
-                except (TypeError, ValueError):
-                    cost = 0.0
-                if cost > 0:
-                    local_mv = qty * cost
-                    break
+            cost = _first_positive_float(pos, ('costPrice', 'cost_price'))
+            if cost > 0:
+                local_mv = qty * cost
     if local_mv <= 0:
         return 0.0
     if fx is None:
