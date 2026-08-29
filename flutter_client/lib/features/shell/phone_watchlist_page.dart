@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -33,6 +35,9 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
   final Map<String, LiveStockQuote> _live = {};
   VoidCallback? _unsubQuotes;
   String _subSig = '';
+  QuoteSort? _sort;
+  bool _ascending = false;
+  final Set<int> _dismissedIds = {};
 
   @override
   void dispose() {
@@ -42,18 +47,24 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
 
   void _syncQuotes(List<WatchlistItem> items) {
     final sig = items.map((i) => '${i.market}:${i.symbol}').join(',');
-    if (sig == _subSig) return;
+    if (sig == _subSig) {
+      return;
+    }
     _subSig = sig;
     _unsubQuotes?.call();
     _unsubQuotes = null;
-    if (items.isEmpty) return;
+    if (items.isEmpty) {
+      return;
+    }
     _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
       [
         for (final it in items)
           (symbol: it.symbol, market: it.market.isEmpty ? 'US' : it.market),
       ],
       (quotes) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         setState(() {
           for (final q in quotes) {
             _live[q.key] = q;
@@ -70,6 +81,96 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
     return live == null ? item : applyLiveQuote(item, live);
   }
 
+  void _onSort(QuoteSort field) {
+    setState(() {
+      if (_sort == field) {
+        _ascending = !_ascending;
+      } else {
+        _sort = field;
+        _ascending = field == QuoteSort.name;
+      }
+    });
+  }
+
+  List<WatchlistItem> _visibleItems(List<WatchlistItem> raw) {
+    final items = <WatchlistItem>[];
+    for (final it in raw) {
+      if (_group != '全部' && !it.groups.contains(_group)) {
+        continue;
+      }
+      if (it.id != null && _dismissedIds.contains(it.id)) {
+        continue;
+      }
+      items.add(_patched(it));
+    }
+    final sort = _sort;
+    if (sort == null) {
+      return items;
+    }
+    items.sort((a, b) {
+      final nameA = a.name.isEmpty ? a.symbol : a.name;
+      final nameB = b.name.isEmpty ? b.symbol : b.name;
+      return compareQuotes(
+        field: sort,
+        ascending: _ascending,
+        nameA: nameA,
+        nameB: nameB,
+        lastA: a.last,
+        lastB: b.last,
+        changePctA: a.changeRate,
+        changePctB: b.changeRate,
+      );
+    });
+    return items;
+  }
+
+  Future<void> _deleteById(int id) async {
+    try {
+      await ref.read(marketApiProvider).deleteWatchlist([id]);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _dismissedIds.remove(id);
+        });
+      }
+    }
+    if (mounted) {
+      ref.invalidate(watchlistOverviewProvider);
+    }
+  }
+
+  Future<void> _confirmDelete(WatchlistItem item) async {
+    final id = item.id;
+    if (id == null) {
+      return;
+    }
+    final name = item.name.isEmpty ? item.symbol : item.name;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除自选'),
+        content: Text('确定将「$name」移出自选吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) {
+      return;
+    }
+    setState(() {
+      _dismissedIds.add(id);
+    });
+    await _deleteById(id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final overview = ref.watch(watchlistOverviewProvider);
@@ -83,9 +184,7 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
       ),
       data: (data) {
         _syncQuotes(data.items);
-        final items = _group == '全部'
-            ? data.items
-            : data.items.where((i) => i.groups.contains(_group)).toList();
+        final items = _visibleItems(data.items);
         return RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(watchlistOverviewProvider);
@@ -128,7 +227,13 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(child: QuoteListHeader()),
+              SliverToBoxAdapter(
+                child: QuoteListHeader(
+                  sort: _sort,
+                  ascending: _ascending,
+                  onSort: _onSort,
+                ),
+              ),
               if (items.isEmpty)
                 const SliverFillRemaining(
                   hasScrollBody: false,
@@ -141,21 +246,49 @@ class _PhoneWatchlistPageState extends ConsumerState<PhoneWatchlistPage> {
                     itemCount: items.length,
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
-                      final item = _patched(items[i]);
-                      return QuoteListRow(
+                      final item = items[i];
+                      Widget row = QuoteListRow(
                         name: item.name.isEmpty ? item.symbol : item.name,
                         symbol: item.symbol,
                         marketLabel: _marketLabel(item.market),
                         last: item.last,
                         changePct: item.changeRate,
+                        subtitle: item.summary,
                         leadingExtra: _recTag(item.recommendation),
                         onTap: widget.onOpenSymbol == null
                             ? null
                             : () => widget.onOpenSymbol!(
-                                items[i].symbol,
-                                items[i].market,
-                                items[i].name,
+                                item.symbol,
+                                item.market,
+                                item.name,
                               ),
+                        onLongPress: item.id == null
+                            ? null
+                            : () => _confirmDelete(item),
+                      );
+                      final id = item.id;
+                      if (id == null) {
+                        return row;
+                      }
+                      return Dismissible(
+                        key: ValueKey('wl-$id'),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: AppColors.up,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 16),
+                          child: const Text(
+                            '删除',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        onDismissed: (_) {
+                          setState(() {
+                            _dismissedIds.add(id);
+                          });
+                          unawaited(_deleteById(id));
+                        },
+                        child: row,
                       );
                     },
                   ),
@@ -192,74 +325,62 @@ class _TopBar extends ConsumerWidget {
         children: [
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 118),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: scheme.outlineVariant),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      assets == null ? '--' : '$prefix${_money(assets)}',
-                      maxLines: 1,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        fontFeatures: AppNum.fontFeatures,
-                      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    assets == null ? '--' : '$prefix${_money(assets)}',
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      fontFeatures: AppNum.fontFeatures,
                     ),
                   ),
-                  Text(
-                    assets == null ? '未绑定券商' : '净资产',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: scheme.onSurfaceVariant,
-                    ),
+                ),
+                Text(
+                  assets == null ? '未绑定券商' : '净资产',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: scheme.onSurfaceVariant,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Material(
-              color: scheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(22),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(22),
-                onTap: onSearch,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.search,
-                        size: 18,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          '搜索代码或名称',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 13,
-                          ),
+            child: InkWell(
+              onTap: onSearch,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.search,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '搜索代码或名称',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 13,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -309,22 +430,22 @@ class _IndexStrip extends ConsumerWidget {
   /// WS 有指数快照时用实时流，否则回退 REST（首帧 / 断线 / 测试覆盖）。
   List<IndexQuote> _liveOrPolledIndexes(WidgetRef ref) {
     final live = ref.watch(marketQuotesStreamProvider).asData?.value.items;
-    if (live != null && live.isNotEmpty) return live;
+    if (live != null && live.isNotEmpty) {
+      return live;
+    }
     return ref.watch(indexQuotesProvider).asData?.value ?? const <IndexQuote>[];
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final items = _liveOrPolledIndexes(ref).take(6).toList();
-    if (items.isEmpty) return const SizedBox(height: 8);
+    final items = pickWatchlistIndexes(_liveOrPolledIndexes(ref));
+    if (items.isEmpty) {
+      return const SizedBox(height: 8);
+    }
     return IndexMiniStrip(
       items: [
         for (final q in items)
-          (
-            name: q.name.isEmpty ? q.symbol : q.name,
-            last: q.last,
-            changePct: q.changePct,
-          ),
+          (name: indexDisplayName(q), last: q.last, changePct: q.changePct),
       ],
     );
   }
@@ -397,7 +518,9 @@ String _marketLabel(String m) => switch (m.toUpperCase()) {
 };
 
 Widget? _recTag(String rec) {
-  if (rec.isEmpty) return null;
+  if (rec.isEmpty) {
+    return null;
+  }
   final color = rec.contains('买') || rec.contains('多')
       ? AppColors.up
       : rec.contains('卖') || rec.contains('空')
@@ -421,4 +544,64 @@ Widget? _recTag(String rec) {
       ),
     ),
   );
+}
+
+const _preferredIndexCodes = ['sh000001', 'r_hkhsi', 'usixic'];
+
+/// 自选指数条：上证 / 恒生 / 纳指优先，每市场一条，最多 3 条。
+List<IndexQuote> pickWatchlistIndexes(List<IndexQuote> quotes) {
+  final byCode = <String, IndexQuote>{
+    for (final q in quotes) q.symbol.toLowerCase(): q,
+  };
+  final picked = <IndexQuote>[];
+  final usedMarkets = <String>{};
+  final usedSymbols = <String>{};
+
+  void add(IndexQuote q) {
+    final key = q.symbol.toLowerCase();
+    if (usedSymbols.contains(key)) {
+      return;
+    }
+    final market = _indexMarket(q);
+    if (market.isNotEmpty && usedMarkets.contains(market)) {
+      return;
+    }
+    picked.add(q);
+    usedSymbols.add(key);
+    if (market.isNotEmpty) {
+      usedMarkets.add(market);
+    }
+  }
+
+  for (final code in _preferredIndexCodes) {
+    final q = byCode[code];
+    if (q != null) {
+      add(q);
+    }
+  }
+  for (final q in quotes) {
+    if (picked.length >= 3) {
+      break;
+    }
+    add(q);
+  }
+  return picked;
+}
+
+String _indexMarket(IndexQuote q) {
+  final explicit = q.market.trim().toUpperCase();
+  if (explicit.isNotEmpty) {
+    return explicit;
+  }
+  final code = q.symbol.toLowerCase();
+  if (code.startsWith('sh') || code.startsWith('sz')) {
+    return 'CN';
+  }
+  if (code.startsWith('r_hk') || code.startsWith('hk')) {
+    return 'HK';
+  }
+  if (code.startsWith('us') || code.startsWith('^')) {
+    return 'US';
+  }
+  return '';
 }

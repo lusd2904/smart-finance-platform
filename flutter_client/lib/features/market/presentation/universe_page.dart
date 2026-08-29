@@ -1,33 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/quote_row.dart';
 import '../../watchlist/logic/watchlist_providers.dart';
 import '../data/market_api.dart';
 import '../data/market_models.dart';
+import '../data/market_quotes_ws.dart';
 
 /// 市场筛选档位：'' 表示全部市场。
 const _marketFilters = <String, String>{
   '': '全部',
   'US': '美股',
   'HK': '港股',
-  'CN': 'A 股',
+  'CN': 'A股',
 };
 
-/// 市场标签色块配色：与后端 market 枚举一一对应，未知市场回退中性灰。
-Color _marketColor(String market) {
-  switch (market.toUpperCase()) {
-    case 'US':
-      return const Color(0xFF409EFF);
-    case 'HK':
-      return const Color(0xFFE6A23C);
-    case 'CN':
-      return AppColors.up;
-    default:
-      return AppColors.flat;
-  }
-}
+String _marketLabel(String market) => switch (market.toUpperCase()) {
+  'US' => '美股',
+  'HK' => '港股',
+  'CN' => 'A股',
+  _ => market,
+};
 
 /// 全部股票分页浏览页：市场筛选 + 关键字搜索 + 分页加载。
 ///
@@ -47,16 +44,20 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
   static const int _pageSize = 50;
 
   final _keywordCtrl = TextEditingController();
+  Timer? _searchDebounce;
 
   String _market = '';
   List<UniverseRow> _rows = const [];
-  Map<String, int> _counts = const {};
   int _total = 0;
   int _pageNum = 1;
   bool _loading = false;
   bool _loadingMore = false;
   String? _error;
   bool _addingSymbol = false;
+
+  final Map<String, LiveStockQuote> _live = {};
+  VoidCallback? _unsubQuotes;
+  String _subSig = '';
 
   @override
   void initState() {
@@ -67,11 +68,18 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _unsubQuotes?.call();
     _keywordCtrl.dispose();
     super.dispose();
   }
 
   bool get _hasMore => !_loading && _rows.length < _total;
+
+  String get _keyword {
+    final text = _keywordCtrl.text.trim();
+    return text;
+  }
 
   /// 重置到第一页并重新拉取；筛选或关键字变更时调用。
   Future<void> _refresh() async {
@@ -79,7 +87,6 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
       _pageNum = 1;
       _rows = const [];
       _total = 0;
-      _counts = const {};
       _loading = true;
       _error = null;
     });
@@ -88,9 +95,7 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
           .read(marketApiProvider)
           .universe(
             market: _market.isEmpty ? null : _market,
-            keyword: _keywordCtrl.text.trim().isEmpty
-                ? null
-                : _keywordCtrl.text.trim(),
+            keyword: _keyword.isEmpty ? null : _keyword,
             pageNum: 1,
             pageSize: _pageSize,
           );
@@ -98,7 +103,6 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
       setState(() {
         _rows = page.rows;
         _total = page.total;
-        _counts = page.counts;
         _loading = false;
       });
     } catch (e) {
@@ -120,9 +124,7 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
           .read(marketApiProvider)
           .universe(
             market: _market.isEmpty ? null : _market,
-            keyword: _keywordCtrl.text.trim().isEmpty
-                ? null
-                : _keywordCtrl.text.trim(),
+            keyword: _keyword.isEmpty ? null : _keyword,
             pageNum: next,
             pageSize: _pageSize,
           );
@@ -135,7 +137,6 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
           ...page.rows.where((r) => seen.add('${r.market}:${r.symbol}')),
         ];
         _total = page.total;
-        _counts = page.counts;
         _pageNum = next;
         _loadingMore = false;
       });
@@ -153,12 +154,54 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
   /// 切换市场筛选并重置到第一页。
   void _onMarketChanged(String market) {
     if (market == _market) return;
+    _searchDebounce?.cancel();
     setState(() => _market = market);
     _refresh();
   }
 
-  /// 关键字提交（软键盘确认）触发搜索并重置到第一页。
-  void _onKeywordSubmitted(String _) => _refresh();
+  /// 输入防抖约 300ms 后搜索。
+  void _onKeywordChanged(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _refresh();
+    });
+  }
+
+  /// 软键盘确认立即搜索，并取消未触发的防抖。
+  void _onKeywordSubmitted(String _) {
+    _searchDebounce?.cancel();
+    _refresh();
+  }
+
+  /// 可见行订阅个股行情；签名不变则不重订。
+  void _syncQuotes() {
+    final sig = _rows.map((r) => '${r.market}:${r.symbol}').join(',');
+    if (sig == _subSig) return;
+    _subSig = sig;
+    _unsubQuotes?.call();
+    _unsubQuotes = null;
+    if (_rows.isEmpty) return;
+    _unsubQuotes = ref.read(stockQuotesHubProvider).subscribe(
+      [
+        for (final row in _rows)
+          (symbol: row.symbol, market: row.market.isEmpty ? 'US' : row.market),
+      ],
+      (quotes) {
+        if (!mounted) return;
+        setState(() {
+          for (final q in quotes) {
+            _live[q.key] = q;
+          }
+        });
+      },
+    );
+  }
+
+  LiveStockQuote? _liveFor(UniverseRow row) {
+    final market = row.market.isEmpty ? 'US' : row.market;
+    return _live['${market.toUpperCase()}:${row.symbol.toUpperCase()}'];
+  }
 
   /// 加自选：成功后刷新自选概览并提示。
   Future<void> _addToWatchlist(UniverseRow row) async {
@@ -185,89 +228,74 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
 
   @override
   Widget build(BuildContext context) {
+    _syncQuotes();
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: _buildToolbar(),
+          child: _buildSearchField(),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: _buildCountCards(),
-        ),
+        _buildMarketTabs(),
+        const QuoteListHeader(trailingWidth: 40),
         Expanded(child: _buildBody()),
       ],
     );
   }
 
-  /// 顶部工具行：市场筛选 SegmentedButton + 关键字搜索框。
-  Widget _buildToolbar() {
-    return Row(
-      children: [
-        SegmentedButton<String>(
-          segments: [
-            for (final e in _marketFilters.entries)
-              ButtonSegment(value: e.key, label: Text(e.value)),
-          ],
-          selected: {_market},
-          showSelectedIcon: false,
-          onSelectionChanged: (s) => _onMarketChanged(s.first),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: TextField(
-            controller: _keywordCtrl,
-            decoration: const InputDecoration(
-              hintText: '搜索代码 / 名称',
-              prefixIcon: Icon(Icons.search),
-            ),
-            textInputAction: TextInputAction.search,
-            onSubmitted: _onKeywordSubmitted,
-          ),
-        ),
-      ],
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _keywordCtrl,
+      decoration: const InputDecoration(
+        hintText: '搜索代码或名称',
+        prefixIcon: Icon(Icons.search),
+        isDense: true,
+      ),
+      textInputAction: TextInputAction.search,
+      onChanged: _onKeywordChanged,
+      onSubmitted: _onKeywordSubmitted,
     );
   }
 
-  /// 计数卡行：US / HK / CN / total 四张小卡。
-  Widget _buildCountCards() {
-    return Row(
-      children: [
-        _countCard('美股', _counts['US'] ?? 0),
-        const SizedBox(width: 8),
-        _countCard('港股', _counts['HK'] ?? 0),
-        const SizedBox(width: 8),
-        _countCard('A股', _counts['CN'] ?? 0),
-        const SizedBox(width: 8),
-        _countCard('合计', _counts['total'] ?? _total),
-      ],
-    );
-  }
-
-  Widget _countCard(String label, int count) {
+  /// 下划线文字档：全部 / 美股 / 港股 / A股。
+  Widget _buildMarketTabs() {
     final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelSmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          for (final e in _marketFilters.entries)
+            Expanded(
+              child: InkWell(
+                onTap: () => _onMarketChanged(e.key),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          e.value,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: _market == e.key
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _market == e.key
+                                ? AppColors.brand
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      height: 2,
+                      color: _market == e.key
+                          ? AppColors.brand
+                          : Colors.transparent,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 2),
-            Text(
-              '$count',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -302,12 +330,7 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 16),
         itemCount: _rows.length + (_hasMore ? 1 : 0),
-        separatorBuilder: (_, _) => Divider(
-          height: 1,
-          indent: 12,
-          endIndent: 12,
-          color: Colors.grey.shade300,
-        ),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) {
           // 列表末尾放「加载更多」，total 用尽即隐藏。
           if (index == _rows.length) {
@@ -333,75 +356,23 @@ class _UniverseBrowsePageState extends ConsumerState<UniverseBrowsePage> {
     );
   }
 
-  /// 单行：市场色块 + symbol/name + category 小字 + 行尾「加自选」。
   Widget _buildRow(UniverseRow row) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
+    final live = _liveFor(row);
+    return QuoteListRow(
+      name: row.name.isEmpty ? row.symbol : row.name,
+      symbol: row.symbol,
+      marketLabel: _marketLabel(row.market),
+      last: live?.last,
+      changePct: live?.changePct,
+      trailing: IconButton(
+        tooltip: '加自选',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.add),
+        onPressed: _addingSymbol ? null : () => _addToWatchlist(row),
+      ),
       onTap: widget.onOpenSymbol == null
           ? null
           : () => widget.onOpenSymbol!(row.symbol, row.market, row.name),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            // 市场标签色块
-            Container(
-              width: 34,
-              height: 20,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: _marketColor(row.market),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                row.market.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.clip,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: row.symbol,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const TextSpan(text: '  '),
-                        TextSpan(text: row.name),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (row.category.isNotEmpty)
-                    Text(
-                      row.category,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: '加自选',
-              icon: const Icon(Icons.push_pin_outlined),
-              onPressed: _addingSymbol ? null : () => _addToWatchlist(row),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

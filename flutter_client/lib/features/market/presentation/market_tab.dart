@@ -52,8 +52,8 @@ class MarketTab extends ConsumerStatefulWidget {
 }
 
 class _MarketTabState extends ConsumerState<MarketTab> {
-  /// 市场代码 → 展示名，顺序即切换条顺序。
-  static const _markets = {'US': '美股', 'HK': '港股', 'CN': 'A股'};
+  /// 市场代码 → 展示名，顺序即切换条顺序（A股 / 港股 / 美股）。
+  static const _markets = {'CN': 'A股', 'HK': '港股', 'US': '美股'};
 
   static const _boards = {
     'heat': '热度',
@@ -62,8 +62,8 @@ class _MarketTabState extends ConsumerState<MarketTab> {
     'turnover': '成交',
   };
 
-  /// 当前市场，保存在本组件内；切换时重拉数据。
-  String _market = 'US';
+  /// 当前市场，保存在本组件内；切换时重拉数据。默认 A 股。
+  String _market = 'CN';
 
   String _board = 'heat';
 
@@ -219,8 +219,8 @@ class _MarketTabState extends ConsumerState<MarketTab> {
           ],
         ),
         Divider(height: 1, color: scheme.outlineVariant),
-        _heatStatsLine(heat, statPct, data),
-        _underlineTabs(
+        _heatStatsLine(heat, statPct),
+        _textChipRow(
           context,
           entries: _boards.entries,
           selected: _board,
@@ -253,15 +253,14 @@ class _MarketTabState extends ConsumerState<MarketTab> {
     );
   }
 
-  Widget _heatStatsLine(HeatSummary heat, double? statPct, HeatDailyData data) {
+  Widget _heatStatsLine(HeatSummary heat, double? statPct) {
     final indexName =
         kHeatStatIndex[_market]?.$2 ??
         (heat.indexName.isEmpty ? '指数' : heat.indexName);
-    final rule = data.filterRuleFor(_market);
     final scheme = Theme.of(context).colorScheme;
-    const base = TextStyle(fontSize: 12, height: 1.35);
+    const base = TextStyle(fontSize: 12, height: 1.2);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
       child: Text.rich(
         TextSpan(
           style: base.copyWith(color: scheme.onSurface),
@@ -292,11 +291,6 @@ class _MarketTabState extends ConsumerState<MarketTab> {
             ),
             TextSpan(text: ' · 成交 ${formatAmountCn(heat.totalTurnover)}'),
             TextSpan(text: ' · $indexName ${formatPct(statPct)}'),
-            if (rule.isNotEmpty)
-              TextSpan(
-                text: ' · ${rule.contains('市值') ? rule : '市值 $rule'}',
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              ),
             if (heat.staleHint.isNotEmpty)
               TextSpan(
                 text: ' · ${heat.staleHint}',
@@ -304,8 +298,50 @@ class _MarketTabState extends ConsumerState<MarketTab> {
               ),
           ],
         ),
-        maxLines: 2,
+        maxLines: 1,
         overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  /// 热度/涨幅/跌幅/成交：紧凑文字按钮，无下划线、无填充底。
+  Widget _textChipRow(
+    BuildContext context, {
+    required Iterable<MapEntry<String, String>> entries,
+    required String selected,
+    required ValueChanged<String> onSelect,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 32,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            for (final e in entries)
+              InkWell(
+                onTap: () => onSelect(e.key),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    e.value,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected == e.key
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      color: selected == e.key
+                          ? AppColors.brand
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
