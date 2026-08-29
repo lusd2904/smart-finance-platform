@@ -71,9 +71,16 @@ jobs:
           done
           count_ruff() {
             if [ "$#" -eq 0 ]; then echo 0; return; fi
-            local out=""
-            out=$(cd "$RUFF_DIR" && ruff check --config ruff.toml "$@" --output-format json 2>/dev/null) || true
-            python3 -c "import json,sys; print(len(json.loads(sys.argv[1] or '[]')))" "$out"
+            local list="$TMP/ruff_list.txt"
+            local json="$TMP/ruff_out.json"
+            : > "$list"
+            local p
+            for p in "$@"; do
+              printf '%s\n' "$p" >> "$list"
+            done
+            : > "$json"
+            (cd "$RUFF_DIR" && xargs -a "$list" ruff check --config ruff.toml --output-format json > "$json") || true
+            python3 -c "import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); t=p.read_text() if p.exists() else '[]'; print(len(json.loads(t or '[]')))" "$json"
           }
           if [ "${#overlap_head[@]}" -eq 0 ]; then
             HEAD_OVERLAP=0
@@ -98,7 +105,8 @@ jobs:
             FAILED=1
           fi
           if [ "$FAILED" -ne 0 ]; then
-            cd "$RUFF_DIR" && ruff check --config ruff.toml "${rel[@]}"
+            printf '%s\n' "${rel[@]}" > "$TMP/ruff_rel.txt"
+            (cd "$RUFF_DIR" && xargs -a "$TMP/ruff_rel.txt" ruff check --config ruff.toml)
             exit 1
           fi
 

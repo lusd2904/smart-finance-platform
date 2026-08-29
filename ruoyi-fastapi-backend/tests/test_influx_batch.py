@@ -61,7 +61,7 @@ def test_query_klines_many_keeps_good_chunks_when_one_fails(monkeypatch) -> None
         def query_api(self):
             return _Api()
 
-    monkeypatch.setattr(influx_util, 'get_batch_client', lambda: _Client())
+    monkeypatch.setattr(influx_util, 'get_batch_client', _Client)
     out = InfluxUtil.query_klines_many('US', ['AAPL', 'MSFT'], start='-400d', limit=10)
     assert 'MSFT' in out
     assert 'AAPL' not in out
@@ -82,7 +82,7 @@ def test_query_klines_many_uses_equality_not_contains(monkeypatch) -> None:
             return _Api()
 
     monkeypatch.setattr(influx_util, 'kline_chunk_size', lambda: 10)
-    monkeypatch.setattr(influx_util, 'get_batch_client', lambda: _Client())
+    monkeypatch.setattr(influx_util, 'get_batch_client', _Client)
     InfluxUtil.query_klines_many('US', ['AAPL', 'MSFT'], start='-10d', limit=5)
     assert seen
     assert 'contains(' not in seen[0]
@@ -102,7 +102,7 @@ def test_query_klines_many_all_fail_raises(monkeypatch) -> None:
         def query_api(self):
             return _Api()
 
-    monkeypatch.setattr(influx_util, 'get_batch_client', lambda: _Client())
+    monkeypatch.setattr(influx_util, 'get_batch_client', _Client)
     try:
         InfluxUtil.query_klines_many('US', ['AAPL'], start='-10d', limit=5)
         raise AssertionError('expected InfluxQueryError')
