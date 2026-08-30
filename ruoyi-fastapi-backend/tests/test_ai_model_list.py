@@ -3,6 +3,8 @@ import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from sqlalchemy import true
+
 os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
 os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
 
@@ -19,7 +21,7 @@ def test_get_ai_model_list_accepts_plain_ai_model_model() -> None:
         paginate = AsyncMock(return_value=[{'modelId': 7}])
         with patch('module_ai.dao.ai_model_dao.PageUtil.paginate', paginate):
             rows = await AiModelDao.get_ai_model_list(
-                db, AiModelModel(modelId=7), MagicMock(), is_page=False
+                db, AiModelModel(modelId=7), true(), is_page=False
             )
         assert rows == [{'modelId': 7}]
         _db, _query, page_num, page_size, is_page = paginate.await_args.args
