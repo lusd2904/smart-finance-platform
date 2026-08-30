@@ -93,9 +93,13 @@ class StrategyService:
         :return: {symbol, market, signal, score, confidence, reason, factor_json(dict)} 或 {ok:False}
         """
         if klines is None:
-            result = FactorService.compute_symbol(symbol, market, strategy_profile, weights=custom_config)
+            result = FactorService.compute_symbol(
+                symbol, market, strategy_profile, weights=custom_config, include_alpha=False
+            )
         else:
-            result = FactorService.compute_from_klines(klines, strategy_profile, weights=custom_config)
+            result = FactorService.compute_from_klines(
+                klines, strategy_profile, weights=custom_config, include_alpha=False
+            )
             result['symbol'] = symbol
             result['market'] = market
         if not result.get('ok'):

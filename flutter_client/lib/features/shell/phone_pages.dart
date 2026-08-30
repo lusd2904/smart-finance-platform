@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../features/auth/logic/session_controller.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 import '../ai/presentation/ai_page.dart';
+import '../guide/guide_page.dart';
 import '../news/presentation/news_page.dart';
 import '../notice/presentation/notice_page.dart';
 import '../sentiment/presentation/sentiment_page.dart';
@@ -168,6 +169,38 @@ class PhoneMinePage extends ConsumerWidget {
           ),
         ]),
         _TradeSwitches(scheme: scheme),
+        group('使用说明', [
+          tile(
+            Icons.show_chart,
+            '行情中心',
+            () => push(const GuidePage(module: 'market'), title: '使用说明'),
+          ),
+          tile(
+            Icons.hub_outlined,
+            '量化交易',
+            () => push(const GuidePage(module: 'quant'), title: '使用说明'),
+          ),
+          tile(
+            Icons.payments_outlined,
+            '交易中心',
+            () => push(const GuidePage(module: 'trade'), title: '使用说明'),
+          ),
+          tile(
+            Icons.analytics_outlined,
+            '舆情分析',
+            () => push(const GuidePage(module: 'sentiment'), title: '使用说明'),
+          ),
+          tile(
+            Icons.psychology_outlined,
+            'AI 管理',
+            () => push(const GuidePage(module: 'ai'), title: '使用说明'),
+          ),
+          tile(
+            Icons.assignment_outlined,
+            '任务中心',
+            () => push(const GuidePage(module: 'analysis'), title: '使用说明'),
+          ),
+        ]),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
           child: OutlinedButton(

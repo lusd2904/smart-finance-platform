@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from datetime import date, timedelta
 
 os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
@@ -62,20 +63,13 @@ def test_factor_signals_hold_until_lookback(monkeypatch) -> None:
     from module_quant.service.factor_service import FactorService
 
     klines = _bars(LOOKBACK + 8, start=100.0, step=0.5)
+    buy = {'total': 80, 'trendDirection': 'up', 'riskLevel': 'low', 'tags': ['站上20日线']}
 
-    def fake_compute(cls, bars, profile='balanced', weights=None):
-        del cls, bars, profile, weights
-        return {
-            'ok': True,
-            'score': {
-                'total': 80,
-                'trendDirection': 'up',
-                'riskLevel': 'low',
-                'tags': ['站上20日线'],
-            },
-        }
+    def fake_series(cls, bars, profile='balanced', weights=None):
+        del cls, profile, weights
+        return [None] * LOOKBACK + [buy] * (len(bars) - LOOKBACK)
 
-    monkeypatch.setattr(FactorService, 'compute_from_klines', classmethod(fake_compute))
+    monkeypatch.setattr(FactorService, 'compute_score_series', classmethod(fake_series))
     signals = factor_signals(klines, profile='balanced')
     assert len(signals) == len(klines)
     assert all(s == 'HOLD' for s in signals[:LOOKBACK])
@@ -86,20 +80,36 @@ def test_factor_signals_sell_on_down_score(monkeypatch) -> None:
     from module_quant.service.factor_service import FactorService
 
     klines = _bars(LOOKBACK + 5, start=80.0, step=-0.4)
+    sell = {'total': 20, 'trendDirection': 'down', 'riskLevel': 'high', 'tags': []}
 
-    def fake_compute(cls, bars, profile='balanced', weights=None):
-        del cls, bars, profile, weights
-        return {
-            'ok': True,
-            'score': {
-                'total': 20,
-                'trendDirection': 'down',
-                'riskLevel': 'high',
-                'tags': [],
-            },
-        }
+    def fake_series(cls, bars, profile='conservative', weights=None):
+        del cls, profile, weights
+        return [None] * LOOKBACK + [sell] * (len(bars) - LOOKBACK)
 
-    monkeypatch.setattr(FactorService, 'compute_from_klines', classmethod(fake_compute))
+    monkeypatch.setattr(FactorService, 'compute_score_series', classmethod(fake_series))
     signals = factor_signals(klines, profile='conservative')
     assert all(s == 'HOLD' for s in signals[:LOOKBACK])
     assert all(s == 'SELL' for s in signals[LOOKBACK:])
+
+
+def test_score_series_matches_prefix_snapshots() -> None:
+    from module_quant.service.factor_service import FactorService
+
+    klines = _bars(80, start=100.0, step=0.35)
+    series = FactorService.compute_score_series(klines, 'balanced')
+    for idx in (30, 45, 79):
+        prefix = FactorService.compute_from_klines(klines[: idx + 1], 'balanced', include_alpha=False)
+        assert prefix.get('ok')
+        assert series[idx] is not None
+        assert series[idx]['total'] == prefix['score']['total']
+        assert series[idx]['trendDirection'] == prefix['score']['trendDirection']
+        assert series[idx]['riskLevel'] == prefix['score']['riskLevel']
+
+
+def test_factor_signals_one_pass_stays_under_half_second() -> None:
+    klines = _bars(320, start=100.0, step=0.12)
+    started = time.perf_counter()
+    signals = factor_signals(klines, profile='balanced')
+    elapsed = time.perf_counter() - started
+    assert len(signals) == 320
+    assert elapsed < 0.5

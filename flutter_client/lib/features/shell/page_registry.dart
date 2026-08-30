@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/menu/router_models.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
 import '../ai/presentation/req_chat_page.dart';
+import '../guide/guide_page.dart';
 import '../web/admin_pages.dart';
 import '../web/intel_pages.dart';
 import '../web/json_list_page.dart';
@@ -19,7 +20,7 @@ Widget buildNativePage(
   OpenRoute open, {
   Set<String> allowed = const {},
 }) {
-  if (!menuAllows(allowed, path)) {
+  if (!menuAllows(allowed, path) && !_isGuidePath(path)) {
     return const AccessDeniedPage();
   }
   switch (path) {
@@ -66,6 +67,8 @@ Widget buildNativePage(
       return MarketStockPoolPage(open: open);
     case '/market/dashboard':
       return MarketHeatPage(open: open);
+    case '/market/guide':
+      return const GuidePage(module: 'market');
     case '/market/terminal':
     case '/trade/terminal':
       return const TradeTerminalPage();
@@ -90,6 +93,8 @@ Widget buildNativePage(
       return const QuantRiskPage();
     case '/quant/watchlist':
       return QuantWatchlistPage(open: open);
+    case '/quant/guide':
+      return const GuidePage(module: 'quant');
 
     case '/trade/desk':
     case '/trade/trading':
@@ -112,6 +117,8 @@ Widget buildNativePage(
       return const TradeAiRunsPage();
     case '/trade/feishu-push':
       return const TradeFeishuPage();
+    case '/trade/guide':
+      return const GuidePage(module: 'trade');
 
     case '/sentiment/dashboard':
       return const SentimentDashboardPage();
@@ -121,6 +128,8 @@ Widget buildNativePage(
       return const SentimentAnalysisPage();
     case '/sentiment/config':
       return const SentimentConfigPage();
+    case '/sentiment/guide':
+      return const GuidePage(module: 'sentiment');
 
     case '/ai/chat':
       return const AiChatPage();
@@ -132,9 +141,13 @@ Widget buildNativePage(
       return const AiReqListPage();
     case '/ai/req-bot':
       return const AiReqBotPage();
+    case '/ai/guide':
+      return const GuidePage(module: 'ai');
 
     case '/analysis/jobs':
       return const AnalysisJobsPage();
+    case '/analysis/guide':
+      return const GuidePage(module: 'analysis');
 
     case '/system/user':
       return const SystemUserPage();
@@ -208,6 +221,7 @@ String defaultTitleFor(String path) {
     '/market/stock-pool': '标的股票池',
     '/market/tradingview': '高级图表',
     '/market/dashboard': '行情概览',
+    '/market/guide': '行情使用说明',
     '/quant/strategy': '策略信号',
     '/quant/factor': '因子分析',
     '/quant/scan-runs': '扫描台账',
@@ -218,6 +232,7 @@ String defaultTitleFor(String path) {
     '/quant/alpha-snapshot': 'Alpha快照',
     '/quant/risk': '风险概览',
     '/quant/watchlist': '自选池',
+    '/quant/guide': '量化使用说明',
     '/market/terminal': '行情交易',
     '/trade/terminal': '行情交易',
     '/trade/desk': '交易工作台',
@@ -231,16 +246,20 @@ String defaultTitleFor(String path) {
     '/trade/notifications': '通知中心',
     '/trade/ai-runs': 'AI交易台账',
     '/trade/feishu-push': '飞书推送',
+    '/trade/guide': '交易使用说明',
     '/sentiment/dashboard': '舆情大盘',
     '/sentiment/news': '资讯列表',
     '/sentiment/analysis': '分析历史',
     '/sentiment/config': '舆情配置',
+    '/sentiment/guide': '舆情使用说明',
     '/ai/chat': 'AI 对话',
     '/ai/model': 'AI模型',
     '/ai/req-chat': '需求沟通',
     '/ai/req-list': 'AI需求清单',
     '/ai/req-bot': 'AI机器人',
+    '/ai/guide': 'AI 使用说明',
     '/analysis/jobs': '自动分析任务',
+    '/analysis/guide': '任务使用说明',
     '/system/user': '用户管理',
     '/system/role': '角色管理',
     '/system/menu': '菜单管理',
@@ -264,4 +283,18 @@ String defaultTitleFor(String path) {
     '/tool/swagger': '系统接口',
   };
   return titles[path] ?? path;
+}
+
+bool _isGuidePath(String path) {
+  switch (path) {
+    case '/market/guide':
+    case '/quant/guide':
+    case '/trade/guide':
+    case '/sentiment/guide':
+    case '/ai/guide':
+    case '/analysis/guide':
+      return true;
+    default:
+      return false;
+  }
 }

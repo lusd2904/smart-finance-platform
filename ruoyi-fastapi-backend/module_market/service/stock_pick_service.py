@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -30,7 +31,7 @@ from module_market.service.stock_pick_scoring import (
     reco_from_signal,
     select_top_picks,
 )
-from module_quant.service.factor_service import FactorService
+from module_quant.service.factor_service import FACTOR_SCORE_WORKERS, FactorService
 from module_quant.service.strategy_service import decide_signal
 from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao
 from module_sentiment.entity.do.sentiment_do import SentimentNews
@@ -304,7 +305,7 @@ class StockPickService:
         klines: list[dict[str, Any]],
         mood: dict[str, Any],
     ) -> dict[str, Any] | None:
-        computed = FactorService.compute_from_klines(klines)
+        computed = FactorService.compute_from_klines(klines, include_alpha=False)
         if not computed.get('ok'):
             return None
         open_markets = set(mood.get('openMarkets') or [])
@@ -361,6 +362,30 @@ class StockPickService:
             },
             'klineCount': len(klines),
         }
+
+    @classmethod
+    def _score_candidate_batch(
+        cls,
+        candidates: list[dict[str, Any]],
+        kline_map: dict[str, list[dict[str, Any]]],
+        mood: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """并行打分；选股行不用 Alpha，只跑 8 族。"""
+        if not candidates:
+            return []
+
+        def _one(cand: dict[str, Any]) -> dict[str, Any] | None:
+            return cls._score_symbol_row(
+                symbol=str(cand.get('symbol') or ''),
+                name=str(cand.get('name') or cand.get('symbol') or ''),
+                market=str(cand.get('market') or '').upper(),
+                klines=kline_map.get(cand.get('symbol')) or [],
+                mood=mood,
+            )
+
+        workers = max(1, min(FACTOR_SCORE_WORKERS, len(candidates)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return [row for row in pool.map(_one, candidates) if row]
 
     @classmethod
     async def analyze_symbol(
@@ -575,61 +600,10 @@ class StockPickService:
             candidates = merge_candidates(top50, _featured_for_market(market), cap=CANDIDATE_CAP)
             symbols = [c['symbol'] for c in candidates]
             kline_map = await StockPickDao.load_recent_daily_klines(db, symbols, cutoff)
-            sent_raw = sentiment.get(SENTIMENT_FIELD[market])
-            heat_score = heat.get('heatScore')
-            opened = market in open_markets
-            for cand in candidates:
-                scanned += 1
-                klines = kline_map.get(cand['symbol']) or []
-                computed = FactorService.compute_from_klines(klines)
-                if not computed.get('ok'):
-                    continue
-                metrics = computed.get('metrics') or {}
-                score = computed.get('score') or {}
-                decision = decide_signal(score)
-                pick_score = combine_pick_score(
-                    score.get('total'),
-                    sentiment_raw=sent_raw,
-                    heat_score=heat_score,
-                    index_open=opened,
-                    index_change_pct=index_chg.get(market),
-                )
-                reco, stance = reco_from_signal(decision.get('signal'), pick_score)
-                tags = list(score.get('tags') or [])[:6]
-                if opened:
-                    tags.append('盘中含指数')
-                else:
-                    tags.append('休市无指数')
-                scored.append(
-                    {
-                        'symbol': cand['symbol'],
-                        'name': cand.get('name') or cand['symbol'],
-                        'market': market,
-                        'price': metrics.get('latestClose'),
-                        'changePct': metrics.get('dayChangePercent'),
-                        'factorScore': score.get('total'),
-                        'pickScore': pick_score,
-                        'signal': decision.get('signal'),
-                        'recommendation': reco,
-                        'stance': stance,
-                        'confidence': decision.get('confidence'),
-                        'reason': decision.get('reason'),
-                        'summary': decision.get('reason'),
-                        'indicatorReview': '、'.join(tags) or '指标中性',
-                        'sentimentReview': sentiment.get('summary') or '暂无舆情',
-                        'operationAdvice': reco,
-                        'riskWarning': '无',
-                        'tags': tags,
-                        'source': 'rule',
-                        'metrics': {
-                            'rsi14': metrics.get('rsi14'),
-                            'macdHist': metrics.get('macdHist'),
-                            'ma20': metrics.get('ma20'),
-                            'volumeRatio20': metrics.get('volumeRatio20'),
-                            'return20': metrics.get('return20'),
-                        },
-                    }
-                )
+            scanned += len(candidates)
+            scored.extend(
+                await asyncio.to_thread(cls._score_candidate_batch, candidates, kline_map, mood)
+            )
 
         picked = select_top_picks(scored, per_market=PICKS_PER_MARKET)
         ai_cfg = await cls._resolve_ai(db) if use_ai else {'available': False, 'reason': '未启用 AI'}

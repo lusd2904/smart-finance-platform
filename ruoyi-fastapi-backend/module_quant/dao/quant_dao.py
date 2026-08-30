@@ -535,6 +535,10 @@ class QuantSnapshotDao:
         alpha158: dict[str, Any] | None,
     ) -> None:
         """按标的覆盖写入 Alpha101/158 明细行，不再把整包 JSON 塞进 TEXT。"""
+        alpha101 = alpha101 or {}
+        alpha158 = alpha158 or {}
+        if not alpha101 and not alpha158:
+            return
         as_of_key = (as_of or datetime.now().strftime('%Y-%m-%d'))[:16]
         now = datetime.now()
         for model, payload in (

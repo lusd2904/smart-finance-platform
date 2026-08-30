@@ -89,8 +89,7 @@ def test_daily_factor_scan_batches_klines_per_market() -> None:
     assert len(many_calls) == 1
     assert many_calls[0] == ('US', ['AAPL', 'MSFT'], '-1y', 320)
     assert len(compute_calls) == 2
-    assert compute_calls[0][0]['close'] == 10
-    assert compute_calls[1][0]['close'] == 20
+    assert {row[0]['close'] for row in compute_calls} == {10, 20}
     assert payload['symbolCount'] == 2
     assert payload['failedCount'] == 0
     assert {it['symbol'] for it in payload['items']} == {'AAPL', 'MSFT'}
@@ -308,5 +307,18 @@ def test_replace_alpha_values_bulk_skips_empty() -> None:
     db.execute = AsyncMock()
     db.flush = AsyncMock()
     asyncio.run(QuantSnapshotDao.replace_alpha_values_bulk(db, []))
+    db.execute.assert_not_called()
+    db.flush.assert_not_called()
+
+
+def test_replace_alpha_values_skips_empty_payloads() -> None:
+    db = AsyncMock()
+    db.execute = AsyncMock()
+    db.flush = AsyncMock()
+    asyncio.run(
+        QuantSnapshotDao.replace_alpha_values(
+            db, symbol='AAPL', market='US', as_of='2024-01-02', alpha101={}, alpha158={}
+        )
+    )
     db.execute.assert_not_called()
     db.flush.assert_not_called()

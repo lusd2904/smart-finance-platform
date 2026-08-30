@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 ALPHA_ENGINE_VERSION = 'alpha-101-158-v1'
 ALPHA101_WINDOWS_NEED = 60
@@ -92,53 +93,205 @@ def _ts_cov(left: pd.Series, right: pd.Series, window: int) -> pd.Series:
     return left.rolling(window, min_periods=_minp(window, 2)).cov(right)
 
 
+def _as_float_array(series: pd.Series) -> np.ndarray:
+    return pd.to_numeric(series, errors='coerce').to_numpy(dtype=float, copy=False)
+
+
 def _ts_rank(series: pd.Series, window: int = 20) -> pd.Series:
-    return series.rolling(window, min_periods=_minp(window)).apply(
-        lambda arr: float(np.searchsorted(np.sort(arr), arr[-1], side='right') / max(len(arr), 1)),
-        raw=True,
-    )
+    values = _as_float_array(series)
+    n = values.size
+    out = np.full(n, np.nan, dtype=float)
+    min_periods = _minp(window)
+    if n >= window:
+        views = sliding_window_view(values, window)
+        out[window - 1 :] = (views <= views[:, -1:]).sum(axis=1) / float(window)
+    for i in range(min_periods - 1, min(window - 1, n)):
+        arr = values[max(0, i + 1 - window) : i + 1]
+        if arr.size == 0 or not np.isfinite(values[i]):
+            continue
+        out[i] = float(np.searchsorted(np.sort(arr), arr[-1], side='right') / max(arr.size, 1))
+    return pd.Series(out, index=series.index)
 
 
 def _ts_argmax(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window, min_periods=_minp(window)).apply(np.argmax, raw=True)
+    values = _as_float_array(series)
+    n = values.size
+    out = np.full(n, np.nan, dtype=float)
+    min_periods = _minp(window)
+    if n >= window:
+        out[window - 1 :] = sliding_window_view(values, window).argmax(axis=1)
+    for i in range(min_periods - 1, min(window - 1, n)):
+        arr = values[max(0, i + 1 - window) : i + 1]
+        if arr.size:
+            out[i] = float(np.argmax(arr))
+    return pd.Series(out, index=series.index)
 
 
 def _ts_argmin(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window, min_periods=_minp(window)).apply(np.argmin, raw=True)
+    values = _as_float_array(series)
+    n = values.size
+    out = np.full(n, np.nan, dtype=float)
+    min_periods = _minp(window)
+    if n >= window:
+        out[window - 1 :] = sliding_window_view(values, window).argmin(axis=1)
+    for i in range(min_periods - 1, min(window - 1, n)):
+        arr = values[max(0, i + 1 - window) : i + 1]
+        if arr.size:
+            out[i] = float(np.argmin(arr))
+    return pd.Series(out, index=series.index)
+
+
+def _window_slope(arr: np.ndarray) -> float:
+    if arr.size < 3 or np.allclose(arr, arr[0]):
+        return 0.0
+    x = np.arange(arr.size, dtype=float)
+    x = x - x.mean()
+    y = arr - arr.mean()
+    denom = float(np.dot(x, x))
+    if denom == 0:
+        return 0.0
+    return float(np.dot(x, y) / denom)
+
+
+def _window_rsquare(arr: np.ndarray) -> float:
+    if arr.size < 3 or np.allclose(arr, arr[0]):
+        return 0.0
+    x = np.arange(arr.size, dtype=float)
+    x = x - x.mean()
+    y = arr - arr.mean()
+    denom = float(np.dot(x, x) * np.dot(y, y))
+    if denom <= 0:
+        return 0.0
+    return float((np.dot(x, y) ** 2) / denom)
 
 
 def _slope(series: pd.Series, window: int) -> pd.Series:
-    idx = np.arange(window, dtype=float)
-
-    def _fit(arr: np.ndarray) -> float:
-        if len(arr) < 3 or np.allclose(arr, arr[0]):
-            return 0.0
-        x = idx[-len(arr) :]
-        x = x - x.mean()
-        y = arr - arr.mean()
-        denom = float(np.dot(x, x))
-        if denom == 0:
-            return 0.0
-        return float(np.dot(x, y) / denom)
-
-    return series.rolling(window, min_periods=_minp(window, 3)).apply(_fit, raw=True)
+    values = _as_float_array(series)
+    n = values.size
+    out = np.full(n, np.nan, dtype=float)
+    min_periods = _minp(window, 3)
+    x = np.arange(window, dtype=float)
+    x = x - x.mean()
+    denom = float(np.dot(x, x))
+    if n >= window and denom:
+        views = sliding_window_view(values, window)
+        ok = np.isfinite(views).all(axis=1)
+        tail = np.full(len(views), np.nan, dtype=float)
+        if ok.any():
+            good = views[ok]
+            centered = good - good.mean(axis=1, keepdims=True)
+            constant = np.all(np.isclose(good, good[:, :1]), axis=1)
+            tail[ok] = np.where(constant, 0.0, (centered @ x) / denom)
+        out[window - 1 :] = tail
+    for i in range(min_periods - 1, min(window - 1, n)):
+        out[i] = _window_slope(values[max(0, i + 1 - window) : i + 1])
+    return pd.Series(out, index=series.index)
 
 
 def _rsquare(series: pd.Series, window: int) -> pd.Series:
-    idx = np.arange(window, dtype=float)
+    values = _as_float_array(series)
+    n = values.size
+    out = np.full(n, np.nan, dtype=float)
+    min_periods = _minp(window, 3)
+    x = np.arange(window, dtype=float)
+    x = x - x.mean()
+    xx = float(np.dot(x, x))
+    if n >= window and xx:
+        views = sliding_window_view(values, window)
+        ok = np.isfinite(views).all(axis=1)
+        tail = np.full(len(views), np.nan, dtype=float)
+        if ok.any():
+            good = views[ok]
+            y = good - good.mean(axis=1, keepdims=True)
+            yy = np.einsum('ij,ij->i', y, y)
+            xy = y @ x
+            denom = xx * yy
+            rsq = np.divide(xy * xy, denom, out=np.zeros(ok.sum()), where=denom > 0)
+            constant = np.all(np.isclose(good, good[:, :1]), axis=1)
+            tail[ok] = np.where(constant, 0.0, rsq)
+        out[window - 1 :] = tail
+    for i in range(min_periods - 1, min(window - 1, n)):
+        out[i] = _window_rsquare(values[max(0, i + 1 - window) : i + 1])
+    return pd.Series(out, index=series.index)
 
-    def _fit(arr: np.ndarray) -> float:
-        if len(arr) < 3 or np.allclose(arr, arr[0]):
-            return 0.0
-        x = idx[-len(arr) :]
-        x = x - x.mean()
-        y = arr - arr.mean()
-        denom = float(np.dot(x, x) * np.dot(y, y))
-        if denom <= 0:
-            return 0.0
-        return float((np.dot(x, y) ** 2) / denom)
 
-    return series.rolling(window, min_periods=_minp(window, 3)).apply(_fit, raw=True)
+def _tail(series: pd.Series, window: int) -> pd.Series:
+    if window <= 0 or len(series) == 0:
+        return series.iloc[0:0]
+    return series.iloc[-min(int(window), len(series)) :]
+
+
+def _last_mean(series: pd.Series, window: int, floor: int = 2) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window, floor):
+        return 0.0
+    return _finite(chunk.mean())
+
+
+def _last_slope(series: pd.Series, window: int) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window, 3):
+        return 0.0
+    return _window_slope(_as_float_array(chunk))
+
+
+def _last_rsquare(series: pd.Series, window: int) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window, 3):
+        return 0.0
+    return _window_rsquare(_as_float_array(chunk))
+
+
+def _last_std(series: pd.Series, window: int) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window, 2):
+        return 0.0
+    return _finite(chunk.std())
+
+
+def _last_sum(series: pd.Series, window: int) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window):
+        return 0.0
+    return _finite(chunk.sum())
+
+
+def _last_minmax(series: pd.Series, window: int, how: str) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window):
+        return 0.0
+    return _finite(chunk.max() if how == 'max' else chunk.min())
+
+
+def _last_quantile(series: pd.Series, window: int, q: float) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < max(3, window // 2):
+        return 0.0
+    return _finite(chunk.quantile(q))
+
+
+def _last_rank(series: pd.Series, window: int) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window):
+        return 0.0
+    arr = chunk.to_numpy(dtype=float)
+    return float(np.searchsorted(np.sort(arr), arr[-1], side='right') / max(arr.size, 1))
+
+
+def _last_corr(left: pd.Series, right: pd.Series, window: int) -> float:
+    a = _tail(left, window)
+    b = _tail(right, window)
+    if len(a) < _minp(window, 2):
+        return 0.0
+    return _finite(a.corr(b))
+
+
+def _last_arg(series: pd.Series, window: int, how: str) -> float:
+    chunk = _tail(series, window)
+    if len(chunk) < _minp(window):
+        return 0.0
+    arr = chunk.to_numpy(dtype=float)
+    return float(np.argmax(arr) if how == 'max' else np.argmin(arr))
 
 
 def _ts_scale(series: pd.Series) -> pd.Series:
@@ -282,7 +435,10 @@ def compute_alpha101(df: pd.DataFrame) -> dict[str, float]:
 
 
 def compute_alpha158(df: pd.DataFrame) -> dict[str, float]:
-    """Qlib Alpha158 风格特征：K 线形态 + 价量相对值 + 多窗口滚动算子。"""
+    """Qlib Alpha158 风格特征：K 线形态 + 价量相对值 + 多窗口滚动算子。
+
+    特征不互相嵌套，只取末根，因此只算最后窗口，与整段 rolling 取末值同口径。
+    """
     frame = _prep(df)
     if frame is None:
         return {}
@@ -295,68 +451,95 @@ def compute_alpha158(df: pd.DataFrame) -> dict[str, float]:
     vw = frame['vwap']
     prev = _delay(c, 1)
     chg = c - prev
+    n = len(c)
+    last_o = float(o.iloc[-1])
+    last_h = float(h.iloc[-1])
+    last_low = float(low.iloc[-1])
+    last_c = float(c.iloc[-1])
+    last_v = float(v.iloc[-1])
+    last_c_safe = last_c + 1e-12
+    last_o_safe = last_o + 1e-12
+    rng = last_h - last_low
     out: dict[str, float] = {}
 
-    def put(name: str, series: pd.Series) -> None:
-        out[name] = round(_last(series), 6)
+    def put(name: str, value: Any) -> None:
+        out[name] = round(_finite(value), 6)
 
-    rng = (h - low).replace(0, np.nan)
-    put('KMID', (c - o) / (o + 1e-12))
-    put('KLEN', (h - low) / (o + 1e-12))
-    put('KMID2', (c - o) / (rng + 1e-12))
-    put('KUP', (h - np.maximum(o, c)) / (o + 1e-12))
-    put('KUP2', (h - np.maximum(o, c)) / (rng + 1e-12))
-    put('KLOW', (np.minimum(o, c) - low) / (o + 1e-12))
-    put('KLOW2', (np.minimum(o, c) - low) / (rng + 1e-12))
-    put('KSFT', (2 * c - h - low) / (o + 1e-12))
-    put('KSFT2', (2 * c - h - low) / (rng + 1e-12))
+    put('KMID', (last_c - last_o) / last_o_safe)
+    put('KLEN', (last_h - last_low) / last_o_safe)
+    put('KMID2', (last_c - last_o) / (rng + 1e-12))
+    put('KUP', (last_h - max(last_o, last_c)) / last_o_safe)
+    put('KUP2', (last_h - max(last_o, last_c)) / (rng + 1e-12))
+    put('KLOW', (min(last_o, last_c) - last_low) / last_o_safe)
+    put('KLOW2', (min(last_o, last_c) - last_low) / (rng + 1e-12))
+    put('KSFT', (2 * last_c - last_h - last_low) / last_o_safe)
+    put('KSFT2', (2 * last_c - last_h - last_low) / (rng + 1e-12))
 
     for lag in range(0, 5):
-        put(f'OPEN{lag}', _delay(o, lag) / (c + 1e-12))
-        put(f'HIGH{lag}', _delay(h, lag) / (c + 1e-12))
-        put(f'LOW{lag}', _delay(low, lag) / (c + 1e-12))
-        put(f'VWAP{lag}', _delay(vw, lag) / (c + 1e-12))
-        put(f'VOLUME{lag}', _delay(v, lag) / (v + 1e-12))
+        if n > lag:
+            put(f'OPEN{lag}', float(o.iloc[-1 - lag]) / last_c_safe)
+            put(f'HIGH{lag}', float(h.iloc[-1 - lag]) / last_c_safe)
+            put(f'LOW{lag}', float(low.iloc[-1 - lag]) / last_c_safe)
+            put(f'VWAP{lag}', float(vw.iloc[-1 - lag]) / last_c_safe)
+            put(f'VOLUME{lag}', float(v.iloc[-1 - lag]) / (last_v + 1e-12))
+        else:
+            put(f'OPEN{lag}', 0.0)
+            put(f'HIGH{lag}', 0.0)
+            put(f'LOW{lag}', 0.0)
+            put(f'VWAP{lag}', 0.0)
+            put(f'VOLUME{lag}', 0.0)
 
     log_vol = np.log(v + 1.0)
     vol_chg = np.log((v / _delay(v, 1).clip(lower=1e-12)) + 1.0)
     ret1 = c / prev.replace(0, np.nan)
+    up = (c > prev).astype(float)
+    down = (c < prev).astype(float)
+    abs_chg = chg.abs()
+    pos_chg = chg.clip(lower=0)
+    neg_chg = (-chg).clip(lower=0)
 
     for window in ALPHA158_WINDOWS:
-        put(f'ROC{window}', _delay(c, window) / (c + 1e-12))
-        put(f'MA{window}', _ts_mean(c, window) / (c + 1e-12))
-        put(f'STD{window}', _ts_std(c, window) / (c + 1e-12))
-        put(f'BETA{window}', _slope(c, window) / (c + 1e-12))
-        put(f'RSQR{window}', _rsquare(c, window))
-        resid = c - (_slope(c, window) * np.arange(len(c)) + _ts_mean(c, window))
-        put(f'RESI{window}', resid / (c + 1e-12))
-        put(f'MAX{window}', _ts_max(h, window) / (c + 1e-12))
-        put(f'MIN{window}', _ts_min(low, window) / (c + 1e-12))
-        put(f'QTLU{window}', c.rolling(window, min_periods=max(3, window // 2)).quantile(0.8) / (c + 1e-12))
-        put(f'QTLD{window}', c.rolling(window, min_periods=max(3, window // 2)).quantile(0.2) / (c + 1e-12))
-        put(f'RANK{window}', _ts_rank(c, window))
-        lo = _ts_min(low, window)
-        hi = _ts_max(h, window)
-        put(f'RSV{window}', (c - lo) / (hi - lo + 1e-12))
-        put(f'IMAX{window}', _ts_argmax(h, window) / float(window))
-        put(f'IMIN{window}', _ts_argmin(low, window) / float(window))
-        put(f'IMXD{window}', (_ts_argmax(h, window) - _ts_argmin(low, window)) / float(window))
-        put(f'CORR{window}', _ts_corr(c, log_vol, window))
-        put(f'CORD{window}', _ts_corr(ret1, vol_chg, window))
-        up = (c > prev).astype(float)
-        down = (c < prev).astype(float)
-        put(f'CNTP{window}', _ts_mean(up, window))
-        put(f'CNTN{window}', _ts_mean(down, window))
-        put(f'CNTD{window}', _ts_mean(up, window) - _ts_mean(down, window))
-        put(f'SUM{window}', _ts_sum(c, window) / (c + 1e-12))
-        abs_chg = chg.abs()
-        sump = _ts_sum(chg.clip(lower=0), window) / (_ts_sum(abs_chg, window) + 1e-12)
-        sumn = _ts_sum((-chg).clip(lower=0), window) / (_ts_sum(abs_chg, window) + 1e-12)
+        put(f'ROC{window}', float(c.iloc[-1 - window]) / last_c_safe if n > window else 0.0)
+        ma = _last_mean(c, window)
+        std = _last_std(c, window)
+        sl = _last_slope(c, window)
+        mean_ready = len(_tail(c, window)) >= _minp(window)
+        put(f'MA{window}', ma / last_c_safe)
+        put(f'STD{window}', std / last_c_safe)
+        put(f'BETA{window}', sl / last_c_safe)
+        put(f'RSQR{window}', _last_rsquare(c, window))
+        if mean_ready:
+            put(f'RESI{window}', (last_c - (sl * (n - 1) + ma)) / last_c_safe)
+        else:
+            put(f'RESI{window}', 0.0)
+        hi = _last_minmax(h, window, 'max')
+        lo = _last_minmax(low, window, 'min')
+        put(f'MAX{window}', hi / last_c_safe)
+        put(f'MIN{window}', lo / last_c_safe)
+        put(f'QTLU{window}', _last_quantile(c, window, 0.8) / last_c_safe)
+        put(f'QTLD{window}', _last_quantile(c, window, 0.2) / last_c_safe)
+        put(f'RANK{window}', _last_rank(c, window))
+        put(f'RSV{window}', (last_c - lo) / (hi - lo + 1e-12))
+        imax = _last_arg(h, window, 'max')
+        imin = _last_arg(low, window, 'min')
+        put(f'IMAX{window}', imax / float(window))
+        put(f'IMIN{window}', imin / float(window))
+        put(f'IMXD{window}', (imax - imin) / float(window))
+        put(f'CORR{window}', _last_corr(c, log_vol, window))
+        put(f'CORD{window}', _last_corr(ret1, vol_chg, window))
+        cntp = _last_mean(up, window)
+        cntn = _last_mean(down, window)
+        put(f'CNTP{window}', cntp)
+        put(f'CNTN{window}', cntn)
+        put(f'CNTD{window}', cntp - cntn)
+        put(f'SUM{window}', _last_sum(c, window) / last_c_safe)
+        sum_abs = _last_sum(abs_chg, window)
+        sump = _last_sum(pos_chg, window) / (sum_abs + 1e-12)
+        sumn = _last_sum(neg_chg, window) / (sum_abs + 1e-12)
         put(f'SUMP{window}', sump)
         put(f'SUMN{window}', sumn)
         put(f'SUMD{window}', sump - sumn)
 
-    # SUMD already stored as series last via put above through the last line; keep as series
     return {k: _finite(v) for k, v in out.items()}
 
 

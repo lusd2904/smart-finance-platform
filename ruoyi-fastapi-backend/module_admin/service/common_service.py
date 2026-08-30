@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 import aiofiles
 from fastapi import BackgroundTasks, Request, UploadFile
@@ -9,6 +10,43 @@ from config.env import UploadConfig
 from exceptions.exception import ServiceException
 from module_admin.entity.vo.common_vo import UploadResponseModel
 from utils.upload_util import UploadUtil
+
+GUIDE_MODULES = {
+    'market': '行情中心使用说明',
+    'quant': '量化交易使用说明',
+    'trade': '交易中心使用说明',
+    'sentiment': '舆情分析使用说明',
+    'ai': 'AI 管理使用说明',
+    'analysis': '任务中心使用说明',
+}
+
+GUIDE_DIR = Path(__file__).resolve().parents[2] / 'resources' / 'guides'
+
+
+def _guide_title(markdown: str, fallback: str) -> str:
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('# '):
+            return stripped[2:].strip() or fallback
+    return fallback
+
+
+def load_guide(module: str) -> dict[str, str] | None:
+    if module not in GUIDE_MODULES:
+        return None
+    path = (GUIDE_DIR / f'{module}.md').resolve()
+    try:
+        path.relative_to(GUIDE_DIR.resolve())
+    except ValueError:
+        return None
+    if not path.is_file():
+        return None
+    markdown = path.read_text(encoding='utf-8')
+    return {
+        'module': module,
+        'title': _guide_title(markdown, GUIDE_MODULES[module]),
+        'markdown': markdown,
+    }
 
 
 class CommonService:
@@ -97,3 +135,8 @@ class CommonService:
         if not UploadUtil.check_file_exists(filepath):
             raise ServiceException(message='文件不存在')
         return CrudResponseModel(is_success=True, result=UploadUtil.generate_file(filepath), message='下载成功')
+
+    @classmethod
+    def load_guide_service(cls, module: str) -> dict[str, str] | None:
+        """读取 resources/guides/{module}.md；未知模块或文件缺失返回 None。"""
+        return load_guide(module)
