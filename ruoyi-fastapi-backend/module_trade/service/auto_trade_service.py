@@ -833,13 +833,17 @@ class AutoTradeService:
                 metrics = ((item.get('factor_json') or {}).get('metrics') or {})
                 if not item.get('symbol') or not isinstance(metrics, dict):
                     continue
+                alpha101 = metrics.get('alpha101') or {}
+                alpha158 = metrics.get('alpha158') or {}
+                if not alpha101 and not alpha158:
+                    continue
                 await QuantSnapshotDao.replace_alpha_values(
                     db,
                     symbol=str(item.get('symbol')),
                     market=str(item.get('market') or 'US'),
                     as_of=str(metrics.get('tradeDate') or '')[:16],
-                    alpha101=metrics.get('alpha101') or {},
-                    alpha158=metrics.get('alpha158') or {},
+                    alpha101=alpha101,
+                    alpha158=alpha158,
                 )
         except Exception:
             logger.exception(f'[AI自动交易] 写入 Alpha 因子表失败 cycle_id={cycle_id}')

@@ -5,6 +5,27 @@
 
 ## [Unreleased]
 
+### ⚡ 策略评估 / 末根 8 族 / Alpha158
+- 策略循环与自动交易扫描打分 `include_alpha=False`；空 Alpha 不再 `replace_alpha_values`（避免冲掉日扫明细）
+- 末根 8 族只取最后一行，CCI / 下行波动 / 回撤走最后窗口，不再整段 `rolling.apply`
+- Alpha158 只算最后窗口；Alpha101 的 rank/slope/rsquare/argmax 改为 `sliding_window_view`
+- 热度指数涨跌改 `query_latest_klines`；持仓止损按市场批量补最新价
+
+### ⚡ 选股 / 日扫打分加速
+- 智能选股与单标的研判打分 `include_alpha=False`（页面不用 Alpha101/158），候选按 8 线程并行
+- 因子日扫仍算并落库 Alpha，计算改为同款线程池，不再单线程串行
+
+### ⚡ 回测一次算完 8 族序列
+- `factor_signals` 不再对每个交易日重算 `klines[:i+1]`（单标的一年约 18s）
+- 8 族指标改为整段 rolling/ewm 一次算完再逐日打分；回测不跑 Alpha101/158
+- 单标的 320 根回测目标 < 0.5s，信号与前缀重算口径对齐
+
+### 📖 各子系统使用说明
+- 行情 / 量化 / 交易 / 舆情 / AI / 任务中心侧栏最后一项为「使用说明」
+- 文案在 `resources/guides/*.md`；`GET /common/guide/{module}`；Vue 与 Flutter 共用同一套
+- 手机「我的」增加使用说明入口
+- 增量 SQL：`sql/subsystem-guides.sql`（`python3 scripts/sql_migrate.py apply`）
+
 ### 📱 手机行情对照券商 App
 - 底栏改为 **自选 / 行情 / 选股 / 持仓 / 我的**（舆情进「我的」）
 - 行情、自选、选股去掉圆角卡片和分段按钮，改成下划线档 + 密排报价行（最新价 + 涨跌幅色块）

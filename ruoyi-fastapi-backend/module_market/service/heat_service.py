@@ -204,7 +204,8 @@ class MarketHeatService:
     @classmethod
     def _index_change_from_influx(cls, market: str, symbol: str) -> float | None:
         try:
-            klines = InfluxUtil.query_klines(market, symbol, '-30d', 'now()', 3)
+            grouped = InfluxUtil.query_latest_klines(market, [symbol], 2, '-30d')
+            klines = grouped.get(symbol) or []
             if len(klines) < MIN_KLINES_FOR_CHANGE:
                 return None
             prev = klines[-2]

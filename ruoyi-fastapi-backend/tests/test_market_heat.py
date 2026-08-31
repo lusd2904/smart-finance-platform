@@ -95,7 +95,7 @@ async def test_market_heat_collect_skips_on_breaker() -> None:
 
 def test_index_change_from_influx_returns_none_on_error() -> None:
     with patch(
-        'module_market.service.heat_service.InfluxUtil.query_klines',
+        'module_market.service.heat_service.InfluxUtil.query_latest_klines',
         side_effect=RuntimeError('influx down'),
     ):
         assert MarketHeatService._index_change_from_influx('US', '^GSPC') is None

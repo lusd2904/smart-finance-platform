@@ -227,6 +227,47 @@ def test_analyze_symbol_scores_and_applies_ai() -> None:
     asyncio.run(_run())
 
 
+def test_score_symbol_row_skips_alpha() -> None:
+    klines = [{'date': '2026-01-02', 'open': 1, 'high': 1, 'low': 1, 'close': 1, 'volume': 1}]
+    seen: dict[str, object] = {}
+
+    def fake_compute(bars, strategy_profile='balanced', weights=None, include_alpha=True):
+        seen['include_alpha'] = include_alpha
+        seen['bars'] = bars
+        return {
+            'ok': True,
+            'metrics': {
+                'latestClose': 10,
+                'dayChangePercent': 1.2,
+                'rsi14': 55,
+                'macdHist': 0.1,
+                'ma20': 9.5,
+                'volumeRatio20': 1.1,
+                'return20': 3.2,
+            },
+            'score': {
+                'total': 70,
+                'trendDirection': 'up',
+                'riskLevel': 'low',
+                'tags': ['站上20日线'],
+            },
+        }
+
+    with patch('module_market.service.stock_pick_service.FactorService.compute_from_klines', fake_compute):
+        row = StockPickService._score_symbol_row(
+            symbol='AAPL',
+            name='苹果',
+            market='US',
+            klines=klines,
+            mood={'openMarkets': ['US'], 'sentiment': {}, 'heat': {}, 'indices': []},
+        )
+    assert seen['include_alpha'] is False
+    assert seen['bars'] == klines
+    assert row is not None
+    assert row['factorScore'] == 70
+    assert 'alpha101' not in (row.get('metrics') or {})
+
+
 def test_analyze_symbol_without_klines_returns_error() -> None:
     async def _run() -> None:
         with patch(

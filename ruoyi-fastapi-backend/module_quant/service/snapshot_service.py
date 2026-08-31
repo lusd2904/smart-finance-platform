@@ -12,13 +12,14 @@ import csv
 import io
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
 from module_quant.service.alpha_engine import attach_cross_section_alphas
-from module_quant.service.factor_service import FactorService
+from module_quant.service.factor_service import FACTOR_SCORE_WORKERS, FactorService
 from module_quant.service.readmodel_service import (
     BOARD_TTL,
     FACTOR_TTL,
@@ -96,23 +97,34 @@ class SnapshotService:
             for symbol in unique:
                 prefetched[(symbol, market)] = (fetched or {}).get(symbol) or []
 
+        def _compute_one(symbol: str, name: str, market: str) -> dict[str, Any]:
+            klines = prefetched.get((symbol, market)) or []
+            result = FactorService.compute_from_klines(klines, profile, weights=profile_cfg)
+            return _snapshot_from_result(symbol, market, result, name)
+
         def _compute_batch() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+            jobs = [
+                (symbol, name, market)
+                for symbol, name, market in universe
+                if market not in skipped_markets
+            ]
             batch_snaps: list[dict[str, Any]] = []
             batch_failed: list[dict[str, str]] = []
-            for symbol, name, market in universe:
-                if market in skipped_markets:
-                    continue
-                klines = prefetched.get((symbol, market)) or []
-                try:
-                    result = FactorService.compute_from_klines(klines, profile, weights=profile_cfg)
-                    snap = _snapshot_from_result(symbol, market, result, name)
-                except Exception as exc:
-                    batch_failed.append({'symbol': symbol, 'reason': str(exc)})
-                    continue
-                if not snap.get('ok'):
-                    batch_failed.append({'symbol': symbol, 'reason': snap.get('reason') or '失败'})
-                    continue
-                batch_snaps.append(snap)
+            if not jobs:
+                return batch_snaps, batch_failed
+            workers = max(1, min(FACTOR_SCORE_WORKERS, len(jobs)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_compute_one, symbol, name, market) for symbol, name, market in jobs]
+                for (symbol, _name, _market), fut in zip(jobs, futures, strict=True):
+                    try:
+                        snap = fut.result()
+                    except Exception as exc:
+                        batch_failed.append({'symbol': symbol, 'reason': str(exc)})
+                        continue
+                    if not snap.get('ok'):
+                        batch_failed.append({'symbol': symbol, 'reason': snap.get('reason') or '失败'})
+                        continue
+                    batch_snaps.append(snap)
             return batch_snaps, batch_failed
 
         extra_snaps, extra_failed = await asyncio.to_thread(_compute_batch)
@@ -270,6 +282,8 @@ class SnapshotService:
                 continue
             positions = pos_res.get('positions') or []
             position_count += len(positions)
+            parsed: list[tuple[str, str, float, float | None, float | None]] = []
+            missing: dict[str, list[str]] = {}
             for pos in positions:
                 raw_symbol = str(pos.get('symbol') or '').strip()
                 if not raw_symbol:
@@ -278,10 +292,21 @@ class SnapshotService:
                 qty = _to_float(pos.get('availableQuantity') or pos.get('quantity')) or 0
                 cost = _to_float(pos.get('costPrice'))
                 last = _to_float(pos.get('lastPrice') or pos.get('price') or pos.get('currentPrice'))
+                parsed.append((symbol, market, qty, cost, last))
                 if last is None:
-                    bars = await _to_thread(InfluxUtil.query_latest_klines, market, [symbol], 1, '-30d')
-                    last_bar = (bars.get(symbol) or [None])[-1]
-                    last = _to_float(last_bar.get('close') if last_bar else None)
+                    missing.setdefault(market, []).append(symbol)
+            closes: dict[tuple[str, str], float] = {}
+            for market, symbols in missing.items():
+                unique = list(dict.fromkeys(symbols))
+                bars = await _to_thread(InfluxUtil.query_latest_klines, market, unique, 1, '-30d')
+                for sym in unique:
+                    last_bar = (bars.get(sym) or [None])[-1]
+                    px = _to_float(last_bar.get('close') if last_bar else None)
+                    if px is not None:
+                        closes[(sym, market)] = px
+            for symbol, market, qty, cost, last in parsed:
+                if last is None:
+                    last = closes.get((symbol, market))
                 pnl_pct = None
                 if cost and last:
                     pnl_pct = round((last - cost) / cost * 100, 4)

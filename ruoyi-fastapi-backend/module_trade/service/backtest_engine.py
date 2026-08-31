@@ -82,13 +82,14 @@ def factor_signals(
     weights: dict[str, Any] | None = None,
     lookback: int = LOOKBACK,
 ) -> list[str]:
-    """对每个交易日用截至当日的 K 线算因子并决策。lookback 之前为 HOLD。"""
+    """对每个交易日用截至当日的 8 族因子决策。lookback 之前为 HOLD。一次算完整序列。"""
     out = ['HOLD'] * len(klines)
     start = max(int(lookback), 20)
+    scores = FactorService.compute_score_series(klines, profile, weights)
     for i in range(start, len(klines)):
-        result = FactorService.compute_from_klines(klines[: i + 1], profile, weights=weights)
-        if not result.get('ok'):
+        score = scores[i] if i < len(scores) else None
+        if not score:
             continue
-        decision = decide_signal(result.get('score') or {}, profile, custom_thresholds=weights)
+        decision = decide_signal(score, profile, custom_thresholds=weights)
         out[i] = str(decision.get('signal') or 'HOLD').upper()
     return out
