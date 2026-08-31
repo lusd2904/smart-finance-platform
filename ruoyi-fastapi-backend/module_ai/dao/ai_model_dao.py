@@ -54,8 +54,10 @@ class AiModelDao:
             )
             .order_by(AiModels.model_sort)
         )
+        page_num = int(getattr(query_object, 'page_num', 1) or 1)
+        page_size = int(getattr(query_object, 'page_size', 10) or 10)
         ai_model_list: PageModel | list[dict[str, Any]] = await PageUtil.paginate(
-            db, query, query_object.page_num, query_object.page_size, is_page
+            db, query, page_num, page_size, is_page
         )
 
         return ai_model_list

@@ -58,7 +58,7 @@ class AiModelService:
         :return: 校验结果
         """
         ai_models = await AiModelDao.get_ai_model_list(
-            query_db, AiModelModel(modelId=model_id), data_scope_sql, is_page=False
+            query_db, AiModelPageQueryModel(modelId=model_id), data_scope_sql, is_page=False
         )
         if ai_models:
             return CrudResponseModel(is_success=True, message='校验通过')

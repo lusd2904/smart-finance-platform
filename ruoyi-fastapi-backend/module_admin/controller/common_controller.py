@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import BackgroundTasks, File, Query, Request, Response, UploadFile
+from fastapi import BackgroundTasks, File, Path, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 
 from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPreset
@@ -75,3 +75,19 @@ async def common_download_resource(request: Request, resource: Annotated[str, Qu
     logger.info(download_resource_result.message)
 
     return ResponseUtil.streaming(data=download_resource_result.result)
+
+
+@common_controller.get(
+    '/guide/{module}',
+    summary='子系统使用说明',
+    description='读取 resources/guides 下对应模块的 Markdown 使用说明',
+)
+async def common_guide(
+    request: Request,
+    module: Annotated[str, Path(description='子系统标识 market/quant/trade/sentiment/ai/analysis')],
+) -> Response:
+    guide = CommonService.load_guide_service(module)
+    if guide is None:
+        return ResponseUtil.failure(msg='说明不存在')
+    logger.info('获取使用说明成功')
+    return ResponseUtil.success(data=guide)
