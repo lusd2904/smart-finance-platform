@@ -548,7 +548,7 @@ def fetch_tencent_minute(symbol: str, market: str) -> list[dict[str, Any]]:
             payload = _extract_json_object(resp.text)
         return parse_tencent_minute_payload(payload if isinstance(payload, dict) else {}, symbol, mkt)
 
-    return _call_source('tencent', _do)
+    return _call_source('tencent', _do, validator=validate_minute_row)
 
 
 def parse_eastmoney_klines(
@@ -713,7 +713,12 @@ def _is_rate_limited(exc: Exception) -> bool:
     return any(token in text for token in ('429', '403', 'too many', 'rate limit', 'banned'))
 
 
-def _call_source(name: str, fn: Callable[[], list[dict[str, Any]]]) -> list[dict[str, Any]]:
+def _call_source(
+    name: str,
+    fn: Callable[[], list[dict[str, Any]]],
+    *,
+    validator: Callable[[dict[str, Any]], dict[str, Any] | None] = validate_ohlcv_row,
+) -> list[dict[str, Any]]:
     breaker = get_circuit_breaker(name)
     if not breaker.allow():
         logger.info(f'[K线源] {name} 熔断中，跳过')
@@ -721,7 +726,7 @@ def _call_source(name: str, fn: Callable[[], list[dict[str, Any]]]) -> list[dict
     _THROTTLE.wait(name)
     try:
         rows = fn() or []
-        valid = [r for r in (validate_ohlcv_row(x) for x in rows) if r]
+        valid = [r for r in (validator(x) for x in rows) if r]
         if valid:
             breaker.record_success()
             _THROTTLE.reward(name)

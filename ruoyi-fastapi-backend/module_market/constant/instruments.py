@@ -114,6 +114,7 @@ TARGET_INSTRUMENTS: list[tuple[str, str, str, str]] = [
     # 美股宽基 / 金融消费医疗
     ('SPY', '标普500ETF', 'US', 'etf'),
     ('QQQ', '纳指100ETF', 'US', 'etf'),
+    ('DIA', '道指ETF', 'US', 'etf'),
     ('IWM', '罗素2000ETF', 'US', 'etf'),
     ('JPM', '摩根大通', 'US', 'finance'),
     ('BAC', '美国银行', 'US', 'finance'),
