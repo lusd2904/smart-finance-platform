@@ -5,6 +5,9 @@ from pydantic.alias_generators import to_camel
 
 from utils.time_format_util import format_beijing_datetime
 
+# 与 Flutter sentimentIndexTo100 一致：落在该闭区间视为历史 ±10 制。
+_LEGACY_SIGNED_SCORE_MAX = 10.0
+
 
 def normalize_sentiment_score(raw: float | int | str | None) -> float | None:
     """对齐 Flutter `sentimentIndexTo100`：[-10,10] → (x+10)*5；已是 0–100 则原样夹紧。"""
@@ -14,8 +17,8 @@ def normalize_sentiment_score(raw: float | int | str | None) -> float | None:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    if -10 <= value <= 10:
-        return max(0.0, min(100.0, (value + 10) * 5))
+    if -_LEGACY_SIGNED_SCORE_MAX <= value <= _LEGACY_SIGNED_SCORE_MAX:
+        return max(0.0, min(100.0, (value + _LEGACY_SIGNED_SCORE_MAX) * 5))
     return max(0.0, min(100.0, value))
 
 

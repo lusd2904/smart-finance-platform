@@ -33,8 +33,8 @@ from module_sentiment.service.analyzer_service import (
 from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
-from utils.log_util import logger
 from utils.influx_util import InfluxQueryError, InfluxUtil
+from utils.log_util import logger
 from utils.time_format_util import BEIJING_TZ, apply_beijing_times, format_beijing_datetime, now_beijing
 
 
