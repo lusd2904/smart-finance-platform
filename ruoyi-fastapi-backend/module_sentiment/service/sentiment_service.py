@@ -11,6 +11,7 @@ from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, select_ai_mo
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_ai.entity.do.ai_model_do import AiModels
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
+from module_market.service.index_session import is_live_kline_session, kline_session_tag
 from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
 from module_sentiment.entity.vo.sentiment_vo import (
     DeleteSentimentNewsModel,
@@ -38,6 +39,14 @@ class SentimentService:
 
     ANALYZE_WINDOW_MINUTES = 10
     MAX_NEWS_SAFETY_CAP = 200
+    # 仅行情读取：admin → lustone → 乐文；不下单。
+    _QUOTE_READ_USER_IDS = (1, 101, 100)
+    _US_SESSION_PROXIES = (
+        {'etf': 'SPY', 'index_symbol': 'usINX', 'name': '标普500'},
+        {'etf': 'QQQ', 'index_symbol': 'usIXIC', 'name': '纳斯达克'},
+        {'etf': 'DIA', 'index_symbol': 'usDJI', 'name': '道琼斯'},
+    )
+    _US_EXTENDED_SESSIONS = frozenset({'pre', 'post', 'overnight'})
 
     @staticmethod
     def _is_complete_model(model: AiModels) -> bool:
@@ -256,6 +265,223 @@ class SentimentService:
     # ---------- 分析 ----------
 
     @classmethod
+    def _analysis_session_status(cls) -> dict[str, dict[str, Any]]:
+        sessions = list_session_status()
+        for market, info in sessions.items():
+            info['session'] = kline_session_tag(market)
+            info['live'] = is_live_kline_session(market)
+        return sessions
+
+    @staticmethod
+    def _parse_quote_time(value: Any) -> Any:
+        from datetime import datetime as dt
+
+        if value is None or value == '':
+            return None
+        if isinstance(value, dt):
+            return value.replace(tzinfo=None) if value.tzinfo else value
+        text = str(value).strip().replace('T', ' ').replace('Z', '')
+        for fmt, size in (('%Y-%m-%d %H:%M:%S', 19), ('%Y-%m-%d %H:%M', 16), ('%Y%m%d%H%M%S', 14)):
+            chunk = text[:size]
+            try:
+                return dt.strptime(chunk, fmt)
+            except ValueError:
+                continue
+        try:
+            parsed = dt.fromisoformat(text)
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+
+    @classmethod
+    def _quote_is_more_current(cls, candidate: dict[str, Any], baseline: dict[str, Any] | None) -> bool:
+        if not candidate:
+            return False
+        if not baseline:
+            return True
+        cand_dt = cls._parse_quote_time(candidate.get('quoteTime'))
+        base_dt = cls._parse_quote_time(baseline.get('quoteTime'))
+        if cand_dt and base_dt:
+            return cand_dt > base_dt
+        return bool(cand_dt and not base_dt)
+
+    @classmethod
+    def merge_us_session_quotes(
+        cls,
+        index_items: list[dict[str, Any]],
+        proxy_items: list[dict[str, Any]],
+        us_session: str,
+    ) -> list[dict[str, Any]]:
+        """美股延长时段用更现时的 ETF/长桥报价覆盖过期常规盘指数。"""
+        tagged: list[dict[str, Any]] = []
+        for item in index_items:
+            row = dict(item)
+            if str(row.get('market') or '').upper() == 'US':
+                row.setdefault('session', us_session)
+                row.setdefault('source', row.get('source') or 'tencent')
+            tagged.append(row)
+        if not proxy_items or us_session == 'closed':
+            return tagged
+        proxy_by_etf: dict[str, dict[str, Any]] = {}
+        for proxy in proxy_items:
+            symbol = str(proxy.get('symbol') or '').upper().replace('.US', '')
+            proxy_by_etf[symbol] = proxy
+        by_symbol: dict[str, dict[str, Any]] = {}
+        others: list[dict[str, Any]] = []
+        for row in tagged:
+            if str(row.get('market') or '').upper() == 'US':
+                by_symbol[str(row.get('symbol') or '')] = row
+            else:
+                others.append(row)
+        proxy_keys = {spec['index_symbol'] for spec in cls._US_SESSION_PROXIES}
+        for spec in cls._US_SESSION_PROXIES:
+            proxy = proxy_by_etf.get(spec['etf'])
+            if not proxy or proxy.get('last') is None:
+                continue
+            current = by_symbol.get(spec['index_symbol'])
+            use_proxy = us_session in cls._US_EXTENDED_SESSIONS or cls._quote_is_more_current(proxy, current)
+            if not use_proxy:
+                continue
+            merged = dict(current) if current else {
+                'market': 'US',
+                'symbol': spec['index_symbol'],
+                'name': spec['name'],
+            }
+            if current and current.get('changePct') is not None:
+                merged['rthChangePct'] = current.get('changePct')
+                merged['rthQuoteTime'] = current.get('quoteTime')
+            change_pct = proxy.get('changePct')
+            if change_pct is None:
+                change_pct = proxy.get('changeRate')
+            merged.update(
+                {
+                    'market': 'US',
+                    'symbol': spec['index_symbol'],
+                    'name': spec['name'],
+                    'last': proxy.get('last'),
+                    'prevClose': proxy.get('prevClose'),
+                    'changePct': change_pct,
+                    'quoteTime': proxy.get('quoteTime') or proxy.get('timestamp'),
+                    'session': us_session,
+                    'source': proxy.get('source') or 'longbridge',
+                    'proxy': f'{spec["etf"]}.US',
+                    'volume': proxy.get('volume'),
+                }
+            )
+            by_symbol[spec['index_symbol']] = merged
+        us_rows = [
+            by_symbol[spec['index_symbol']]
+            for spec in cls._US_SESSION_PROXIES
+            if spec['index_symbol'] in by_symbol
+        ]
+        leftover = [row for key, row in by_symbol.items() if key not in proxy_keys]
+        return us_rows + leftover + others
+
+    @classmethod
+    async def _ensure_quote_read_credentials(cls, query_db: AsyncSession) -> None:
+        """行情读取凭据：admin / lustone 失效时回退乐文。只读行情，不下单。"""
+        from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
+        from module_quant.service.longbridge_service import LongbridgeService
+
+        tried: set[int] = set()
+
+        async def _load(user_id: int | None, *, admin_fallback: bool = False) -> bool:
+            await LongbridgeService.ensure_credentials_from_db(
+                query_db, user_id, allow_admin_fallback=admin_fallback
+            )
+            return bool(LongbridgeService.is_configured())
+
+        if await _load(None, admin_fallback=True):
+            return
+        for uid in cls._QUOTE_READ_USER_IDS:
+            if uid in tried:
+                continue
+            tried.add(uid)
+            if await _load(uid):
+                logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
+                return
+        try:
+            extra = await QuantLongbridgeConfigDao.list_configured_user_ids(query_db)
+        except Exception as exc:
+            logger.debug(f'[舆情分析] 列举长桥账号失败: {exc}')
+            extra = []
+        for uid in extra:
+            if uid in tried:
+                continue
+            tried.add(uid)
+            if await _load(uid):
+                logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
+                return
+
+    @classmethod
+    async def _fetch_us_session_proxies(cls, query_db: AsyncSession | None) -> list[dict[str, Any]]:
+        try:
+            from module_market.service.live_quotes_service import LiveQuotesService
+            from module_quant.service.longbridge_service import LongbridgeService
+        except Exception as exc:
+            logger.warning(f'[舆情分析] 美股代理行情模块不可用，沿用指数报价: {exc}')
+            return []
+
+        fallback: list[dict[str, Any]] = []
+        user_order: list[int | None] = [None, *cls._QUOTE_READ_USER_IDS]
+        seen: set[int] = set()
+        for uid in user_order:
+            if uid is not None:
+                if uid in seen:
+                    continue
+                seen.add(uid)
+            if query_db is not None:
+                try:
+                    await LongbridgeService.ensure_credentials_from_db(
+                        query_db, uid, allow_admin_fallback=uid is None
+                    )
+                except Exception as exc:
+                    logger.debug(f'[舆情分析] 加载长桥凭据 user={uid} 失败: {exc}')
+                    continue
+            try:
+                payload = await LiveQuotesService.get_quotes(
+                    [(spec['etf'], 'US') for spec in cls._US_SESSION_PROXIES]
+                )
+            except Exception as exc:
+                logger.warning(f'[舆情分析] 美股代理行情失败 user={uid}: {exc}')
+                continue
+            items = list(payload.get('items') or [])
+            if not items:
+                continue
+            if any(str(item.get('source') or '') == 'longbridge' for item in items):
+                if uid:
+                    logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
+                return items
+            if not fallback:
+                fallback = items
+        return fallback
+
+    @classmethod
+    async def _load_analysis_index_context(
+        cls,
+        query_db: AsyncSession | None = None,
+    ) -> tuple[list[dict[str, Any]], bool, dict[str, dict[str, Any]]]:
+        """腾讯指数 + 美股当前会话（长桥/ETF）更现时报价；失败时仍继续舆情分析。"""
+        sessions = cls._analysis_session_status()
+        try:
+            quotes_data = await MarketIndexService.get_in_session_quotes()
+            items = list(quotes_data.get('items') or [])
+        except Exception as exc:
+            logger.warning(f'[舆情分析] 指数行情拉取失败，将仅基于舆情分析: {exc}')
+            return [], True, sessions
+        us_session = str((sessions.get('US') or {}).get('session') or '')
+        if items and us_session and us_session != 'closed':
+            proxies = await cls._fetch_us_session_proxies(query_db)
+            if proxies:
+                items = cls.merge_us_session_quotes(items, proxies, us_session)
+        elif items:
+            items = cls.merge_us_session_quotes(items, [], us_session or 'closed')
+        if not items:
+            logger.warning('[舆情分析] 指数行情为空，将仅基于舆情分析')
+            return [], True, sessions
+        return items, False, sessions
+
+    @classmethod
     async def get_analysis_list_services(
         cls, query_db: AsyncSession, query_object: SentimentAnalysisPageQueryModel, is_page: bool = True
     ) -> PageModel | list[dict[str, Any]]:
@@ -458,6 +684,7 @@ class SentimentService:
             }
             for r in news_rows
         ]
+        index_quotes, quotes_unavailable, sessions = await cls._load_analysis_index_context(query_db)
         ai_result: dict[str, Any] | None = None
         used_model_name = ''
         for model in candidates:
@@ -470,6 +697,9 @@ class SentimentService:
                 model_name=runtime['modelName'],
                 news_list=news_list,
                 temperature=runtime['temperature'],
+                index_quotes=index_quotes,
+                quotes_unavailable=quotes_unavailable,
+                sessions=sessions,
             )
             used_model_name = runtime['modelName']
             if ai_result.get('ok'):
