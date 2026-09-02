@@ -28,8 +28,8 @@ enum SentimentDirection {
   }
 }
 
-/// 后端舆情影响分约为 [-10, 10]；手机仪表盘固定 0–100。
-/// |raw|≤10 时线性映射：-10→0、0→50、10→100；已是百分制则原样使用。
+/// 后端现行 0–100；历史行可能仍是 [-10, 10]。
+/// |raw|≤10 时线性映射：-10→0、0→50、10→100；已是百分制则原样夹紧。
 double? sentimentIndexTo100(double? raw) {
   if (raw == null) return null;
   if (raw >= -10 && raw <= 10) {

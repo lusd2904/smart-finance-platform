@@ -1,9 +1,22 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from pydantic.alias_generators import to_camel
 
 from utils.time_format_util import format_beijing_datetime
+
+
+def normalize_sentiment_score(raw: float | int | str | None) -> float | None:
+    """对齐 Flutter `sentimentIndexTo100`：[-10,10] → (x+10)*5；已是 0–100 则原样夹紧。"""
+    if raw is None or raw == '':
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if -10 <= value <= 10:
+        return max(0.0, min(100.0, (value + 10) * 5))
+    return max(0.0, min(100.0, value))
 
 
 class SentimentNewsModel(BaseModel):
@@ -56,14 +69,19 @@ class SentimentAnalysisModel(BaseModel):
     news_ids: str | None = Field(default=None, description='本次分析的资讯ID列表')
     summary: str | None = Field(default=None, description='舆情综述')
     us_direction: str | None = Field(default=None, description='美股影响方向')
-    us_score: float | None = Field(default=None, description='美股影响分')
+    us_score: float | None = Field(default=None, description='美股影响分（0–100）')
     us_reason: str | None = Field(default=None, description='美股影响理由')
     hk_direction: str | None = Field(default=None, description='港股影响方向')
-    hk_score: float | None = Field(default=None, description='港股影响分')
+    hk_score: float | None = Field(default=None, description='港股影响分（0–100）')
     hk_reason: str | None = Field(default=None, description='港股影响理由')
     a_direction: str | None = Field(default=None, description='A股影响方向')
-    a_score: float | None = Field(default=None, description='A股影响分')
+    a_score: float | None = Field(default=None, description='A股影响分（0–100）')
     a_reason: str | None = Field(default=None, description='A股影响理由')
+
+    @field_validator('us_score', 'hk_score', 'a_score', mode='before')
+    @classmethod
+    def _scores_to_100(cls, value: float | int | str | None) -> float | None:
+        return normalize_sentiment_score(value)
     risk_events: str | None = Field(default=None, description='风险事件提示')
     model_name: str | None = Field(default=None, description='使用的模型')
     raw_response: str | None = Field(default=None, description='模型原始返回')

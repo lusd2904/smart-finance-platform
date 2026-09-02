@@ -55,16 +55,16 @@ curl -sS \
 | `markets[].name` | string | 展示名称 |
 | `markets[].direction` | string | 原始方向文案（如「利多」） |
 | `markets[].directionNorm` | string | 归一化方向：`up` / `down` / `flat` |
-| `markets[].score` | number \| null | 影响分数 |
+| `markets[].score` | number \| null | 影响分 0–100（50 中性；历史 ±10 按手机映射换算） |
 | `markets[].reason` | string | 影响理由 |
 | `summary` | string | 最新分析摘要 |
 | `riskEvents` | string[] | 风险事件列表（已按页面逻辑解析） |
 | `latest` | object | 最新成功分析记录（调试用，含 `analysisId`、`createTime`、各市场分数/方向/理由、`modelName` 等） |
 | `trend` | array | 最近 N 次分析分数趋势，**由旧到新** |
 | `trend[].createTime` | string | 分析时间（北京时间 `YYYY-MM-DD HH:MM:SS`） |
-| `trend[].usScore` | number \| null | 美股分数 |
-| `trend[].hkScore` | number \| null | 港股分数 |
-| `trend[].aScore` | number \| null | A股分数 |
+| `trend[].usScore` | number \| null | 美股分数（0–100） |
+| `trend[].hkScore` | number \| null | 港股分数（0–100） |
+| `trend[].aScore` | number \| null | A股分数（0–100） |
 | `indexes` | array | 盘中大盘指数条（与 `/market/index/quotes` 的 `items` 一致）；**空数组时客户端应隐藏指数条** |
 | `indexes[].market` | string | 市场：`US` / `HK` / `CN` |
 | `indexes[].symbol` | string | 腾讯行情代码（如 `usINX`、`sh000001`） |

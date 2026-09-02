@@ -242,7 +242,7 @@ function renderTrend(list) {
         formatter: value => (value ? String(value).slice(5, 16) : value)
       }
     },
-    yAxis: { type: 'value', name: '分数' },
+    yAxis: { type: 'value', name: '分数', min: 0, max: 100 },
     series: [
       { name: '美股', type: 'line', smooth: true, data: list.map(item => item.usScore), itemStyle: { color: '#409eff' }, areaStyle: { opacity: 0.08 } },
       { name: '港股', type: 'line', smooth: true, data: list.map(item => item.hkScore), itemStyle: { color: '#e6a23c' }, areaStyle: { opacity: 0.08 } },

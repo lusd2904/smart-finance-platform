@@ -25,14 +25,16 @@ def clamp_score(value: float | None, default: float = 50.0) -> float:
 
 
 def normalize_sentiment(raw: float | None) -> float:
-    """舆情影响分约 -10~10，映射到 0~100。"""
+    """对齐 Flutter `sentimentIndexTo100`：[-10,10] → (x+10)*5；已是 0–100 则原样夹紧。"""
     if raw is None:
         return 50.0
     try:
         num = float(raw)
     except (TypeError, ValueError):
         return 50.0
-    return clamp_score((num + 10.0) * 5.0)
+    if -10 <= num <= 10:
+        return clamp_score((num + 10.0) * 5.0)
+    return clamp_score(num)
 
 
 def is_index_symbol(symbol: str | None, category: str | None = None) -> bool:

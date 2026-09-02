@@ -1,6 +1,10 @@
+import asyncio
 import json
 import re
+from datetime import datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +15,7 @@ from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, select_ai_mo
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_ai.entity.do.ai_model_do import AiModels
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
-from module_market.service.index_session import is_live_kline_session, kline_session_tag
+from module_market.service.index_session import MARKET_TZ, is_live_kline_session, kline_session_tag
 from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
 from module_sentiment.entity.vo.sentiment_vo import (
     DeleteSentimentNewsModel,
@@ -19,6 +23,7 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentAnalysisModel,
     SentimentAnalysisPageQueryModel,
     SentimentNewsPageQueryModel,
+    normalize_sentiment_score,
 )
 from module_sentiment.service.analyzer_service import (
     GATEWAY_FAILOVER_CODES,
@@ -29,7 +34,8 @@ from module_sentiment.service.collector_service import SentimentCollector
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
-from utils.time_format_util import apply_beijing_times, format_beijing_datetime, now_beijing
+from utils.influx_util import InfluxQueryError, InfluxUtil
+from utils.time_format_util import BEIJING_TZ, apply_beijing_times, format_beijing_datetime, now_beijing
 
 
 class SentimentService:
@@ -39,14 +45,15 @@ class SentimentService:
 
     ANALYZE_WINDOW_MINUTES = 10
     MAX_NEWS_SAFETY_CAP = 200
-    # 仅行情读取：admin → lustone → 乐文；不下单。
-    _QUOTE_READ_USER_IDS = (1, 101, 100)
-    _US_SESSION_PROXIES = (
-        {'etf': 'SPY', 'index_symbol': 'usINX', 'name': '标普500'},
-        {'etf': 'QQQ', 'index_symbol': 'usIXIC', 'name': '纳斯达克'},
-        {'etf': 'DIA', 'index_symbol': 'usDJI', 'name': '道琼斯'},
+    _MINUTE_LOOKBACK_DAYS = 5
+    _MINUTE_PATH_BARS = 8
+    _MINUTE_SPECS = (
+        {'market': 'US', 'symbols': ('SPY',), 'name': '标普500ETF'},
+        {'market': 'US', 'symbols': ('QQQ',), 'name': '纳指100ETF'},
+        {'market': 'US', 'symbols': ('DIA',), 'name': '道指ETF'},
+        {'market': 'HK', 'symbols': ('HSI.HK', 'HSI'), 'name': '恒生指数'},
+        {'market': 'CN', 'symbols': ('sh000001', '000001.SH'), 'name': '上证指数'},
     )
-    _US_EXTENDED_SESSIONS = frozenset({'pre', 'post', 'overnight'})
 
     @staticmethod
     def _is_complete_model(model: AiModels) -> bool:
@@ -265,221 +272,163 @@ class SentimentService:
     # ---------- 分析 ----------
 
     @classmethod
-    def _analysis_session_status(cls) -> dict[str, dict[str, Any]]:
-        sessions = list_session_status()
+    def _aware_as_of(cls, as_of: datetime | None) -> datetime:
+        stamp = as_of or now_beijing()
+        if stamp.tzinfo is None:
+            return stamp.replace(tzinfo=BEIJING_TZ)
+        return stamp
+
+    @classmethod
+    def _as_of_rfc3339(cls, stamp: datetime) -> str:
+        aware = stamp if stamp.tzinfo else stamp.replace(tzinfo=BEIJING_TZ)
+        return aware.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    @classmethod
+    def _analysis_session_status(cls, as_of: datetime | None = None) -> dict[str, dict[str, Any]]:
+        stamp = cls._aware_as_of(as_of)
+        sessions = list_session_status(stamp)
         for market, info in sessions.items():
-            info['session'] = kline_session_tag(market)
-            info['live'] = is_live_kline_session(market)
+            info['session'] = kline_session_tag(market, stamp)
+            info['live'] = is_live_kline_session(market, stamp)
         return sessions
 
-    @staticmethod
-    def _parse_quote_time(value: Any) -> Any:
-        from datetime import datetime as dt
-
-        if value is None or value == '':
-            return None
-        if isinstance(value, dt):
-            return value.replace(tzinfo=None) if value.tzinfo else value
-        text = str(value).strip().replace('T', ' ').replace('Z', '')
-        for fmt, size in (('%Y-%m-%d %H:%M:%S', 19), ('%Y-%m-%d %H:%M', 16), ('%Y%m%d%H%M%S', 14)):
-            chunk = text[:size]
-            try:
-                return dt.strptime(chunk, fmt)
-            except ValueError:
-                continue
-        try:
-            parsed = dt.fromisoformat(text)
-        except ValueError:
-            return None
-        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
-
     @classmethod
-    def _quote_is_more_current(cls, candidate: dict[str, Any], baseline: dict[str, Any] | None) -> bool:
-        if not candidate:
-            return False
-        if not baseline:
-            return True
-        cand_dt = cls._parse_quote_time(candidate.get('quoteTime'))
-        base_dt = cls._parse_quote_time(baseline.get('quoteTime'))
-        if cand_dt and base_dt:
-            return cand_dt > base_dt
-        return bool(cand_dt and not base_dt)
-
-    @classmethod
-    def merge_us_session_quotes(
-        cls,
-        index_items: list[dict[str, Any]],
-        proxy_items: list[dict[str, Any]],
-        us_session: str,
-    ) -> list[dict[str, Any]]:
-        """美股延长时段用更现时的 ETF/长桥报价覆盖过期常规盘指数。"""
-        tagged: list[dict[str, Any]] = []
-        for item in index_items:
-            row = dict(item)
-            if str(row.get('market') or '').upper() == 'US':
-                row.setdefault('session', us_session)
-                row.setdefault('source', row.get('source') or 'tencent')
-            tagged.append(row)
-        if not proxy_items or us_session == 'closed':
-            return tagged
-        proxy_by_etf: dict[str, dict[str, Any]] = {}
-        for proxy in proxy_items:
-            symbol = str(proxy.get('symbol') or '').upper().replace('.US', '')
-            proxy_by_etf[symbol] = proxy
-        by_symbol: dict[str, dict[str, Any]] = {}
-        others: list[dict[str, Any]] = []
-        for row in tagged:
-            if str(row.get('market') or '').upper() == 'US':
-                by_symbol[str(row.get('symbol') or '')] = row
+    def _session_start_beijing(cls, as_of: datetime, market: str, session: str) -> str:
+        """当前会话开盘的北京墙上时钟，用于截取 session-to-asOf 分时。"""
+        stamp = cls._aware_as_of(as_of)
+        mkt = str(market or '').upper()
+        if mkt == 'US':
+            et = stamp.astimezone(ZoneInfo(MARKET_TZ['US']))
+            if session == 'overnight':
+                start_date = et.date() - timedelta(days=1) if et.time() < dt_time(4, 0) else et.date()
+                start_et = datetime.combine(start_date, dt_time(20, 0), tzinfo=et.tzinfo)
+            elif session == 'pre':
+                start_et = et.replace(hour=4, minute=0, second=0, microsecond=0)
+            elif session == 'regular':
+                start_et = et.replace(hour=9, minute=30, second=0, microsecond=0)
+            elif session == 'post':
+                start_et = et.replace(hour=16, minute=0, second=0, microsecond=0)
             else:
-                others.append(row)
-        proxy_keys = {spec['index_symbol'] for spec in cls._US_SESSION_PROXIES}
-        for spec in cls._US_SESSION_PROXIES:
-            proxy = proxy_by_etf.get(spec['etf'])
-            if not proxy or proxy.get('last') is None:
-                continue
-            current = by_symbol.get(spec['index_symbol'])
-            use_proxy = us_session in cls._US_EXTENDED_SESSIONS or cls._quote_is_more_current(proxy, current)
-            if not use_proxy:
-                continue
-            merged = dict(current) if current else {
-                'market': 'US',
-                'symbol': spec['index_symbol'],
-                'name': spec['name'],
-            }
-            if current and current.get('changePct') is not None:
-                merged['rthChangePct'] = current.get('changePct')
-                merged['rthQuoteTime'] = current.get('quoteTime')
-            change_pct = proxy.get('changePct')
-            if change_pct is None:
-                change_pct = proxy.get('changeRate')
-            merged.update(
-                {
-                    'market': 'US',
-                    'symbol': spec['index_symbol'],
-                    'name': spec['name'],
-                    'last': proxy.get('last'),
-                    'prevClose': proxy.get('prevClose'),
-                    'changePct': change_pct,
-                    'quoteTime': proxy.get('quoteTime') or proxy.get('timestamp'),
-                    'session': us_session,
-                    'source': proxy.get('source') or 'longbridge',
-                    'proxy': f'{spec["etf"]}.US',
-                    'volume': proxy.get('volume'),
-                }
-            )
-            by_symbol[spec['index_symbol']] = merged
-        us_rows = [
-            by_symbol[spec['index_symbol']]
-            for spec in cls._US_SESSION_PROXIES
-            if spec['index_symbol'] in by_symbol
-        ]
-        leftover = [row for key, row in by_symbol.items() if key not in proxy_keys]
-        return us_rows + leftover + others
+                start_et = et.replace(hour=9, minute=30, second=0, microsecond=0)
+            return start_et.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
+        local = stamp.astimezone(ZoneInfo(MARKET_TZ.get(mkt, 'Asia/Shanghai')))
+        start_local = local.replace(hour=9, minute=30, second=0, microsecond=0)
+        return start_local.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
 
     @classmethod
-    async def _ensure_quote_read_credentials(cls, query_db: AsyncSession) -> None:
-        """行情读取凭据：admin / lustone 失效时回退乐文。只读行情，不下单。"""
-        from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
-        from module_quant.service.longbridge_service import LongbridgeService
-
-        tried: set[int] = set()
-
-        async def _load(user_id: int | None, *, admin_fallback: bool = False) -> bool:
-            await LongbridgeService.ensure_credentials_from_db(
-                query_db, user_id, allow_admin_fallback=admin_fallback
-            )
-            return bool(LongbridgeService.is_configured())
-
-        if await _load(None, admin_fallback=True):
-            return
-        for uid in cls._QUOTE_READ_USER_IDS:
-            if uid in tried:
-                continue
-            tried.add(uid)
-            if await _load(uid):
-                logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
-                return
+    def snapshot_from_minute_bars(
+        cls,
+        bars: list[dict[str, Any]],
+        *,
+        as_of: datetime,
+        session: str,
+        market: str,
+        symbol: str,
+        name: str,
+    ) -> dict[str, Any] | None:
+        """用 asOf 之前的分钟K拼会话快照；asOf 之后的 bar 不参与。"""
+        cutoff = cls._aware_as_of(as_of).astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M')
+        in_window = [bar for bar in bars if str(bar.get('date') or '') <= cutoff]
+        if not in_window:
+            return None
+        last = in_window[-1]
         try:
-            extra = await QuantLongbridgeConfigDao.list_configured_user_ids(query_db)
-        except Exception as exc:
-            logger.debug(f'[舆情分析] 列举长桥账号失败: {exc}')
-            extra = []
-        for uid in extra:
-            if uid in tried:
-                continue
-            tried.add(uid)
-            if await _load(uid):
-                logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
-                return
-
-    @classmethod
-    async def _fetch_us_session_proxies(cls, query_db: AsyncSession | None) -> list[dict[str, Any]]:
-        try:
-            from module_market.service.live_quotes_service import LiveQuotesService
-            from module_quant.service.longbridge_service import LongbridgeService
-        except Exception as exc:
-            logger.warning(f'[舆情分析] 美股代理行情模块不可用，沿用指数报价: {exc}')
-            return []
-
-        fallback: list[dict[str, Any]] = []
-        user_order: list[int | None] = [None, *cls._QUOTE_READ_USER_IDS]
-        seen: set[int] = set()
-        for uid in user_order:
-            if uid is not None:
-                if uid in seen:
-                    continue
-                seen.add(uid)
-            if query_db is not None:
-                try:
-                    await LongbridgeService.ensure_credentials_from_db(
-                        query_db, uid, allow_admin_fallback=uid is None
-                    )
-                except Exception as exc:
-                    logger.debug(f'[舆情分析] 加载长桥凭据 user={uid} 失败: {exc}')
-                    continue
+            last_close = float(last.get('close'))
+        except (TypeError, ValueError):
+            return None
+        session_start = cls._session_start_beijing(as_of, market, session)
+        session_bars = [bar for bar in in_window if str(bar.get('date') or '') >= session_start]
+        if not session_bars:
+            session_bars = in_window[-min(len(in_window), 390) :]
+        prior = [bar for bar in in_window if str(bar.get('date') or '') < str(session_bars[0].get('date') or '')]
+        prev_close = None
+        if prior:
             try:
-                payload = await LiveQuotesService.get_quotes(
-                    [(spec['etf'], 'US') for spec in cls._US_SESSION_PROXIES]
-                )
-            except Exception as exc:
-                logger.warning(f'[舆情分析] 美股代理行情失败 user={uid}: {exc}')
-                continue
-            items = list(payload.get('items') or [])
-            if not items:
-                continue
-            if any(str(item.get('source') or '') == 'longbridge' for item in items):
-                if uid:
-                    logger.info(f'[舆情分析] 使用 user_id={uid} 长桥凭据读取行情（不下单）')
-                return items
-            if not fallback:
-                fallback = items
-        return fallback
+                prev_close = float(prior[-1].get('close'))
+            except (TypeError, ValueError):
+                prev_close = None
+        try:
+            session_open = float(session_bars[0].get('open') or session_bars[0].get('close') or 0)
+        except (TypeError, ValueError):
+            session_open = 0.0
+        base = prev_close if prev_close else session_open
+        change_pct = round((last_close / base - 1.0) * 100, 2) if base else None
+        path_bars = session_bars[-cls._MINUTE_PATH_BARS :]
+        path = ','.join(
+            f"{str(bar.get('date') or '')[-5:]}:{bar.get('close')}" for bar in path_bars if bar.get('close') is not None
+        )
+        as_of_text = cls._aware_as_of(as_of).astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')
+        return {
+            'market': market,
+            'symbol': symbol,
+            'name': name,
+            'last': last_close,
+            'prevClose': base,
+            'changePct': change_pct,
+            'quoteTime': last.get('date'),
+            'session': session,
+            'source': 'minute_kline',
+            'path': path,
+            'asOf': as_of_text,
+        }
+
+    @classmethod
+    def _query_minute_bars_as_of(cls, market: str, symbol: str, as_of: datetime) -> list[dict[str, Any]]:
+        stamp = cls._aware_as_of(as_of)
+        start = cls._as_of_rfc3339(stamp - timedelta(days=cls._MINUTE_LOOKBACK_DAYS))
+        stop = cls._as_of_rfc3339(stamp + timedelta(minutes=1))
+        try:
+            return InfluxUtil.query_minute_klines(market, symbol, start, stop) or []
+        except InfluxQueryError as exc:
+            logger.warning(f'[舆情分析] 分时查询失败 {market}/{symbol}: {exc}')
+            return []
+        except Exception as exc:
+            logger.warning(f'[舆情分析] 分时查询异常 {market}/{symbol}: {exc}')
+            return []
 
     @classmethod
     async def _load_analysis_index_context(
         cls,
         query_db: AsyncSession | None = None,
+        as_of: datetime | None = None,
     ) -> tuple[list[dict[str, Any]], bool, dict[str, dict[str, Any]]]:
-        """腾讯指数 + 美股当前会话（长桥/ETF）更现时报价；失败时仍继续舆情分析。"""
-        sessions = cls._analysis_session_status()
-        try:
-            quotes_data = await MarketIndexService.get_in_session_quotes()
-            items = list(quotes_data.get('items') or [])
-        except Exception as exc:
-            logger.warning(f'[舆情分析] 指数行情拉取失败，将仅基于舆情分析: {exc}')
-            return [], True, sessions
-        us_session = str((sessions.get('US') or {}).get('session') or '')
-        if items and us_session and us_session != 'closed':
-            proxies = await cls._fetch_us_session_proxies(query_db)
-            if proxies:
-                items = cls.merge_us_session_quotes(items, proxies, us_session)
-        elif items:
-            items = cls.merge_us_session_quotes(items, [], us_session or 'closed')
+        """Influx 分时截至 asOf（默认当前分析时刻）；失败时仍继续舆情分析。"""
+        stamp = as_of or now_beijing()
+        sessions = cls._analysis_session_status(stamp)
+        items: list[dict[str, Any]] = []
+        for spec in cls._MINUTE_SPECS:
+            market = spec['market']
+            session = str((sessions.get(market) or {}).get('session') or '')
+            bars: list[dict[str, Any]] = []
+            used_symbol = spec['symbols'][0]
+            for symbol in spec['symbols']:
+                bars = await asyncio.to_thread(cls._query_minute_bars_as_of, market, symbol, stamp)
+                if bars:
+                    used_symbol = symbol
+                    break
+            snap = cls.snapshot_from_minute_bars(
+                bars,
+                as_of=stamp,
+                session=session,
+                market=market,
+                symbol=used_symbol,
+                name=spec['name'],
+            )
+            if snap:
+                items.append(snap)
         if not items:
-            logger.warning('[舆情分析] 指数行情为空，将仅基于舆情分析')
+            logger.warning('[舆情分析] 分时快照为空，将仅基于舆情分析')
             return [], True, sessions
         return items, False, sessions
+
+    @classmethod
+    def _with_canonical_scores(cls, row: dict[str, Any]) -> dict[str, Any]:
+        """列表/看板字典走与手机相同的 0–100 映射，避免 trend 等未过 VO 的出口漏掉。"""
+        out = dict(row)
+        for key in ('usScore', 'hkScore', 'aScore', 'us_score', 'hk_score', 'a_score'):
+            if key in out:
+                out[key] = normalize_sentiment_score(out[key])
+        return out
 
     @classmethod
     async def get_analysis_list_services(
@@ -488,7 +437,13 @@ class SentimentService:
         """
         获取分析结果分页列表service
         """
-        return apply_beijing_times(await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page))
+        result = apply_beijing_times(await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page))
+        if isinstance(result, PageModel):
+            result.rows = [cls._with_canonical_scores(row) if isinstance(row, dict) else row for row in (result.rows or [])]
+            return result
+        if isinstance(result, list):
+            return [cls._with_canonical_scores(row) if isinstance(row, dict) else row for row in result]
+        return result
 
     @classmethod
     async def get_analysis_detail_services(cls, query_db: AsyncSession, analysis_id: int) -> SentimentAnalysisModel:
@@ -509,9 +464,9 @@ class SentimentService:
             {
                 'analysisId': r.analysis_id,
                 'createTime': format_beijing_datetime(r.create_time, '%m-%d %H:%M') if r.create_time else '',
-                'usScore': r.us_score,
-                'hkScore': r.hk_score,
-                'aScore': r.a_score,
+                'usScore': normalize_sentiment_score(r.us_score),
+                'hkScore': normalize_sentiment_score(r.hk_score),
+                'aScore': normalize_sentiment_score(r.a_score),
             }
             for r in rows
         ]
@@ -557,7 +512,7 @@ class SentimentService:
                     'name': name,
                     'direction': direction,
                     'directionNorm': cls._normalize_direction(direction),
-                    'score': latest.get(score_key),
+                    'score': normalize_sentiment_score(latest.get(score_key)),
                     'reason': latest.get(reason_key),
                 }
             )
@@ -588,9 +543,9 @@ class SentimentService:
         trend = [
             {
                 'createTime': format_beijing_datetime(row.create_time),
-                'usScore': row.us_score,
-                'hkScore': row.hk_score,
-                'aScore': row.a_score,
+                'usScore': normalize_sentiment_score(row.us_score),
+                'hkScore': normalize_sentiment_score(row.hk_score),
+                'aScore': normalize_sentiment_score(row.a_score),
             }
             for row in trend_rows
         ]
@@ -599,27 +554,29 @@ class SentimentService:
         summary = latest_row.get('summary') or ''
         risk_events = cls._parse_risk_events(latest_row.get('riskEvents'))
 
-        widget_latest = {
-            key: latest_row.get(key)
-            for key in (
-                'analysisId',
-                'createTime',
-                'summary',
-                'usDirection',
-                'usScore',
-                'usReason',
-                'hkDirection',
-                'hkScore',
-                'hkReason',
-                'aDirection',
-                'aScore',
-                'aReason',
-                'riskEvents',
-                'modelName',
-                'status',
-            )
-            if key in latest_row
-        }
+        widget_latest = cls._with_canonical_scores(
+            {
+                key: latest_row.get(key)
+                for key in (
+                    'analysisId',
+                    'createTime',
+                    'summary',
+                    'usDirection',
+                    'usScore',
+                    'usReason',
+                    'hkDirection',
+                    'hkScore',
+                    'hkReason',
+                    'aDirection',
+                    'aScore',
+                    'aReason',
+                    'riskEvents',
+                    'modelName',
+                    'status',
+                )
+                if key in latest_row
+            }
+        )
 
         sessions = list_session_status()
         indexes: list[dict[str, Any]] = []
@@ -684,7 +641,8 @@ class SentimentService:
             }
             for r in news_rows
         ]
-        index_quotes, quotes_unavailable, sessions = await cls._load_analysis_index_context(query_db)
+        now = now_beijing()
+        index_quotes, quotes_unavailable, sessions = await cls._load_analysis_index_context(query_db, as_of=now)
         ai_result: dict[str, Any] | None = None
         used_model_name = ''
         for model in candidates:
@@ -727,7 +685,7 @@ class SentimentService:
             'news_ids': ','.join(str(i) for i in news_ids),
             'model_name': used_model_name or config.model_name,
             'raw_response': (ai_result.get('raw') or '')[:60000],
-            'create_time': now_beijing(),
+            'create_time': now,
         }
         if ai_result['ok']:
             result = ai_result['result']
@@ -736,13 +694,13 @@ class SentimentService:
                 {
                     'summary': result.get('summary'),
                     'us_direction': us.get('direction'),
-                    'us_score': us.get('score'),
+                    'us_score': normalize_sentiment_score(us.get('score')),
                     'us_reason': us.get('reason'),
                     'hk_direction': hk.get('direction'),
-                    'hk_score': hk.get('score'),
+                    'hk_score': normalize_sentiment_score(hk.get('score')),
                     'hk_reason': hk.get('reason'),
                     'a_direction': a.get('direction'),
-                    'a_score': a.get('score'),
+                    'a_score': normalize_sentiment_score(a.get('score')),
                     'a_reason': a.get('reason'),
                     'risk_events': result.get('risk_events'),
                     'status': '0',
