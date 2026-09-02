@@ -102,6 +102,40 @@ _MINUTE_BARS = [
 ]
 
 
+def test_dump_analysis_100_maps_legacy_minus_five() -> None:
+    dumped = SentimentService.dump_analysis_100(
+        {'usScore': -5, 'hkScore': -5, 'aScore': -5, 'usDirection': '利空', 'summary': '偏空'}
+    )
+    assert dumped is not None
+    assert dumped['usScore'] == 25
+    assert dumped['hkScore'] == 25
+    assert dumped['aScore'] == 25
+    row = SimpleNamespace(
+        analysis_id=1,
+        news_count=2,
+        news_ids='1,2',
+        summary='x',
+        us_direction='利空',
+        us_score=-5,
+        us_reason='r',
+        hk_direction='利空',
+        hk_score=-5,
+        hk_reason='r',
+        a_direction='利空',
+        a_score=-5,
+        a_reason='r',
+        risk_events='无',
+        model_name='demo',
+        raw_response='{}',
+        status='0',
+        error_msg=None,
+        create_time=None,
+    )
+    from_orm = SentimentService.dump_analysis_100(row)
+    assert from_orm is not None
+    assert from_orm['usScore'] == 25
+
+
 def test_normalize_sentiment_score_matches_flutter() -> None:
     assert normalize_sentiment_score(-10) == 0
     assert normalize_sentiment_score(0) == 50

@@ -4,7 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/ruoyi_client.dart';
 import '../../shared/widgets/ruoyi_ui.dart';
+import '../sentiment/data/sentiment_models.dart';
 import 'json_list_page.dart';
+
+Map<String, dynamic> _scoresTo100(Map<String, dynamic> row) {
+  final out = Map<String, dynamic>.from(row);
+  for (final key in const ['usScore', 'hkScore', 'aScore']) {
+    final raw = out[key];
+    if (raw is num) {
+      out[key] = sentimentIndexTo100(raw.toDouble());
+    }
+  }
+  return out;
+}
 
 class SentimentDashboardPage extends ConsumerStatefulWidget {
   const SentimentDashboardPage({super.key});
@@ -40,11 +52,11 @@ class _SentimentDashboardPageState extends ConsumerState<SentimentDashboardPage>
       try {
         final list = await client.get('/sentiment/analysis/list', query: {'pageNum': 1, 'pageSize': 1});
         final rows = extractRows(list);
-        if (rows.isNotEmpty) latest = rows.first;
+        if (rows.isNotEmpty) latest = _scoresTo100(rows.first);
       } catch (_) {}
       try {
         final t = await client.get('/sentiment/analysis/trend');
-        trend = extractRows(t, preferKeys: const ['points', 'items']);
+        trend = extractRows(t, preferKeys: const ['points', 'items']).map(_scoresTo100).toList();
       } catch (_) {}
       if (!mounted) return;
       setState(() {

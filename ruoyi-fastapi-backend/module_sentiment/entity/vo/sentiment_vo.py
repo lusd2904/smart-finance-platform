@@ -65,7 +65,7 @@ class SentimentAnalysisModel(BaseModel):
     舆情AI分析结果表对应pydantic模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     analysis_id: int | None = Field(default=None, description='分析ID')
     news_count: int | None = Field(default=None, description='本次分析的资讯条数')

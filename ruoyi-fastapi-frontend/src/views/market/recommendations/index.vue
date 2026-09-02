@@ -135,6 +135,7 @@ import {
   refreshStockPickMood,
   runStockPick
 } from '@/api/market'
+import { sentimentIndexTo100 } from '@/utils/sentimentScore'
 
 const router = useRouter()
 const { proxy } = getCurrentInstance()
@@ -184,7 +185,7 @@ const marketCards = computed(() => {
       label: marketLabel(m),
       open: !!sess.open,
       localTime: sess.localTime,
-      sentText: `${dirMap[m] || '—'} ${scoreMap[m] ?? '--'}`,
+      sentText: `${dirMap[m] || '—'} ${sentimentIndexTo100(scoreMap[m]) ?? '--'}`,
       indexText
     }
   })

@@ -31,7 +31,6 @@ from module_sentiment.service.analyzer_service import (
     SentimentAiAnalyzer,
 )
 from module_sentiment.service.collector_service import SentimentCollector
-from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.influx_util import InfluxQueryError, InfluxUtil
 from utils.log_util import logger
@@ -139,11 +138,7 @@ class SentimentService:
         """
         stats = await SentimentNewsDao.count_news(query_db)
         latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
-        stats['latestAnalysis'] = (
-            SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
-            if latest
-            else None
-        )
+        stats['latestAnalysis'] = cls.dump_analysis_100(latest)
         return apply_beijing_times(stats)
 
     # ---------- 采集 ----------
@@ -431,6 +426,17 @@ class SentimentService:
         return out
 
     @classmethod
+    def dump_analysis_100(cls, raw: Any) -> dict[str, Any] | None:
+        """任意分析行 → camelCase 字典，分数一律 0–100（含历史 ±10）。"""
+        if raw is None:
+            return None
+        if isinstance(raw, SentimentAnalysisModel):
+            payload = raw.model_dump(by_alias=True)
+        else:
+            payload = SentimentAnalysisModel.model_validate(raw).model_dump(by_alias=True)
+        return cls._with_canonical_scores(payload)
+
+    @classmethod
     async def get_analysis_list_services(
         cls, query_db: AsyncSession, query_object: SentimentAnalysisPageQueryModel, is_page: bool = True
     ) -> PageModel | list[dict[str, Any]]:
@@ -439,10 +445,10 @@ class SentimentService:
         """
         result = apply_beijing_times(await SentimentAnalysisDao.get_analysis_list(query_db, query_object, is_page))
         if isinstance(result, PageModel):
-            result.rows = [cls._with_canonical_scores(row) if isinstance(row, dict) else row for row in (result.rows or [])]
+            result.rows = [cls.dump_analysis_100(row) or {} for row in (result.rows or [])]
             return result
         if isinstance(result, list):
-            return [cls._with_canonical_scores(row) if isinstance(row, dict) else row for row in result]
+            return [cls.dump_analysis_100(row) or {} for row in result]
         return result
 
     @classmethod
@@ -451,7 +457,10 @@ class SentimentService:
         获取分析结果详情service
         """
         analysis = await SentimentAnalysisDao.get_analysis_by_id(query_db, analysis_id)
-        return SentimentAnalysisModel(**CamelCaseUtil.transform_result(analysis)) if analysis else SentimentAnalysisModel()
+        if not analysis:
+            return SentimentAnalysisModel()
+        dumped = cls.dump_analysis_100(analysis) or {}
+        return SentimentAnalysisModel.model_validate(dumped)
 
     @classmethod
     async def get_analysis_trend_services(cls, query_db: AsyncSession, limit: int = 24) -> list[dict[str, Any]]:

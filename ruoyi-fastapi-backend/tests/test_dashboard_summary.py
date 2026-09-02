@@ -7,6 +7,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from types import SimpleNamespace
+
 from module_dashboard.service import dashboard_service
 from module_dashboard.service.dashboard_service import DashboardService, _empty
 
@@ -159,3 +161,43 @@ async def test_summary_cache_does_not_leak_across_users() -> None:
     collect.assert_awaited()
     assert seen[0] != seen[1]
     assert second['watchSignals']['data'] == 'user-b'
+
+
+@pytest.mark.asyncio
+async def test_sentiment_block_maps_legacy_minus_five() -> None:
+    latest = SimpleNamespace(
+        analysis_id=3,
+        news_count=1,
+        news_ids='1',
+        summary='偏空',
+        us_direction='利空',
+        us_score=-5,
+        us_reason='夜盘走弱',
+        hk_direction='利空',
+        hk_score=-5,
+        hk_reason='跟跌',
+        a_direction='利空',
+        a_score=-5,
+        a_reason='跟跌',
+        risk_events='无',
+        model_name='demo',
+        raw_response='{}',
+        status='0',
+        error_msg=None,
+        create_time=None,
+    )
+    with (
+        patch(
+            'module_sentiment.dao.sentiment_dao.SentimentNewsDao.count_news',
+            new=AsyncMock(return_value={'total': 1, 'today': 1, 'unanalyzed': 0}),
+        ),
+        patch(
+            'module_sentiment.dao.sentiment_dao.SentimentAnalysisDao.get_latest_analysis',
+            new=AsyncMock(return_value=latest),
+        ),
+    ):
+        result = await DashboardService._sentiment_block(AsyncMock())
+    analysis = result['data']['latestAnalysis']
+    assert analysis['usScore'] == 25
+    assert analysis['hkScore'] == 25
+    assert analysis['aScore'] == 25
