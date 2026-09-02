@@ -121,6 +121,7 @@
 import { applyChartTheme } from '@/utils/echartsTheme';
 import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
+import { sentimentIndexTo100 } from '@/utils/sentimentScore';
 import { formatBeijingTime, formatBeijingTimeShort } from '@/utils/beijingTime';
 
 const { proxy } = getCurrentInstance();
@@ -149,9 +150,9 @@ const latestAnalysisTime = computed(() => {
 });
 
 const markets = computed(() => [
-  { key: 'us', name: '美股三大指数', direction: latest.value.usDirection, score: latest.value.usScore, reason: latest.value.usReason },
-  { key: 'hk', name: '港股指数', direction: latest.value.hkDirection, score: latest.value.hkScore, reason: latest.value.hkReason },
-  { key: 'a', name: 'A股指数', direction: latest.value.aDirection, score: latest.value.aScore, reason: latest.value.aReason }
+  { key: 'us', name: '美股三大指数', direction: latest.value.usDirection, score: sentimentIndexTo100(latest.value.usScore), reason: latest.value.usReason },
+  { key: 'hk', name: '港股指数', direction: latest.value.hkDirection, score: sentimentIndexTo100(latest.value.hkScore), reason: latest.value.hkReason },
+  { key: 'a', name: 'A股指数', direction: latest.value.aDirection, score: sentimentIndexTo100(latest.value.aScore), reason: latest.value.aReason }
 ]);
 
 const riskEventList = computed(() => {
@@ -242,11 +243,11 @@ function renderTrend(list) {
         formatter: value => (value ? String(value).slice(5, 16) : value)
       }
     },
-    yAxis: { type: 'value', name: '分数' },
+    yAxis: { type: 'value', name: '分数', min: 0, max: 100 },
     series: [
-      { name: '美股', type: 'line', smooth: true, data: list.map(item => item.usScore), itemStyle: { color: '#409eff' }, areaStyle: { opacity: 0.08 } },
-      { name: '港股', type: 'line', smooth: true, data: list.map(item => item.hkScore), itemStyle: { color: '#e6a23c' }, areaStyle: { opacity: 0.08 } },
-      { name: 'A股', type: 'line', smooth: true, data: list.map(item => item.aScore), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } }
+      { name: '美股', type: 'line', smooth: true, data: list.map(item => sentimentIndexTo100(item.usScore)), itemStyle: { color: '#409eff' }, areaStyle: { opacity: 0.08 } },
+      { name: '港股', type: 'line', smooth: true, data: list.map(item => sentimentIndexTo100(item.hkScore)), itemStyle: { color: '#e6a23c' }, areaStyle: { opacity: 0.08 } },
+      { name: 'A股', type: 'line', smooth: true, data: list.map(item => sentimentIndexTo100(item.aScore)), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } }
     ]
   };
   setTrendOption(applyChartTheme(option));

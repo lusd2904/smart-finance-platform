@@ -49,7 +49,7 @@
       <el-table-column label="美股" align="center" width="120">
         <template #default="scope">
           <el-tag v-if="scope.row.usDirection" :color="directionColor(scope.row.usDirection)" effect="dark" class="direction-tag">
-            {{ directionLabel(scope.row.usDirection) }} {{ scope.row.usScore }}
+            {{ directionLabel(scope.row.usDirection) }} {{ sentimentIndexTo100(scope.row.usScore) }}
           </el-tag>
           <span v-else>--</span>
         </template>
@@ -57,7 +57,7 @@
       <el-table-column label="港股" align="center" width="120">
         <template #default="scope">
           <el-tag v-if="scope.row.hkDirection" :color="directionColor(scope.row.hkDirection)" effect="dark" class="direction-tag">
-            {{ directionLabel(scope.row.hkDirection) }} {{ scope.row.hkScore }}
+            {{ directionLabel(scope.row.hkDirection) }} {{ sentimentIndexTo100(scope.row.hkScore) }}
           </el-tag>
           <span v-else>--</span>
         </template>
@@ -65,7 +65,7 @@
       <el-table-column label="A股" align="center" width="120">
         <template #default="scope">
           <el-tag v-if="scope.row.aDirection" :color="directionColor(scope.row.aDirection)" effect="dark" class="direction-tag">
-            {{ directionLabel(scope.row.aDirection) }} {{ scope.row.aScore }}
+            {{ directionLabel(scope.row.aDirection) }} {{ sentimentIndexTo100(scope.row.aScore) }}
           </el-tag>
           <span v-else>--</span>
         </template>
@@ -151,6 +151,7 @@
 <script setup name="SentimentAnalysis">
 import { listAnalysis, getAnalysis, runAnalysis } from '@/api/sentiment';
 import { formatBeijingTime } from '@/utils/beijingTime';
+import { sentimentIndexTo100 } from '@/utils/sentimentScore';
 
 const { proxy } = getCurrentInstance();
 
@@ -170,9 +171,9 @@ const queryParams = ref({
 });
 
 const detailMarkets = computed(() => [
-  { name: '美股三大指数', direction: detail.value.usDirection, score: detail.value.usScore, reason: detail.value.usReason },
-  { name: '港股指数', direction: detail.value.hkDirection, score: detail.value.hkScore, reason: detail.value.hkReason },
-  { name: 'A股指数', direction: detail.value.aDirection, score: detail.value.aScore, reason: detail.value.aReason }
+  { name: '美股三大指数', direction: detail.value.usDirection, score: sentimentIndexTo100(detail.value.usScore), reason: detail.value.usReason },
+  { name: '港股指数', direction: detail.value.hkDirection, score: sentimentIndexTo100(detail.value.hkScore), reason: detail.value.hkReason },
+  { name: 'A股指数', direction: detail.value.aDirection, score: sentimentIndexTo100(detail.value.aScore), reason: detail.value.aReason }
 ]);
 
 const riskEventList = computed(() => {

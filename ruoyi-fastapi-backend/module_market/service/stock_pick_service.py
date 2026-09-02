@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import desc, select
@@ -18,7 +18,6 @@ from module_market.dao.stock_pick_dao import StockPickDao
 from module_market.service.heat_service import MarketHeatService
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_market.service.stock_pick_analyzer import StockPickAnalyzer
-from utils.time_format_util import now_beijing
 from module_market.service.stock_pick_scoring import (
     AI_CONCURRENCY,
     CANDIDATE_CAP,
@@ -34,9 +33,11 @@ from module_quant.service.factor_service import FactorService
 from module_quant.service.strategy_service import decide_signal
 from module_sentiment.dao.sentiment_dao import SentimentAnalysisDao
 from module_sentiment.entity.do.sentiment_do import SentimentNews
+from module_sentiment.entity.vo.sentiment_vo import normalize_sentiment_score
 from utils.crypto_util import CryptoUtil
 from utils.json_cache import cache_get_json, cache_set_json
 from utils.log_util import logger
+from utils.time_format_util import now_beijing
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,9 +63,9 @@ class StockPickService:
             return {}
         return {
             'summary': row.summary,
-            'usScore': row.us_score,
-            'hkScore': row.hk_score,
-            'aScore': row.a_score,
+            'usScore': normalize_sentiment_score(row.us_score),
+            'hkScore': normalize_sentiment_score(row.hk_score),
+            'aScore': normalize_sentiment_score(row.a_score),
             'usDirection': row.us_direction,
             'hkDirection': row.hk_direction,
             'aDirection': row.a_direction,

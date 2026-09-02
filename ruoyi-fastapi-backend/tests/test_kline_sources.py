@@ -4,10 +4,13 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from module_market.constant.instruments import TARGET_INSTRUMENTS, get_instrument_meta
 from module_market.service.kline_sources import (
     CircuitBreaker,
     SourceThrottle,
+    _call_source,
     fetch_real_klines,
+    fetch_tencent_minute,
     merge_real_rows,
     parse_eastmoney_klines,
     parse_sina_daily_items,
@@ -118,6 +121,78 @@ def test_parse_tencent_minute_and_validate() -> None:
     assert rows[0]['close'] == 1400.0
     assert rows[1]['volume'] == 800.0
     assert validate_minute_row({'symbol': 'AAPL', 'trade_date': 'bad', 'close': 1}) is None
+
+
+def test_fetch_tencent_minute_uses_minute_validator(monkeypatch) -> None:
+    from module_market.service import kline_sources as ks
+
+    seen: dict = {}
+
+    def fake_call(name, fn, **kwargs):
+        seen['name'] = name
+        seen['validator'] = kwargs.get('validator')
+        return []
+
+    monkeypatch.setattr(ks, '_call_source', fake_call)
+    assert fetch_tencent_minute('SPY', 'US') == []
+    assert seen['name'] == 'tencent'
+    assert seen['validator'] is validate_minute_row
+
+
+def test_call_source_minute_validator_keeps_timestamp() -> None:
+    reset_circuit_breakers()
+    minute = {
+        'symbol': 'DIA',
+        'market': 'US',
+        'trade_date': '2026-09-02 09:30:00',
+        'open': 452.1,
+        'high': 452.1,
+        'low': 452.1,
+        'close': 452.1,
+        'volume': 10,
+        'source': 'tencent',
+    }
+    stripped = _call_source('tencent', lambda: [minute])
+    assert stripped and stripped[0]['trade_date'] == '2026-09-02'
+    kept = _call_source('tencent', lambda: [minute], validator=validate_minute_row)
+    assert kept and kept[0]['trade_date'].startswith('2026-09-02 09:30')
+
+
+def test_write_minute_klines_drops_date_only_trade_date() -> None:
+    from unittest.mock import patch
+
+    from utils.influx_util import InfluxUtil
+
+    writes: list = []
+
+    def fake_write(_bucket, points):
+        writes.append(list(points))
+
+    with patch.object(InfluxUtil, '_write_points', side_effect=fake_write):
+        assert InfluxUtil.write_minute_klines('US', [{'symbol': 'SPY', 'trade_date': '2026-09-02', 'close': 1}]) == 0
+        assert writes == []
+        n = InfluxUtil.write_minute_klines(
+            'US',
+            [
+                {
+                    'symbol': 'SPY',
+                    'trade_date': '2026-09-02 09:30:00',
+                    'open': 1,
+                    'high': 1,
+                    'low': 1,
+                    'close': 1,
+                    'volume': 0,
+                }
+            ],
+        )
+        assert n == 1
+        assert len(writes) == 1
+
+
+def test_dia_is_us_etf_not_index() -> None:
+    assert ('DIA', '道指ETF', 'US', 'etf') in TARGET_INSTRUMENTS
+    assert get_instrument_meta('DIA') == ('DIA', '道指ETF', 'US', 'etf')
+    assert all(item[3] != 'index' or item[0] != 'DIA' for item in TARGET_INSTRUMENTS)
 
 
 def test_parse_eastmoney_yahoo_stooq() -> None:
