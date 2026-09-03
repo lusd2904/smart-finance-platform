@@ -275,7 +275,8 @@ class SentimentService:
     @classmethod
     async def get_analysis_trend_services(cls, query_db: AsyncSession, limit: int = 24) -> list[dict[str, Any]]:
         """
-        获取近期分析趋势（用于图表）service
+        获取近期分析趋势（用于图表）service。
+        缺失市场分保持 None，不填 0；前端折线用 connectNulls 跨点相连。
         """
         rows = await SentimentAnalysisDao.get_recent_analysis(query_db, limit)
         rows.reverse()

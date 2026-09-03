@@ -30,6 +30,32 @@ def test_widget_cors_echoes_allowlisted_origin(monkeypatch: pytest.MonkeyPatch) 
     assert _widget_cors_headers(none) == {}
 
 
+@pytest.mark.asyncio
+async def test_analysis_trend_preserves_null_scores() -> None:
+    """趋势接口把缺失市场分原样返回 None，不填 0；图表靠 connectNulls 跨点连线。"""
+    rows = [
+        type(
+            'Row',
+            (),
+            {'analysis_id': 1, 'create_time': None, 'us_score': 70, 'hk_score': None, 'a_score': 20},
+        )(),
+        type(
+            'Row',
+            (),
+            {'analysis_id': 2, 'create_time': None, 'us_score': None, 'hk_score': 40, 'a_score': None},
+        )(),
+    ]
+    with patch(
+        'module_sentiment.service.sentiment_service.SentimentAnalysisDao.get_recent_analysis',
+        new=AsyncMock(return_value=rows),
+    ):
+        trend = await SentimentService.get_analysis_trend_services(AsyncMock(), 24)
+
+    assert [item['usScore'] for item in trend] == [70, None]
+    assert [item['hkScore'] for item in trend] == [None, 40]
+    assert [item['aScore'] for item in trend] == [20, None]
+
+
 def test_normalize_direction() -> None:
     assert SentimentService._normalize_direction('利多') == 'up'
     assert SentimentService._normalize_direction('bearish') == 'down'
