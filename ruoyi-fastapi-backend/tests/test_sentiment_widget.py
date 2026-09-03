@@ -33,16 +33,17 @@ def test_widget_cors_echoes_allowlisted_origin(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.asyncio
 async def test_analysis_trend_preserves_null_scores() -> None:
     """趋势接口把缺失市场分原样返回 None，不填 0；图表靠 connectNulls 跨点连线。"""
+    # DAO 按 create_time 降序；service 再 reverse 成图表用的由旧到新。
     rows = [
         type(
             'Row',
             (),
-            {'analysis_id': 1, 'create_time': None, 'us_score': 70, 'hk_score': None, 'a_score': 20},
+            {'analysis_id': 2, 'create_time': None, 'us_score': None, 'hk_score': 40, 'a_score': None},
         )(),
         type(
             'Row',
             (),
-            {'analysis_id': 2, 'create_time': None, 'us_score': None, 'hk_score': 40, 'a_score': None},
+            {'analysis_id': 1, 'create_time': None, 'us_score': 70, 'hk_score': None, 'a_score': 20},
         )(),
     ]
     with patch(
