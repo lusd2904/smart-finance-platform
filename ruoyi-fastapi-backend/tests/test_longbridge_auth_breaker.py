@@ -160,28 +160,41 @@ def _credential_fingerprint() -> tuple[str, str]:
 
 
 def test_run_in_executor_with_context_sees_task_credentials() -> None:
-    """异步任务里 set_credentials 后，copy_context 的 executor 必须看到 DB 凭据。"""
+    """异步任务 set_credentials 后：裸 executor 看到 env，copy_context helper 看到 DB。"""
     _reset_auth_state()
-    token = 'task-db-access-token'
-    expected = hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
+    db_token = 'task-db-access-token'
+    env_token = 'stale-env-access-token'
+    db_fp = hashlib.sha256(db_token.encode('utf-8')).hexdigest()[:16]
+    env_fp = hashlib.sha256(env_token.encode('utf-8')).hexdigest()[:16]
     LongbridgeService.set_credentials(
         {
             'app_key': 'task-app-key',
             'app_secret': 'task-app-secret',
-            'access_token': token,
+            'access_token': db_token,
             'region': 'cn',
             'user_id': '101',
         }
     )
+    env_cfg = type(
+        'EnvLB',
+        (),
+        {
+            'longport_app_key': 'env-app-key',
+            'longport_app_secret': 'env-app-secret',
+            'longport_access_token': env_token,
+            'longport_region': 'cn',
+        },
+    )()
 
     async def _run() -> None:
         loop = asyncio.get_running_loop()
-        source, digest = await run_in_executor_with_context(loop, _credential_fingerprint)
-        assert source == 'db'
-        assert digest == expected
-        raw_source, raw_digest = await loop.run_in_executor(None, _credential_fingerprint)
-        assert raw_digest != expected
-        assert raw_source != 'db'
+        with patch('config.env.LongbridgeConfig', env_cfg):
+            source, digest = await run_in_executor_with_context(loop, _credential_fingerprint)
+            assert source == 'db'
+            assert digest == db_fp
+            raw_source, raw_digest = await loop.run_in_executor(None, _credential_fingerprint)
+            assert raw_source == 'env'
+            assert raw_digest == env_fp
 
     try:
         asyncio.run(_run())

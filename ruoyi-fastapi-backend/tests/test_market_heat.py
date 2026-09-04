@@ -151,3 +151,34 @@ def test_quote_map_uses_live_fetch_items() -> None:
 def test_quote_map_empty_when_fetch_empty() -> None:
     with patch.object(LiveQuotesService, '_fetch_items', return_value=[]):
         assert MarketHeatService._quote_map_from_longbridge('US', ['AAPL']) == {}
+
+
+@pytest.mark.asyncio
+async def test_collect_market_uses_context_copying_executor() -> None:
+    """热度采集必须经 run_in_executor_with_context，否则 DB token 进不了工作线程。"""
+    db = AsyncMock()
+    quote_map = {'AAPL': {'lastDone': 150.0, 'turnover': 2e9, 'changeRate': 1.2}}
+    static_map = {'AAPL': {'name': 'Apple', 'totalShares': 1e8}}
+    weights = {'index': 0.4, 'turnover': 0.3, 'advance_decline': 0.3}
+    seen_fns: list[object] = []
+
+    async def fake_helper(_loop, fn, *args, **_kwargs):
+        seen_fns.append(fn)
+        return fn(*args)
+
+    with (
+        patch.object(LongbridgeService, 'ensure_credentials_from_db', new=AsyncMock()),
+        patch.object(MarketHeatService, 'resolve_weights', new=AsyncMock(return_value=weights)),
+        patch.object(MarketHeatService, '_universe_symbols', new=AsyncMock(return_value=[('AAPL', 'Apple')])),
+        patch.object(MarketHeatService, '_quote_map_from_longbridge', return_value=quote_map),
+        patch.object(MarketHeatService, '_static_info_map', return_value=static_map),
+        patch.object(MarketHeatService, '_index_change_from_influx', return_value=0.5),
+        patch('module_market.service.heat_service.run_in_executor_with_context', fake_helper),
+        patch('module_market.service.heat_service.MarketHeatDao.list_heat_trend', new=AsyncMock(return_value=[])),
+        patch('module_market.service.heat_service.MarketHeatDao.upsert_heat', new=AsyncMock()),
+        patch('module_market.service.heat_service.MarketHeatDao.replace_top50', new=AsyncMock()),
+    ):
+        result = await MarketHeatService.collect_market(db, 'US', trade_date='2026-08-25')
+        assert result['status'] == 'ok'
+        assert MarketHeatService._quote_map_from_longbridge in seen_fns
+        assert MarketHeatService._static_info_map in seen_fns
