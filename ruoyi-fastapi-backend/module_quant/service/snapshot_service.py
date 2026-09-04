@@ -1,7 +1,7 @@
 """
 Phase 2 定时扫描与读模型快照：
 - DailyMarketScan：全市场日频因子入库
-- PositionMonitor：持仓止损/异动
+- PositionMonitor：持仓止损 / 止盈 / 移动止损（Freqtrade-style stack）
 - IndicatorRefresh：行情看板与指标快照
 """
 
@@ -18,6 +18,20 @@ from typing import TYPE_CHECKING, Any
 from module_market.constant.instruments import TARGET_INSTRUMENTS
 from module_quant.dao.quant_dao import QuantSnapshotDao
 from module_quant.service.alpha_engine import attach_cross_section_alphas
+from module_quant.service.exit_rules import (
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
+    TRAILING_ACTIVATE_PCT,
+    TRAILING_STOP_PCT,
+    ExitDecision,
+    ExitRuleConfig,
+    clear_exit_peak,
+    evaluate_position_exit,
+    format_exit_trigger,
+    load_exit_peak,
+    ratchet_peak,
+    store_exit_peak,
+)
 from module_quant.service.factor_service import FactorService
 from module_quant.service.readmodel_service import (
     BOARD_TTL,
@@ -34,7 +48,13 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-STOP_LOSS_PCT = -8.0
+__all__ = [
+    'STOP_LOSS_PCT',
+    'TAKE_PROFIT_PCT',
+    'TRAILING_ACTIVATE_PCT',
+    'TRAILING_STOP_PCT',
+    'SnapshotService',
+]
 
 
 def _json(payload: Any) -> str:
@@ -203,7 +223,7 @@ class SnapshotService:
             for symbol in symbols:
                 bars = grouped.get(symbol) or []
                 last = bars[-1] if bars else None
-                prev = bars[-2] if len(bars) >= 2 else None
+                prev = bars[-2] if len(bars) >= 2 else None  # noqa: PLR2004
                 last_close = _to_float(last.get('close') if last else None)
                 prev_close = _to_float(prev.get('close') if prev else None)
                 change = None
@@ -245,8 +265,7 @@ class SnapshotService:
     async def run_position_monitor(cls, db: AsyncSession) -> dict[str, Any]:
         from module_quant.dao.quant_dao import QuantLongbridgeConfigDao
         from module_quant.service.longbridge_service import LongbridgeService
-        from module_trade.dao.trade_dao import TradeDao
-        from module_trade.service.auto_trade_service import AutoTradeService, parse_symbol_market
+        from module_trade.service.auto_trade_service import AutoTradeService
 
         user_ids = await QuantLongbridgeConfigDao.list_configured_user_ids(db)
         if not user_ids:
@@ -265,96 +284,18 @@ class SnapshotService:
         for uid in user_ids:
             await LongbridgeService.ensure_credentials_from_db(db, uid)
             settings = await AutoTradeService.load_user_trade_settings(db, uid)
+            rules = ExitRuleConfig.from_settings(settings)
             pos_res = await LongbridgeService.get_positions_async()
             if not pos_res.get('configured'):
                 continue
             positions = pos_res.get('positions') or []
             position_count += len(positions)
             for pos in positions:
-                raw_symbol = str(pos.get('symbol') or '').strip()
-                if not raw_symbol:
-                    continue
-                symbol, market = parse_symbol_market(raw_symbol, str(pos.get('market') or 'US'))
-                qty = _to_float(pos.get('availableQuantity') or pos.get('quantity')) or 0
-                cost = _to_float(pos.get('costPrice'))
-                last = _to_float(pos.get('lastPrice') or pos.get('price') or pos.get('currentPrice'))
-                if last is None:
-                    bars = await _to_thread(InfluxUtil.query_latest_klines, market, [symbol], 1, '-30d')
-                    last_bar = (bars.get(symbol) or [None])[-1]
-                    last = _to_float(last_bar.get('close') if last_bar else None)
-                pnl_pct = None
-                if cost and last:
-                    pnl_pct = round((last - cost) / cost * 100, 4)
-                if pnl_pct is None or pnl_pct > STOP_LOSS_PCT:
-                    continue
-                alert = {
-                    'userId': uid,
-                    'symbol': symbol,
-                    'market': market,
-                    'quantity': qty,
-                    'costPrice': cost,
-                    'lastPrice': last,
-                    'pnlPct': pnl_pct,
-                    'level': 'danger',
-                    'title': f'持仓止损 · {symbol}',
-                    'content': f'用户{uid} {symbol} 现价 {last} 相对成本 {cost} 浮亏 {pnl_pct}%，触发 {STOP_LOSS_PCT}% 止损线',
-                }
-                order_res = None
-                if settings.get('auto_trade_enabled') and qty > 0:
-                    order_res = await LongbridgeService.submit_order_async(
-                        symbol=symbol,
-                        side='SELL',
-                        quantity=int(qty),
-                        order_type='MO',
-                        market=market,
-                    )
-                    ok = bool(order_res.get('ok'))
-                    await TradeDao.add_auto_trade_decision(
-                        db,
-                        {
-                            'cycle_id': f'stoploss_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
-                            'user_id': uid,
-                            'symbol': symbol,
-                            'market': market,
-                            'side': 'SELL',
-                            'quantity': int(qty),
-                            'price': last,
-                            'status': 'submitted' if ok else 'rejected',
-                            'reason': alert['content'],
-                            'source': 'stop_loss',
-                            'order_id': LongbridgeService.extract_order_id(order_res) if ok else None,
-                            'error': None if ok else (order_res.get('message') or '止损下单失败'),
-                        },
-                    )
-                    if ok:
-                        sold += 1
-                        alert['content'] += '；已按市价卖出'
-                    else:
-                        alert['content'] += f'；下单失败 {order_res.get("message")}'
-                elif not settings.get('auto_trade_enabled'):
-                    alert['content'] += '；本账户自动交易未开，仅记录'
-                alerts.append(alert)
-                recent = await TradeDao.list_risk_events(db, limit=80, user_id=uid)
-                duplicate = any(
-                    (row.symbol or '') == symbol
-                    and str(getattr(row, 'review_status', '') or 'pending_review')
-                    in {'pending_review', 'need_review', 'overdue'}
-                    for row in recent
-                )
-                if not duplicate:
-                    await TradeDao.add_risk_event(
-                        db,
-                        {
-                            'user_id': uid,
-                            'rule_id': None,
-                            'event_level': 'danger',
-                            'title': alert['title'],
-                            'content': alert['content'],
-                            'symbol': symbol,
-                            'review_status': 'pending_review' if not (order_res and order_res.get('ok')) else 'handled',
-                            'handled': '1' if order_res and order_res.get('ok') else '0',
-                        },
-                    )
+                alert, did_sell = await cls._monitor_one_position(db, uid, pos, settings, rules)
+                if alert:
+                    alerts.append(alert)
+                if did_sell:
+                    sold += 1
         if alerts:
             await db.commit()
         payload = {
@@ -371,6 +312,149 @@ class SnapshotService:
         return {'configured': True, 'count': position_count, 'alertCount': len(alerts), 'soldCount': sold}
 
     @classmethod
+    async def _monitor_one_position(
+        cls,
+        db: AsyncSession,
+        uid: int,
+        pos: dict[str, Any],
+        settings: dict[str, Any],
+        rules: ExitRuleConfig,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        from module_trade.service.auto_trade_service import parse_symbol_market
+
+        raw_symbol = str(pos.get('symbol') or '').strip()
+        if not raw_symbol:
+            return None, False
+        symbol, market = parse_symbol_market(raw_symbol, str(pos.get('market') or 'US'))
+        qty = _to_float(pos.get('availableQuantity') or pos.get('quantity')) or 0
+        cost = _to_float(pos.get('costPrice'))
+        last = _to_float(pos.get('lastPrice') or pos.get('price') or pos.get('currentPrice'))
+        if last is None:
+            bars = await _to_thread(InfluxUtil.query_latest_klines, market, [symbol], 1, '-30d')
+            last_bar = (bars.get(symbol) or [None])[-1]
+            last = _to_float(last_bar.get('close') if last_bar else None)
+        if qty <= 0:
+            await clear_exit_peak(uid, market, symbol)
+            return None, False
+        if last is None:
+            return None, False
+        stored_peak = await load_exit_peak(uid, market, symbol)
+        peak = ratchet_peak(stored_peak, last)
+        decision = evaluate_position_exit(cost, last, peak, rules)
+        if decision is None:
+            await store_exit_peak(uid, market, symbol, peak)
+            return None, False
+        alert, did_sell = await cls._apply_position_exit(
+            db,
+            uid=uid,
+            symbol=symbol,
+            market=market,
+            qty=qty,
+            cost=cost,
+            last=last,
+            decision=decision,
+            settings=settings,
+            rules=rules,
+        )
+        if did_sell:
+            await clear_exit_peak(uid, market, symbol)
+        else:
+            await store_exit_peak(uid, market, symbol, peak)
+        return alert, did_sell
+
+    @classmethod
+    async def _apply_position_exit(
+        cls,
+        db: AsyncSession,
+        *,
+        uid: int,
+        symbol: str,
+        market: str,
+        qty: float,
+        cost: float | None,
+        last: float,
+        decision: ExitDecision,
+        settings: dict[str, Any],
+        rules: ExitRuleConfig,
+    ) -> tuple[dict[str, Any], bool]:
+        from module_quant.service.longbridge_service import LongbridgeService
+        from module_trade.dao.trade_dao import TradeDao
+
+        trigger = format_exit_trigger(decision, rules)
+        alert = {
+            'userId': uid,
+            'symbol': symbol,
+            'market': market,
+            'quantity': qty,
+            'costPrice': cost,
+            'lastPrice': last,
+            'pnlPct': decision.pnl_pct,
+            'peakPrice': decision.peak,
+            'reason': decision.reason,
+            'source': decision.source,
+            'level': decision.level,
+            'title': f'{decision.title_prefix} · {symbol}',
+            'content': f'用户{uid} {symbol} 现价 {last} 相对成本 {cost} {trigger}',
+        }
+        order_res = None
+        sold = False
+        if settings.get('auto_trade_enabled') and qty > 0:
+            order_res = await LongbridgeService.submit_order_async(
+                symbol=symbol,
+                side='SELL',
+                quantity=int(qty),
+                order_type='MO',
+                market=market,
+            )
+            ok = bool(order_res.get('ok'))
+            await TradeDao.add_auto_trade_decision(
+                db,
+                {
+                    'cycle_id': f'{decision.cycle_prefix}_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
+                    'user_id': uid,
+                    'symbol': symbol,
+                    'market': market,
+                    'side': 'SELL',
+                    'quantity': int(qty),
+                    'price': last,
+                    'status': 'submitted' if ok else 'rejected',
+                    'reason': alert['content'],
+                    'source': decision.source,
+                    'order_id': LongbridgeService.extract_order_id(order_res) if ok else None,
+                    'error': None if ok else (order_res.get('message') or f'{decision.title_prefix}下单失败'),
+                },
+            )
+            if ok:
+                sold = True
+                alert['content'] += '；已按市价卖出'
+            else:
+                alert['content'] += f'；下单失败 {order_res.get("message")}'
+        elif not settings.get('auto_trade_enabled'):
+            alert['content'] += '；本账户自动交易未开，仅记录'
+        recent = await TradeDao.list_risk_events(db, limit=80, user_id=uid)
+        duplicate = any(
+            (row.symbol or '') == symbol
+            and str(getattr(row, 'review_status', '') or 'pending_review')
+            in {'pending_review', 'need_review', 'overdue'}
+            for row in recent
+        )
+        if not duplicate:
+            await TradeDao.add_risk_event(
+                db,
+                {
+                    'user_id': uid,
+                    'rule_id': None,
+                    'event_level': decision.event_level,
+                    'title': alert['title'],
+                    'content': alert['content'],
+                    'symbol': symbol,
+                    'review_status': 'pending_review' if not (order_res and order_res.get('ok')) else 'handled',
+                    'handled': '1' if order_res and order_res.get('ok') else '0',
+                },
+            )
+        return alert, sold
+
+    @classmethod
     async def build_overview_payload(cls, db: AsyncSession) -> dict[str, Any]:
         asset = await ReadModelService.get_account_asset_snapshot(use_scheduled=False)
         pos = await ReadModelService.get_position_snapshot(use_scheduled=False)
@@ -385,16 +469,18 @@ class SnapshotService:
             'asset': asset,
             'position': pos,
             'factorScan': factor_scan,
-            'board': {'count': board_payload.get('count'), 'asOf': board_payload.get('asOf'), 'items': (board_payload.get('items') or [])[:16]},
+            'board': {
+                'count': board_payload.get('count'),
+                'asOf': board_payload.get('asOf'),
+                'items': (board_payload.get('items') or [])[:16],
+            },
             'refreshTime': now_beijing().strftime('%Y-%m-%d %H:%M:%S'),
             'readModelVersion': 'v2.3',
             'source': 'scheduled',
         }
 
     @classmethod
-    async def build_factor_scan_payload(
-        cls, db: AsyncSession, stored: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def build_factor_scan_payload(cls, db: AsyncSession, stored: dict[str, Any] | None = None) -> dict[str, Any]:
         """合并读模型元数据与 quant_factor_snapshot 全量行（不虚构价格）。"""
         payload = dict(stored or {})
         items = await cls.list_factor_snapshots(db, limit=200)
@@ -505,8 +591,7 @@ def _snapshot_from_result(
         'rsi14': metrics.get('rsi14'),
         'volumeRatio20': metrics.get('volumeRatio20'),
         'distanceHigh20': metrics.get('distanceHigh20'),
-        'alpha006': (metrics.get('alpha101') or alpha.get('alpha101') or {}).get('alpha006')
-        or alpha.get('alpha006'),
+        'alpha006': (metrics.get('alpha101') or alpha.get('alpha101') or {}).get('alpha006') or alpha.get('alpha006'),
     }
     if name is not None:
         snap['name'] = name
