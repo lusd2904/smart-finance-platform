@@ -19,7 +19,7 @@ from module_quant.service.longbridge.errors import note_sdk_error
 from module_quant.service.longbridge.region import endpoints, resolve_region
 from module_quant.service.longbridge_quote import is_auth_denied
 from utils.log_util import logger
-from utils.longbridge_breaker import LongbridgeBreaker
+from utils.longbridge_breaker import LongbridgeBreaker, register_creds_epoch_listener
 
 ADMIN_LONGBRIDGE_USER_ID = 1
 
@@ -153,22 +153,19 @@ class CredentialsMixin:
         """
         设置来自 DB 的凭据覆盖（优先级高于 env，仅作用于当前任务/请求）。
         传 None 清除覆盖。
+        非空凭据始终解除本进程 auth 切断，即使 token 与切断时签名相同
+        （用户重存仍有效的 token 必须恢复）。
         """
         if credentials and any(
             credentials.get(k) for k in ('app_key', 'app_secret', 'access_token')
         ):
             _request_credentials.set(credentials)
+            if getattr(cls, '_auth_cut_off', False) or getattr(cls, '_auth_fail_until', 0):
+                logger.info('[长桥] 重新注入凭据，解除切断')
+            cls._reset_auth_breaker()
         else:
             _request_credentials.set(None)
         cls._clear_cached_contexts()
-        if getattr(cls, '_auth_cut_off', False):
-            try:
-                sig = cls._get_creds_signature(cls.resolve_credentials())
-            except Exception:
-                sig = None
-            if sig and sig != getattr(cls, '_auth_cut_off_sig', None):
-                logger.info('[长桥] 检测到新 token，解除切断')
-                cls._reset_auth_breaker()
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
@@ -258,6 +255,7 @@ class CredentialsMixin:
 
     @classmethod
     def _blocked(cls) -> bool:
+        LongbridgeBreaker.sync_creds_epoch_if_needed()
         if cls._auth_blocked():
             return True
         return not LongbridgeBreaker.allow()
@@ -277,6 +275,7 @@ class CredentialsMixin:
         从 quant_longbridge_config 注入当前用户凭据（DB 优先）。
         无用户且未允许管理员回退时清空注入，后续走 env。
         """
+        await LongbridgeBreaker.pull_creds_epoch()
         try:
             from module_quant.dao.quant_dao import (
                 QuantLongbridgeConfigDao,
@@ -317,5 +316,19 @@ class CredentialsMixin:
             if wait > 0:
                 await asyncio.sleep(wait)
             _lb_last_call = time.monotonic()
+
+
+def _on_creds_epoch(_epoch: int) -> None:
+    """其他进程保存凭据后：清本进程切断与缓存的 Quote/Trade context。"""
+    try:
+        from module_quant.service.longbridge_service import LongbridgeService
+
+        LongbridgeService._reset_auth_breaker()
+        LongbridgeService._clear_cached_contexts()
+    except Exception as exc:
+        logger.debug(f'[长桥] creds_epoch 清除切断失败: {exc}')
+
+
+register_creds_epoch_listener(_on_creds_epoch)
 
 

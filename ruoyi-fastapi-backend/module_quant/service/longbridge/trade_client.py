@@ -108,8 +108,22 @@ class TradeClientMixin:
         """今日订单。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'orders': []}
+        if cls._blocked():
+            return {
+                'configured': True,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'orders': [],
+            }
         try:
             ctx = cls._build_trade_context()
+            if ctx is None:
+                return {
+                    'configured': True,
+                    'reason': 'unavailable',
+                    'message': '长桥 TradeContext 不可用',
+                    'orders': [],
+                }
             raw = ctx.today_orders()
             orders = [cls._map_order(o) for o in (raw or [])]
             return {'configured': True, 'orders': orders}
@@ -122,8 +136,22 @@ class TradeClientMixin:
         """历史订单（SDK 支持范围内）。"""
         if not cls.is_configured():
             return {'configured': False, 'message': '长桥凭据未配置', 'orders': []}
+        if cls._blocked():
+            return {
+                'configured': True,
+                'reason': 'circuit_open',
+                'message': LongbridgeBreaker.blocked_message(),
+                'orders': [],
+            }
         try:
             ctx = cls._build_trade_context()
+            if ctx is None:
+                return {
+                    'configured': True,
+                    'reason': 'unavailable',
+                    'message': '长桥 TradeContext 不可用',
+                    'orders': [],
+                }
             raw = ctx.history_orders()
             orders = [cls._map_order(o) for o in (raw or [])][: max(1, min(limit, 200))]
             return {'configured': True, 'orders': orders}
