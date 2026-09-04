@@ -76,7 +76,7 @@ class SentimentAiConfig(Base):
     max_news_per_round = Column(Integer, nullable=True, server_default='200', comment='单次分析最大资讯条数')
     auto_analyze = Column(CHAR(1), nullable=False, server_default='1', comment='采集后自动分析（0否 1是）')
     enabled_sources = Column(
-        String(255), nullable=True, server_default="'eastmoney,sina'", comment='启用的数据源（逗号分隔）'
+        String(255), nullable=True, server_default="'eastmoney,sina,ths,wallstreetcn,google_news,x_monitor'", comment='启用的数据源（逗号分隔）'
     )
     update_by = Column(String(64), nullable=True, server_default="''", comment='更新者')
     update_time = Column(DateTime, nullable=True, default=datetime.now, comment='更新时间')
