@@ -10,6 +10,8 @@ x-backend-image: &backend-image
   image: sentiment-backend:latest
   volumes:
     - ./ruoyi-fastapi-backend/.env.dockersentiment:/app/.env.dockersentiment:ro
+    # X监测器 JSONL（hub 共享主机约定路径；cloud/job-farm 勿依赖）
+    - /workspace/sfp-data/sentiment/x_monitor:/workspace/sfp-data/sentiment/x_monitor:ro
   networks:
     - sentiment-network
   restart: unless-stopped

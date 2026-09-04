@@ -1,6 +1,9 @@
 import hashlib
+import json
+import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 from xml.etree import ElementTree
@@ -14,8 +17,29 @@ USER_AGENT = (
     '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 )
 
-# 默认启用：东财/新浪 + 中文免费源
-DEFAULT_SOURCES = ['eastmoney', 'sina', 'ths', 'wallstreetcn', 'google_news']
+# 默认启用：东财/新浪 + 中文免费源 + X监测器本地 JSONL
+DEFAULT_SOURCES = ['eastmoney', 'sina', 'ths', 'wallstreetcn', 'google_news', 'x_monitor']
+
+# hub 共享主机路径；可用环境变量覆盖（勿在 cloud/job-farm 依赖此路径）
+_X_MONITOR_CANDIDATES = [
+    os.environ.get('SFP_X_MONITOR_JSONL') or '',
+    '/workspace/sfp-data/sentiment/x_monitor/posts.jsonl',
+    '/app/data/x_monitor/posts.jsonl',
+]
+
+
+def _resolve_x_monitor_jsonl() -> Path:
+    for raw in _X_MONITOR_CANDIDATES:
+        if not raw:
+            continue
+        p = Path(raw)
+        if p.is_file():
+            return p
+    # 默认约定路径（即使尚未落盘）
+    return Path('/workspace/sfp-data/sentiment/x_monitor/posts.jsonl')
+
+
+X_MONITOR_JSONL_PATH = _resolve_x_monitor_jsonl()
 
 
 def _make_hash(source: str, title: str) -> str:
@@ -32,6 +56,18 @@ def _parse_time(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
     text = str(value or '').strip()
+    if not text:
+        return datetime.now()
+    # ISO8601 / BJT offset，如 2026-09-04T23:39:00+08:00
+    try:
+        iso = text.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is not None:
+            # 统一存 naive：保留墙上时间（BJT 常见）
+            return dt.replace(tzinfo=None)
+        return dt
+    except (ValueError, TypeError):
+        pass
     for fmt in (
         '%Y-%m-%d %H:%M:%S',
         '%Y-%m-%dT%H:%M:%S',
@@ -49,6 +85,52 @@ def _parse_time(value: Any) -> datetime:
         return datetime.strptime(text[:25], '%a, %d %b %Y %H:%M:%S')
     except (ValueError, TypeError):
         return datetime.now()
+
+
+def _normalize_topics(topics: Any) -> list[str]:
+    if topics is None:
+        return []
+    if isinstance(topics, list):
+        return [str(t).strip() for t in topics if str(t).strip()]
+    text = str(topics).strip()
+    if not text:
+        return []
+    parts = re.split(r'[,，|/]+', text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _read_jsonl_tail(path: Path, max_lines: int) -> list[str]:
+    """读取 JSONL 末尾最多 max_lines 行（append-only 文件末尾即最新）。"""
+    if max_lines <= 0 or not path.is_file():
+        return []
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size == 0:
+        return []
+    # 小文件直接读；大文件从尾部回读
+    try:
+        if size <= 2_000_000:
+            lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+            return [ln for ln in lines if ln.strip()][-max_lines:]
+        with path.open('rb') as f:
+            block = 8192
+            data = b''
+            pos = size
+            nl = bytes([10])
+            while pos > 0 and data.count(nl) <= max_lines:
+                read = min(block, pos)
+                pos -= read
+                f.seek(pos)
+                data = f.read(read) + data
+                if pos == 0:
+                    break
+            text = data.decode('utf-8', errors='ignore')
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            return lines[-max_lines:]
+    except OSError:
+        return []
 
 
 class SentimentCollector:
@@ -315,6 +397,69 @@ class SentimentCollector:
             )
         return result
 
+
+    @classmethod
+    async def fetch_x_monitor(cls, client: httpx.AsyncClient | None = None, page_size: int = 200) -> list[dict[str, Any]]:
+        """
+        X监测器本地 JSONL（hub 共享主机路径）。
+        每行：posted_at/author/author_id/text/url/topics/source=x_monitor
+        """
+        path = _resolve_x_monitor_jsonl()
+        cap = max(1, min(int(page_size or 200), 500))
+        raw_lines = _read_jsonl_tail(path, cap)
+        if not raw_lines:
+            if not path.exists():
+                logger.info(f'[舆情采集] x_monitor 文件不存在: {path}')
+            return []
+
+        result: list[dict[str, Any]] = []
+        seen_url: set[str] = set()
+        # 文件末尾最新：倒序输出，与其它源「新在前」一致
+        for line in reversed(raw_lines):
+            try:
+                item = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text') or '').strip()
+            url = str(item.get('url') or '').strip() or None
+            if not text and not url:
+                continue
+            if url and url in seen_url:
+                continue
+            if url:
+                seen_url.add(url)
+
+            first_line = (text.splitlines()[0] if text else '') or (url or '')
+            title = first_line[:80] if first_line else (url or 'x_monitor')[:80]
+            topics = _normalize_topics(item.get('topics'))
+            content = text or title
+            if topics:
+                tag = ','.join(topics)
+                content = f'{content}\n[topics:{tag}]' if content else f'[topics:{tag}]'
+
+            author = str(item.get('author') or '').strip()
+            if author and author not in content:
+                content = f'@{author}: {content}'
+
+            if url:
+                uniq = hashlib.md5(url.encode()).hexdigest()
+            else:
+                uniq = _make_hash('x_monitor', text or title)
+
+            result.append(
+                {
+                    'source': 'x_monitor',
+                    'title': title[:500],
+                    'content': content[:4000],
+                    'url': url,
+                    'pub_time': _parse_time(item.get('posted_at')),
+                    'uniq_hash': uniq,
+                }
+            )
+        return result
+
     @classmethod
     async def collect(cls, enabled_sources: list[str] | None = None) -> list[dict[str, Any]]:
         """
@@ -332,6 +477,7 @@ class SentimentCollector:
             'wallstreetcn': cls.fetch_wallstreetcn,
             'google_news': cls.fetch_google_news,
             'jin10': cls.fetch_jin10,
+            'x_monitor': cls.fetch_x_monitor,
         }
         all_news: list[dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=25, follow_redirects=True, trust_env=False) as client:
