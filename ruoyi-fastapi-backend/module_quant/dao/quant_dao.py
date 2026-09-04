@@ -384,11 +384,13 @@ def _alpha_value_rows(
     symbol: str,
     market: str,
     as_of_key: str,
-    payload: dict[str, Any] | None,
+    payload: Any,
     now: datetime,
 ) -> list[Any]:
+    if not isinstance(payload, dict):
+        return []
     rows = []
-    for key, raw in (payload or {}).items():
+    for key, raw in payload.items():
         if isinstance(raw, dict):
             continue
         try:
@@ -531,8 +533,8 @@ class QuantSnapshotDao:
         symbol: str,
         market: str,
         as_of: str,
-        alpha101: dict[str, Any] | None,
-        alpha158: dict[str, Any] | None,
+        alpha101: Any,
+        alpha158: Any,
     ) -> None:
         """按标的覆盖写入 Alpha101/158 明细行，不再把整包 JSON 塞进 TEXT。"""
         as_of_key = (as_of or datetime.now().strftime('%Y-%m-%d'))[:16]

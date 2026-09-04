@@ -260,13 +260,15 @@ class QuantService:
                 metrics = fj.get('metrics') if isinstance(fj, dict) else {}
                 if not isinstance(metrics, dict):
                     continue
+                alpha101 = metrics.get('alpha101')
+                alpha158 = metrics.get('alpha158')
                 await QuantSnapshotDao.replace_alpha_values(
                     query_db,
                     symbol=s.get('symbol') or '',
                     market=s.get('market') or 'US',
                     as_of=str(metrics.get('tradeDate') or '')[:16],
-                    alpha101=metrics.get('alpha101') or {},
-                    alpha158=metrics.get('alpha158') or {},
+                    alpha101=alpha101 if isinstance(alpha101, dict) else {},
+                    alpha158=alpha158 if isinstance(alpha158, dict) else {},
                 )
             await query_db.commit()
         except Exception as e:
