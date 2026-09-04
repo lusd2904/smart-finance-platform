@@ -47,7 +47,7 @@ async def run_daily_factor_scan_job(*args, **kwargs) -> None:
 
 
 async def run_position_monitor_job(*args, **kwargs) -> None:
-    """持仓异动与止损监控。"""
+    """持仓止损 / 止盈 / 移动止损监控。"""
     if await JobQueue.enqueue('position_monitor', {}):
         logger.info('[持仓监控任务] 已入队')
         return
