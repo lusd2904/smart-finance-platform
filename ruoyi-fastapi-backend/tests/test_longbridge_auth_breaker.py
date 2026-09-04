@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 from unittest.mock import patch
 
+from module_quant.service.longbridge.auth import run_in_executor_with_context
 from module_quant.service.longbridge_quote import is_auth_denied, quote_error_reason
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.longbridge_breaker import LongbridgeBreaker
@@ -145,5 +147,43 @@ def test_get_history_orders_none_ctx() -> None:
         assert data['configured'] is True
         assert data['orders'] == []
         assert data.get('reason') == 'unavailable'
+    finally:
+        _reset_auth_state()
+
+
+def _credential_fingerprint() -> tuple[str, str]:
+    """返回 (source, token sha256 前缀)，测试断言不打印明文 token。"""
+    resolved = LongbridgeService.resolve_credentials()
+    token = str(resolved.get('access_token') or '')
+    digest = hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
+    return str(resolved.get('source') or ''), digest
+
+
+def test_run_in_executor_with_context_sees_task_credentials() -> None:
+    """异步任务里 set_credentials 后，copy_context 的 executor 必须看到 DB 凭据。"""
+    _reset_auth_state()
+    token = 'task-db-access-token'
+    expected = hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]
+    LongbridgeService.set_credentials(
+        {
+            'app_key': 'task-app-key',
+            'app_secret': 'task-app-secret',
+            'access_token': token,
+            'region': 'cn',
+            'user_id': '101',
+        }
+    )
+
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        source, digest = await run_in_executor_with_context(loop, _credential_fingerprint)
+        assert source == 'db'
+        assert digest == expected
+        raw_source, raw_digest = await loop.run_in_executor(None, _credential_fingerprint)
+        assert raw_digest != expected
+        assert raw_source != 'db'
+
+    try:
+        asyncio.run(_run())
     finally:
         _reset_auth_state()

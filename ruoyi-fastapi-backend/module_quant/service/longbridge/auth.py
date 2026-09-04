@@ -4,16 +4,22 @@
 设计要点：
 - 凭据来源优先级：当前用户 DB 行 > 请求用户 >（仅行情采集显式 allow_admin_fallback 时管理员）> env。
 - 请求级凭据存放在 ContextVar，避免并发请求互相覆盖。
+- ``run_in_executor`` 不会带上 ContextVar，长桥同步 SDK 必须走
+  ``run_in_executor_with_context``（或 ``asyncio.to_thread``）。
 - 全局限频状态（锁 + 上次调用时间）供行情/交易两个客户端共用。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import time
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from module_quant.service.longbridge.errors import note_sdk_error
 from module_quant.service.longbridge.region import endpoints, resolve_region
@@ -41,6 +47,25 @@ _lb_last_call = 0.0
 _request_credentials: ContextVar[dict[str, str] | None] = ContextVar(
     'longbridge_request_credentials', default=None
 )
+_T = TypeVar('_T')
+
+
+async def run_in_executor_with_context(
+    loop: asyncio.AbstractEventLoop | None,
+    fn: Callable[..., _T],
+    /,
+    *args: Any,
+    executor: Any = None,
+) -> _T:
+    """在线程池执行 fn，并复制当前 ContextVar（含长桥请求凭据）。
+
+    ``loop.run_in_executor`` 不会传播 ContextVar；``asyncio.to_thread`` 会。
+    行情热度等路径若先 ``ensure_credentials_from_db`` 再丢进 executor，
+    必须走本助手，否则工作线程会回退到进程 env 里过期的 LONGPORT_ACCESS_TOKEN。
+    """
+    running = loop or asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    return await running.run_in_executor(executor, ctx.run, fn, *args)
 
 
 def peek_request_user_id() -> int | None:
