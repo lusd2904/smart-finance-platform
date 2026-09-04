@@ -255,6 +255,27 @@ def pick_net_assets(account_result: dict[str, Any] | None, fx: FxRates | None = 
     return pick_net_assets_usd(account_result, rates)
 
 
+def as_alpha_factor_dict(payload: Any) -> dict[str, Any]:
+    """Alpha101/158 明细只接受 dict；float 等标量直接丢掉。"""
+    return payload if isinstance(payload, dict) else {}
+
+
+def quote_opportunity_window(opportunities: list[Any], max_symbols: int) -> list[Any]:
+    """报价窗口大于 max_symbols，跳过已持仓后仍能凑满委托数。"""
+    window = max(int(max_symbols or 0) * 5, 15)
+    return list(opportunities[:window])
+
+
+def zero_nav_skip_reason(buy_ratio: float, account_snapshot: dict[str, Any] | None) -> str:
+    reason = f'账户净资产为 0，无法按仓位 {int(buy_ratio * 100)}% 计算日内买入额度'
+    if not isinstance(account_snapshot, dict):
+        return reason
+    extra = str(account_snapshot.get('message') or account_snapshot.get('reason') or '').strip()
+    if extra:
+        return f'{reason}（{extra}）'
+    return reason
+
+
 def slim_scan_row(item: dict[str, Any]) -> dict[str, Any]:
     """台账/接口只保留摘要，去掉 factor_json，避免 TEXT 列溢出。"""
     score = item.get('score')
@@ -838,8 +859,8 @@ class AutoTradeService:
                     symbol=str(item.get('symbol')),
                     market=str(item.get('market') or 'US'),
                     as_of=str(metrics.get('tradeDate') or '')[:16],
-                    alpha101=metrics.get('alpha101') or {},
-                    alpha158=metrics.get('alpha158') or {},
+                    alpha101=as_alpha_factor_dict(metrics.get('alpha101')),
+                    alpha158=as_alpha_factor_dict(metrics.get('alpha158')),
                 )
         except Exception:
             logger.exception(f'[AI自动交易] 写入 Alpha 因子表失败 cycle_id={cycle_id}')
@@ -930,7 +951,7 @@ class AutoTradeService:
                 can_submit = False
             if net_assets <= 0:
                 skipped_reasons.append(
-                    {'symbol': '*', 'reason': f'账户净资产为 0，无法按仓位 {int(buy_ratio * 100)}% 计算日内买入额度'}
+                    {'symbol': '*', 'reason': zero_nav_skip_reason(buy_ratio, account_snapshot)}
                 )
                 can_submit = False
 
@@ -959,9 +980,12 @@ class AutoTradeService:
         today_bought: set[str] = set()
         if can_submit and opportunities:
             today_bought = await cls._today_bought_symbols(db, target_user_id)
-            candidates = opportunities[: config['max_symbols']]
+            max_symbols = int(config['max_symbols'])
+            candidates = quote_opportunity_window(opportunities, max_symbols)
             price_map, quote_errors = await cls._realtime_price_map(candidates)
             for opp in candidates:
+                if submitted_count >= max_symbols:
+                    break
                 symbol = str(opp.get('symbol') or '')
                 market = str(opp.get('market') or 'US')
                 side = str(opp.get('signal') or 'HOLD').upper()

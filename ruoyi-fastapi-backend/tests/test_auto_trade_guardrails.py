@@ -19,6 +19,7 @@ from module_quant.service.longbridge.fx import (
 from module_quant.service.longbridge_service import LongbridgeService
 from module_trade.service.auto_trade_service import (
     AutoTradeService,
+    as_alpha_factor_dict,
     check_daily_limits,
     clamp_max_symbol_position_pct,
     daily_buy_cap,
@@ -26,6 +27,7 @@ from module_trade.service.auto_trade_service import (
     match_position,
     merge_runtime_config,
     parse_symbol_market,
+    quote_opportunity_window,
     remaining_gross_room,
     resolve_submit_permission,
     round_limit_price,
@@ -36,6 +38,7 @@ from module_trade.service.auto_trade_service import (
     symbol_buy_room,
     symbol_position_cap,
     total_position_market_value,
+    zero_nav_skip_reason,
 )
 
 
@@ -128,6 +131,17 @@ def test_daily_limits_and_slippage() -> None:
     slim = slim_scan_row({'symbol': 'AAPL', 'factors': {'alpha158Count': 154}, 'score': 88, 'signal': 'BUY'})
     assert 'factors' not in slim
     assert slim['score'] == {'total': 88}
+
+
+def test_quote_window_and_alpha_payload_helpers() -> None:
+    assert quote_opportunity_window(['a', 'b', 'c', 'd'], 3) == ['a', 'b', 'c', 'd']
+    assert len(quote_opportunity_window(list(range(20)), 3)) == 15
+    assert as_alpha_factor_dict({'alpha006': 0.1}) == {'alpha006': 0.1}
+    assert as_alpha_factor_dict(0.42) == {}
+    assert as_alpha_factor_dict(None) == {}
+    assert 'circuit_open' in zero_nav_skip_reason(0.2, {'reason': 'circuit_open', 'message': ''})
+    assert '熔断' in zero_nav_skip_reason(0.2, {'reason': 'circuit_open', 'message': '长桥熔断中'})
+    assert '净资产为 0' in zero_nav_skip_reason(0.2, {'balances': []})
 
 
 def test_fx_converts_hkd_balances_to_usd_nav() -> None:
@@ -228,6 +242,7 @@ async def _run_buy_cycle(
     signal=None,
     targets=None,
     quote_result=None,
+    custom_config=None,
 ):
     from module_quant.service.strategy_service import StrategyService
     from module_trade.dao.trade_dao import TradeDao
@@ -268,7 +283,9 @@ async def _run_buy_cycle(
         patch.object(LongbridgeService, 'submit_order_async', submit),
         patch.object(LongbridgeService, 'extract_order_id', return_value='SIM-1'),
     ):
-        result = await AutoTradeService.run_watchlist_strategy_cycle(db, execute=True)
+        result = await AutoTradeService.run_watchlist_strategy_cycle(
+            db, execute=True, custom_config=custom_config
+        )
     return result, submit, add_decision
 
 
@@ -447,6 +464,112 @@ def test_cycle_skips_buy_when_already_held() -> None:
         assert result['submittedOrdersCount'] == 0
         reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
         assert '已持有该标的' in reasons
+
+    asyncio.run(_run())
+
+
+def _ranked_buy_signals(*symbols: str) -> dict:
+    confidence = 95
+    return {
+        'signals': [
+            {
+                'symbol': symbol,
+                'market': 'US',
+                'signal': 'BUY',
+                'confidence': confidence - idx,
+                'score': confidence - idx,
+                'price': 100,
+                'reason': 'ok',
+                'factor_json': {},
+            }
+            for idx, symbol in enumerate(symbols)
+        ]
+    }
+
+
+def test_cycle_skips_held_top_n_and_submits_next_unheld() -> None:
+    symbols = ('AAPL', 'MSFT', 'NVDA', 'ZS', 'QQQ')
+    quotes = {'quotes': [{'symbol': f'{code}.US', 'lastDone': 100} for code in symbols]}
+
+    async def _run() -> None:
+        result, submit, add_decision = await _run_buy_cycle(
+            positions=[
+                {'symbol': 'AAPL.US', 'quantity': 2, 'marketValue': 200},
+                {'symbol': 'MSFT.US', 'quantity': 2, 'marketValue': 200},
+                {'symbol': 'NVDA.US', 'quantity': 2, 'marketValue': 200},
+            ],
+            signal=_ranked_buy_signals(*symbols),
+            targets=[{'symbol': code, 'market': 'US'} for code in symbols],
+            quote_result=quotes,
+            custom_config={'max_symbols': 3},
+        )
+        submitted = [call.kwargs.get('symbol') for call in submit.call_args_list]
+        assert submitted == ['ZS', 'QQQ']
+        assert result['submittedOrdersCount'] == 2
+        assert add_decision.await_count == 2
+        reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
+        assert '已持有该标的' in reasons
+
+    asyncio.run(_run())
+
+
+def test_cycle_stops_after_max_symbols_orders() -> None:
+    symbols = ('AAPL', 'MSFT', 'NVDA', 'ZS', 'QQQ')
+    quotes = {'quotes': [{'symbol': f'{code}.US', 'lastDone': 100} for code in symbols]}
+
+    async def _run() -> None:
+        result, submit, _ = await _run_buy_cycle(
+            signal=_ranked_buy_signals(*symbols),
+            targets=[{'symbol': code, 'market': 'US'} for code in symbols],
+            quote_result=quotes,
+            custom_config={'max_symbols': 3},
+            settings=_trade_settings(daily_buy_ratio=0.40),
+        )
+        submitted = [call.kwargs.get('symbol') for call in submit.call_args_list]
+        assert submitted == ['AAPL', 'MSFT', 'NVDA']
+        assert result['submittedOrdersCount'] == 3
+
+    asyncio.run(_run())
+
+
+def test_cycle_zero_nav_includes_broker_circuit_message() -> None:
+    async def _run() -> None:
+        result, submit, _ = await _run_buy_cycle(
+            account_balance={
+                'configured': True,
+                'reason': 'circuit_open',
+                'message': '长桥接口熔断中，稍后再试',
+                'balances': [],
+            },
+        )
+        submit.assert_not_called()
+        reasons = ' '.join(item.get('reason') or '' for item in result['skippedReasons'])
+        assert '净资产为 0' in reasons
+        assert '长桥接口熔断中' in reasons
+
+    asyncio.run(_run())
+
+
+def test_cycle_alpha_float_payload_does_not_raise() -> None:
+    float_signal = {
+        'signals': [
+            {
+                'symbol': 'AAPL',
+                'market': 'US',
+                'signal': 'BUY',
+                'confidence': 88,
+                'score': 88,
+                'price': 100,
+                'reason': 'ok',
+                'factor_json': {'metrics': {'alpha101': 0.42, 'alpha158': 1.5, 'tradeDate': '2026-09-04'}},
+            }
+        ]
+    }
+
+    async def _run() -> None:
+        result, submit, _ = await _run_buy_cycle(signal=float_signal)
+        submit.assert_called_once()
+        assert result['submittedOrdersCount'] == 1
 
     asyncio.run(_run())
 

@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 from contextlib import ExitStack
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,7 +10,7 @@ os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
 os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from module_quant.dao.quant_dao import QuantSnapshotDao
+from module_quant.dao.quant_dao import QuantSnapshotDao, _alpha_value_rows
 from module_quant.entity.do.quant_do import QuantAlpha101Value, QuantAlpha158Value, QuantFactorSnapshot
 from module_quant.service import snapshot_service as ss
 from module_quant.service.quant_service import QuantService
@@ -310,3 +311,30 @@ def test_replace_alpha_values_bulk_skips_empty() -> None:
     asyncio.run(QuantSnapshotDao.replace_alpha_values_bulk(db, []))
     db.execute.assert_not_called()
     db.flush.assert_not_called()
+
+
+def test_alpha_value_rows_ignores_non_dict_payload() -> None:
+    now = datetime.now()
+    assert _alpha_value_rows(QuantAlpha101Value, 'AAPL', 'US', '2026-09-04', 0.42, now) == []
+    assert _alpha_value_rows(QuantAlpha158Value, 'AAPL', 'US', '2026-09-04', 1.5, now) == []
+    assert _alpha_value_rows(QuantAlpha101Value, 'AAPL', 'US', '2026-09-04', None, now) == []
+    assert _alpha_value_rows(QuantAlpha101Value, 'AAPL', 'US', '2026-09-04', ['alpha001'], now) == []
+
+
+def test_replace_alpha_values_float_payload_does_not_raise() -> None:
+    db = AsyncMock()
+    db.execute = AsyncMock()
+    db.add_all = MagicMock()
+    db.flush = AsyncMock()
+    asyncio.run(
+        QuantSnapshotDao.replace_alpha_values(
+            db,
+            symbol='AAPL',
+            market='US',
+            as_of='2026-09-04',
+            alpha101=0.42,
+            alpha158=1.5,
+        )
+    )
+    db.add_all.assert_not_called()
+    db.flush.assert_awaited_once()
