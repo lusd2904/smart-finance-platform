@@ -1,4 +1,5 @@
 import json
+import random
 import re
 from typing import Any
 
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import CrudResponseModel, PageModel
 from exceptions.exception import ServiceException
-from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES, select_ai_model_row
+from module_ai.constant.ai_model_resolve import GROK46_MODEL_CODES
 from module_ai.dao.ai_model_dao import AiModelDao
 from module_ai.entity.do.ai_model_do import AiModels
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
@@ -48,6 +49,42 @@ class SentimentService:
         return code in GATEWAY_FAILOVER_CODES
 
     @classmethod
+    def _order_sentiment_ai_candidates(cls, models: list[AiModels]) -> list[AiModels]:
+        """
+        构建舆情分析 failover 顺序：按 scope 池洗牌，sentiment → global → chat → 其他完整模型。
+        同池内随机，避免单一模型永远排第一。
+        """
+        pools: dict[str, list[AiModels]] = {
+            'sentiment': [],
+            'global': [],
+            'chat': [],
+            '_other': [],
+        }
+        for model in models:
+            if not cls._is_complete_model(model):
+                continue
+            scope = (getattr(model, 'scope', None) or '').strip()
+            if scope in ('sentiment', 'global', 'chat'):
+                pools[scope].append(model)
+            else:
+                pools['_other'].append(model)
+        ordered: list[AiModels] = []
+        seen: set[int] = set()
+        for key in ('sentiment', 'global', 'chat', '_other'):
+            bucket = list(pools[key])
+            random.shuffle(bucket)
+            for model in bucket:
+                model_id = model.model_id
+                if model_id is None:
+                    continue
+                mid = int(model_id)
+                if mid in seen:
+                    continue
+                ordered.append(model)
+                seen.add(mid)
+        return ordered
+
+    @classmethod
     async def _list_sentiment_ai_candidates(cls, query_db: AsyncSession) -> list[AiModels]:
         rows = (
             (
@@ -60,22 +97,7 @@ class SentimentService:
             .scalars()
             .all()
         )
-        complete = [model for model in rows if cls._is_complete_model(model)]
-        if not complete:
-            return []
-        primary = select_ai_model_row(complete, 'sentiment', GROK46_MODEL_CODES)
-        ordered: list[AiModels] = []
-        seen: set[int] = set()
-        if primary and primary.model_id is not None:
-            ordered.append(primary)
-            seen.add(int(primary.model_id))
-        for model in complete:
-            model_id = model.model_id
-            if model_id is None or int(model_id) in seen:
-                continue
-            ordered.append(model)
-            seen.add(int(model_id))
-        return ordered
+        return cls._order_sentiment_ai_candidates(list(rows))
 
     @staticmethod
     def _model_runtime_config(model: AiModels) -> dict[str, Any]:
@@ -475,7 +497,10 @@ class SentimentService:
             if ai_result.get('ok'):
                 break
             if ai_result.get('code') == HTTP_TOO_MANY_REQUESTS:
-                break
+                logger.warning(
+                    f'[舆情分析] 模型 {runtime["modelName"]} 限流 429，尝试下一模型'
+                )
+                continue
             if not cls._is_gateway_failover_code(ai_result.get('code')):
                 break
             logger.warning(
@@ -483,7 +508,7 @@ class SentimentService:
             )
         if ai_result is None:
             raise ServiceException(message='未找到可用的 AI 模型配置')
-        if ai_result.get('code') == HTTP_TOO_MANY_REQUESTS:
+        if not ai_result.get('ok') and ai_result.get('code') == HTTP_TOO_MANY_REQUESTS:
             return {
                 'analyzed': 0,
                 'analysisId': None,
