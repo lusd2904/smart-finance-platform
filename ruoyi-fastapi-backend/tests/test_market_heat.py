@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from module_market.service.heat_service import MarketHeatService, _quote_last_price
+from module_market.service.heat_service import MarketHeatService, _clean_last, _quote_last_price
 from module_market.service.live_quotes_service import LiveQuotesService
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.longbridge_breaker import LongbridgeBreaker
@@ -165,6 +165,10 @@ def test_quote_last_price_prefers_last_done() -> None:
     assert _quote_last_price({'price': '12.25'}) == 12.25
     assert _quote_last_price({'last': 'x'}) is None
     assert _quote_last_price({}) is None
+    assert _quote_last_price({'last': 0}) is None
+    assert _quote_last_price({'last': '0.000', 'price': 12.5}) == 12.5
+    assert _clean_last(0) is None
+    assert _clean_last(190.5) == 190.5
 
 
 def test_serialize_top50_includes_last() -> None:
@@ -207,6 +211,25 @@ def test_serialize_top50_last_null_when_missing() -> None:
     assert out[0]['last'] is None
 
 
+def test_serialize_top50_last_null_when_zero() -> None:
+    out = MarketHeatService._serialize_top50(
+        [
+            SimpleNamespace(
+                rank_no=1,
+                symbol='AAPL',
+                name='Apple',
+                market_cap=1,
+                turnover=1,
+                last=0,
+                change_pct=1.2,
+                currency='USD',
+                as_of_time=None,
+            )
+        ]
+    )
+    assert out[0]['last'] is None
+
+
 @pytest.mark.asyncio
 async def test_enrich_top50_last_from_board_cache() -> None:
     rows = [
@@ -231,3 +254,29 @@ async def test_enrich_top50_last_skips_when_cache_empty() -> None:
     with patch('utils.json_cache.cache_get_json', new=AsyncMock(return_value=None)):
         await MarketHeatService._enrich_top50_last_from_board_cache(rows, 'US')
     assert rows[0]['last'] is None
+
+
+@pytest.mark.asyncio
+async def test_enrich_top50_last_from_daily_quotes() -> None:
+    rows = [
+        {'symbol': 'AAPL', 'last': None},
+        {'symbol': 'MSFT', 'last': 400.0},
+    ]
+    quotes = {'AAPL': {'price': 191.2}, 'MSFT': {'price': 401.0}}
+    with patch(
+        'module_market.dao.market_dao.MarketInstrumentDao.get_latest_daily_quotes',
+        new=AsyncMock(return_value=quotes),
+    ):
+        await MarketHeatService._enrich_top50_last_from_daily_quotes(AsyncMock(), rows)
+    assert rows[0]['last'] == 191.2
+    assert rows[1]['last'] == 400.0
+
+
+def test_write_back_top50_last() -> None:
+    stored = [SimpleNamespace(symbol='AAPL', last=None), SimpleNamespace(symbol='MSFT', last=400.0)]
+    MarketHeatService._write_back_top50_last(
+        stored,
+        [{'symbol': 'AAPL', 'last': 191.2}, {'symbol': 'MSFT', 'last': 400.0}],
+    )
+    assert stored[0].last == 191.2
+    assert stored[1].last == 400.0

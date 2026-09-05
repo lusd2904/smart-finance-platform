@@ -145,7 +145,7 @@ import Skeleton from '../components/Skeleton.vue'
 import WatchSearchSheet from '../components/WatchSearchSheet.vue'
 import ConfirmSheet from '../components/ConfirmSheet.vue'
 import GroupPickSheet from '../components/GroupPickSheet.vue'
-import { changeTone, fmtAmount, fmtPct, fmtTime } from '../utils/format'
+import { changeTone, fmtAmount, fmtPct, fmtTime, pickQuoteLast } from '../utils/format'
 import { unwrapData, unwrapList, num, str } from '../utils/payload'
 import { inferMarket } from '../utils/ticketQty'
 import { filterItemsByGroup, isWatchlisted, itemGroups, idleWatchlistAdd, nextWatchlistAdd, overviewGroups, overviewStats, sameWatch, shouldPostWatchlist, shouldShowGroupSheet, watchIdsParam, watchlistAddBody } from '../utils/watchlist'
@@ -300,7 +300,7 @@ async function loadHeat() {
   top50.value = (payload.top50 || []).map((r) => ({
     ...r,
     market: r.market || market.value,
-    last: num(r.last ?? r.price ?? r.close),
+    last: pickQuoteLast(r),
     changePct: num(r.changePct ?? r.changeRate),
     inWatchlist: !!r.inWatchlist
   }))
@@ -336,7 +336,7 @@ function normalizeWatch(row) {
     ...row,
     name: row.name || row.symbolName || row.symbol,
     market: row.market || inferMarket(row.symbol, market.value),
-    last: num(row.last ?? row.price),
+    last: pickQuoteLast(row),
     changePct: num(row.changePct ?? row.changeRate),
     changeRate: num(row.changeRate ?? row.changePct),
     groups: itemGroups(row),

@@ -91,26 +91,28 @@ def _advance_decline_score(advance: int, decline: int) -> float:
     return _clamp_score(ratio * 100.0)
 
 
-def _quote_last_price(quote: dict[str, Any] | None) -> float | None:
-    """Extract last price from a quote payload (lastDone / last / close / price)."""
-    if not quote:
-        return None
-    raw = quote.get('lastDone')
-    if raw is None:
-        raw = quote.get('last')
-    if raw is None:
-        raw = quote.get('close')
-    if raw is None:
-        raw = quote.get('price')
+def _clean_last(raw: Any) -> float | None:
+    """Finite last price. 0/blank is treated as missing (never a real Top50 last)."""
     if raw is None or raw == '':
         return None
     try:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    if math.isnan(value):
+    if math.isnan(value) or value == 0:
         return None
     return value
+
+
+def _quote_last_price(quote: dict[str, Any] | None) -> float | None:
+    """Extract last price from a quote payload (lastDone / last / close / price)."""
+    if not quote:
+        return None
+    for key in ('lastDone', 'last', 'close', 'price'):
+        value = _clean_last(quote.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _heat_summary(score: float, market: str, index_change: float | None, advance: int, decline: int) -> str:
@@ -480,12 +482,23 @@ class MarketHeatService:
                 'marketCap': row.market_cap,
                 'turnover': row.turnover,
                 'changePct': row.change_pct,
-                'last': getattr(row, 'last', None),
+                'last': _clean_last(getattr(row, 'last', None)),
                 'currency': row.currency,
                 'asOfTime': format_beijing_datetime(row.as_of_time) if row.as_of_time else None,
             }
             for row in rows
         ]
+
+    @classmethod
+    def _apply_last_map(cls, top50: list[dict[str, Any]], by_symbol: dict[str, float]) -> None:
+        if not by_symbol:
+            return
+        for item in top50:
+            if item.get('last') is not None or not item.get('symbol'):
+                continue
+            last = by_symbol.get(str(item.get('symbol') or '').strip().upper())
+            if last is not None:
+                item['last'] = last
 
     @classmethod
     async def _enrich_top50_last_from_board_cache(cls, top50: list[dict[str, Any]], market: str) -> None:
@@ -519,12 +532,45 @@ class MarketHeatService:
             if last is None:
                 continue
             by_symbol[symbol] = last
+        cls._apply_last_map(top50, by_symbol)
+
+    @classmethod
+    async def _enrich_top50_last_from_daily_quotes(cls, db: AsyncSession, top50: list[dict[str, Any]]) -> None:
+        """Fill leftover null last from stored daily bars. No live fetch."""
+        missing = [item.get('symbol') for item in top50 if item.get('last') is None and item.get('symbol')]
+        if not missing:
+            return
+        try:
+            quotes = await MarketInstrumentDao.get_latest_daily_quotes(db, missing)
+        except Exception as exc:
+            logger.info(f'[热度] Top50 last 日K补价跳过: {exc}')
+            return
+        if not quotes:
+            return
+        by_symbol: dict[str, float] = {}
+        for symbol, raw in quotes.items():
+            last = _quote_last_price(raw if isinstance(raw, dict) else None)
+            if last is None:
+                continue
+            by_symbol[str(symbol).strip().upper()] = last
+        cls._apply_last_map(top50, by_symbol)
+
+    @classmethod
+    def _write_back_top50_last(cls, rows: list[Any], top50: list[dict[str, Any]]) -> None:
+        """Stamp enriched last onto loaded snapshot rows so the next read does not re-miss."""
+        by_symbol = {
+            str(item.get('symbol') or '').strip().upper(): item.get('last')
+            for item in top50
+            if item.get('last') is not None and item.get('symbol')
+        }
         if not by_symbol:
             return
-        for item in missing:
-            last = by_symbol.get(str(item.get('symbol') or '').strip().upper())
+        for row in rows:
+            if _clean_last(getattr(row, 'last', None)) is not None:
+                continue
+            last = by_symbol.get(str(getattr(row, 'symbol', '') or '').strip().upper())
             if last is not None:
-                item['last'] = last
+                row.last = last
 
     @classmethod
     async def get_daily_services(
@@ -559,6 +605,8 @@ class MarketHeatService:
         watch_set = {(w.symbol.upper(), (w.market or 'US').upper()) for w in watchlist}
         top50 = cls._serialize_top50(top50_rows)
         await cls._enrich_top50_last_from_board_cache(top50, market)
+        await cls._enrich_top50_last_from_daily_quotes(db, top50)
+        cls._write_back_top50_last(top50_rows, top50)
         for item in top50:
             item['inWatchlist'] = (item['symbol'].upper(), market) in watch_set
 
