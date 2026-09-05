@@ -6,10 +6,10 @@
     <div
       class="m-swipe__front"
       :style="{ transform: `translateX(${offset}px)` }"
-      @touchstart.passive="onStart"
-      @touchmove="onMove"
-      @touchend="onEnd"
-      @touchcancel="onEnd"
+      @pointerdown="onStart"
+      @pointermove="onMove"
+      @pointerup="onEnd"
+      @pointercancel="onEnd"
     >
       <QuoteRow
         :symbol="symbol"
@@ -64,22 +64,21 @@ const offset = computed(() => {
 })
 
 function onStart(e) {
-  const t = e.touches && e.touches[0]
-  if (!t) return
-  startX.value = t.clientX
-  startY.value = t.clientY
+  startX.value = e.clientX
+  startY.value = e.clientY
   dx.value = 0
   dragging.value = true
   axis.value = ''
   swiped.value = false
+  if (e.currentTarget && e.currentTarget.setPointerCapture) {
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
 }
 
 function onMove(e) {
   if (!dragging.value) return
-  const t = e.touches && e.touches[0]
-  if (!t) return
-  const mx = t.clientX - startX.value
-  const my = t.clientY - startY.value
+  const mx = e.clientX - startX.value
+  const my = e.clientY - startY.value
   if (!axis.value) {
     if (Math.abs(mx) < 8 && Math.abs(my) < 8) return
     axis.value = Math.abs(mx) >= Math.abs(my) ? 'x' : 'y'
@@ -153,6 +152,7 @@ defineExpose({ close })
   position: relative;
   background: #fff;
   will-change: transform;
+  touch-action: pan-y;
 }
 .is-open .m-swipe__front {
   transition: transform 0.18s ease;

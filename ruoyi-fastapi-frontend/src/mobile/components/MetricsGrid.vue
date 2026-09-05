@@ -6,7 +6,7 @@
         <div class="v m-num">{{ cell.text }}</div>
       </div>
     </div>
-    <button v-if="extra.length" type="button" class="m-more" @click="$emit('toggle')">
+    <button v-if="showMore" type="button" class="m-more" @click="$emit('toggle')">
       {{ expanded ? '收起' : '更多' }}
     </button>
     <div v-if="expanded && extra.length" class="m-metrics m-metrics--more">
@@ -22,7 +22,8 @@
 defineProps({
   core: { type: Array, default: () => [] },
   extra: { type: Array, default: () => [] },
-  expanded: { type: Boolean, default: false }
+  expanded: { type: Boolean, default: false },
+  showMore: { type: Boolean, default: true }
 })
 defineEmits(['toggle'])
 </script>

@@ -18,6 +18,7 @@
           :core="coreCells"
           :extra="extraCells"
           :expanded="moreOpen"
+          :show-more="extraCells.length > 0 || !snapshotLoaded"
           @toggle="toggleMore"
         />
         <div class="m-underline-tabs">
@@ -96,6 +97,7 @@ const ticketSide = ref('buy')
 const moreOpen = ref(false)
 const groupOpen = ref(false)
 const groupOptions = ref([])
+const snapshotLoaded = ref(false)
 
 const header = computed(() => {
   const ov = overview.value || {}
@@ -139,6 +141,8 @@ async function loadSnapshot() {
     snapshot.value = unwrapData(res)
   } catch {
     snapshot.value = snapshot.value || {}
+  } finally {
+    snapshotLoaded.value = true
   }
 }
 
@@ -207,8 +211,12 @@ async function changePeriod(next) {
 }
 
 async function toggleMore() {
+  if (!snapshotLoaded.value) await loadSnapshot()
+  if (!extraMetrics({ overview: overview.value, snapshot: snapshot.value }).length) {
+    moreOpen.value = false
+    return
+  }
   moreOpen.value = !moreOpen.value
-  if (moreOpen.value && !snapshot.value) await loadSnapshot()
 }
 
 async function toggleWatch() {
@@ -267,6 +275,7 @@ function openTicket(side) {
 watch(() => [code.value, market.value], () => {
   period.value = period.value || 'intraday'
   snapshot.value = null
+  snapshotLoaded.value = false
   moreOpen.value = false
   load()
 })
