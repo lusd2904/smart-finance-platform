@@ -218,7 +218,7 @@ function applyPercent(percent) {
   refreshHint()
 }
 
-watch([side, priceText], refreshHint)
+watch([side, priceText, qtyText], refreshHint)
 
 function close() {
   if (busy.value) return
