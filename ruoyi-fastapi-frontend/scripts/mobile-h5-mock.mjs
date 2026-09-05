@@ -165,7 +165,13 @@ const server = http.createServer(async (req, res) => {
       ? [heatRow(1, '600519', '贵州茅台', 1488.2, 1.2, true), heatRow(2, '000858', '五粮液', 128.4, -0.6)]
       : market === 'HK'
         ? [heatRow(1, '0700', '腾讯控股', 382.6, 0.8), heatRow(2, '9988', '阿里巴巴', 88.1, -1.1, true)]
-        : [heatRow(1, 'AAPL', '苹果', 226.4, 1.35, true), heatRow(2, 'NVDA', '英伟达', 118.2, -0.42), heatRow(3, 'TSLA', '特斯拉', 241.0, 2.1)]
+        : [
+            heatRow(1, 'AAPL', '苹果', 226.4, 1.35, true),
+            heatRow(2, 'NVDA', '英伟达', 118.2, -0.42),
+            heatRow(3, 'TSLA', '特斯拉', 241.0, 2.1),
+            // Snapshot without last/price/close (changePct still present) — UI must show -- not 0.000
+            { rankNo: 4, symbol: 'AMD', name: '超威', changePct: 0.88, inWatchlist: false, turnover: 2.1e9 }
+          ]
     send(res, {
       code: 200,
       data: {

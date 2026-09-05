@@ -21,7 +21,9 @@ export function fmtPct(val) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
+/** Quote last/price. Nullish, '', or non-finite → '--'. Explicit 0 stays numeric (do not invent 0.000 from missing fields). */
 export function fmtPrice(val, digits = 2) {
+  if (val == null || val === '') return '--'
   const n = Number(val)
   if (!Number.isFinite(n)) return '--'
   const abs = Math.abs(n)
