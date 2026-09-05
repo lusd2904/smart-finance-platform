@@ -46,12 +46,64 @@ const klines = (n, base, intra = false) => {
     close = +(open + (i % 3 === 0 ? 0.4 : -0.25)).toFixed(2)
     const high = Math.max(open, close) + 0.3
     const low = Math.min(open, close) - 0.3
+    const volume = 1000000 + i * 1000
     const date = intra
       ? `09:${String(30 + (i % 30)).padStart(2, '0')}`
       : `2026-08-${String((i % 28) + 1).padStart(2, '0')}`
-    out.push({ date, open, high, low, close, volume: 1000000 + i * 1000 })
+    out.push({ date, open, high, low, close, volume, turnover: +(volume * close).toFixed(2) })
   }
   return out
+}
+
+const UNIVERSE = [
+  { symbol: 'AAPL', name: '苹果', market: 'US' },
+  { symbol: 'NVDA', name: '英伟达', market: 'US' },
+  { symbol: 'TSLA', name: '特斯拉', market: 'US' },
+  { symbol: 'MSFT', name: '微软', market: 'US' },
+  { symbol: '0700', name: '腾讯控股', market: 'HK' },
+  { symbol: '9988', name: '阿里巴巴', market: 'HK' },
+  { symbol: '600519', name: '贵州茅台', market: 'CN' },
+  { symbol: '000858', name: '五粮液', market: 'CN' }
+]
+
+let nextWatchId = 4
+let watchItems = [
+  { id: 1, symbol: 'AAPL', name: '苹果', market: 'US', last: 226.4, changeRate: 1.35, groups: ['科技'], note: '科技', stance: '偏多' },
+  { id: 2, symbol: '0700', name: '腾讯控股', market: 'HK', last: 382.6, changeRate: 0.8, groups: ['科技'], note: '科技', stance: '中性' },
+  { id: 3, symbol: '600519', name: '贵州茅台', market: 'CN', last: 1488.2, changeRate: -0.6, groups: ['消费'], note: '消费', stance: '偏空' }
+]
+
+function parseNoteGroups(note) {
+  return String(note || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+}
+
+function watchOverview() {
+  const groupCounts = {}
+  let bullish = 0
+  let bearish = 0
+  let neutral = 0
+  for (const row of watchItems) {
+    for (const g of row.groups || []) groupCounts[g] = (groupCounts[g] || 0) + 1
+    if (row.stance === '偏多') bullish += 1
+    else if (row.stance === '偏空') bearish += 1
+    else neutral += 1
+  }
+  return {
+    count: watchItems.length,
+    bullish,
+    bearish,
+    neutral,
+    groups: Object.entries(groupCounts).map(([name, count]) => ({ name, count })),
+    items: watchItems
+  }
+}
+
+function parseJson(body) {
+  try {
+    return JSON.parse(body || '{}')
+  } catch {
+    return {}
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -132,46 +184,109 @@ const server = http.createServer(async (req, res) => {
     return
   }
   if (path === '/market/watchlist/overview') {
-    send(res, {
-      code: 200,
-      data: {
-        items: [
-          { id: 1, symbol: 'AAPL', name: '苹果', market: 'US', last: 226.4, changePct: 1.35 },
-          { id: 2, symbol: '0700', name: '腾讯控股', market: 'HK', last: 382.6, changePct: 0.8 }
-        ],
-        count: 2
-      }
-    })
+    send(res, { code: 200, data: watchOverview() })
     return
   }
   if (path === '/market/watchlist/list') {
-    send(res, { code: 200, rows: [{ id: 1, symbol: 'AAPL', name: '苹果', market: 'US' }], total: 1 })
+    send(res, { code: 200, rows: watchItems, total: watchItems.length })
+    return
+  }
+  if (path === '/market/instrument/universe') {
+    const kw = String(query.keyword || '').trim().toLowerCase()
+    const rows = UNIVERSE.filter((r) => {
+      if (!kw) return true
+      return `${r.symbol} ${r.name}`.toLowerCase().includes(kw)
+    }).map((r) => ({ ...r, last: r.symbol === 'AAPL' ? 226.4 : 100, changeRate: 0.5 }))
+    send(res, { code: 200, rows, total: rows.length })
     return
   }
   if (path === '/market/watchlist' && req.method === 'POST') {
+    const payload = parseJson(body)
+    const symbol = String(payload.symbol || '').toUpperCase()
+    const market = String(payload.market || 'US').toUpperCase()
+    const note = payload.note || ''
+    const groups = parseNoteGroups(note)
+    const hit = watchItems.find((r) => r.symbol === symbol && r.market === market)
+    if (!hit && symbol) {
+      const meta = UNIVERSE.find((r) => r.symbol === symbol) || { name: symbol }
+      watchItems.push({
+        id: nextWatchId++,
+        symbol,
+        name: meta.name || symbol,
+        market,
+        last: 100,
+        changeRate: 0,
+        groups,
+        note,
+        stance: '中性'
+      })
+    }
     send(res, { code: 200, msg: '已加入自选' })
     return
   }
   if (path.startsWith('/market/watchlist/') && req.method === 'DELETE') {
+    const ids = decodeURIComponent(path.slice('/market/watchlist/'.length)).split(',').filter(Boolean)
+    watchItems = watchItems.filter((r) => !ids.includes(String(r.id)))
     send(res, { code: 200, msg: '已删除' })
     return
   }
   if (path.startsWith('/market/symbols/') && path.endsWith('/overview')) {
     const symbol = decodeURIComponent(path.split('/')[3] || 'AAPL')
+    const meta = UNIVERSE.find((r) => r.symbol === symbol)
     send(res, {
       code: 200,
       data: {
         symbol,
-        name: symbol === 'AAPL' ? '苹果' : symbol,
+        name: meta ? meta.name : symbol,
+        market: query.market || (meta && meta.market) || 'US',
+        quote: {
+          last: 226.4,
+          changePct: 1.35,
+          changeRate: 1.35,
+          open: 224.1,
+          high: 227.8,
+          low: 223.5,
+          close: 226.4,
+          prevClose: 223.4,
+          volume: 5.2e7
+        }
+      }
+    })
+    return
+  }
+  if (path === '/trade/quote/snapshot') {
+    send(res, {
+      code: 200,
+      data: {
+        symbol: query.symbol || 'AAPL',
         market: query.market || 'US',
-        quote: { last: 226.4, changePct: 1.35, open: 224.1, high: 227.8, low: 223.5, close: 226.4, prevClose: 223.4 }
+        last: 226.4,
+        open: 224.1,
+        high: 227.8,
+        low: 223.5,
+        prevClose: 223.4,
+        volume: 5.2e7,
+        turnover: 1.17e10,
+        marketCap: 3.4e12,
+        peTtm: 34.2,
+        pb: 52.1,
+        turnoverRate: 0.42,
+        amplitude: 1.92,
+        avgPrice: 225.1,
+        volumeRatio: 0.88,
+        high52: 260.1,
+        low52: 169.2,
+        beta: 1.12,
+        dividendYield: 0.45
       }
     })
     return
   }
   if (path === '/market/kline') {
-    const intra = query.period === 'intraday'
-    send(res, { code: 200, data: { klines: klines(intra ? 60 : 40, 220, intra) } })
+    const period = query.period || 'daily'
+    const intra = period === 'intraday'
+    const n = period === 'monthly' ? 16 : period === 'weekly' ? 24 : intra ? 60 : 40
+    send(res, { code: 200, data: { symbol: query.symbol, market: query.market, period, klines: klines(n, 220, intra) } })
     return
   }
   if (path === '/sentiment/analysis/list') {
