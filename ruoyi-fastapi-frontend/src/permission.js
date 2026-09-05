@@ -8,7 +8,7 @@ import { isRelogin } from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
-import { isForceMobileQuery, isMobilePath } from '@/mobile/guard'
+import { isMobilePath, parseMFlag, persistShellForce, readShellForce } from '@/mobile/guard'
 
 NProgress.configure({ showSpinner: false })
 
@@ -46,8 +46,15 @@ async function ensureSession(to, onFailPath) {
 router.beforeEach(async (to) => {
   NProgress.start()
 
-  // Self-test: ?m=1 opens the /m shell without waiting for UA routing.
-  if (isForceMobileQuery(to.query) && !isMobilePath(to.path)) {
+  // Gray-test force switches. Query wins and is persisted to sfp_m; nginx UA routing comes later.
+  const queryFlag = parseMFlag(to.query && to.query.m)
+  if (queryFlag != null) persistShellForce(queryFlag)
+  const shellForce = queryFlag != null ? queryFlag : readShellForce(to.query)
+  if (shellForce === 0 && isMobilePath(to.path)) {
+    NProgress.done()
+    return getToken() ? { path: '/portal' } : { path: '/login' }
+  }
+  if (shellForce === 1 && !isMobilePath(to.path)) {
     NProgress.done()
     return getToken() ? { path: '/m' } : { path: '/m/login' }
   }

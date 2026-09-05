@@ -1,14 +1,43 @@
-/** Mobile H5 path and self-test helpers. Used by permission + 401 handling. */
+/** Mobile H5 path and gray-test force switches. UA routing stays at nginx. */
+
+import Cookies from 'js-cookie'
+
+export const FORCE_MOBILE_COOKIE = 'sfp_m'
 
 export function isMobilePath(path) {
   if (!path) return false
   return path === '/m' || path.startsWith('/m/')
 }
 
+/** @returns {1|0|null} */
+export function parseMFlag(value) {
+  if (value === '1' || value === 1 || value === true || value === 'true') return 1
+  if (value === '0' || value === 0 || value === false || value === 'false') return 0
+  return null
+}
+
 export function isForceMobileQuery(query) {
-  if (!query) return false
-  const v = query.m
-  return v === '1' || v === 1 || v === true || v === 'true'
+  return parseMFlag(query && query.m) === 1
+}
+
+export function isForcePcQuery(query) {
+  return parseMFlag(query && query.m) === 0
+}
+
+/**
+ * Query wins, then cookie. 1 = force /m, 0 = force PC, null = no override.
+ * @returns {1|0|null}
+ */
+export function readShellForce(query) {
+  const fromQuery = parseMFlag(query && query.m)
+  if (fromQuery != null) return fromQuery
+  return parseMFlag(Cookies.get(FORCE_MOBILE_COOKIE))
+}
+
+export function persistShellForce(flag) {
+  if (flag === 1 || flag === 0) {
+    Cookies.set(FORCE_MOBILE_COOKIE, String(flag), { expires: 30, sameSite: 'lax' })
+  }
 }
 
 export function isMobileLocation() {
