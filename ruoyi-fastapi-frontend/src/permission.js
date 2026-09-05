@@ -8,7 +8,7 @@ import { isRelogin } from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
-import { isMobilePath, parseMFlag, persistShellForce, readShellForce } from '@/mobile/guard'
+import { isMobilePath, parseMFlag, persistShellForce, readShellForce, shellForceRedirect } from '@/mobile/guard'
 
 NProgress.configure({ showSpinner: false })
 
@@ -53,13 +53,10 @@ router.beforeEach(async (to) => {
   const queryFlag = parseMFlag(to.query && to.query.m)
   if (queryFlag != null) persistShellForce(queryFlag)
   const shellForce = queryFlag != null ? queryFlag : readShellForce(to.query)
-  if (shellForce === 0 && isMobilePath(to.path)) {
+  const forced = shellForceRedirect(to.path, shellForce, !!getToken())
+  if (forced) {
     NProgress.done()
-    return getToken() ? { path: '/portal' } : { path: '/login' }
-  }
-  if (shellForce === 1 && !isMobilePath(to.path)) {
-    NProgress.done()
-    return getToken() ? { path: '/m' } : { path: '/m/login' }
+    return { path: forced }
   }
 
   if (isMobilePath(to.path)) {

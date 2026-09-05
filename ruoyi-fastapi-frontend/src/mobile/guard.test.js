@@ -1,6 +1,15 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { isForceMobileQuery, isForcePcQuery, isMobilePath, parseMFlag } from './guard.js'
+import {
+  FORCE_MOBILE_COOKIE,
+  isForceMobileQuery,
+  isForcePcQuery,
+  isMobilePath,
+  parseMFlag,
+  persistShellForce,
+  readShellForce,
+  shellForceRedirect
+} from './guard.js'
 
 describe('isMobilePath', () => {
   it('matches the /m tree only', () => {
@@ -33,5 +42,39 @@ describe('isForceMobileQuery / isForcePcQuery', () => {
     assert.equal(isForceMobileQuery({ m: '0' }), false)
     assert.equal(isForcePcQuery({ m: '1' }), false)
     assert.equal(isForceMobileQuery({}), false)
+  })
+})
+
+describe('readShellForce / persistShellForce', () => {
+  it('lets the query win and writes sfp_m for later visits', () => {
+    const store = { sfp_m: '0' }
+    const jar = {
+      get: (k) => store[k],
+      set: (k, v, opts) => {
+        store[k] = v
+        jar.lastOpts = opts
+      }
+    }
+    assert.equal(readShellForce({ m: '1' }, jar), 1)
+    assert.equal(readShellForce({}, jar), 0)
+    persistShellForce(1, jar)
+    assert.equal(store[FORCE_MOBILE_COOKIE], '1')
+    assert.equal(jar.lastOpts.path, '/')
+    assert.equal(readShellForce({}, jar), 1)
+    persistShellForce(0, jar)
+    assert.equal(readShellForce({ m: '1' }, jar), 1)
+    assert.equal(readShellForce({}, jar), 0)
+  })
+})
+
+describe('shellForceRedirect', () => {
+  it('forces /m for m=1 and PC for m=0', () => {
+    assert.equal(shellForceRedirect('/login', 1, false), '/m/login')
+    assert.equal(shellForceRedirect('/portal', 1, true), '/m')
+    assert.equal(shellForceRedirect('/m', 1, false), null)
+    assert.equal(shellForceRedirect('/m/picks', 0, false), '/login')
+    assert.equal(shellForceRedirect('/m', 0, true), '/portal')
+    assert.equal(shellForceRedirect('/login', 0, false), null)
+    assert.equal(shellForceRedirect('/m', null, false), null)
   })
 })
