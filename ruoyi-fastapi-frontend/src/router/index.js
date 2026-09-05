@@ -1,6 +1,7 @@
 import { createWebHistory, createRouter } from 'vue-router'
 /* Layout */
 import Layout from '@/layout'
+import { mobileRoutes } from '@/mobile/routes'
 
 /**
  * Note: 路由配置项
@@ -26,6 +27,8 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
+  // Independent mobile H5 tree. Registered first so /m/* never hits the PC catch-all.
+  ...mobileRoutes,
   {
     path: '/redirect',
     component: Layout,
