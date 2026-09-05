@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -88,6 +89,28 @@ def _advance_decline_score(advance: int, decline: int) -> float:
         return 50.0
     ratio = advance / total
     return _clamp_score(ratio * 100.0)
+
+
+def _quote_last_price(quote: dict[str, Any] | None) -> float | None:
+    """Extract last price from a quote payload (lastDone / last / close / price)."""
+    if not quote:
+        return None
+    raw = quote.get('lastDone')
+    if raw is None:
+        raw = quote.get('last')
+    if raw is None:
+        raw = quote.get('close')
+    if raw is None:
+        raw = quote.get('price')
+    if raw is None or raw == '':
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(value):
+        return None
+    return value
 
 
 def _heat_summary(score: float, market: str, index_change: float | None, advance: int, decline: int) -> str:
@@ -294,11 +317,11 @@ class MarketHeatService:
         for symbol in symbols:
             quote = quote_map.get(symbol.upper()) or quote_map.get(symbol) or {}
             static = static_map.get(symbol.upper()) or static_map.get(symbol) or {}
-            price = quote.get('lastDone') or quote.get('last') or quote.get('close') or quote.get('price')
+            last_price = _quote_last_price(quote)
             shares = static.get('totalShares') or static.get('circulatingShares')
             market_cap = None
-            if price is not None and shares:
-                market_cap = float(price) * float(shares)
+            if last_price is not None and shares:
+                market_cap = last_price * float(shares)
             turnover = quote.get('turnover')
             change_pct = quote.get('changeRate')
             if change_pct is None:
@@ -319,6 +342,7 @@ class MarketHeatService:
                     'marketCap': market_cap,
                     'turnover': float(turnover) if turnover else None,
                     'changePct': float(change_pct) if change_pct is not None else None,
+                    'last': last_price,
                     'currency': meta['currency'],
                 }
             )
@@ -349,6 +373,7 @@ class MarketHeatService:
                     'market_cap': c['marketCap'],
                     'turnover': c['turnover'],
                     'change_pct': c['changePct'],
+                    'last': c.get('last'),
                     'currency': c['currency'],
                 }
                 for c in candidates
@@ -398,6 +423,7 @@ class MarketHeatService:
                     'market_cap': item['market_cap'],
                     'turnover': item['turnover'],
                     'change_pct': item['change_pct'],
+                    'last': item.get('last'),
                     'currency': item['currency'],
                     'as_of_time': as_of,
                     'create_time': as_of,
@@ -454,11 +480,51 @@ class MarketHeatService:
                 'marketCap': row.market_cap,
                 'turnover': row.turnover,
                 'changePct': row.change_pct,
+                'last': getattr(row, 'last', None),
                 'currency': row.currency,
                 'asOfTime': format_beijing_datetime(row.as_of_time) if row.as_of_time else None,
             }
             for row in rows
         ]
+
+    @classmethod
+    async def _enrich_top50_last_from_board_cache(cls, top50: list[dict[str, Any]], market: str) -> None:
+        """Fill null last from Redis board-quotes cache. Never live-fetches; failures are ignored."""
+        missing = [item for item in top50 if item.get('last') is None and item.get('symbol')]
+        if not missing:
+            return
+        try:
+            from module_market.service.market_service import BOARD_QUOTES_CACHE_KEY
+            from utils.json_cache import cache_get_json
+
+            cached = await cache_get_json(BOARD_QUOTES_CACHE_KEY)
+        except Exception as exc:
+            logger.info(f'[热度] Top50 last 缓存读取跳过: {exc}')
+            return
+        if not isinstance(cached, dict):
+            return
+        quotes = cached.get('quotes') or cached.get('rows') or []
+        by_symbol: dict[str, float] = {}
+        market_u = market.upper()
+        for quote in quotes:
+            if not isinstance(quote, dict):
+                continue
+            quote_market = str(quote.get('market') or '').strip().upper()
+            if quote_market and quote_market != market_u:
+                continue
+            symbol = str(quote.get('symbol') or '').strip().upper()
+            if not symbol:
+                continue
+            last = _quote_last_price(quote)
+            if last is None:
+                continue
+            by_symbol[symbol] = last
+        if not by_symbol:
+            return
+        for item in missing:
+            last = by_symbol.get(str(item.get('symbol') or '').strip().upper())
+            if last is not None:
+                item['last'] = last
 
     @classmethod
     async def get_daily_services(
@@ -492,6 +558,7 @@ class MarketHeatService:
         watchlist = await MarketWatchlistDao.get_enabled(db, user_id=user_id) if user_id else []
         watch_set = {(w.symbol.upper(), (w.market or 'US').upper()) for w in watchlist}
         top50 = cls._serialize_top50(top50_rows)
+        await cls._enrich_top50_last_from_board_cache(top50, market)
         for item in top50:
             item['inWatchlist'] = (item['symbol'].upper(), market) in watch_set
 

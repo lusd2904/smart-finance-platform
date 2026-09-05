@@ -230,6 +230,7 @@ class MarketTop50Snapshot(Base):
     market_cap = Column(Float, nullable=True, comment='市值')
     turnover = Column(Float, nullable=True, comment='成交额')
     change_pct = Column(Float, nullable=True, comment='涨跌幅%')
+    last = Column(Float, nullable=True, comment='最新价')
     currency = Column(String(10), nullable=True, comment='货币')
     as_of_time = Column(DateTime, nullable=True, comment='快照时间')
     create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
