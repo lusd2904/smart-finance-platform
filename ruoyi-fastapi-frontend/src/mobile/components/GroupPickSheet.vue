@@ -34,10 +34,10 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   groups: { type: Array, default: () => [] },
   title: { type: String, default: '加入分组' },
-  hint: { type: String, default: '选已有分组或新建，确定后再加入自选' },
+  hint: { type: String, default: '先选分组再加入自选；跳过则 note 为空' },
   allowSkip: { type: Boolean, default: true }
 })
-const emit = defineEmits(['update:modelValue', 'pick', 'skip'])
+const emit = defineEmits(['update:modelValue', 'pick', 'skip', 'cancel'])
 
 const picked = ref('')
 const created = ref('')
@@ -73,11 +73,11 @@ function confirm() {
 
 function skip() {
   emit('skip')
-  emit('pick', '')
   close()
 }
 
 function onMask() {
-  if (props.allowSkip) skip()
+  emit('cancel')
+  close()
 }
 </script>

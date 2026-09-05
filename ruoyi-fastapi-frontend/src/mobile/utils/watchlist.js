@@ -69,3 +69,46 @@ export function isWatchlisted(items, symbol, market) {
   const list = Array.isArray(items) ? items : []
   return list.some((row) => sameWatch(row, { symbol, market }))
 }
+
+/**
+ * Locked add-to-watchlist order (no PUT on note):
+ *   idle → picking (sheet) → posting {symbol, market, note} → idle + refresh
+ * Skip allowed → empty note. Cancel / already-watched → no POST, no second sheet.
+ */
+export function idleWatchlistAdd() {
+  return { phase: 'idle', note: '', pending: null }
+}
+
+export function nextWatchlistAdd(state, action) {
+  const s = state && typeof state === 'object' ? state : idleWatchlistAdd()
+  const type = action && action.type
+  if (type === 'start') {
+    if (action.already) return idleWatchlistAdd()
+    return { phase: 'picking', note: '', pending: action.pending ?? s.pending ?? null }
+  }
+  if (s.phase !== 'picking') return s
+  if (type === 'pick') {
+    return { phase: 'posting', note: noteFromGroup(action.note), pending: s.pending }
+  }
+  if (type === 'skip') {
+    return { phase: 'posting', note: '', pending: s.pending }
+  }
+  if (type === 'cancel') return idleWatchlistAdd()
+  return s
+}
+
+export function watchlistAddBody({ symbol, market, note }) {
+  return {
+    symbol,
+    market,
+    note: noteFromGroup(note)
+  }
+}
+
+export function shouldPostWatchlist(state) {
+  return !!(state && state.phase === 'posting')
+}
+
+export function shouldShowGroupSheet(state) {
+  return !!(state && state.phase === 'picking')
+}

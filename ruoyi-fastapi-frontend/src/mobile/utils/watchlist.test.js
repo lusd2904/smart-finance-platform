@@ -9,7 +9,12 @@ import {
   sameWatch,
   watchIdsParam,
   noteFromGroup,
-  isWatchlisted
+  isWatchlisted,
+  idleWatchlistAdd,
+  nextWatchlistAdd,
+  shouldPostWatchlist,
+  shouldShowGroupSheet,
+  watchlistAddBody
 } from './watchlist.js'
 
 describe('parseGroupNames', () => {
@@ -76,5 +81,37 @@ describe('sameWatch / watchIdsParam / noteFromGroup', () => {
     const items = [{ symbol: 'AAPL', market: 'US' }]
     assert.equal(isWatchlisted(items, 'aapl', 'us'), true)
     assert.equal(isWatchlisted(items, 'NVDA', 'US'), false)
+  })
+})
+
+describe('locked add-to-watchlist order', () => {
+  it('shows the group sheet before POST; skip writes empty note', () => {
+    let s = idleWatchlistAdd()
+    assert.equal(shouldPostWatchlist(s), false)
+    s = nextWatchlistAdd(s, { type: 'start', pending: { symbol: 'MSFT', market: 'US' } })
+    assert.equal(shouldShowGroupSheet(s), true)
+    assert.equal(shouldPostWatchlist(s), false)
+    s = nextWatchlistAdd(s, { type: 'pick', note: '科技' })
+    assert.equal(shouldShowGroupSheet(s), false)
+    assert.equal(shouldPostWatchlist(s), true)
+    assert.deepEqual(watchlistAddBody({ symbol: 'MSFT', market: 'US', note: s.note }), {
+      symbol: 'MSFT',
+      market: 'US',
+      note: '科技'
+    })
+    s = nextWatchlistAdd(idleWatchlistAdd(), { type: 'start', pending: { symbol: 'MSFT' } })
+    s = nextWatchlistAdd(s, { type: 'skip' })
+    assert.equal(s.note, '')
+    assert.equal(shouldPostWatchlist(s), true)
+  })
+
+  it('does not POST on cancel or when already watched; no second sheet after success', () => {
+    assert.equal(shouldShowGroupSheet(nextWatchlistAdd(idleWatchlistAdd(), { type: 'start', already: true })), false)
+    let s = nextWatchlistAdd(idleWatchlistAdd(), { type: 'start', pending: { symbol: 'AAPL' } })
+    s = nextWatchlistAdd(s, { type: 'cancel' })
+    assert.equal(shouldPostWatchlist(s), false)
+    assert.equal(shouldShowGroupSheet(s), false)
+    s = nextWatchlistAdd(s, { type: 'pick', note: '科技' })
+    assert.equal(shouldPostWatchlist(s), false)
   })
 })

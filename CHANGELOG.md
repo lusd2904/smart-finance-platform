@@ -13,6 +13,7 @@
 - 模块入口：`ruoyi-fastapi-frontend/src/mobile/`；鉴权仍写同一 `Admin-Token`
 - P1-1：热度「自选」用 `GET /market/watchlist/overview` 展示 count/偏多/偏空/中性 + 分组 chips；放大镜/「管理」全屏搜索 `universe`（300ms）后选分组再 `POST /market/watchlist`（`note` 写分组）；左滑或长按二次确认 `DELETE`，失败回滚
 - P1-2：标的页周期扩到 分时/日K/周K/月K（切周期只拉 `/market/kline?period=`）；6 格指标（最高/最低/今开/昨收/成交量/成交额，成交额缺省回落 overview / `GET /trade/quote/snapshot`）+「更多」有值字段；加自选可跳过分组
+- 加自选锁定顺序：先出分组 sheet（跳过 = 空 note）再 `POST`；成功只刷新 overview，不再弹 sheet；已加标的不改分组（本轮无 PUT）
 
 ### 📱 手机行情对照券商 App
 - 底栏改为 **自选 / 行情 / 选股 / 持仓 / 我的**（舆情进「我的」）

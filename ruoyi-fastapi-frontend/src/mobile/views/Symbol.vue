@@ -54,8 +54,10 @@
       v-model="groupOpen"
       :groups="groupOptions"
       allow-skip
-      hint="可选分组，跳过则 note 为空"
-      @pick="addWithGroup"
+      hint="先选分组再加入自选；跳过则 note 为空"
+      @pick="onPickGroup"
+      @skip="onSkipGroup"
+      @cancel="onCancelGroup"
     />
   </div>
 </template>
@@ -74,7 +76,7 @@ import { changeTone, fmtPct, fmtPrice, marketLabel } from '../utils/format'
 import { unwrapData, unwrapList, num, str } from '../utils/payload'
 import { KLINE_PERIODS, pickKlineBars } from '../utils/kline'
 import { coreMetrics, extraMetrics, lastBar, needsTurnoverFallback } from '../utils/metrics'
-import { overviewGroups } from '../utils/watchlist'
+import { overviewGroups, idleWatchlistAdd, nextWatchlistAdd, shouldPostWatchlist, watchlistAddBody } from '../utils/watchlist'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +100,7 @@ const moreOpen = ref(false)
 const groupOpen = ref(false)
 const groupOptions = ref([])
 const snapshotLoaded = ref(false)
+const addState = ref(idleWatchlistAdd())
 
 const header = computed(() => {
   const ov = overview.value || {}
@@ -233,17 +236,46 @@ async function toggleWatch() {
     }
     return
   }
+  addState.value = nextWatchlistAdd(idleWatchlistAdd(), {
+    type: 'start',
+    already: false,
+    pending: { symbol: code.value, market: market.value }
+  })
   groupOpen.value = true
 }
 
-async function addWithGroup(note) {
-  const next = true
+function onPickGroup(note) {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'pick', note })
+  commitAdd()
+}
+
+function onSkipGroup() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'skip' })
+  commitAdd()
+}
+
+function onCancelGroup() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'cancel' })
+}
+
+async function commitAdd() {
+  const state = addState.value
+  if (!shouldPostWatchlist(state)) {
+    addState.value = idleWatchlistAdd()
+    return
+  }
   const prevId = watchId.value
-  watched.value = next
+  watched.value = true
   try {
-    await addMarketWatchlist({ symbol: code.value, market: market.value, note: note || '' })
+    await addMarketWatchlist(watchlistAddBody({
+      symbol: code.value,
+      market: market.value,
+      note: state.note
+    }))
+    addState.value = idleWatchlistAdd()
     await loadWatchState()
   } catch (e) {
+    addState.value = idleWatchlistAdd()
     watched.value = false
     watchId.value = prevId
     error.value = (e && e.message) || '自选操作失败'

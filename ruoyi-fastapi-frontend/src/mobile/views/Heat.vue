@@ -124,6 +124,14 @@
       @confirm="doDelete"
       @cancel="pendingDelete = null"
     />
+    <GroupPickSheet
+      v-model="groupOpen"
+      :groups="groups"
+      allow-skip
+      @pick="onPickGroup"
+      @skip="onSkipGroup"
+      @cancel="onCancelGroup"
+    />
   </div>
 </template>
 
@@ -136,10 +144,11 @@ import EmptyState from '../components/EmptyState.vue'
 import Skeleton from '../components/Skeleton.vue'
 import WatchSearchSheet from '../components/WatchSearchSheet.vue'
 import ConfirmSheet from '../components/ConfirmSheet.vue'
+import GroupPickSheet from '../components/GroupPickSheet.vue'
 import { changeTone, fmtAmount, fmtPct, fmtTime } from '../utils/format'
 import { unwrapData, unwrapList, num, str } from '../utils/payload'
 import { inferMarket } from '../utils/ticketQty'
-import { filterItemsByGroup, itemGroups, overviewGroups, overviewStats, sameWatch, watchIdsParam } from '../utils/watchlist'
+import { filterItemsByGroup, isWatchlisted, itemGroups, idleWatchlistAdd, nextWatchlistAdd, overviewGroups, overviewStats, sameWatch, shouldPostWatchlist, shouldShowGroupSheet, watchIdsParam, watchlistAddBody } from '../utils/watchlist'
 
 const markets = [
   { key: 'US', label: '美股' },
@@ -163,6 +172,8 @@ const searchOpen = ref(false)
 const confirmOpen = ref(false)
 const confirmMsg = ref('')
 const pendingDelete = ref(null)
+const groupOpen = ref(false)
+const addState = ref(idleWatchlistAdd())
 
 const stats = computed(() => overviewStats(watchOverview.value))
 const groups = computed(() => overviewGroups(watchOverview.value))
@@ -209,20 +220,59 @@ async function doDelete() {
 }
 
 async function toggleWatch(row) {
-  try {
-    const match = (w) => sameWatch(w, { symbol: row.symbol, market: row.market || market.value })
-    const id = row.id || watchItems.value.find(match)?.id
-    if (row.inWatchlist || board.value === 'watch') {
+  const match = (w) => sameWatch(w, { symbol: row.symbol, market: row.market || market.value })
+  const id = row.id || watchItems.value.find(match)?.id
+  if (row.inWatchlist || board.value === 'watch') {
+    try {
       if (id) await delMarketWatchlist(id)
       row.inWatchlist = false
       watchItems.value = watchItems.value.filter((r) => !match(r))
       await loadWatch()
-    } else {
-      await addMarketWatchlist({ symbol: row.symbol, market: row.market || market.value })
-      row.inWatchlist = true
-      await loadWatch()
+    } catch (e) {
+      error.value = (e && e.message) || '自选操作失败'
     }
+    return
+  }
+  addState.value = nextWatchlistAdd(idleWatchlistAdd(), {
+    type: 'start',
+    already: isWatchlisted(watchItems.value, row.symbol, row.market || market.value),
+    pending: row
+  })
+  if (shouldShowGroupSheet(addState.value)) groupOpen.value = true
+}
+
+function onPickGroup(note) {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'pick', note })
+  commitAdd()
+}
+
+function onSkipGroup() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'skip' })
+  commitAdd()
+}
+
+function onCancelGroup() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'cancel' })
+}
+
+async function commitAdd() {
+  const state = addState.value
+  const row = state.pending
+  if (!shouldPostWatchlist(state) || !row) {
+    addState.value = idleWatchlistAdd()
+    return
+  }
+  try {
+    await addMarketWatchlist(watchlistAddBody({
+      symbol: row.symbol,
+      market: row.market || market.value,
+      note: state.note
+    }))
+    row.inWatchlist = true
+    addState.value = idleWatchlistAdd()
+    await loadWatch()
   } catch (e) {
+    addState.value = idleWatchlistAdd()
     error.value = (e && e.message) || '自选操作失败'
   }
 }

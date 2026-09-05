@@ -32,7 +32,9 @@
         v-model="groupOpen"
         :groups="groups"
         allow-skip
-        @pick="finishAdd"
+        @pick="onPick"
+        @skip="onSkip"
+        @cancel="onCancel"
       />
     </div>
   </Teleport>
@@ -46,7 +48,7 @@ import GroupPickSheet from './GroupPickSheet.vue'
 import { unwrapRows, str } from '../utils/payload'
 import { marketLabel } from '../utils/format'
 import { inferMarket } from '../utils/ticketQty'
-import { isWatchlisted, noteFromGroup } from '../utils/watchlist'
+import { isWatchlisted, nextWatchlistAdd, idleWatchlistAdd, shouldPostWatchlist, watchlistAddBody } from '../utils/watchlist'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -62,7 +64,7 @@ const error = ref('')
 const toast = ref('')
 const busyKey = ref('')
 const groupOpen = ref(false)
-const pending = ref(null)
+const addState = ref(idleWatchlistAdd())
 const inputEl = ref(null)
 let timer = 0
 let seq = 0
@@ -114,25 +116,49 @@ function scheduleSearch() {
 
 function beginAdd(row) {
   if (already(row) || busyKey.value) return
-  pending.value = row
+  addState.value = nextWatchlistAdd(idleWatchlistAdd(), {
+    type: 'start',
+    already: false,
+    pending: row
+  })
   groupOpen.value = true
 }
 
-async function finishAdd(note) {
-  const row = pending.value
-  pending.value = null
-  if (!row) return
+function onPick(note) {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'pick', note })
+  commitAdd()
+}
+
+function onSkip() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'skip' })
+  commitAdd()
+}
+
+function onCancel() {
+  addState.value = nextWatchlistAdd(addState.value, { type: 'cancel' })
+}
+
+async function commitAdd() {
+  const state = addState.value
+  const row = state.pending
+  if (!shouldPostWatchlist(state) || !row) {
+    addState.value = idleWatchlistAdd()
+    return
+  }
   busyKey.value = rowKey(row)
   try {
-    await addMarketWatchlist({
+    const body = watchlistAddBody({
       symbol: row.symbol,
       market: row.market || inferMarket(row.symbol, 'US'),
-      note: noteFromGroup(note)
+      note: state.note
     })
-    toast.value = note ? `已加入「${note}」` : '已加入自选'
-    emit('added', { ...row, note: noteFromGroup(note) })
+    await addMarketWatchlist(body)
+    toast.value = body.note ? `已加入「${body.note}」` : '已加入自选'
+    addState.value = idleWatchlistAdd()
+    emit('added', { ...row, note: body.note })
     setTimeout(() => { toast.value = '' }, 1600)
   } catch (e) {
+    addState.value = idleWatchlistAdd()
     toast.value = (e && e.message) || '加入失败'
     setTimeout(() => { toast.value = '' }, 2000)
   } finally {
