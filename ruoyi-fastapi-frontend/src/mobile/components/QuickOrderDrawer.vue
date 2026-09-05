@@ -24,6 +24,10 @@
             <span>数量</span>
             <input v-model="qtyText" inputmode="numeric" placeholder="股数" />
           </label>
+          <div class="m-field m-field--estimate">
+            <span>预估金额</span>
+            <strong class="m-num">{{ estimate }}</strong>
+          </div>
           <div class="m-pct">
             <button v-for="p in [25, 50, 75, 100]" :key="p" type="button" @click="applyPercent(p)">
               {{ p === 100 ? '全仓' : p + '%' }}
@@ -35,9 +39,28 @@
           </button>
         </template>
         <template v-else>
-          <p class="m-confirm">
-            {{ side === 'sell' ? '卖出' : '买入' }} · {{ symbol }} · 限价 {{ priceText }} · {{ qtyText }}股 · 约 {{ estimate }}
-          </p>
+          <dl class="m-confirm-list">
+            <div class="m-confirm-row">
+              <dt>方向</dt>
+              <dd>{{ side === 'sell' ? '卖出' : '买入' }}</dd>
+            </div>
+            <div class="m-confirm-row">
+              <dt>代码</dt>
+              <dd>{{ symbol }}</dd>
+            </div>
+            <div class="m-confirm-row">
+              <dt>限价</dt>
+              <dd class="m-num">{{ priceText }}</dd>
+            </div>
+            <div class="m-confirm-row">
+              <dt>数量</dt>
+              <dd class="m-num">{{ qtyText }}</dd>
+            </div>
+            <div class="m-confirm-row">
+              <dt>预估金额</dt>
+              <dd class="m-num">{{ estimate }}</dd>
+            </div>
+          </dl>
           <div class="m-confirm__btns">
             <button type="button" class="ghost" :disabled="busy" @click="confirming = false">取消</button>
             <button type="button" class="m-drawer__submit" :class="'is-' + side" :disabled="busy" @click="doSubmit">
@@ -54,7 +77,7 @@
 <script setup>
 import { getTradeAccount, getTradePositions, submitTradeOrder } from '@/api/trade'
 import { unwrapData, unwrapList, num } from '../utils/payload'
-import { fmtMoney } from '../utils/format'
+import { estimateNotional } from '../utils/format'
 import { cashCurrencyForMarket, inferMarket, quoteSymbol, ticketQtyForPercent } from '../utils/ticketQty'
 
 const props = defineProps({
@@ -80,12 +103,7 @@ const positions = ref([])
 const kbLift = ref(0)
 
 const liftPad = computed(() => `calc(16px + env(safe-area-inset-bottom, 0px) + ${kbLift.value}px)`)
-const estimate = computed(() => {
-  const px = num(priceText.value)
-  const qty = Math.floor(num(qtyText.value) || 0)
-  if (px == null || qty <= 0) return '--'
-  return fmtMoney(px * qty)
-})
+const estimate = computed(() => estimateNotional(priceText.value, qtyText.value))
 
 watch(() => props.modelValue, (open) => {
   if (!open) {
@@ -134,13 +152,22 @@ function sellableOf() {
 }
 
 async function loadBook() {
+  let accFailed = false
   try {
     const [accRes, posRes] = await Promise.all([
-      getTradeAccount().catch(() => null),
+      getTradeAccount().catch(() => {
+        accFailed = true
+        return null
+      }),
       getTradePositions().catch(() => null)
     ])
     account.value = accRes ? unwrapData(accRes) : null
     positions.value = posRes ? unwrapList(posRes, ['positions', 'items', 'rows']) : []
+    if (accFailed) {
+      hint.value = '账户信息暂不可用'
+      hintWarn.value = true
+      return
+    }
     refreshHint()
   } catch {
     hint.value = '账户信息暂不可用'
@@ -182,7 +209,7 @@ function applyPercent(percent) {
   })
   if (n <= 0) {
     hintWarn.value = true
-    hint.value = side.value === 'sell' ? '无可卖仓位' : '购买力不足或缺少价格'
+    hint.value = side.value === 'sell' ? '无可卖仓位' : '购买力不足或缺少价格，数量为 0'
     qtyText.value = '0'
     return
   }
@@ -351,6 +378,16 @@ onBeforeUnmount(() => {
   font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
+.m-field--estimate {
+  min-height: 40px;
+}
+.m-field--estimate strong {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  text-align: right;
+}
 .m-pct {
   display: flex;
   gap: 8px;
@@ -383,11 +420,30 @@ onBeforeUnmount(() => {
 .m-drawer__submit.is-buy { background: #e5484d; }
 .m-drawer__submit.is-sell { background: #30a46c; }
 .m-drawer__submit:disabled { opacity: 0.6; }
-.m-confirm {
-  margin: 0 0 14px;
-  font-size: 15px;
-  line-height: 1.5;
-  font-weight: 600;
+.m-confirm-list {
+  margin: 0 0 16px;
+  padding: 0;
+}
+.m-confirm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 0;
+  border-bottom: 1px solid #ececef;
+  font-size: 14px;
+}
+.m-confirm-row dt {
+  margin: 0;
+  color: #6b7280;
+  font-weight: 500;
+}
+.m-confirm-row dd {
+  margin: 0;
+  font-weight: 700;
+  color: #111827;
+  text-align: right;
 }
 .m-confirm__btns {
   display: flex;
