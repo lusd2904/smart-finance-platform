@@ -1,5 +1,7 @@
 import os
 import sys
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault('JWT_SECRET_KEY', 'a' * 64)
@@ -9,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from module_market.service.heat_service import MarketHeatService
+from module_market.service.heat_service import MarketHeatService, _quote_last_price
 from module_market.service.live_quotes_service import LiveQuotesService
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.longbridge_breaker import LongbridgeBreaker
@@ -21,15 +23,17 @@ def setup_function() -> None:
 
 def test_top50_cap_filter_us() -> None:
     candidates = [
-        {'symbol': 'A', 'name': 'A', 'market_cap': 5e8, 'turnover': 1e9, 'change_pct': 1.0, 'currency': 'USD'},
-        {'symbol': 'B', 'name': 'B', 'market_cap': 5e9, 'turnover': 2e9, 'change_pct': -1.0, 'currency': 'USD'},
-        {'symbol': 'C', 'name': 'C', 'market_cap': 50e9, 'turnover': 3e9, 'change_pct': 2.0, 'currency': 'USD'},
-        {'symbol': 'D', 'name': 'D', 'market_cap': 200e9, 'turnover': 9e9, 'change_pct': 0.5, 'currency': 'USD'},
+        {'symbol': 'A', 'name': 'A', 'market_cap': 5e8, 'turnover': 1e9, 'change_pct': 1.0, 'last': 10.0, 'currency': 'USD'},
+        {'symbol': 'B', 'name': 'B', 'market_cap': 5e9, 'turnover': 2e9, 'change_pct': -1.0, 'last': 20.0, 'currency': 'USD'},
+        {'symbol': 'C', 'name': 'C', 'market_cap': 50e9, 'turnover': 3e9, 'change_pct': 2.0, 'last': 30.0, 'currency': 'USD'},
+        {'symbol': 'D', 'name': 'D', 'market_cap': 200e9, 'turnover': 9e9, 'change_pct': 0.5, 'last': 40.0, 'currency': 'USD'},
     ]
     top = MarketHeatService.filter_top50_candidates('US', candidates)
     symbols = [item['symbol'] for item in top]
     assert symbols == ['C', 'B']
     assert top[0]['rankNo'] == 1
+    assert top[0]['last'] == 30.0
+    assert top[1]['last'] == 20.0
 
 
 def test_top50_cap_filter_cn() -> None:
@@ -136,6 +140,9 @@ async def test_collect_market_continues_when_influx_index_kline_fails() -> None:
     db.commit.assert_awaited()
     payload = upsert.await_args.args[1]
     assert payload['index_change_pct'] == 0.85
+    top50_rows = replace_top50.await_args.args[3]
+    assert top50_rows[0]['last'] == 150.0
+    assert top50_rows[0]['symbol'] == 'AAPL'
 
 
 def test_quote_map_uses_live_fetch_items() -> None:
@@ -151,3 +158,76 @@ def test_quote_map_uses_live_fetch_items() -> None:
 def test_quote_map_empty_when_fetch_empty() -> None:
     with patch.object(LiveQuotesService, '_fetch_items', return_value=[]):
         assert MarketHeatService._quote_map_from_longbridge('US', ['AAPL']) == {}
+
+
+def test_quote_last_price_prefers_last_done() -> None:
+    assert _quote_last_price({'lastDone': 11.5, 'last': 10, 'close': 9, 'price': 8}) == 11.5
+    assert _quote_last_price({'price': '12.25'}) == 12.25
+    assert _quote_last_price({'last': 'x'}) is None
+    assert _quote_last_price({}) is None
+
+
+def test_serialize_top50_includes_last() -> None:
+    out = MarketHeatService._serialize_top50(
+        [
+            SimpleNamespace(
+                rank_no=1,
+                symbol='AAPL',
+                name='Apple',
+                market_cap=3e12,
+                turnover=2e9,
+                last=190.5,
+                change_pct=1.2,
+                currency='USD',
+                as_of_time=datetime(2026, 8, 25, 16, 15, 0),
+            )
+        ]
+    )
+    assert out[0]['last'] == 190.5
+    assert out[0]['rankNo'] == 1
+    assert out[0]['symbol'] == 'AAPL'
+    assert 'last' in out[0]
+
+
+def test_serialize_top50_last_null_when_missing() -> None:
+    out = MarketHeatService._serialize_top50(
+        [
+            SimpleNamespace(
+                rank_no=1,
+                symbol='AAPL',
+                name='Apple',
+                market_cap=1,
+                turnover=1,
+                change_pct=1,
+                currency='USD',
+                as_of_time=None,
+            )
+        ]
+    )
+    assert out[0]['last'] is None
+
+
+@pytest.mark.asyncio
+async def test_enrich_top50_last_from_board_cache() -> None:
+    rows = [
+        {'symbol': 'AAPL', 'last': None},
+        {'symbol': 'MSFT', 'last': 400.0},
+    ]
+    cached = {
+        'quotes': [
+            {'symbol': 'AAPL', 'market': 'US', 'price': 191.2},
+            {'symbol': 'MSFT', 'market': 'US', 'last': 401.0},
+        ]
+    }
+    with patch('utils.json_cache.cache_get_json', new=AsyncMock(return_value=cached)):
+        await MarketHeatService._enrich_top50_last_from_board_cache(rows, 'US')
+    assert rows[0]['last'] == 191.2
+    assert rows[1]['last'] == 400.0
+
+
+@pytest.mark.asyncio
+async def test_enrich_top50_last_skips_when_cache_empty() -> None:
+    rows = [{'symbol': 'AAPL', 'last': None}]
+    with patch('utils.json_cache.cache_get_json', new=AsyncMock(return_value=None)):
+        await MarketHeatService._enrich_top50_last_from_board_cache(rows, 'US')
+    assert rows[0]['last'] is None
