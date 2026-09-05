@@ -7,6 +7,7 @@ import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
 import useUserStore from '@/store/modules/user'
 import modal from '@/plugins/modal'
+import { isMobileLocation } from '@/mobile/guard'
 import {
   decryptTransportErrorResponse,
   decryptTransportResponse,
@@ -116,6 +117,16 @@ service.interceptors.response.use(async res => {
       return res.data
     }
     if (code === 401) {
+      if (isMobileLocation()) {
+        if (!isRelogin.show) {
+          isRelogin.show = true
+          useUserStore().logOut().finally(() => {
+            isRelogin.show = false
+            location.href = '/m/login'
+          })
+        }
+        return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+      }
       if (!isRelogin.show) {
         isRelogin.show = true;
         ElMessageBox.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录', '系统提示', { confirmButtonText: '重新登录', cancelButtonText: '取消', type: 'warning' }).then(() => {

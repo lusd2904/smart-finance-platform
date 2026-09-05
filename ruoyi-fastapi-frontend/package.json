@@ -12,7 +12,9 @@
     "build:stage": "vite build --mode staging",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.vue --max-warnings 200",
-    "lint:fix": "eslint src --ext .js,.vue --fix"
+    "lint:fix": "eslint src --ext .js,.vue --fix",
+    "test:mobile": "node --test src/mobile/utils/*.test.js src/mobile/guard.test.js",
+    "mock:mobile": "node scripts/mobile-h5-mock.mjs"
   },
   "repository": {
     "type": "git",

@@ -54,14 +54,15 @@ const useUserStore = defineStore(
             this.name = user.userName
             this.nickName = user.nickName
             this.avatar = avatar
-            /* 初始密码提示 */
-            if(res.isDefaultModifyPwd) {
+            const onMobile = typeof location !== 'undefined' && location.pathname.startsWith('/m')
+            /* 初始密码提示（PC 管理台）；移动壳无改密页，不打断 /m */
+            if(res.isDefaultModifyPwd && !onMobile) {
               ElMessageBox.confirm('您的密码还是初始密码，请修改密码！',  '安全提示', {  confirmButtonText: '确定',  cancelButtonText: '取消',  type: 'warning' }).then(() => {
                 router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
               }).catch(() => {})
             }
             /* 过期密码提示 */
-            if(!res.isDefaultModifyPwd && res.isPasswordExpired) {
+            if(!res.isDefaultModifyPwd && res.isPasswordExpired && !onMobile) {
               ElMessageBox.confirm('您的密码已过期，请尽快修改密码！',  '安全提示', {  confirmButtonText: '确定',  cancelButtonText: '取消',  type: 'warning' }).then(() => {
                 router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
               }).catch(() => {})
