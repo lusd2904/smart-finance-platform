@@ -24,7 +24,6 @@ from module_sentiment.controller.sentiment_ingest_controller import (
 from module_sentiment.service.collector_service import _map_x_monitor_item, _normalize_topics
 from module_sentiment.service.sentiment_service import SentimentService
 
-
 INGEST_TOKEN = 'test-x-monitor-ingest-token'
 INGEST_PATH = '/sentiment/ingest/x_monitor'
 

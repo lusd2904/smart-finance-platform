@@ -99,10 +99,7 @@ def _map_x_monitor_item(item: Any) -> dict[str, Any] | None:
     if author and author not in content:
         content = f'@{author}: {content}'
 
-    if url:
-        uniq = hashlib.md5(url.encode()).hexdigest()
-    else:
-        uniq = _make_hash('x_monitor', text or title)
+    uniq = hashlib.md5(url.encode()).hexdigest() if url else _make_hash('x_monitor', text or title)
 
     return {
         'source': 'x_monitor',

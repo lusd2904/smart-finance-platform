@@ -13,12 +13,12 @@ from module_ai.entity.do.ai_model_do import AiModels
 from module_market.service.index_quotes_service import MarketIndexService, list_session_status
 from module_sentiment.dao.sentiment_dao import SentimentAiConfigDao, SentimentAnalysisDao, SentimentNewsDao
 from module_sentiment.entity.vo.sentiment_vo import (
+    X_MONITOR_INGEST_BATCH_MAX,
     DeleteSentimentNewsModel,
     SentimentAiConfigModel,
     SentimentAnalysisModel,
     SentimentAnalysisPageQueryModel,
     SentimentNewsPageQueryModel,
-    X_MONITOR_INGEST_BATCH_MAX,
 )
 from module_sentiment.service.analyzer_service import (
     GATEWAY_FAILOVER_CODES,
