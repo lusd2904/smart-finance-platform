@@ -46,6 +46,7 @@
             <el-checkbox value="wallstreetcn">华尔街见闻</el-checkbox>
             <el-checkbox value="google_news">谷歌新闻(中文)</el-checkbox>
             <el-checkbox value="jin10">金十数据</el-checkbox>
+            <el-checkbox value="x_monitor">X</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         <el-form-item>
@@ -103,7 +104,7 @@ function getConfigData() {
       }
       enabledSourceList.value = form.value.enabledSources
         ? form.value.enabledSources.split(',').map(s => s.trim()).filter(Boolean)
-        : ['eastmoney', 'sina', 'ths', 'wallstreetcn', 'google_news']
+        : ['eastmoney', 'sina', 'ths', 'wallstreetcn', 'google_news', 'x_monitor']
     })
     .finally(() => {
       loading.value = false
