@@ -55,6 +55,14 @@ export function fmtMoney(val) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Limit price × qty. Missing/invalid price or qty≤0 → '--' (do not invent notional). */
+export function estimateNotional(price, qty) {
+  const px = Number(price)
+  const q = Math.floor(Number(qty) || 0)
+  if (!Number.isFinite(px) || px <= 0 || q <= 0) return '--'
+  return fmtMoney(px * q)
+}
+
 export function fmtTime(val) {
   if (!val) return ''
   const s = String(val)
