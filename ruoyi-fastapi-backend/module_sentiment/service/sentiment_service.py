@@ -18,13 +18,14 @@ from module_sentiment.entity.vo.sentiment_vo import (
     SentimentAnalysisModel,
     SentimentAnalysisPageQueryModel,
     SentimentNewsPageQueryModel,
+    X_MONITOR_INGEST_BATCH_MAX,
 )
 from module_sentiment.service.analyzer_service import (
     GATEWAY_FAILOVER_CODES,
     HTTP_TOO_MANY_REQUESTS,
     SentimentAiAnalyzer,
 )
-from module_sentiment.service.collector_service import SentimentCollector
+from module_sentiment.service.collector_service import SentimentCollector, _map_x_monitor_item
 from utils.common_util import CamelCaseUtil
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
@@ -171,6 +172,46 @@ class SentimentService:
             raise e
         logger.info(f'[舆情采集] 抓取 {len(news_list)} 条，新入库 {len(fresh)} 条')
         return {'fetched': len(news_list), 'saved': len(fresh)}
+
+    @classmethod
+    async def ingest_x_monitor_services(
+        cls, query_db: AsyncSession, items: list[dict[str, Any]]
+    ) -> dict[str, int]:
+        """
+        批量入库 X监测器帖子。按 uniq_hash（url 的 md5）幂等跳过已存在行。
+        """
+        if len(items) > X_MONITOR_INGEST_BATCH_MAX:
+            raise ServiceException(message=f'单次最多 {X_MONITOR_INGEST_BATCH_MAX} 条')
+        mapped: list[dict[str, Any]] = []
+        seen_hash: set[str] = set()
+        for raw in items:
+            news = _map_x_monitor_item(raw)
+            if not news:
+                continue
+            news['source'] = 'x_monitor'
+            mapped.append(news)
+        accepted = len(mapped)
+        hashes = [n['uniq_hash'] for n in mapped]
+        existing = await SentimentNewsDao.get_existing_hashes(query_db, hashes)
+        fresh: list[dict[str, Any]] = []
+        for news in mapped:
+            uniq = news['uniq_hash']
+            if uniq in existing or uniq in seen_hash:
+                continue
+            seen_hash.add(uniq)
+            news['analyzed'] = '0'
+            news['create_time'] = now_beijing()
+            fresh.append(news)
+        try:
+            if fresh:
+                await SentimentNewsDao.add_news_batch(query_db, fresh)
+            await query_db.commit()
+        except Exception as e:
+            await query_db.rollback()
+            raise e
+        skipped = accepted - len(fresh)
+        logger.info(f'[舆情入库] x_monitor accepted={accepted} inserted={len(fresh)} skipped={skipped}')
+        return {'accepted': accepted, 'inserted': len(fresh), 'skipped': skipped}
 
     # ---------- AI配置 ----------
 
