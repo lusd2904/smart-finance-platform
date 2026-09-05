@@ -1,5 +1,5 @@
 <template>
-  <div class="m-page m-symbol">
+  <div class="m-page m-symbol" @touchstart.passive="onSwipeStart" @touchend="onSwipeEnd">
     <header class="m-symbol__head">
       <button type="button" class="m-back" @click="goBack">‹</button>
       <div class="m-symbol__id">
@@ -8,7 +8,7 @@
       </div>
     </header>
     <PullRefresh :refreshing="refreshing" @refresh="refresh">
-      <EmptyState v-if="error && !header.symbol" :message="error" retry @retry="load" />
+      <EmptyState v-if="error && !header.symbol" :message="error || '加载失败'" retry @retry="load" />
       <template v-else>
         <div class="m-symbol__quote">
           <div class="last m-num" :class="'m-' + changeTone(header.changePct)">{{ fmtPrice(header.last) }}</div>
@@ -172,19 +172,34 @@ async function changePeriod(next) {
 }
 
 async function toggleWatch() {
+  const next = !watched.value
+  const prevId = watchId.value
+  watched.value = next
   try {
-    if (watched.value && watchId.value) {
-      await delMarketWatchlist(watchId.value)
-      watched.value = false
+    if (!next && prevId) {
+      await delMarketWatchlist(prevId)
       watchId.value = null
-    } else {
+    } else if (next) {
       await addMarketWatchlist({ symbol: code.value, market: market.value })
-      watched.value = true
       await loadWatchState()
     }
   } catch (e) {
+    watched.value = !next
+    watchId.value = prevId
     error.value = (e && e.message) || '自选操作失败'
   }
+}
+
+let swipeX = null
+function onSwipeStart(e) {
+  const x = e.touches && e.touches[0] ? e.touches[0].clientX : 0
+  swipeX = x < 28 ? x : null
+}
+function onSwipeEnd(e) {
+  if (swipeX == null) return
+  const x = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0
+  if (x - swipeX > 64) goBack()
+  swipeX = null
 }
 
 function goBack() {
@@ -206,6 +221,9 @@ onMounted(load)
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 .m-symbol__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -223,6 +241,9 @@ onMounted(load)
 .m-symbol__id .name { font-weight: 800; font-size: 16px; }
 .m-symbol__id .code { color: #8b8d98; font-size: 12px; }
 .m-symbol__quote {
+  position: sticky;
+  top: 52px;
+  z-index: 4;
   padding: 8px 16px 4px;
   background: #fff;
 }

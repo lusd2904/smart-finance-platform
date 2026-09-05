@@ -2,11 +2,12 @@
   <div class="m-page">
     <PullRefresh :refreshing="refreshing" @refresh="refresh">
       <h2 class="m-page-title">舆情</h2>
-      <EmptyState v-if="error && !analysis" :message="error" retry @retry="load" />
+      <Skeleton v-if="loading && !analysis && !briefings.length" :rows="6" />
+      <EmptyState v-else-if="error && !analysis && !briefings.length" :message="error || '加载失败'" retry @retry="load" />
       <template v-else>
         <section class="m-card">
           <div class="m-card__h">市场研判</div>
-          <p class="m-summary">{{ analysis?.summary || '暂无摘要' }}</p>
+          <p class="m-summary" :class="{ 'is-open': sumOpen }" @click="sumOpen = !sumOpen">{{ analysis?.summary || '暂无摘要' }}</p>
           <div class="m-mkts">
             <div v-for="m in marketCards" :key="m.key" class="m-mkt">
               <div class="m-mkt__name">{{ m.label }}</div>
@@ -17,8 +18,9 @@
           <div v-if="riskEvents.length" class="m-risk">
             <div class="m-card__h">风险事件</div>
             <ul>
-              <li v-for="(ev, i) in riskEvents" :key="i">{{ ev }}</li>
+              <li v-for="(ev, i) in shownRisks" :key="i">{{ ev }}</li>
             </ul>
+            <button v-if="riskEvents.length > 2 && !riskOpen" type="button" class="m-more" @click="riskOpen = true">更多</button>
           </div>
         </section>
         <section>
@@ -43,6 +45,7 @@ import { listAnalysis } from '@/api/sentiment'
 import { getFinanceBriefings } from '@/api/market'
 import PullRefresh from '../components/PullRefresh.vue'
 import EmptyState from '../components/EmptyState.vue'
+import Skeleton from '../components/Skeleton.vue'
 import { fmtTime } from '../utils/format'
 import { unwrapData, unwrapRows } from '../utils/payload'
 import { parseRiskEvents, sentimentDirection, sentimentIndexTo100 } from '../utils/riskEvents'
@@ -52,10 +55,13 @@ const briefings = ref([])
 const error = ref('')
 const loading = ref(false)
 const refreshing = ref(false)
+const sumOpen = ref(false)
+const riskOpen = ref(false)
 
 const DIR_LABEL = { up: '利多', down: '利空', flat: '中性', unknown: '—' }
 
 const riskEvents = computed(() => parseRiskEvents(analysis.value?.riskEvents))
+const shownRisks = computed(() => (riskOpen.value ? riskEvents.value : riskEvents.value.slice(0, 2)))
 
 const marketCards = computed(() => {
   const a = analysis.value || {}
@@ -128,6 +134,21 @@ onActivated(() => {
   font-size: 14px;
   line-height: 1.55;
   color: #374151;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.m-summary.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.m-more {
+  border: 0;
+  background: transparent;
+  color: #409eff;
+  font-size: 12px;
+  padding: 0;
 }
 .m-mkts {
   display: grid;

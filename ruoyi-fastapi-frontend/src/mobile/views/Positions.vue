@@ -12,8 +12,9 @@
         <div class="m-pos-head__net m-num">{{ prefix }}{{ netText }}</div>
         <div class="m-pos-head__cash">可用现金 {{ prefix }}{{ cashText }}</div>
       </header>
-      <EmptyState v-if="error && !items.length" :message="error" retry @retry="load" />
-      <EmptyState v-else-if="!loading && !items.length" :message="emptyMsg" />
+      <EmptyState v-if="error && !items.length" :message="error || '加载失败'" retry @retry="load" />
+      <EmptyState v-else-if="!loading && !items.length" :message="emptyMsg || '暂无持仓'" retry @retry="load" />
+      <div v-if="loading && !items.length" class="m-empty">加载中…</div>
       <button
         v-for="row in items"
         :key="row.symbol"

@@ -186,7 +186,7 @@ const server = http.createServer(async (req, res) => {
         hkScore: 0.6,
         aDirection: '利空',
         aScore: -2.1,
-        riskEvents: '["地缘扰动","利率预期反复"]'
+        riskEvents: '["地缘扰动","利率预期反复","汇率波动"]'
       }],
       total: 1
     })

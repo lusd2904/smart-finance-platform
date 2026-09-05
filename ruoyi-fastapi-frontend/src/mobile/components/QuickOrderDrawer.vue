@@ -1,29 +1,43 @@
 <template>
   <Teleport to="body">
     <div v-if="modelValue" class="m-drawer-mask" @click="close">
-      <div class="m-drawer" @click.stop>
+      <div class="m-drawer" :style="{ paddingBottom: liftPad }" @click.stop>
         <div class="m-drawer__title">交易 {{ symbol }}{{ name ? ' · ' + name : '' }}</div>
-        <div class="m-side">
-          <button type="button" :class="{ 'is-on': side === 'buy', 'is-buy': true }" @click="side = 'buy'">买入</button>
-          <button type="button" :class="{ 'is-on': side === 'sell', 'is-sell': true }" @click="side = 'sell'">卖出</button>
-        </div>
-        <label class="m-field">
-          <span>限价</span>
-          <input v-model="priceText" inputmode="decimal" placeholder="价格" />
-        </label>
-        <label class="m-field">
-          <span>数量</span>
-          <input v-model="qtyText" inputmode="numeric" placeholder="股数" />
-        </label>
-        <div class="m-pct">
-          <button v-for="p in [25, 50, 75, 100]" :key="p" type="button" @click="applyPercent(p)">
-            {{ p === 100 ? '全仓' : p + '%' }}
+        <template v-if="!confirming">
+          <div class="m-side">
+            <button type="button" :class="{ 'is-on': side === 'buy', 'is-buy': true }" @click="side = 'buy'">买入</button>
+            <button type="button" :class="{ 'is-on': side === 'sell', 'is-sell': true }" @click="side = 'sell'">卖出</button>
+          </div>
+          <label class="m-field">
+            <span>限价</span>
+            <input v-model="priceText" inputmode="decimal" placeholder="价格" />
+          </label>
+          <label class="m-field">
+            <span>数量</span>
+            <input v-model="qtyText" inputmode="numeric" placeholder="股数" />
+          </label>
+          <div class="m-pct">
+            <button v-for="p in [25, 50, 75, 100]" :key="p" type="button" @click="applyPercent(p)">
+              {{ p === 100 ? '全仓' : p + '%' }}
+            </button>
+          </div>
+          <p v-if="hint" class="m-drawer__hint" :class="{ 'is-warn': hintWarn }">{{ hint }}</p>
+          <button type="button" class="m-drawer__submit" :class="'is-' + side" :disabled="busy" @click="openConfirm">
+            {{ side === 'sell' ? '卖出' : '买入' }}
           </button>
-        </div>
-        <p v-if="hint" class="m-drawer__hint">{{ hint }}</p>
-        <button type="button" class="m-drawer__submit" :class="'is-' + side" :disabled="busy" @click="confirmSubmit">
-          {{ busy ? '提交中…' : (side === 'sell' ? '卖出' : '买入') }}
-        </button>
+        </template>
+        <template v-else>
+          <p class="m-confirm">
+            {{ side === 'sell' ? '卖出' : '买入' }} · {{ symbol }} · 限价 {{ priceText }} · {{ qtyText }}股 · 约 {{ estimate }}
+          </p>
+          <div class="m-confirm__btns">
+            <button type="button" class="ghost" :disabled="busy" @click="confirming = false">取消</button>
+            <button type="button" class="m-drawer__submit" :class="'is-' + side" :disabled="busy" @click="doSubmit">
+              {{ busy ? '提交中…' : '确认提交' }}
+            </button>
+          </div>
+        </template>
+        <div v-if="toast" class="m-toast">{{ toast }}</div>
       </div>
     </div>
   </Teleport>
@@ -32,6 +46,7 @@
 <script setup>
 import { getTradeAccount, getTradePositions, submitTradeOrder } from '@/api/trade'
 import { unwrapData, unwrapList, num } from '../utils/payload'
+import { fmtMoney } from '../utils/format'
 import { cashCurrencyForMarket, inferMarket, quoteSymbol, ticketQtyForPercent } from '../utils/ticketQty'
 
 const props = defineProps({
@@ -48,16 +63,33 @@ const side = ref(props.side === 'sell' ? 'sell' : 'buy')
 const priceText = ref('')
 const qtyText = ref('')
 const hint = ref('')
+const hintWarn = ref(false)
 const busy = ref(false)
+const confirming = ref(false)
+const toast = ref('')
 const account = ref(null)
 const positions = ref([])
+const kbLift = ref(0)
+
+const liftPad = computed(() => `calc(16px + env(safe-area-inset-bottom, 0px) + ${kbLift.value}px)`)
+const estimate = computed(() => {
+  const px = num(priceText.value)
+  const qty = Math.floor(num(qtyText.value) || 0)
+  if (px == null || qty <= 0) return '--'
+  return fmtMoney(px * qty)
+})
 
 watch(() => props.modelValue, (open) => {
-  if (!open) return
+  if (!open) {
+    confirming.value = false
+    return
+  }
   side.value = props.side === 'sell' ? 'sell' : 'buy'
   priceText.value = props.last != null && Number(props.last) > 0 ? String(props.last) : ''
   qtyText.value = ''
   hint.value = ''
+  hintWarn.value = false
+  confirming.value = false
   loadBook()
 })
 watch(() => props.side, (v) => {
@@ -104,6 +136,7 @@ async function loadBook() {
     refreshHint()
   } catch {
     hint.value = '账户信息暂不可用'
+    hintWarn.value = true
   }
 }
 
@@ -117,13 +150,16 @@ function refreshHint() {
     sellable: sellableOf()
   })
   if (side.value === 'sell') {
+    hintWarn.value = maxQty <= 0
     hint.value = maxQty > 0 ? `可卖 ${maxQty} 股` : '无可卖仓位'
     return
   }
   if (refPrice.value == null) {
+    hintWarn.value = true
     hint.value = '缺少价格，数量按 0 处理，请先填写限价'
     return
   }
+  hintWarn.value = maxQty <= 0
   hint.value = maxQty > 0 ? `可买 ${maxQty} 股` : '购买力不足或缺少价格，数量为 0'
 }
 
@@ -137,33 +173,43 @@ function applyPercent(percent) {
     sellable: sellableOf()
   })
   if (n <= 0) {
+    hintWarn.value = true
     hint.value = side.value === 'sell' ? '无可卖仓位' : '购买力不足或缺少价格'
     qtyText.value = '0'
     return
   }
   qtyText.value = String(n)
+  hintWarn.value = false
   refreshHint()
 }
 
 watch([side, priceText], refreshHint)
 
 function close() {
+  if (busy.value) return
   emit('update:modelValue', false)
 }
 
-async function confirmSubmit() {
+function openConfirm() {
   const qty = Math.floor(num(qtyText.value) || 0)
   const px = num(priceText.value)
   if (qty <= 0) {
+    hintWarn.value = true
     hint.value = '请输入股数（缺少价格或购买力时数量为 0）'
     return
   }
   if (px == null || px <= 0) {
+    hintWarn.value = true
     hint.value = '限价单请填写有效价格'
     return
   }
-  const ok = window.confirm(`确认${side.value === 'sell' ? '卖出' : '买入'} ${props.symbol} ${qty} 股 @ ${px}？`)
-  if (!ok) return
+  confirming.value = true
+}
+
+async function doSubmit() {
+  if (busy.value) return
+  const qty = Math.floor(num(qtyText.value) || 0)
+  const px = num(priceText.value)
   busy.value = true
   try {
     const res = await submitTradeOrder({
@@ -176,17 +222,46 @@ async function confirmSubmit() {
     })
     const data = unwrapData(res)
     const success = data.ok === true || data.orderId != null || res.code === 200
-    hint.value = data.message || res.msg || (success ? '已提交委托' : '下单失败')
     if (success) {
+      toast.value = data.message || res.msg || '已提交委托'
       emit('done', data)
-      close()
+      setTimeout(() => {
+        toast.value = ''
+        emit('update:modelValue', false)
+      }, 700)
+    } else {
+      hintWarn.value = true
+      hint.value = data.message || res.msg || '下单失败'
+      confirming.value = false
     }
   } catch (e) {
+    hintWarn.value = true
     hint.value = (e && e.message) || '下单失败'
+    confirming.value = false
   } finally {
     busy.value = false
   }
 }
+
+function onViewport() {
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null
+  if (!vv) {
+    kbLift.value = 0
+    return
+  }
+  kbLift.value = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0))
+}
+
+onMounted(() => {
+  if (typeof window === 'undefined' || !window.visualViewport) return
+  window.visualViewport.addEventListener('resize', onViewport)
+  window.visualViewport.addEventListener('scroll', onViewport)
+})
+onBeforeUnmount(() => {
+  if (typeof window === 'undefined' || !window.visualViewport) return
+  window.visualViewport.removeEventListener('resize', onViewport)
+  window.visualViewport.removeEventListener('scroll', onViewport)
+})
 </script>
 
 <style scoped lang="scss">
@@ -261,6 +336,7 @@ async function confirmSubmit() {
   color: #6b7280;
   font-size: 12px;
 }
+.m-drawer__hint.is-warn { color: #e5484d; }
 .m-drawer__submit {
   width: 100%;
   height: 44px;
@@ -273,4 +349,23 @@ async function confirmSubmit() {
 .m-drawer__submit.is-buy { background: #e5484d; }
 .m-drawer__submit.is-sell { background: #30a46c; }
 .m-drawer__submit:disabled { opacity: 0.6; }
+.m-confirm {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.m-confirm__btns {
+  display: flex;
+  gap: 8px;
+}
+.m-confirm__btns .ghost {
+  flex: 1;
+  height: 44px;
+  border: 1px solid #ececef;
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 700;
+}
+.m-confirm__btns .m-drawer__submit { flex: 2; }
 </style>

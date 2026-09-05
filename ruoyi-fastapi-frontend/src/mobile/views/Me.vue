@@ -37,9 +37,10 @@ const nickName = computed(() => userStore.nickName || '')
 const userName = computed(() => userStore.name || '')
 const initial = computed(() => (nickName.value || userName.value || 'U').slice(0, 1))
 const gatewayLabel = computed(() => {
-  if (gateway.error === 'timeout') return `探测超时（${gateway.ms}ms）`
   if (gateway.ok) return `在线 · HTTP ${gateway.status} · ${gateway.ms}ms`
-  return gateway.error === 'unreachable' ? '不可达（客户端探测）' : `异常 · HTTP ${gateway.status || '--'}`
+  if (gateway.error === 'timeout') return '探测失败（超时）'
+  if (gateway.error === 'unreachable') return '探测失败'
+  return `探测失败${gateway.status ? ' · HTTP ' + gateway.status : ''}`
 })
 
 async function loadInfo() {

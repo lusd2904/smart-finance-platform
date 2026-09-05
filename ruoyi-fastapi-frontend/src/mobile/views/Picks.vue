@@ -5,8 +5,8 @@
         <button v-for="m in markets" :key="m.key" type="button" class="m-chip" :class="{ 'is-on': market === m.key }" @click="switchMarket(m.key)">{{ m.label }}</button>
       </div>
       <div v-if="tradeDate" class="m-date">{{ tradeDate }}</div>
-      <EmptyState v-if="error && !items.length" :message="error" retry @retry="load" />
-      <EmptyState v-else-if="!loading && !items.length" :message="emptyMsg" />
+      <EmptyState v-if="error && !items.length" :message="error || '加载失败'" retry @retry="load" />
+      <EmptyState v-else-if="!loading && !items.length" :message="emptyMsg || '暂无选股单'" retry @retry="load" />
       <QuoteRow
         v-for="row in items"
         :key="row.symbol + (row.market || '')"
@@ -17,10 +17,11 @@
         :change-pct="row.changePct"
         :tag="row.recommendation"
         :tag-tone="recTone(row.recommendation)"
-        :subtitle="row.subtitle"
+        :subtitle="expanded === row.symbol ? row.fullSubtitle : row.subtitle"
         @click="openSymbol(row)"
+        @longpress="expanded = expanded === row.symbol ? '' : row.symbol"
       />
-      <div v-if="loading && !items.length" class="m-empty">加载中…</div>
+      <Skeleton v-if="loading && !items.length" :rows="8" />
     </PullRefresh>
   </div>
 </template>
@@ -30,6 +31,7 @@ import { getStockPickLatest } from '@/api/market'
 import PullRefresh from '../components/PullRefresh.vue'
 import QuoteRow from '../components/QuoteRow.vue'
 import EmptyState from '../components/EmptyState.vue'
+import Skeleton from '../components/Skeleton.vue'
 import { unwrapData, num, str } from '../utils/payload'
 import { inferMarket } from '../utils/ticketQty'
 import { sentimentDirection } from '../utils/riskEvents'
@@ -49,6 +51,7 @@ const emptyMsg = ref('暂无选股单')
 const error = ref('')
 const loading = ref(false)
 const refreshing = ref(false)
+const expanded = ref('')
 
 function recTone(rec) {
   return sentimentDirection(rec)
@@ -85,13 +88,20 @@ async function load() {
       const score = formatScore(row.pickScore)
       if (score) parts.push(score)
       if (row.stance) parts.push(row.stance)
-      if (row.summary) parts.push(row.summary)
+      const summary = str(row.summary)
+      const shortSum = summary.length > 18 ? summary.slice(0, 18) + '…' : summary
+      if (shortSum) parts.push(shortSum)
+      const full = []
+      if (score) full.push(score)
+      if (row.stance) full.push(row.stance)
+      if (summary) full.push(summary)
       return {
         ...row,
-        market: row.market || inferMarket(row.symbol),
+        market: row.market || inferMarket(row.symbol, 'US'),
         last: num(row.last ?? row.price),
         changePct: num(row.changePct),
-        subtitle: parts.join(' · ')
+        subtitle: parts.join(' · '),
+        fullSubtitle: full.join(' · ')
       }
     })
     if (data.empty === true || !items.value.length) {

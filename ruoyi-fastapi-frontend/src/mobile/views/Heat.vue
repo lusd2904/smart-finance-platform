@@ -32,8 +32,11 @@
         <button type="button" :class="{ 'is-on': board === 'top' }" @click="board = 'top'">Top</button>
         <button type="button" :class="{ 'is-on': board === 'watch' }" @click="board = 'watch'">自选</button>
       </div>
-      <EmptyState v-if="error && !rows.length" :message="error" retry @retry="load" />
-      <EmptyState v-else-if="!loading && !rows.length" :message="board === 'watch' ? '暂无自选' : '暂无热度榜'" />
+      <EmptyState v-if="error && !rows.length" :message="error || '加载失败'" retry @retry="load" />
+      <EmptyState v-else-if="!loading && board === 'watch' && !rows.length" message="暂无自选，去热度加">
+        <button type="button" class="m-retry" @click="board = 'top'">去热度加</button>
+      </EmptyState>
+      <EmptyState v-else-if="!loading && !rows.length" message="暂无热度榜" retry @retry="load" />
       <QuoteRow
         v-for="row in rows"
         :key="(row.symbol || '') + (row.rankNo || '')"
@@ -45,17 +48,19 @@
         :rank="board === 'top' ? row.rankNo : null"
         :in-watchlist="!!row.inWatchlist || board === 'watch'"
         @click="openSymbol(row)"
+        @longpress="toggleWatch(row)"
       />
-      <div v-if="loading && !rows.length" class="m-empty">加载中…</div>
+      <Skeleton v-if="loading && !rows.length" :rows="8" />
     </PullRefresh>
   </div>
 </template>
 
 <script setup name="MobileHeat">
-import { getMarketHeatDaily, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketWatchlist } from '@/api/market'
+import { getMarketHeatDaily, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketWatchlist, addMarketWatchlist, delMarketWatchlist } from '@/api/market'
 import PullRefresh from '../components/PullRefresh.vue'
 import QuoteRow from '../components/QuoteRow.vue'
 import EmptyState from '../components/EmptyState.vue'
+import Skeleton from '../components/Skeleton.vue'
 import { changeTone, fmtAmount, fmtPct, fmtTime } from '../utils/format'
 import { unwrapData, unwrapList, num, str } from '../utils/payload'
 import { inferMarket } from '../utils/ticketQty'
@@ -90,6 +95,23 @@ function openSymbol(row) {
   if (!code) return
   const mkt = str(row.market) || market.value
   router.push({ path: `/m/symbol/${encodeURIComponent(code)}`, query: { market: mkt } })
+}
+
+async function toggleWatch(row) {
+  try {
+    if (row.inWatchlist || board.value === 'watch') {
+      const id = row.id
+      if (id) await delMarketWatchlist(id)
+      row.inWatchlist = false
+      watchItems.value = watchItems.value.filter((r) => r.symbol !== row.symbol)
+    } else {
+      await addMarketWatchlist({ symbol: row.symbol, market: row.market || market.value })
+      row.inWatchlist = true
+      await loadWatch()
+    }
+  } catch (e) {
+    error.value = (e && e.message) || '自选操作失败'
+  }
 }
 
 async function loadIndexes() {

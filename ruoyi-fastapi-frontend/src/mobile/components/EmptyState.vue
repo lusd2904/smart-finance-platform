@@ -1,7 +1,9 @@
 <template>
   <div class="m-empty">
     <p>{{ message || '暂无数据' }}</p>
-    <button v-if="retry" type="button" class="m-retry" @click="$emit('retry')">{{ retryText }}</button>
+    <slot>
+      <button v-if="retry" type="button" class="m-retry" @click="$emit('retry')">{{ retryText }}</button>
+    </slot>
   </div>
 </template>
 

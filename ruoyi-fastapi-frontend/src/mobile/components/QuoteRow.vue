@@ -1,5 +1,5 @@
 <template>
-  <button type="button" class="m-quote" @click="$emit('click')">
+  <button type="button" class="m-quote" @click="onClick" @touchstart.passive="onPressStart" @touchend="onPressEnd" @touchcancel="onPressEnd" @contextmenu.prevent="onLong">
     <div class="m-quote__left">
       <div class="m-quote__name">
         <span v-if="rank != null" class="m-quote__rank">{{ rank }}</span>
@@ -35,7 +35,35 @@ const props = defineProps({
   tagTone: { type: String, default: 'flat' },
   subtitle: { type: String, default: '' }
 })
-defineEmits(['click'])
+const emit = defineEmits(['click', 'longpress'])
+let pressTimer = 0
+let pressed = false
+
+function onPressStart() {
+  pressed = false
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => {
+    pressed = true
+    emit('longpress')
+  }, 450)
+}
+
+function onPressEnd() {
+  clearTimeout(pressTimer)
+}
+
+function onLong() {
+  pressed = true
+  emit('longpress')
+}
+
+function onClick() {
+  if (pressed) {
+    pressed = false
+    return
+  }
+  emit('click')
+}
 
 const lastText = computed(() => fmtPrice(props.last))
 const chgText = computed(() => fmtPct(props.changePct))
