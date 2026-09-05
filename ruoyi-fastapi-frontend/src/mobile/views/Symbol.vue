@@ -40,6 +40,7 @@
       :name="header.name"
       :last="header.last"
       :side="ticketSide"
+      @done="load"
     />
   </div>
 </template>

@@ -11,10 +11,11 @@
         <span>{{ symbol }}</span>
         <span v-if="marketText"> · {{ marketText }}</span>
         <span v-if="subtitle"> · {{ subtitle }}</span>
+        <button v-if="expandable" type="button" class="m-quote__more" @click.stop="$emit('expand')">{{ expanded ? '收起' : '展开' }}</button>
       </div>
     </div>
     <div class="m-quote__right">
-      <div class="m-quote__last m-num">{{ lastText }}</div>
+      <div class="m-quote__last m-num" :class="'m-' + tone">{{ lastText }}</div>
       <div class="m-quote__chg m-num" :class="'m-' + tone">{{ chgText }}</div>
     </div>
   </button>
@@ -33,9 +34,11 @@ const props = defineProps({
   inWatchlist: { type: Boolean, default: false },
   tag: { type: String, default: '' },
   tagTone: { type: String, default: 'flat' },
-  subtitle: { type: String, default: '' }
+  subtitle: { type: String, default: '' },
+  expandable: { type: Boolean, default: false },
+  expanded: { type: Boolean, default: false }
 })
-const emit = defineEmits(['click', 'longpress'])
+const emit = defineEmits(['click', 'longpress', 'expand'])
 let pressTimer = 0
 let pressed = false
 
@@ -131,5 +134,13 @@ const watched = computed(() => !!props.inWatchlist)
   margin-left: 4px;
   color: #f5a524;
   font-size: 11px;
+}
+.m-quote__more {
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+  color: #409eff;
+  font-size: 11px;
+  padding: 0;
 }
 </style>

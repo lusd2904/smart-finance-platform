@@ -99,11 +99,13 @@ function openSymbol(row) {
 
 async function toggleWatch(row) {
   try {
+    const match = (w) => String(w.symbol || '').toUpperCase() === String(row.symbol || '').toUpperCase()
+      && String(w.market || row.market || '').toUpperCase() === String(row.market || market.value).toUpperCase()
+    const id = row.id || watchItems.value.find(match)?.id
     if (row.inWatchlist || board.value === 'watch') {
-      const id = row.id
       if (id) await delMarketWatchlist(id)
       row.inWatchlist = false
-      watchItems.value = watchItems.value.filter((r) => r.symbol !== row.symbol)
+      watchItems.value = watchItems.value.filter((r) => !match(r))
     } else {
       await addMarketWatchlist({ symbol: row.symbol, market: row.market || market.value })
       row.inWatchlist = true

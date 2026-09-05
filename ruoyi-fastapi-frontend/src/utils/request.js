@@ -122,7 +122,8 @@ service.interceptors.response.use(async res => {
           isRelogin.show = true
           useUserStore().logOut().finally(() => {
             isRelogin.show = false
-            location.href = '/m/login'
+            const back = `${location.pathname}${location.search}${location.hash}`
+            location.href = `/m/login?redirect=${encodeURIComponent(back.startsWith('/m') ? back : '/m')}`
           })
         }
         return Promise.reject('无效的会话，或者会话已过期，请重新登录。')

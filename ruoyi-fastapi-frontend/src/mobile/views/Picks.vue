@@ -18,8 +18,10 @@
         :tag="row.recommendation"
         :tag-tone="recTone(row.recommendation)"
         :subtitle="expanded === row.symbol ? row.fullSubtitle : row.subtitle"
+        expandable
+        :expanded="expanded === row.symbol"
         @click="openSymbol(row)"
-        @longpress="expanded = expanded === row.symbol ? '' : row.symbol"
+        @expand="expanded = expanded === row.symbol ? '' : row.symbol"
       />
       <Skeleton v-if="loading && !items.length" :rows="8" />
     </PullRefresh>

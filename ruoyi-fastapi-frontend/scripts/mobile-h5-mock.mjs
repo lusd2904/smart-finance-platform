@@ -197,8 +197,8 @@ const server = http.createServer(async (req, res) => {
       code: 200,
       data: {
         data: [
-          { id: 1, headline: '美联储官员释放谨慎信号', summary: '市场消化降息节奏，纳指高位震荡。', sourceName: '财经社', generatedAt: '2026-09-05 10:20:00' },
-          { id: 2, headline: '港股科技股获资金回流', summary: '南向资金净流入，腾讯阿里走强。', sourceName: '港交所快讯', generatedAt: '2026-09-05 09:10:00' }
+          { id: 1, headline: '美联储官员释放谨慎信号', summary: '市场消化降息节奏，纳指高位震荡，科技股分化明显，短线仍看美债收益率与美元指数。', sourceName: '财经社', generatedAt: '2026-09-05 10:20:00', market: 'US', symbols: ['AAPL'], payload: { symbol: 'AAPL' } },
+          { id: 2, headline: '港股科技股获资金回流', summary: '南向资金净流入，腾讯阿里走强。', sourceName: '港交所快讯', generatedAt: '2026-09-05 09:10:00', market: 'HK', symbols: ['0700'], payload: { symbol: '0700' } }
         ],
         meta: { count: 2 }
       }

@@ -7,7 +7,8 @@
       <template v-else>
         <section class="m-card">
           <div class="m-card__h">市场研判</div>
-          <p class="m-summary" :class="{ 'is-open': sumOpen }" @click="sumOpen = !sumOpen">{{ analysis?.summary || '暂无摘要' }}</p>
+          <p class="m-summary" :class="{ 'is-open': sumOpen }">{{ analysis?.summary || '暂无摘要' }}</p>
+          <button v-if="analysis?.summary" type="button" class="m-more" @click="sumOpen = !sumOpen">{{ sumOpen ? '收起' : '展开' }}</button>
           <div class="m-mkts">
             <div v-for="m in marketCards" :key="m.key" class="m-mkt">
               <div class="m-mkt__name">{{ m.label }}</div>
@@ -28,7 +29,19 @@
           <EmptyState v-if="!briefings.length && !loading" message="暂无简报" />
           <article v-for="item in briefings" :key="item.id || item.headline" class="m-brief">
             <h3>{{ item.headline }}</h3>
-            <p>{{ item.summary }}</p>
+            <p class="m-brief__sum" :class="{ 'is-open': openedBrief === item.id }">{{ item.summary }}</p>
+            <button v-if="item.summary" type="button" class="m-more" @click="openedBrief = openedBrief === item.id ? null : item.id">
+              {{ openedBrief === item.id ? '收起' : '展开' }}
+            </button>
+            <div v-if="item.tickers.length" class="m-brief__syms">
+              <button
+                v-for="t in item.tickers"
+                :key="t.symbol + t.market"
+                type="button"
+                class="m-chip"
+                @click="openSymbol(t.symbol, t.market)"
+              >{{ t.symbol }}</button>
+            </div>
             <div class="m-brief__meta">
               <span>{{ item.sourceName || '—' }}</span>
               <span>{{ fmtTime(item.generatedAt) }}</span>
@@ -47,8 +60,9 @@ import PullRefresh from '../components/PullRefresh.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Skeleton from '../components/Skeleton.vue'
 import { fmtTime } from '../utils/format'
-import { unwrapData, unwrapRows } from '../utils/payload'
+import { unwrapData, unwrapRows, str } from '../utils/payload'
 import { parseRiskEvents, sentimentDirection, sentimentIndexTo100 } from '../utils/riskEvents'
+import { inferMarket } from '../utils/ticketQty'
 
 const analysis = ref(null)
 const briefings = ref([])
@@ -57,6 +71,8 @@ const loading = ref(false)
 const refreshing = ref(false)
 const sumOpen = ref(false)
 const riskOpen = ref(false)
+const openedBrief = ref(null)
+const router = useRouter()
 
 const DIR_LABEL = { up: '利多', down: '利空', flat: '中性', unknown: '—' }
 
@@ -81,6 +97,38 @@ async function loadAnalysis() {
   analysis.value = rows[0] || null
 }
 
+function briefingTickers(it) {
+  const fallback = str(it.market)
+  const seen = new Set()
+  const out = []
+  const push = (code, market) => {
+    const symbol = str(code)
+    if (!symbol) return
+    const key = symbol.toUpperCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ symbol, market: str(market) || inferMarket(symbol, fallback || 'US') })
+  }
+  const list = it.symbols || []
+  if (Array.isArray(list)) {
+    for (const s of list) {
+      if (typeof s === 'string') push(s, it.market)
+      else if (s && s.symbol) push(s.symbol, s.market || it.market)
+    }
+  }
+  if (it.payload && it.payload.symbol) push(it.payload.symbol, it.payload.market || it.market)
+  return out
+}
+
+function openSymbol(code, market) {
+  const symbol = str(code)
+  if (!symbol) return
+  router.push({
+    path: `/m/symbol/${encodeURIComponent(symbol)}`,
+    query: { market: market || inferMarket(symbol, 'US') }
+  })
+}
+
 async function loadBriefings() {
   const res = await getFinanceBriefings({ limit: 40 })
   const payload = unwrapData(res)
@@ -90,7 +138,8 @@ async function loadBriefings() {
     headline: it.headline,
     summary: it.summary,
     sourceName: it.sourceName,
-    generatedAt: it.generatedAt
+    generatedAt: it.generatedAt,
+    tickers: briefingTickers(it)
   }))
 }
 
@@ -154,6 +203,7 @@ onActivated(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+  margin-top: 10px;
 }
 .m-mkt {
   text-align: center;
@@ -184,7 +234,27 @@ onActivated(() => {
   border: 1px solid #ececef;
 }
 .m-brief h3 { margin: 0 0 6px; font-size: 15px; }
-.m-brief p { margin: 0; color: #4b5563; font-size: 13px; line-height: 1.5; }
+.m-brief p,
+.m-brief__sum {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.m-brief__sum.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.m-brief__syms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
 .m-brief__meta {
   display: flex;
   justify-content: space-between;

@@ -1,8 +1,16 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="m-drawer-mask" @click="close">
-      <div class="m-drawer" :style="{ paddingBottom: liftPad }" @click.stop>
-        <div class="m-drawer__title">交易 {{ symbol }}{{ name ? ' · ' + name : '' }}</div>
+    <div
+      v-if="modelValue"
+      class="m-ticket"
+      @touchstart.passive="onSwipeStart"
+      @touchend="onSwipeEnd"
+    >
+        <header class="m-ticket__bar">
+          <button type="button" class="m-ticket__back" @click="close">‹</button>
+          <div class="m-ticket__title">交易 {{ symbol }}{{ name ? ' · ' + name : '' }}</div>
+        </header>
+        <div class="m-ticket__body" :style="{ paddingBottom: liftPad }">
         <template v-if="!confirming">
           <div class="m-side">
             <button type="button" :class="{ 'is-on': side === 'buy', 'is-buy': true }" @click="side = 'buy'">买入</button>
@@ -38,7 +46,7 @@
           </div>
         </template>
         <div v-if="toast" class="m-toast">{{ toast }}</div>
-      </div>
+        </div>
     </div>
   </Teleport>
 </template>
@@ -187,7 +195,20 @@ watch([side, priceText], refreshHint)
 
 function close() {
   if (busy.value) return
+  confirming.value = false
   emit('update:modelValue', false)
+}
+
+let swipeX = null
+function onSwipeStart(e) {
+  const x = e.touches && e.touches[0] ? e.touches[0].clientX : 0
+  swipeX = x < 28 ? x : null
+}
+function onSwipeEnd(e) {
+  if (swipeX == null) return
+  const x = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0
+  if (x - swipeX > 64) close()
+  swipeX = null
 }
 
 function openConfirm() {
@@ -265,24 +286,37 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="scss">
-.m-drawer-mask {
+.m-ticket {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(17, 24, 39, 0.45);
-  display: flex;
-  align-items: flex-end;
-}
-.m-drawer {
-  width: 100%;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   background: #fff;
-  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
 }
-.m-drawer__title {
+.m-ticket__bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px;
+  border-bottom: 1px solid #ececef;
+}
+.m-ticket__back {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  font-size: 28px;
+  line-height: 1;
+}
+.m-ticket__title {
   font-size: 16px;
   font-weight: 800;
-  margin-bottom: 12px;
+}
+.m-ticket__body {
+  flex: 1;
+  padding: 16px 16px 16px;
+  overflow: auto;
 }
 .m-side {
   display: flex;

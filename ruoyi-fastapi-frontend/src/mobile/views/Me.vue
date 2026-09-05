@@ -11,18 +11,26 @@
       <section class="m-card">
         <div class="m-card__h">网关状态</div>
         <p class="m-me__gw">{{ gateway.base }}</p>
-        <p class="m-me__st" :class="gateway.ok ? 'is-ok' : 'm-down'">
+        <p class="m-me__st" :class="gatewayClass">
           {{ gatewayLabel }}
         </p>
       </section>
       <EmptyState v-if="error" :message="error" retry @retry="refresh" />
-      <button type="button" class="m-me__out" @click="handleLogout">退出登录</button>
+      <button type="button" class="m-me__out" @click="askLogout = true">退出登录</button>
+      <div v-if="askLogout" class="m-card">
+        <p>确定退出登录吗？</p>
+        <div class="m-me__confirm">
+          <button type="button" @click="askLogout = false">取消</button>
+          <button type="button" class="danger" @click="handleLogout">退出</button>
+        </div>
+      </div>
     </PullRefresh>
   </div>
 </template>
 
 <script setup name="MobileMe">
 import useUserStore from '@/store/modules/user'
+import { removeToken } from '@/utils/auth'
 import PullRefresh from '../components/PullRefresh.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { probeGateway } from '../utils/gateway'
@@ -31,16 +39,23 @@ const userStore = useUserStore()
 const router = useRouter()
 const refreshing = ref(false)
 const error = ref('')
+const probed = ref(false)
+const askLogout = ref(false)
 const gateway = reactive({ ok: false, base: '', status: 0, ms: 0, error: '' })
 
 const nickName = computed(() => userStore.nickName || '')
 const userName = computed(() => userStore.name || '')
 const initial = computed(() => (nickName.value || userName.value || 'U').slice(0, 1))
 const gatewayLabel = computed(() => {
+  if (!probed.value) return '探测中…'
   if (gateway.ok) return `在线 · HTTP ${gateway.status} · ${gateway.ms}ms`
   if (gateway.error === 'timeout') return '探测失败（超时）'
   if (gateway.error === 'unreachable') return '探测失败'
   return `探测失败${gateway.status ? ' · HTTP ' + gateway.status : ''}`
+})
+const gatewayClass = computed(() => {
+  if (!probed.value) return ''
+  return gateway.ok ? 'is-ok' : 'm-down'
 })
 
 async function loadInfo() {
@@ -52,6 +67,7 @@ async function loadInfo() {
 async function loadGateway() {
   const r = await probeGateway()
   Object.assign(gateway, r)
+  probed.value = true
 }
 
 async function refresh() {
@@ -67,12 +83,16 @@ async function refresh() {
 }
 
 async function handleLogout() {
-  if (!window.confirm('确定退出登录吗？')) return
+  askLogout.value = false
   try {
     await userStore.logOut()
   } catch {
-    /* token still cleared by store on most paths; force leave */
+    /* API may fail; local token must still go */
   }
+  userStore.token = ''
+  userStore.roles = []
+  userStore.permissions = []
+  removeToken()
   router.replace('/m/login')
 }
 
@@ -104,6 +124,24 @@ onMounted(refresh)
 .m-me__gw { margin: 0; color: #6b7280; font-size: 13px; word-break: break-all; }
 .m-me__st { margin: 6px 0 0; font-size: 14px; font-weight: 700; }
 .m-me__st.is-ok { color: #30a46c; }
+.m-me__confirm {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.m-me__confirm button {
+  flex: 1;
+  height: 40px;
+  border: 1px solid #ececef;
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 700;
+}
+.m-me__confirm .danger {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+}
 .m-me__out {
   display: block;
   width: calc(100% - 32px);

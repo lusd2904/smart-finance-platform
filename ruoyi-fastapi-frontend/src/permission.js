@@ -39,6 +39,9 @@ async function ensureSession(to, onFailPath) {
     isRelogin.show = false
     await useUserStore().logOut()
     ElMessage.error(err)
+    if (isMobilePath(to.path) && to.path !== '/m/login') {
+      return { path: onFailPath, query: { redirect: to.fullPath } }
+    }
     return { path: onFailPath }
   }
 }

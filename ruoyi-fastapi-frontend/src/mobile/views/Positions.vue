@@ -14,7 +14,7 @@
       </header>
       <EmptyState v-if="error && !items.length" :message="error || '加载失败'" retry @retry="load" />
       <EmptyState v-else-if="!loading && !items.length" :message="emptyMsg || '暂无持仓'" retry @retry="load" />
-      <div v-if="loading && !items.length" class="m-empty">加载中…</div>
+      <Skeleton v-if="loading && !items.length" :rows="6" />
       <button
         v-for="row in items"
         :key="row.symbol"
@@ -38,7 +38,6 @@
           <button type="button" class="m-pos__trade" @click.stop="openTicket(row)">交易</button>
         </div>
       </button>
-      <div v-if="loading && !items.length" class="m-empty">加载中…</div>
     </PullRefresh>
     <QuickOrderDrawer
       v-model="ticketOpen"
@@ -56,6 +55,7 @@
 import { getTradeAccount, getTradePositions } from '@/api/trade'
 import PullRefresh from '../components/PullRefresh.vue'
 import EmptyState from '../components/EmptyState.vue'
+import Skeleton from '../components/Skeleton.vue'
 import QuickOrderDrawer from '../components/QuickOrderDrawer.vue'
 import { changeTone, fmtPct, fmtPrice, fmtSigned, fmtMoney } from '../utils/format'
 import { unwrapData, unwrapList, num, str } from '../utils/payload'
