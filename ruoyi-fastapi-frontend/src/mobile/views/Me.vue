@@ -11,7 +11,7 @@
       <section class="m-card">
         <div class="m-card__h">网关状态</div>
         <p class="m-me__gw">{{ gateway.base }}</p>
-        <p class="m-me__st" :class="gateway.ok ? 'm-up' : 'm-down'">
+        <p class="m-me__st" :class="gateway.ok ? 'is-ok' : 'm-down'">
           {{ gatewayLabel }}
         </p>
       </section>
@@ -102,6 +102,7 @@ onMounted(refresh)
 .m-card__h { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .m-me__gw { margin: 0; color: #6b7280; font-size: 13px; word-break: break-all; }
 .m-me__st { margin: 6px 0 0; font-size: 14px; font-weight: 700; }
+.m-me__st.is-ok { color: #30a46c; }
 .m-me__out {
   display: block;
   width: calc(100% - 32px);

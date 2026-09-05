@@ -33,7 +33,9 @@ describe('sentimentIndexTo100', () => {
 describe('sentimentDirection', () => {
   it('normalizes bull / bear tokens', () => {
     assert.equal(sentimentDirection('利多'), 'up')
+    assert.equal(sentimentDirection('买入'), 'up')
     assert.equal(sentimentDirection('bearish'), 'down')
+    assert.equal(sentimentDirection('减持'), 'down')
     assert.equal(sentimentDirection('中性'), 'flat')
   })
 })

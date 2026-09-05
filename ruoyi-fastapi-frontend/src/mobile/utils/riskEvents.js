@@ -37,10 +37,10 @@ export function sentimentIndexTo100(raw) {
 export function sentimentDirection(raw) {
   const d = String(raw || '').toLowerCase()
   if (!d) return 'unknown'
-  for (const token of ['多', 'bull', 'up', '涨', 'positive']) {
+  for (const token of ['买', '多', 'bull', 'up', '涨', 'positive']) {
     if (d.includes(token)) return 'up'
   }
-  for (const token of ['空', 'bear', 'down', '跌', 'negative']) {
+  for (const token of ['卖', '减', '空', 'bear', 'down', '跌', 'negative']) {
     if (d.includes(token)) return 'down'
   }
   return 'flat'
