@@ -32,6 +32,18 @@ def _parse_time(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
     text = str(value or '').strip()
+    if not text:
+        return datetime.now()
+    # ISO8601 / BJT offset，如 2026-09-04T23:39:00+08:00
+    try:
+        iso = text.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is not None:
+            # 统一存 naive：保留墙上时间（BJT 常见）
+            return dt.replace(tzinfo=None)
+        return dt
+    except (ValueError, TypeError):
+        pass
     for fmt in (
         '%Y-%m-%d %H:%M:%S',
         '%Y-%m-%dT%H:%M:%S',
@@ -49,6 +61,54 @@ def _parse_time(value: Any) -> datetime:
         return datetime.strptime(text[:25], '%a, %d %b %Y %H:%M:%S')
     except (ValueError, TypeError):
         return datetime.now()
+
+
+def _normalize_topics(topics: Any) -> list[str]:
+    if topics is None:
+        return []
+    if isinstance(topics, list):
+        return [str(t).strip() for t in topics if str(t).strip()]
+    text = str(topics).strip()
+    if not text:
+        return []
+    parts = re.split(r'[,，|/]+', text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _map_x_monitor_item(item: Any) -> dict[str, Any] | None:
+    """
+    将 X监测器条目映射为 sentiment_news 行。
+    source 一律强制为 x_monitor；有 url 时 uniq_hash = md5(url)。
+    """
+    if not isinstance(item, dict):
+        return None
+    text = str(item.get('text') or '').strip()
+    url = str(item.get('url') or '').strip() or None
+    if not text and not url:
+        return None
+
+    first_line = (text.splitlines()[0] if text else '') or (url or '')
+    title = first_line[:80] if first_line else (url or 'x_monitor')[:80]
+    topics = _normalize_topics(item.get('topics'))
+    content = text or title
+    if topics:
+        tag = ','.join(topics)
+        content = f'{content}\n[topics:{tag}]' if content else f'[topics:{tag}]'
+
+    author = str(item.get('author') or '').strip()
+    if author and author not in content:
+        content = f'@{author}: {content}'
+
+    uniq = hashlib.md5(url.encode()).hexdigest() if url else _make_hash('x_monitor', text or title)
+
+    return {
+        'source': 'x_monitor',
+        'title': title[:500],
+        'content': content[:4000],
+        'url': url,
+        'pub_time': _parse_time(item.get('posted_at')),
+        'uniq_hash': uniq,
+    }
 
 
 class SentimentCollector:
