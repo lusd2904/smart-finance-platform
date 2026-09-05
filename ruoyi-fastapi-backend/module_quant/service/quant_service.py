@@ -29,6 +29,7 @@ from module_quant.service.longbridge_service import LongbridgeService, resolve_l
 from module_quant.service.strategy_service import StrategyService
 from utils.crypto_util import CryptoUtil
 from utils.log_util import logger
+from utils.longbridge_breaker import LongbridgeBreaker
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -523,12 +524,42 @@ class QuantService:
         }
         try:
             await QuantLongbridgeConfigDao.save_config(query_db, config_dict, target_id)
+            await cls._sync_sibling_shared_account(query_db, target_id, config_dict)
             await query_db.commit()
             await cls._sync_longbridge_credentials(query_db, target_id)
+            LongbridgeService._reset_auth_breaker()
+            LongbridgeBreaker.reset()
+            await LongbridgeBreaker.clear_persisted()
+            await LongbridgeBreaker.bump_creds_epoch()
             return CrudResponseModel(is_success=True, message='保存成功')
         except Exception as e:
             await query_db.rollback()
             raise e
+
+    @classmethod
+    async def _sync_sibling_shared_account(
+        cls, query_db: AsyncSession, source_user_id: int | None, config_dict: dict[str, Any]
+    ) -> None:
+        """同一 app_key 的其他用户行同步加密 token/secret/region，不改 auto_trade_enabled。"""
+        app_key = str(config_dict.get('app_key') or '').strip()
+        if not app_key or source_user_id is None:
+            return
+        siblings = await QuantLongbridgeConfigDao.list_by_app_key(query_db, app_key)
+        now = config_dict.get('update_time') or datetime.now()
+        for sib in siblings:
+            sib_uid = getattr(sib, 'user_id', None)
+            if sib_uid is None or int(sib_uid) == int(source_user_id):
+                continue
+            sibling_dict = {
+                'user_id': int(sib_uid),
+                'app_key': config_dict.get('app_key') or '',
+                'app_secret': config_dict.get('app_secret') or '',
+                'access_token': config_dict.get('access_token') or '',
+                'region': config_dict.get('region') or 'cn',
+                'update_time': now,
+            }
+            await QuantLongbridgeConfigDao.save_config(query_db, sibling_dict, int(sib_uid))
+            logger.info(f'[长桥] 已同步共享账户 token 到 user_id={sib_uid}（相同 app_key，保留各自自动交易开关）')
 
     @staticmethod
     def _mask(value: str | None) -> str:

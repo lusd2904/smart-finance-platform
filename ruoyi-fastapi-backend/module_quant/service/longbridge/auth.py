@@ -4,22 +4,28 @@
 设计要点：
 - 凭据来源优先级：当前用户 DB 行 > 请求用户 >（仅行情采集显式 allow_admin_fallback 时管理员）> env。
 - 请求级凭据存放在 ContextVar，避免并发请求互相覆盖。
+- ``run_in_executor`` 不会带上 ContextVar，长桥同步 SDK 必须走
+  ``run_in_executor_with_context``（或 ``asyncio.to_thread``）。
 - 全局限频状态（锁 + 上次调用时间）供行情/交易两个客户端共用。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import time
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from module_quant.service.longbridge.errors import note_sdk_error
 from module_quant.service.longbridge.region import endpoints, resolve_region
 from module_quant.service.longbridge_quote import is_auth_denied
 from utils.log_util import logger
-from utils.longbridge_breaker import LongbridgeBreaker
+from utils.longbridge_breaker import LongbridgeBreaker, register_creds_epoch_listener
 
 ADMIN_LONGBRIDGE_USER_ID = 1
 
@@ -41,6 +47,25 @@ _lb_last_call = 0.0
 _request_credentials: ContextVar[dict[str, str] | None] = ContextVar(
     'longbridge_request_credentials', default=None
 )
+_T = TypeVar('_T')
+
+
+async def run_in_executor_with_context(
+    loop: asyncio.AbstractEventLoop | None,
+    fn: Callable[..., _T],
+    /,
+    *args: Any,
+    executor: Any = None,
+) -> _T:
+    """在线程池执行 fn，并复制当前 ContextVar（含长桥请求凭据）。
+
+    ``loop.run_in_executor`` 不会传播 ContextVar；``asyncio.to_thread`` 会。
+    行情热度等路径若先 ``ensure_credentials_from_db`` 再丢进 executor，
+    必须走本助手，否则工作线程会回退到进程 env 里过期的 LONGPORT_ACCESS_TOKEN。
+    """
+    running = loop or asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    return await running.run_in_executor(executor, ctx.run, fn, *args)
 
 
 def peek_request_user_id() -> int | None:
@@ -153,22 +178,19 @@ class CredentialsMixin:
         """
         设置来自 DB 的凭据覆盖（优先级高于 env，仅作用于当前任务/请求）。
         传 None 清除覆盖。
+        非空凭据始终解除本进程 auth 切断，即使 token 与切断时签名相同
+        （用户重存仍有效的 token 必须恢复）。
         """
         if credentials and any(
             credentials.get(k) for k in ('app_key', 'app_secret', 'access_token')
         ):
             _request_credentials.set(credentials)
+            if getattr(cls, '_auth_cut_off', False) or getattr(cls, '_auth_fail_until', 0):
+                logger.info('[长桥] 重新注入凭据，解除切断')
+            cls._reset_auth_breaker()
         else:
             _request_credentials.set(None)
         cls._clear_cached_contexts()
-        if getattr(cls, '_auth_cut_off', False):
-            try:
-                sig = cls._get_creds_signature(cls.resolve_credentials())
-            except Exception:
-                sig = None
-            if sig and sig != getattr(cls, '_auth_cut_off_sig', None):
-                logger.info('[长桥] 检测到新 token，解除切断')
-                cls._reset_auth_breaker()
 
     @classmethod
     def resolve_credentials(cls) -> dict[str, str]:
@@ -258,6 +280,7 @@ class CredentialsMixin:
 
     @classmethod
     def _blocked(cls) -> bool:
+        LongbridgeBreaker.sync_creds_epoch_if_needed()
         if cls._auth_blocked():
             return True
         return not LongbridgeBreaker.allow()
@@ -277,6 +300,7 @@ class CredentialsMixin:
         从 quant_longbridge_config 注入当前用户凭据（DB 优先）。
         无用户且未允许管理员回退时清空注入，后续走 env。
         """
+        await LongbridgeBreaker.pull_creds_epoch()
         try:
             from module_quant.dao.quant_dao import (
                 QuantLongbridgeConfigDao,
@@ -317,5 +341,19 @@ class CredentialsMixin:
             if wait > 0:
                 await asyncio.sleep(wait)
             _lb_last_call = time.monotonic()
+
+
+def _on_creds_epoch(_epoch: int) -> None:
+    """其他进程保存凭据后：清本进程切断与缓存的 Quote/Trade context。"""
+    try:
+        from module_quant.service.longbridge_service import LongbridgeService
+
+        LongbridgeService._reset_auth_breaker()
+        LongbridgeService._clear_cached_contexts()
+    except Exception as exc:
+        logger.debug(f'[长桥] creds_epoch 清除切断失败: {exc}')
+
+
+register_creds_epoch_listener(_on_creds_epoch)
 
 

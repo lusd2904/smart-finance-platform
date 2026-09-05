@@ -19,6 +19,7 @@ from module_quant.service.longbridge.auth import (
     decrypt_or_raw,
     peek_request_user_id,
     resolve_longbridge_user_id,
+    run_in_executor_with_context,
 )
 from module_quant.service.longbridge.quote_client import QuoteClientMixin
 from module_quant.service.longbridge.trade_client import TradeClientMixin
@@ -32,6 +33,7 @@ __all__ = [
     'decrypt_or_raw',
     'peek_request_user_id',
     'resolve_longbridge_user_id',
+    'run_in_executor_with_context',
 ]
 
 

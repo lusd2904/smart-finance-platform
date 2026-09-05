@@ -293,6 +293,19 @@ class QuantLongbridgeConfigDao:
         return db_config
 
     @classmethod
+    async def list_by_app_key(cls, db: AsyncSession, app_key: str) -> list[QuantLongbridgeConfig]:
+        """同一 Longbridge 开放平台账户（相同 app_key）的全部配置行。"""
+        key = str(app_key or '').strip()
+        if not key:
+            return []
+        rows = (
+            (await db.execute(select(QuantLongbridgeConfig).where(QuantLongbridgeConfig.app_key == key)))
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+    @classmethod
     async def list_configured_user_ids(cls, db: AsyncSession) -> list[int]:
         """已填写长桥 Key/Token 的账号。"""
         rows = (

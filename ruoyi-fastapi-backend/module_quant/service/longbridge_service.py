@@ -25,6 +25,7 @@ from module_quant.service.longbridge import (
     LongbridgeService,
     peek_request_user_id,
     resolve_longbridge_user_id,
+    run_in_executor_with_context,
 )
 from module_quant.service.longbridge_quote import (
     CN_NO_DEPTH_MSG,
@@ -68,5 +69,6 @@ __all__ = [
     'quote_error_message',
     'quote_error_reason',
     'resolve_longbridge_user_id',
+    'run_in_executor_with_context',
     'time',
 ]

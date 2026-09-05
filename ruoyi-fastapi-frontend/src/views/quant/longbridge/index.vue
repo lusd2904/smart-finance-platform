@@ -4,8 +4,8 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">长桥 Longbridge 接入配置</span>
-          <el-tag v-if="statusChecked" :type="configured ? 'success' : 'info'" effect="dark">
-            {{ configured ? '已连接' : '未连接' }}
+          <el-tag v-if="statusChecked" :type="connectionTagType" effect="dark">
+            {{ connectionTagText }}
           </el-tag>
         </div>
       </template>
@@ -69,10 +69,10 @@
 
       <div class="test-result" v-if="testResult">
         <div class="result-title">
-          <el-icon :color="testResult.configured ? '#67c23a' : '#f56c6c'">
-            <CircleCheck v-if="testResult.configured" /><CircleClose v-else />
+          <el-icon :color="testResult.connected ? '#67c23a' : '#f56c6c'">
+            <CircleCheck v-if="testResult.connected" /><CircleClose v-else />
           </el-icon>
-          <span>{{ testResult.configured ? '连接成功' : '连接失败' }}</span>
+          <span>{{ testResult.connected ? '连接成功' : '连接失败' }}</span>
         </div>
         <div class="result-msg">{{ testResult.message || '--' }}</div>
       </div>
@@ -93,6 +93,18 @@ const showToken = ref(false);
 const testResult = ref(null);
 const statusChecked = ref(false);
 const configured = ref(false);
+const connected = ref(false);
+
+const connectionTagType = computed(() => {
+  if (connected.value) return 'success';
+  if (configured.value) return 'warning';
+  return 'info';
+});
+const connectionTagText = computed(() => {
+  if (connected.value) return '已连接';
+  if (configured.value) return '已配置';
+  return '未连接';
+});
 
 const form = ref({
   appKey: '',
@@ -119,6 +131,7 @@ function getConfigData() {
       region: data.region || 'cn'
     };
     configured.value = !!(data.appKey && data.accessToken);
+    connected.value = false;
     statusChecked.value = true;
     loading.value = false;
   }).catch(() => {
@@ -148,9 +161,10 @@ function handleTest() {
   testLongbridge().then(response => {
     testResult.value = response.data || {};
     configured.value = !!testResult.value.configured;
+    connected.value = !!testResult.value.connected;
     statusChecked.value = true;
-    if (testResult.value.configured) {
-      proxy.$modal.msgSuccess('连接成功');
+    if (testResult.value.connected) {
+      proxy.$modal.msgSuccess(testResult.value.message || '连接成功');
     } else {
       proxy.$modal.msgWarning(testResult.value.message || '连接失败');
     }

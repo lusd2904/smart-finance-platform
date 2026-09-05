@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from datetime import datetime, timedelta
@@ -13,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from module_market.dao.market_dao import SymbolContentCacheDao
-from module_quant.service.longbridge_service import LongbridgeService
+from module_quant.service.longbridge_service import LongbridgeService, run_in_executor_with_context
 from utils.log_util import logger
 
 if TYPE_CHECKING:
@@ -124,8 +123,8 @@ class SymbolContentService:
             return 0
 
         lb_symbol = LongbridgeService.to_longbridge_symbol(symbol, market)
-        # 长桥SDK为同步网络调用，放线程池避免阻塞事件循环
-        raw_bundle = await asyncio.get_running_loop().run_in_executor(
+        # 长桥SDK为同步网络调用，放线程池避免阻塞事件循环；必须复制 ContextVar 凭据
+        raw_bundle = await run_in_executor_with_context(
             None, LongbridgeService.fetch_symbol_content, lb_symbol, types
         )
         now = datetime.now()

@@ -20,7 +20,7 @@ from module_market.dao.heat_dao import MarketHeatDao
 from module_market.dao.market_dao import MarketInstrumentDao, MarketWatchlistDao
 from module_market.entity.vo.market_vo import MarketInstrumentQueryModel
 from module_market.service.live_quotes_service import LiveQuotesService
-from module_quant.service.longbridge_service import LongbridgeService
+from module_quant.service.longbridge_service import LongbridgeService, run_in_executor_with_context
 from utils.influx_util import InfluxUtil
 from utils.log_util import logger
 from utils.longbridge_breaker import LongbridgeBreaker
@@ -284,8 +284,8 @@ class MarketHeatService:
 
         loop = asyncio.get_running_loop()
         quote_map, static_map = await asyncio.gather(
-            loop.run_in_executor(None, cls._quote_map_from_longbridge, market, symbols),
-            loop.run_in_executor(None, cls._static_info_map, market, symbols),
+            run_in_executor_with_context(loop, cls._quote_map_from_longbridge, market, symbols),
+            run_in_executor_with_context(loop, cls._static_info_map, market, symbols),
         )
 
         candidates: list[dict[str, Any]] = []
