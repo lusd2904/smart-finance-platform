@@ -3,6 +3,8 @@
 # 用法: bash scripts/deploy_and_verify_slim.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=/dev/null
+source "$(dirname "$0")/docker_host.sh"
 
 export COMPOSE_FILE="docker-compose.sentiment.yml:docker-compose.sentiment.slim.yml"
 COMPOSE="docker compose"

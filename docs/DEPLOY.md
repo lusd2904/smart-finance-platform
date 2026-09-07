@@ -16,9 +16,10 @@ Slim 合并方式（**对外路径不变**）：
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
 - `sentiment-jobs`：`APP_JOB_GROUP=all`，单进程跑 APScheduler + market/quant/llm 三队列
 
-验收内存（Influx healthy 后空闲 5 分钟）：
+验收内存（Influx healthy 后空闲 5 分钟）。云 Agent / 沙箱内连宿主机 Docker Engine（兄弟容器，**不要**挂 `docker.sock`）：
 
 ```bash
+source scripts/docker_host.sh   # export DOCKER_HOST=tcp://127.0.0.1:2375
 docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
 ```
 
@@ -159,6 +160,8 @@ cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 可选：长桥凭证、AI Base URL / API Key。
 
 ## 2. 启动业务栈
+
+云 Agent / 沙箱验证时先 `source scripts/docker_host.sh`（`DOCKER_HOST=tcp://127.0.0.1:2375`，连宿主机 Engine；应用容器内不要挂 `docker.sock`）。
 
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --build

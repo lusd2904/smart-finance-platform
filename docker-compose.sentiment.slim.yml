@@ -1,5 +1,8 @@
 # Slim overlay for 15–16 GiB hosts (~4–6 GiB steady-state RSS, no swap preferred).
 #
+# Agent / sandbox verify (host Docker Engine, sibling containers — no docker.sock):
+#   source scripts/docker_host.sh
+#
 # Full stack (6 API + 4 job processes, higher headroom):
 #   docker compose -f docker-compose.sentiment.yml up -d --build
 #
@@ -172,7 +175,7 @@ services:
   sentiment-frontend:
     volumes:
       - ./ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
+    depends_on: !override
       sentiment-backend:
         condition: service_healthy
       sentiment-trade:
