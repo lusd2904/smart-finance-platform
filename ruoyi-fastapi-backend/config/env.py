@@ -34,7 +34,8 @@ class AppSettings(BaseSettings):
     # none=不消费；market/quant/llm=单一消费组；all=三组都消费
     app_job_group: Literal['none', 'market', 'quant', 'llm', 'all'] = 'all'
     # all=挂全部路由；其余按菜单板块只注册对应模块
-    app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai'] = 'all'
+    # data/intel=slim compose 合并进程（market+quant / sentiment+ai），路由与全量拆分一致
+    app_module: Literal['all', 'platform', 'market', 'quant', 'trade', 'sentiment', 'ai', 'data', 'intel'] = 'all'
     # CORS 域名白名单，逗号分隔；dev 未配置时放开来源但关闭凭证，prod 必须显式配置
     app_cors_origins: str = ''
 
@@ -56,6 +57,8 @@ class AppSettings(BaseSettings):
             'trade': {'module_trade'},
             'sentiment': {'module_sentiment'},
             'ai': {'module_ai'},
+            'data': {'module_market', 'module_quant'},
+            'intel': {'module_sentiment', 'module_ai'},
         }
         return mapping.get(self.app_module)
 

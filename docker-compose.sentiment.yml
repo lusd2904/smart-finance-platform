@@ -1,6 +1,9 @@
 # 监控栈（Prometheus/Grafana）另起：
 #   docker compose -f docker-compose.monitor.yml up -d
 #
+# 内存：16 GiB 及以下云主机用 slim 叠加层（见 docker-compose.sentiment.slim.yml）；
+# 本机大内存仍用单文件全量拆分。
+#
 # 禁止 compose down 整栈。新增/更新服务：
 #   docker compose -f docker-compose.sentiment.yml up -d --no-deps --build <service>
 x-backend-image: &backend-image

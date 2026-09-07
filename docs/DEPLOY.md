@@ -2,6 +2,34 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
+**16 GiB 及以下云主机**（与 grok2api 共存、不想开 swap）请用 **slim 叠加层**，稳态 RSS 目标约 **4–6 GiB**；大内存开发机仍用单文件全量拆分。
+
+| 模式 | 命令 | 进程数（API + jobs） | 典型稳态 RSS |
+|------|------|-------------------|--------------|
+| **Full**（默认） | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
+| **Slim** | `docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d` | 4 API + 1 scheduler/worker | ~4–6 GiB |
+
+Slim 合并方式（**对外路径不变**）：
+
+- `sentiment-data`：`APP_MODULE=data`（market + quant），nginx 仍反代 `/market/`、`/quant/`、`/ws/`
+- `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
+- `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
+- `sentiment-jobs`：`APP_JOB_GROUP=all`，单进程跑 APScheduler + market/quant/llm 三队列
+
+验收内存（Influx healthy 后空闲 5 分钟）：
+
+```bash
+docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+```
+
+可选数据目录绑定（**不要**把仓库 bind 进 nginx；仅 MySQL/Redis/Influx）：
+
+```bash
+export SFP_DATA_ROOT=/var/lib/sfp
+mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx/data,influx/config}
+# 见 docker-compose.sentiment.slim.yml 底部注释启用卷覆盖
+```
+
 完整 OpenAPI：启动后端后访问 `http://127.0.0.1:19099/docs`（Docker 反代路径为 `/docker-api/docs`）。
 
 云上日常更新看下面 **「云主机怎么部署」**。本机资源更大，和云机共用同一份 compose，**不要按云主机内存去砍容器上限**。
