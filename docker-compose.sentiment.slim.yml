@@ -1,8 +1,9 @@
 # Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS after Influx healthy, no swap).
 #
-# Influx COLD_OPEN (18G restore, ~3k shards): mem_limit ≥6g / GOMEMLIMIT 5.2GiB.
-# cursor-1: 1.8g→exit 137; 4g→3.84GiB RSS still health:starting. After healthy:
-#   -f docker-compose.sentiment.slim.influx-steady.yml  → 3g / 2.5GiB
+# Influx COLD_OPEN (18G restore, ~3k shards): mem_limit 8g / GOMEMLIMIT 7000MiB.
+# GOMEMLIMIT must be integer MiB or GiB — no decimals (5.2GiB fatals).
+# cursor-1: 6g still exit 137 at ~5.8GiB RSS. Pause grok2api during first open on 16G hosts.
+# After healthy: -f docker-compose.sentiment.slim.influx-steady.yml  → 3g / 2560MiB
 #
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   source scripts/docker_host.sh
@@ -153,16 +154,17 @@ services:
 
   sentiment-influxdb:
     environment:
-      # COLD_OPEN: large restores need mem_limit ≥6g (cursor-1: 4g stuck health:starting at 3.84GiB RSS).
-      # After healthy: docker-compose.sentiment.slim.influx-steady.yml (3g / 2.5GiB).
-      GOMEMLIMIT: "5.2GiB"
+      # COLD_OPEN: 8g / 7000MiB for ~3k shards (6g→MEMCG OOM at ~5.8GiB RSS on cursor-1).
+      # Pause co-located stacks (grok2api) on 16G hosts before first open. No decimal GOMEMLIMIT.
+      # After healthy: docker-compose.sentiment.slim.influx-steady.yml (3g / 2560MiB).
+      GOMEMLIMIT: "7000MiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "134217728"
       INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "16777216"
       INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
       INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
       INFLUXD_QUERY_CONCURRENCY: "1"
       INFLUXD_QUERY_QUEUE_SIZE: "2"
-    mem_limit: 6g
+    mem_limit: 8g
     cpus: 1.0
     volumes: !override
       - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx:/var/lib/influxdb2

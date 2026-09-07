@@ -2,11 +2,11 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
-**16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。Influx **冷打开**（18G 恢复 / ~3k shard）默认 `mem_limit: 6g` / `GOMEMLIMIT: 5.2GiB`；**healthy 后**用 `influx-steady` 叠加层降至 3g / 2.5GiB，整栈稳态 RSS **4–5 GiB**。详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。
+**16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。Influx **冷打开**（18G 恢复 / ~3k shard）默认 `mem_limit: 8g` / `GOMEMLIMIT: 7000MiB`（**禁止小数**，如 `5.2GiB` 会直接 fatal）；**healthy 后**用 `influx-steady` 降至 3g / 2560MiB。冷开前建议 **暂停 grok2api** 腾出 RAM。
 
 | 模式 | 命令 | 进程数（API + jobs） | 典型 RSS |
 |------|------|-------------------|----------|
-| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **6g**；稳态 4–5 GiB |
+| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **8g**；稳态 4–5 GiB |
 | **Full（大内存）** | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
 
 ### Slim 生产启动（cursor-1）

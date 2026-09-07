@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# After sentiment-influxdb is healthy, switch Influx to steady-state memory caps (3g / 2.5GiB).
+# After sentiment-influxdb is healthy, switch Influx to steady-state memory caps (3g / 2560MiB).
 # Run once per host after cold open; safe to re-run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,7 +20,7 @@ for i in $(seq 1 60); do
   sleep 10
 done
 
-echo "==> Applying steady Influx mem_limit (3g) + GOMEMLIMIT 2.5GiB (after cold-open 6g phase)"
+echo "==> Applying steady Influx mem_limit (3g) + GOMEMLIMIT 2560MiB (after cold-open 8g phase)"
 $COMPOSE up -d --no-deps sentiment-influxdb
 
 echo "==> Done. Verify: docker stats --no-stream sentiment-influxdb"
