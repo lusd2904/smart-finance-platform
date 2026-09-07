@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Create SFP bind-mount directories under SFP_DATA_ROOT (default /workspace/sfp-data).
-# Safe to run repeatedly. Empty mysql/ is OK — MySQL entrypoint will init on first start.
+# cursor-1 layout: mysql/, redis/, influx/ (→ /var/lib/influxdb2), influx-config/ (→ /etc/influxdb2).
+# Do NOT create influx/data or influx/config — those paths are wrong for restored volumes.
 #
 # Usage:
 #   source scripts/docker_host.sh

@@ -11,10 +11,20 @@
 
 ### Slim 生产启动（cursor-1）
 
+**数据目录绑定（slim overlay 默认）** — 勿使用 `influx/data` 或 `influx/config`：
+
+| 宿主机路径 | 容器挂载 | 说明 |
+|------------|----------|------|
+| `$SFP_DATA_ROOT/mysql` | `/var/lib/mysql` | 可为空，首次 init 或 Mac 分片上传 |
+| `$SFP_DATA_ROOT/redis` | `/data` | |
+| `$SFP_DATA_ROOT/influx` | `/var/lib/influxdb2` | 含 `influxd.bolt`、`engine/`（约 18 GiB） |
+| `$SFP_DATA_ROOT/influx-config` | `/etc/influxdb2` | |
+
 ```bash
 source scripts/docker_host.sh          # sudo docker 或 DOCKER_HOST
 export SFP_DATA_ROOT=/workspace/sfp-data
 mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
+# 或: bash scripts/sfp_data_init.sh
 
 sudo docker compose \
   -f docker-compose.sentiment.yml \

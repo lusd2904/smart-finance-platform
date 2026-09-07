@@ -4,9 +4,18 @@
 #   source scripts/docker_host.sh
 #   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
 #
-# Data bind (default SFP_DATA_ROOT=/workspace/sfp-data):
+# Data bind (default SFP_DATA_ROOT=/workspace/sfp-data). cursor-1 restored layout:
+#
+#   Host path                          → Container mount
+#   $SFP_DATA_ROOT/mysql               → /var/lib/mysql
+#   $SFP_DATA_ROOT/redis               → /data
+#   $SFP_DATA_ROOT/influx              → /var/lib/influxdb2  (influxd.bolt, engine/, ~18G)
+#   $SFP_DATA_ROOT/influx-config       → /etc/influxdb2
+#
+#   mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
 #   bash scripts/sfp_data_init.sh
-#   mysql/ redis/ influx/ influx-config/  (influx/ = /var/lib/influxdb2; empty mysql/ OK)
+#
+#   ⚠️  Do NOT use influx/data or influx/config — those paths hide the restored volume.
 #
 # MySQL shard not uploaded yet (Influx-only heat/kline reads):
 #   bash scripts/up_slim_influx_phase.sh
@@ -202,12 +211,14 @@ volumes:
       type: none
       o: bind
       device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/redis
+  # Host: .../influx (NOT influx/data) — must contain influxd.bolt, engine/, etc.
   sentiment-influxdb-data:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx
+  # Host: .../influx-config (NOT influx/config)
   sentiment-influxdb-config:
     driver: local
     driver_opts:

@@ -12,11 +12,13 @@
 
 ```text
 /workspace/sfp-data/
-  mysql/              # 空库待 shard 上传后首次 init
-  redis/
-  influx/             # → 容器 /var/lib/influxdb2（influxd.bolt, engine/，约 18 GiB）
-  influx-config/      # → 容器 /etc/influxdb2
+  mysql/              # → /var/lib/mysql（可为空，待 shard 上传）
+  redis/              # → Redis AOF
+  influx/             # → /var/lib/influxdb2（influxd.bolt, influxd.sqlite, engine/，约 18 GiB）
+  influx-config/      # → /etc/influxdb2
 ```
+
+**不要使用** `influx/data` 或 `influx/config` 子路径 — 会 bind 到空目录并遮住已恢复的 18G 时序库。
 
 ```bash
 export SFP_DATA_ROOT=/workspace/sfp-data
