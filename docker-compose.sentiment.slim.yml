@@ -21,6 +21,9 @@
 #
 #   ⚠️  Do NOT use influx/data or influx/config — those paths hide the restored volume.
 #
+# cursor-1 Docker uses storage driver **vfs** — named volumes with driver_opts bind
+# do NOT mount (empty _data). Slim overlay uses **service-level binds** below.
+#
 # MySQL shard not uploaded yet (Influx-only heat/kline reads):
 #   bash scripts/up_slim_influx_phase.sh
 #   (+ docker-compose.sentiment.slim.influx-phase.yml)
@@ -161,6 +164,9 @@ services:
       INFLUXD_QUERY_QUEUE_SIZE: "2"
     mem_limit: 6g
     cpus: 1.0
+    volumes: !override
+      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx:/var/lib/influxdb2
+      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx-config:/etc/influxdb2
 
   ruoyi-mysql:
     command: >
@@ -172,6 +178,26 @@ services:
       --innodb-log-buffer-size=8M
       --table-open-cache=256
     mem_limit: 512m
+    volumes: !override
+      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/mysql:/var/lib/mysql
+      - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
+      - ./ruoyi-fastapi-backend/sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
+      - ./ruoyi-fastapi-backend/sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
+      - ./ruoyi-fastapi-backend/sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
+      - ./ruoyi-fastapi-backend/sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
+      - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
+      - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
+      - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
+      - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
+      - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
+      - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
+      - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
+      - ./ruoyi-fastapi-backend/sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
+      - ./ruoyi-fastapi-backend/sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
+      - ./ruoyi-fastapi-backend/sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
+      - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
+      - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
+      - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
 
   ruoyi-redis:
     mem_limit: 128m
@@ -187,6 +213,8 @@ services:
         "--maxmemory-policy",
         "noeviction",
       ]
+    volumes: !override
+      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/redis:/data
 
   sentiment-frontend:
     mem_limit: 64m
@@ -201,31 +229,3 @@ services:
         condition: service_healthy
       sentiment-intel:
         condition: service_healthy
-
-volumes:
-  sentiment-mysql-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/mysql
-  sentiment-redis-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/redis
-  # Host: .../influx (NOT influx/data) — must contain influxd.bolt, engine/, etc.
-  sentiment-influxdb-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx
-  # Host: .../influx-config (NOT influx/config)
-  sentiment-influxdb-config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx-config

@@ -46,12 +46,12 @@ export SFP_DATA_ROOT=/workspace/sfp-data
 mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
 ```
 
-slim overlay **默认**把 MySQL / Redis / Influx 卷 bind 到上述路径（**不要**把仓库 bind 进 nginx）。
+slim overlay **默认**用 **服务级 bind**（非 named volume `driver_opts`）挂到上述路径——cursor-1 **vfs** 存储驱动下 `driver_opts` bind 无效（`_data` 为空）。
 
 ### Docker
 
 - Socket：`/var/run/docker.sock`（`root:docker`）→ 使用 **`sudo docker`** / **`sudo docker compose`**
-- 数据根：`/workspace/docker`（vfs driver）
+- 数据根：`/workspace/docker`（**vfs** storage driver — 必须用服务级 bind，见 `docker-compose.sentiment.slim.yml`）
 - Agent 沙箱内无 socket 时：`source scripts/docker_host.sh` → `DOCKER_HOST=tcp://127.0.0.1:2375`
 
 ### 启动（合并本 PR 后 **仅 slim**）

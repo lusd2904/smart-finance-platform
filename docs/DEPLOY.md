@@ -20,8 +20,19 @@
 | `$SFP_DATA_ROOT/influx` | `/var/lib/influxdb2` | 含 `influxd.bolt`、`engine/`（约 18 GiB） |
 | `$SFP_DATA_ROOT/influx-config` | `/etc/influxdb2` | |
 
+cursor-1 **vfs** 存储驱动：不要用 named volume `driver_opts` bind（`_data` 会空）。slim overlay 在 **服务级** 写 bind，例如：
+
+```yaml
+sentiment-influxdb:
+  volumes:
+    - ${SFP_DATA_ROOT}/influx:/var/lib/influxdb2
+    - ${SFP_DATA_ROOT}/influx-config:/etc/influxdb2
+```
+
+验收 bind：`sudo docker inspect sentiment-influxdb --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'`
+
 ```bash
-source scripts/docker_host.sh          # sudo docker 或 DOCKER_HOST
+source scripts/docker_host.sh
 export SFP_DATA_ROOT=/workspace/sfp-data
 mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
 # 或: bash scripts/sfp_data_init.sh
