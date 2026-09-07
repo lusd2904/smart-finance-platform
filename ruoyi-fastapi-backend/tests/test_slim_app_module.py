@@ -12,10 +12,10 @@ os.environ.setdefault('CREDENTIAL_ENCRYPTION_KEY', 'b' * 64)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from common.router import RouterRegister
-from config.env import AppSettings
 from fastapi import FastAPI
-from config.env import AppConfig
+
+from common.router import RouterRegister
+from config.env import AppConfig, AppSettings
 from server import _should_consume_op_logs
 
 
