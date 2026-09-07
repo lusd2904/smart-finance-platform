@@ -6,15 +6,37 @@
 
 ## cursor-1（生产，~15 GiB RAM，无 swap）
 
-与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**。Influx **冷打开**（18G 恢复）需 `mem_limit` **8g** / `GOMEMLIMIT` **7000MiB**（整数 MiB/GiB only — `5.2GiB` malformed fatal）。
+与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**。
 
-> **16G 主机冷开前：暂停 grok2api**（及其他非必需容器）。cursor-1 实测 6g 上限仍 MEMCG OOM（~5.8GiB RSS, exit 137）加载 ~3k shard。
+### Influx 冷打开 — 峰值 >10GiB（18G 恢复 / ~2992 shard）
+
+**禁止声称 6g/8g/10g 足够。** cursor-1 实测（无 swap）：
+
+| `mem_limit` | 结果 |
+|-------------|------|
+| 6g | MEMCG OOM ~5.8GiB RSS |
+| 8g / 10g | 仍 OOM；10g + `GOMEMLIMIT: 7000MiB` 在 **72.8%** shard 达 **~10.3GiB** anon RSS → exit 137 |
+| **14g**（slim 默认） | 需 **swap** 或暂停全部共存栈；全量峰值估 **~14GiB** |
+
+`GOMEMLIMIT` 必须为整数 MiB/GiB（`5.2GiB` → `malformed GOMEMLIMIT` fatal）。
+
+> **15–16GiB 主机冷开前：** 暂停 **grok2api** + 添加 **≥8GiB swap**，或在大内存机完成首次冷开。仅停 grok2api **不够**。
+
+#### 临时 swap（冷开用，示例）
+
+```bash
+sudo fallocate -l 8G /swapfile-influx-coldopen
+sudo chmod 600 /swapfile-influx-coldopen
+sudo mkswap /swapfile-influx-coldopen
+sudo swapon /swapfile-influx-coldopen
+# 冷开完成并 influx_slim_steady.sh 后可: sudo swapoff /swapfile-influx-coldopen
+```
 
 ### Influx 内存两阶段
 
 | 阶段 | compose 文件 | Influx `mem_limit` | `GOMEMLIMIT` |
 |------|----------------|-------------------|--------------|
-| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **8g** | **7000MiB** |
+| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **14g** | **7000MiB** |
 | **STEADY**（healthy 后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | **2560MiB** |
 
 ```bash

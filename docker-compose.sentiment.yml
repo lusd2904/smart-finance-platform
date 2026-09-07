@@ -362,8 +362,9 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
-      # 1044 shard 冷启动：538 shard ≈ 3GiB，全量约 6GiB。3g/5g 硬顶会在中途 137。
-      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。勿降到 5g 以下。
+      # 1044 shard 冷启动：538 shard ≈ 3GiB。18G 恢复 / ~2992 shard 需 slim overlay
+      # （14g+）— 本 full 栈 6g 不足，勿用于 cursor-1 大库冷开。
+      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。
       GOMAXPROCS: "1"
       GOMEMLIMIT: "5GiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"

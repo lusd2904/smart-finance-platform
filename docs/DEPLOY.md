@@ -2,11 +2,28 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
-**16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。Influx **冷打开**（18G 恢复 / ~3k shard）默认 `mem_limit: 8g` / `GOMEMLIMIT: 7000MiB`（**禁止小数**，如 `5.2GiB` 会直接 fatal）；**healthy 后**用 `influx-steady` 降至 3g / 2560MiB。冷开前建议 **暂停 grok2api** 腾出 RAM。
+**15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。
+
+### Influx 冷打开（18G 恢复 / ~2992 shard）— 内存要求
+
+| 实测（cursor-1，无 swap） | 结果 |
+|---------------------------|------|
+| `mem_limit` 6g | MEMCG OOM ~5.8GiB RSS |
+| `mem_limit` 8g / 10g | 仍 OOM；10g 时在 **72.8%** shard（~2178/2992）达 **~10.3GiB** anon RSS → exit 137 |
+| **结论** | 全量冷开峰值 **>10GiB**（估 **~14GiB**）；**6g/8g/10g 均不够** |
+
+slim 默认 COLD_OPEN：`mem_limit: 14g` / `GOMEMLIMIT: 7000MiB`（**禁止小数**，如 `5.2GiB` 会直接 fatal）。
+
+**15–16GiB 物理内存、无 swap 时冷开前必须：**
+
+1. **暂停 grok2api** 及其他非必需容器  
+2. **添加 swap**（建议 ≥8GiB），或在大内存机完成首次冷开后再迁回  
+
+**healthy 后**用 `influx-steady` 降至 3g / 2560MiB；整栈稳态 RSS **4–5 GiB**。详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。
 
 | 模式 | 命令 | 进程数（API + jobs） | 典型 RSS |
 |------|------|-------------------|----------|
-| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **8g**；稳态 4–5 GiB |
+| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **14g**（需 swap）；稳态 4–5 GiB |
 | **Full（大内存）** | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
 
 ### Slim 生产启动（cursor-1）
