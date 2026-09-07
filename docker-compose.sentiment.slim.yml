@@ -63,7 +63,7 @@ services:
     profiles: [full-split]
   sentiment-ai:
     profiles: [full-split]
-  sentiment-jobs-market:
+  sfp-market-worker:
     profiles: [full-split]
   sentiment-jobs-quant:
     profiles: [full-split]

@@ -12,7 +12,8 @@ COMPOSE="docker compose -f docker-compose.sentiment.yml"
 echo "==> [1/5] 构建并滚动更新 API / jobs（先于前端，避免 nginx 打到未就绪上游）"
 $COMPOSE up -d --no-deps --build \
   sentiment-backend sentiment-market sentiment-market-read sentiment-news sentiment-quant sentiment-ai sentiment-trade \
-  sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
+  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 echo "==> [2/5] 等待平台 API 健康（最长 90s），再起前端"
 ok=""
@@ -21,6 +22,13 @@ for i in $(seq 1 30); do
   sleep 3
 done
 [ -n "$ok" ] || { echo "后端未就绪，查看日志: docker logs --tail 50 sentiment-backend"; exit 1; }
+
+worker_ok=""
+for i in $(seq 1 20); do
+  if curl -sf http://127.0.0.1:19097/health >/dev/null 2>&1; then worker_ok=1; echo "market-worker healthy"; break; fi
+  sleep 3
+done
+[ -n "$worker_ok" ] || echo "!! market-worker 未就绪，查看: docker logs --tail 30 sfp-market-worker"
 
 $COMPOSE up -d --no-deps --build sentiment-frontend
 front_ok=""
