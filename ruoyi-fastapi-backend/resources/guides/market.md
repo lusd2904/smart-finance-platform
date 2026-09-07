@@ -10,6 +10,7 @@
 - 智能选股 / 自选分析读「AI 管理 → 模型管理」里适用范围为 **行情中心 (market)** 的模型，默认 Grok 4.6（OpenRouter 编码 `x-ai/grok-4.6`，直连 xAI 填 `grok-4.6`）。未配则回退全局 / 助手。
 - 自选与量化扫描池都走当前账号的 `market_watchlist`，账号之间隔离。
 - Influx 未就绪时登录仍可用，K 线 / 热度可能 502，等时序库起来再刷。
+- **16 GiB slim 栈**：本模块 HTTP + 行情 WS 在合并进程 `sentiment-data`（`APP_MODULE=data`）。Influx 已有数据、MySQL 未上传时可先跑 `bash scripts/up_slim_influx_phase.sh` 只起热度/分钟 K 线读路径。
 
 ## 操作步骤
 
@@ -29,7 +30,7 @@
 - 自动交易默认纸面（开关关闭只扫描不下单）。打开后按本账户长桥凭据下到模拟或真实账户。
 - A 股不参与自动交易扫描与下单。
 - 策略档（保守 / 均衡 / 进取）按登录账户绑定；行情自选也按账号隔离。
-- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。
+- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。16 GiB 主机用 slim 双文件 compose（见 `docs/SFP-TWO-HOST-DEPLOY.md`），滚动 `bash scripts/deploy_and_verify_slim.sh`。
 - 涨跌颜色：涨红跌绿。
 - 手机底栏是 **自选 / 行情 / 选股 / 持仓 / 我的**（舆情在「我的」）。
 

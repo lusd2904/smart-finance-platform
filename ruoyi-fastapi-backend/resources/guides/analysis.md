@@ -27,7 +27,7 @@
 - 自动交易默认纸面（账户开关关闭只扫描不下单）。打开后按该账户长桥凭据下到模拟或真实账户。
 - A 股不参与自动交易扫描与下单。
 - 策略档按登录账户绑定；未指定用户时不会把所有自选混在一起跑。
-- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。滚动业务容器用 `--no-deps`。
+- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。滚动业务容器用 `--no-deps`。16 GiB 生产用 `bash scripts/deploy_and_verify_slim.sh`（见 `docs/SFP-TWO-HOST-DEPLOY.md`）。
 - 涨跌颜色：涨红跌绿。
 - 手机底栏是 **自选 / 行情 / 选股 / 持仓 / 我的**。手机没有任务中心，选股结果在底栏「选股」下拉刷新即可。
 - 任务在后台跑，页面刷新看结果。不要把 Grok / 采集和登录接口当成同一个按钮。

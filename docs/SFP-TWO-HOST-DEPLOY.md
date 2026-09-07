@@ -49,8 +49,21 @@ sudo docker compose \
 日常滚动：
 
 ```bash
+bash scripts/sfp_data_init.sh
 bash scripts/deploy_and_verify_slim.sh
 ```
+
+**MySQL 分片尚未上传时**（仅验证 Influx 热度/分钟 K 线）：
+
+```bash
+bash scripts/sfp_data_init.sh --influx-only
+bash scripts/up_slim_influx_phase.sh
+# 只起 ruoyi-redis + sentiment-influxdb + sentiment-data；登录/舆情/任务需 Phase B
+bash scripts/sfp_data_init.sh   # 创建 mysql/
+sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
+```
+
+`mysql/` **空目录合法**：首次 `up` 时 MySQL 容器会跑 init SQL；若从 Mac 上传 datadir，先停 MySQL 再替换目录内容。
 
 ### 验收
 

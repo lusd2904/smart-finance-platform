@@ -31,7 +31,8 @@ Slim 合并方式（**对外路径不变**）：
 - `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
 - `sentiment-jobs`：`APP_JOB_GROUP=all`，单进程跑 APScheduler + market/quant/llm 三队列
-- 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）
+- 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
+- **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
 
 验收内存（Influx healthy 后空闲 5 分钟）：
 

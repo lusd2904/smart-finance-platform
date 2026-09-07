@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 # shellcheck source=/dev/null
 source "$(dirname "$0")/docker_host.sh"
 
+export SFP_DATA_ROOT="${SFP_DATA_ROOT:-/workspace/sfp-data}"
+bash scripts/sfp_data_init.sh
+
 export COMPOSE_FILE="docker-compose.sentiment.yml:docker-compose.sentiment.slim.yml"
 COMPOSE="docker compose"
 

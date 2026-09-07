@@ -75,4 +75,11 @@ sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
 curl -sf http://127.0.0.1:19099/health
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 # 浏览器：登录、/m 热度、舆情、选股、交易台、任务中心 jobs 在线
+
+### Influx-only 阶段（MySQL 未就绪）
+
+```bash
+bash scripts/sfp_data_init.sh --influx-only
+bash scripts/up_slim_influx_phase.sh
+# 仅验证 sentiment-data 热度/分钟 K 线读路径；登录与舆情需全栈
 ```

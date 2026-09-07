@@ -5,7 +5,12 @@
 #   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
 #
 # Data bind (default SFP_DATA_ROOT=/workspace/sfp-data):
-#   mysql/ redis/ influx/data/ influx/config/
+#   bash scripts/sfp_data_init.sh
+#   mysql/ redis/ influx/data/ influx/config/  (empty mysql/ is OK on first init)
+#
+# MySQL shard not uploaded yet (Influx-only heat/kline reads):
+#   bash scripts/up_slim_influx_phase.sh
+#   (+ docker-compose.sentiment.slim.influx-phase.yml)
 #
 # Full split stack (large dev machines):
 #   docker compose -f docker-compose.sentiment.yml --profile full-split up -d --build

@@ -25,7 +25,7 @@
 
 - 紧急停机（Halt）只拦新单，不拦撤单。
 - 自动交易默认纸面；A 股不参与自动交易扫描。策略档按登录账户绑定。
-- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。
+- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。16 GiB slim 栈：本模块在 `sentiment-intel`（与舆情 API 同进程）；长任务仍入 `llm` 队列由 `sentiment-jobs` 消费。
 - 涨跌颜色：涨红跌绿。
 - 手机底栏是 **自选 / 行情 / 选股 / 持仓 / 我的**。
 - 研判 / 发送 / 总结在后台跑，页面刷新看结果。
