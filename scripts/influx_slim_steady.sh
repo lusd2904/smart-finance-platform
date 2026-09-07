@@ -20,7 +20,7 @@ for i in $(seq 1 60); do
   sleep 10
 done
 
-echo "==> Applying steady Influx mem_limit (3g) + GOMEMLIMIT 2.5GiB"
+echo "==> Applying steady Influx mem_limit (3g) + GOMEMLIMIT 2.5GiB (after cold-open 6g phase)"
 $COMPOSE up -d --no-deps sentiment-influxdb
 
 echo "==> Done. Verify: docker stats --no-stream sentiment-influxdb"

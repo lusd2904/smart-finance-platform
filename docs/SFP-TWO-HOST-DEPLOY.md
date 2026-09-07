@@ -6,14 +6,16 @@
 
 ## cursor-1（生产，~15 GiB RAM，无 swap）
 
-与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**；**Influx 冷打开**阶段单独需要 `mem_limit: 4g`（cursor-1 实测 ~2992 shard 在 1.8g 上限 exit 137）。
+与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**。Influx **冷打开**（18G 恢复）需 `mem_limit` **≥6g** / `GOMEMLIMIT` **5.2GiB**（cursor-1：4g 时 RSS 3.84GiB 仍 `health:starting`；1.8g→exit 137）。
+
+> 冷开阶段整栈峰值会超过稳态预算；可暂时停非必需容器（如 grok2api）直到 `sentiment-influxdb` healthy，再 `bash scripts/influx_slim_steady.sh`。
 
 ### Influx 内存两阶段
 
 | 阶段 | compose 文件 | Influx `mem_limit` | `GOMEMLIMIT` |
 |------|----------------|-------------------|--------------|
-| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **4g** | 3.5GiB |
-| **STEADY**（healthy 后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | 2.5GiB |
+| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **6g** | **5.2GiB** |
+| **STEADY**（healthy 后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | **2.5GiB** |
 
 ```bash
 # 1) 冷打开（首次恢复 / 大库）
