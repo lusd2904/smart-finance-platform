@@ -94,6 +94,7 @@ async def tradingview_time(request: Request) -> Response:
     description='一次返回全部标的最近两根日K（Influx/DB only）。不调用长桥批量报价，不编造价格。',
     dependencies=[UserInterfaceAuthDependency('market:kline:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_board_quotes(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -223,6 +224,7 @@ async def run_stock_pick(
     description='用于获取指定标的日K线数组',
     dependencies=[UserInterfaceAuthDependency('market:kline:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_kline(
     request: Request,
     kline_query: Annotated[KlineQueryModel, Query()],
@@ -386,6 +388,7 @@ async def get_symbol_overview(
     description='查询标的历史日K',
     dependencies=[UserInterfaceAuthDependency('market:kline:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_symbol_history(
     request: Request,
     symbol: Annotated[str, Path(description='标的代码')],
@@ -630,6 +633,7 @@ async def get_market_watchlist_backtest(
     description='按 market + tradeDate 返回热度摘要与 Top50 快照；tradeDate 省略则取最近一日。',
     dependencies=[UserInterfaceAuthDependency('market:heat:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_heat_daily(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -648,6 +652,7 @@ async def get_market_heat_daily(
     summary='近几日热度趋势',
     dependencies=[UserInterfaceAuthDependency('market:heat:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_heat_trend(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -663,6 +668,7 @@ async def get_market_heat_trend(
     summary='可选历史交易日',
     dependencies=[UserInterfaceAuthDependency('market:heat:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_heat_dates(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
@@ -712,6 +718,7 @@ async def get_market_watchlist_correlation(
     summary='热度指标权重配置',
     dependencies=[UserInterfaceAuthDependency('market:heat:list')],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_heat_config(request: Request) -> Response:
     data = await MarketHeatService.get_config_services()
     return ResponseUtil.success(data=data)
@@ -747,6 +754,7 @@ async def collect_market_heat(
         UserInterfaceAuthDependency(['sentiment:news:list', 'sentiment:analysis:list', 'market:heat:list'])
     ],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go)。本 handler 仅作回退，待验证后删除。
 async def get_market_index_quotes(request: Request) -> Response:
     data = await MarketIndexService.get_in_session_quotes()
     return ResponseUtil.success(data=data)
