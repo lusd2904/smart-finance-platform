@@ -20,7 +20,8 @@ sudo docker compose \
 ```
 
 - 数据：`/workspace/sfp-data`（Influx 已有数据；MySQL 待上传后首次 init）
-- 内存：Influx **冷开** `mem_limit` **14g** / `GOMEMLIMIT` **7000MiB**（**>10GiB 峰值**，15G 无 swap 需 **swap** + 停 grok2api；6g/8g/10g **不够**）；稳态 **3g** / 2560MiB
+- 数据：`/workspace/sfp-data`（Influx 已有数据；MySQL 待上传后首次 init）
+- 内存：Influx **冷开** `mem_limit` **12g** / `GOMEMLIMIT` **10GiB** + **4G loop swap**（vfs 服务级 bind；峰值 ~11.7GiB → healthy）。**勿冷开后立即降至 3g**；长期稳态可选 `influx-steady`
 - 功能：登录、热度、舆情、选股、交易、自选、H5 `/m`、任务中心 jobs **路径与行为不变**
 - `sentiment-trade` **仍独立**；LLM/采集不与交易共进程
 
@@ -67,9 +68,9 @@ bash scripts/deploy_and_verify_slim.sh
 # 3. 健康
 sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | rg 'sentiment-(backend|trade|data|intel|jobs|frontend|influx)'
 
-# 4. 内存（Influx healthy 后空闲 5 分钟；冷开需 14g + swap — 停 grok2api，勿用 6g/8g/10g）
+# 4. 内存（冷开 12g + swap；healthy 后保留 headroom — 勿立即 influx_slim_steady）
 sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
-# 稳态：整栈 RSS ~4–5 GiB。冷开完成后: bash scripts/influx_slim_steady.sh
+# 长期 idle 后可选: bash scripts/influx_slim_steady.sh
 
 # 5. 功能冒烟
 curl -sf http://127.0.0.1:19099/health

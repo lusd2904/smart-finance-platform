@@ -17,7 +17,7 @@ COMPOSE="docker compose \
 echo "==> Starting influx-phase: redis + influx + sentiment-data"
 $COMPOSE up -d ruoyi-redis sentiment-influxdb sentiment-data
 
-echo "==> Wait for Influx (18G / ~2992 shards — may take 10+ min; needs 14g mem_limit + swap on 15G host)..."
+echo "==> Wait for Influx (18G / ~2992 shards — 12g mem_limit + 4G loop swap on 15G host)..."
 for i in $(seq 1 60); do
   if $COMPOSE exec -T sentiment-influxdb influx ping >/dev/null 2>&1; then
     echo "influx healthy"

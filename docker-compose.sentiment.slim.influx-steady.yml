@@ -1,9 +1,10 @@
-# Optional fourth overlay: after sentiment-influxdb is healthy, lower Influx caps for steady-state.
+# Optional fourth overlay: LOWER Influx caps for long-term steady-state only.
 #
-# cursor-1 retest (18G restore, ~2992 shards): 1.8g→exit 137; 4g→health:starting;
-# 6g→~5.8GiB OOM; 10g→~10.3GiB anon RSS at 72.8% shards (exit 137). Full open
-# needs >10GiB peak (~14GiB est.) — use slim default (14g / 7000MiB) with swap on
-# 15–16GiB hosts; pause grok2api — then this overlay once healthy.
+# ⚠️  Do NOT apply immediately after cold open. cursor-1 peak ~11.7GiB at 12g mem_limit;
+# leave headroom until full-stack retest passes and RSS has been idle for days.
+#
+# cursor-1 cold-open recipe (verified): service-level binds (vfs), mem_limit ≥12g,
+# GOMEMLIMIT 10GiB, 4G loop swap → healthy on 18G / ~2992 shards.
 #
 #   sudo docker compose \
 #     -f docker-compose.sentiment.yml \

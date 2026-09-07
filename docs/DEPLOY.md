@@ -4,26 +4,26 @@
 
 **15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。
 
-### Influx 冷打开（18G 恢复 / ~2992 shard）— 内存要求
+### Influx 冷打开（18G 恢复 / ~2992 shard）— cursor-1 已验证
 
-| 实测（cursor-1，无 swap） | 结果 |
-|---------------------------|------|
-| `mem_limit` 6g | MEMCG OOM ~5.8GiB RSS |
-| `mem_limit` 8g / 10g | 仍 OOM；10g 时在 **72.8%** shard（~2178/2992）达 **~10.3GiB** anon RSS → exit 137 |
-| **结论** | 全量冷开峰值 **>10GiB**（估 **~14GiB**）；**6g/8g/10g 均不够** |
+| 实测（cursor-1） | 结果 |
+|------------------|------|
+| `mem_limit` 6g / 8g / 10g（无 swap） | MEMCG OOM（10g 时在 72.8% shard ~10.3GiB anon RSS） |
+| **12g + `GOMEMLIMIT: 10GiB` + 4G loop swap** | **healthy**，峰值 **~11.7GiB** |
 
-slim 默认 COLD_OPEN：`mem_limit: 14g` / `GOMEMLIMIT: 7000MiB`（**禁止小数**，如 `5.2GiB` 会直接 fatal）。
+**三要素（15–16GiB 主机）：**
 
-**15–16GiB 物理内存、无 swap 时冷开前必须：**
+1. **vfs 服务级 bind** — `$SFP_DATA_ROOT/influx` → `/var/lib/influxdb2`（named volume `driver_opts` 在 vfs 下无效）
+2. **冷开 `mem_limit` ≥12g** + **`GOMEMLIMIT` 整数**（如 `10GiB`；`5.2GiB` 会 fatal）
+3. **4G+ loop swap** — 冷开前启用；暂停 **grok2api** 等非必需容器
 
-1. **暂停 grok2api** 及其他非必需容器  
-2. **添加 swap**（建议 ≥8GiB），或在大内存机完成首次冷开后再迁回  
+slim 默认 COLD_OPEN：`mem_limit: 12g` / `GOMEMLIMIT: 10GiB`。
 
-**healthy 后**用 `influx-steady` 降至 3g / 2560MiB；整栈稳态 RSS **4–5 GiB**。详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。
+**冷开 healthy 后勿立即降至 3g** — 保留 headroom 直至全栈验收稳定；可选日后 `influx-steady`（见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)）。
 
 | 模式 | 命令 | 进程数（API + jobs） | 典型 RSS |
 |------|------|-------------------|----------|
-| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **14g**（需 swap）；稳态 4–5 GiB |
+| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **12g** + swap；长期稳态可降至 4–5 GiB |
 | **Full（大内存）** | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
 
 ### Slim 生产启动（cursor-1）
@@ -63,11 +63,10 @@ sudo docker compose \
 bash scripts/deploy_and_verify_slim.sh
 ```
 
-**Influx 冷打开完成后**（`sentiment-influxdb` healthy），降至稳态内存：
+**可选（全栈稳定数日后）** 再降 Influx 至长期稳态内存 — **勿在冷开刚 healthy 时执行**：
 
 ```bash
-bash scripts/influx_slim_steady.sh
-# 或手动叠加: -f docker-compose.sentiment.slim.influx-steady.yml up -d --no-deps sentiment-influxdb
+# bash scripts/influx_slim_steady.sh   # 仅长期 idle 后；冷开后保留 12g headroom
 ```
 
 Slim 合并方式（**对外路径不变**）：

@@ -4,51 +4,60 @@
 
 ---
 
-## cursor-1（生产，~15 GiB RAM，无 swap）
+## cursor-1（生产，~15 GiB RAM）
 
-与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**。
+与 **grok2api** 同机。slim 栈长期稳态 RSS 目标 **4–5 GiB**（Influx 降至 3g 之后）。
 
-### Influx 冷打开 — 峰值 >10GiB（18G 恢复 / ~2992 shard）
+### Influx 冷打开 — cursor-1 已验证（18G / ~2992 shard）
 
-**禁止声称 6g/8g/10g 足够。** cursor-1 实测（无 swap）：
-
-| `mem_limit` | 结果 |
-|-------------|------|
-| 6g | MEMCG OOM ~5.8GiB RSS |
-| 8g / 10g | 仍 OOM；10g + `GOMEMLIMIT: 7000MiB` 在 **72.8%** shard 达 **~10.3GiB** anon RSS → exit 137 |
-| **14g**（slim 默认） | 需 **swap** 或暂停全部共存栈；全量峰值估 **~14GiB** |
+| 配置 | 结果 |
+|------|------|
+| 6g / 8g / 10g（无 swap） | OOM；10g 在 72.8% shard ~10.3GiB anon RSS |
+| **12g + `GOMEMLIMIT: 10GiB` + 4G loop swap** | **healthy**，峰值 **~11.7GiB** |
 
 `GOMEMLIMIT` 必须为整数 MiB/GiB（`5.2GiB` → `malformed GOMEMLIMIT` fatal）。
 
-> **15–16GiB 主机冷开前：** 暂停 **grok2api** + 添加 **≥8GiB swap**，或在大内存机完成首次冷开。仅停 grok2api **不够**。
+**冷开三要素：**
 
-#### 临时 swap（冷开用，示例）
+1. **vfs 服务级 bind**（`docker-compose.sentiment.slim.yml` 内 `volumes: !override`）  
+2. **`mem_limit` ≥12g** + **`GOMEMLIMIT: 10GiB`**  
+3. **4G loop swap** + 暂停 **grok2api**
+
+验收 bind：
 
 ```bash
-sudo fallocate -l 8G /swapfile-influx-coldopen
-sudo chmod 600 /swapfile-influx-coldopen
-sudo mkswap /swapfile-influx-coldopen
-sudo swapon /swapfile-influx-coldopen
-# 冷开完成并 influx_slim_steady.sh 后可: sudo swapoff /swapfile-influx-coldopen
+sudo docker inspect sentiment-influxdb --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+# 期望: /workspace/sfp-data/influx -> /var/lib/influxdb2
 ```
 
-### Influx 内存两阶段
-
-| 阶段 | compose 文件 | Influx `mem_limit` | `GOMEMLIMIT` |
-|------|----------------|-------------------|--------------|
-| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **14g** | **7000MiB** |
-| **STEADY**（healthy 后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | **2560MiB** |
+#### 4G loop swap（cursor-1 实测）
 
 ```bash
-# 1) 冷打开（首次恢复 / 大库）
+sudo dd if=/dev/zero of=/swapfile-influx bs=1M count=4096 status=progress
+sudo chmod 600 /swapfile-influx
+sudo mkswap /swapfile-influx
+sudo swapon /swapfile-influx
+# 验证: free -h | grep -i swap
+# 全栈稳定后可 swapoff；下次冷开前再 swapon
+```
+
+### Influx 内存阶段
+
+| 阶段 | compose 文件 | Influx `mem_limit` | `GOMEMLIMIT` | 说明 |
+|------|----------------|-------------------|--------------|------|
+| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **12g** | **10GiB** | 冷开 + 全栈验收期间保持 |
+| **STEADY**（可选，日后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | **2560MiB** | **勿冷开后立即应用** |
+
+```bash
+# 1) 冷打开（首次恢复 / 大库）— 先 swapon + 停 grok2api
 sudo docker compose \
   -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
   up -d sentiment-influxdb
 # 等待 healthy（可能 10+ 分钟）
 
-# 2) 稳态降内存（只需一次，或每次冷开后）
-bash scripts/influx_slim_steady.sh
+# 2) 长期稳态降内存（可选 — 全栈 idle 数日后，非冷开刚完成时）
+# bash scripts/influx_slim_steady.sh
 ```
 
 ### 数据目录

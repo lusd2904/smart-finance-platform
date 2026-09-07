@@ -1,11 +1,10 @@
 # Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS after Influx healthy, no swap).
 #
-# Influx COLD_OPEN (18G restore, ~2992 shards): mem_limit 14g / GOMEMLIMIT 7000MiB.
-# GOMEMLIMIT must be integer MiB or GiB — no decimals (5.2GiB fatals).
-# cursor-1 retest (15Gi host, no swap): 6g/8g/10g all MEMCG OOM; at 10g limit,
-# ~10.3GiB anon RSS at 72.8% shards → full open needs >10GiB peak (~14GiB est.).
-# 15–16GiB hosts: add swap OR pause all co-located stacks (grok2api) before cold open.
-# After healthy: -f docker-compose.sentiment.slim.influx-steady.yml  → 3g / 2560MiB
+# Influx COLD_OPEN (18G restore, ~2992 shards): mem_limit ≥12g / GOMEMLIMIT 10GiB (integer only).
+# cursor-1 SUCCESS: service-level binds → $SFP_DATA_ROOT/influx, mem_limit 12g, GOMEMLIMIT 10GiB,
+# 4G loop swap, peak ~11.7GiB → healthy. 6g/8g/10g without swap OOM. vfs: service-level binds required.
+# Do NOT drop to influx-steady (3g) immediately after cold open — leave headroom until full-stack stable.
+# Optional later: docker-compose.sentiment.slim.influx-steady.yml → 3g / 2560MiB
 #
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   source scripts/docker_host.sh
@@ -156,18 +155,17 @@ services:
 
   sentiment-influxdb:
     environment:
-      # COLD_OPEN: 14g / 7000MiB for ~2992 shards (18G restore). NOT sufficient on 15Gi
-      # no-swap without swapfile — 10g limit OOM at ~72.8% shards (~10.3GiB anon RSS).
-      # 6g/8g/10g are NOT enough. Pause grok2api + add swap on 16G hosts. No decimal GOMEMLIMIT.
-      # After healthy: docker-compose.sentiment.slim.influx-steady.yml (3g / 2560MiB).
-      GOMEMLIMIT: "7000MiB"
+      # COLD_OPEN: ≥12g / 10GiB for ~2992 shards (18G restore). cursor-1: 12g + 4G loop swap,
+      # peak ~11.7GiB → healthy. vfs service-level binds required. No decimal GOMEMLIMIT.
+      # Do NOT apply influx-steady (3g) right after cold open.
+      GOMEMLIMIT: "10GiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "134217728"
       INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "16777216"
       INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
       INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
       INFLUXD_QUERY_CONCURRENCY: "1"
       INFLUXD_QUERY_QUEUE_SIZE: "2"
-    mem_limit: 14g
+    mem_limit: 12g
     cpus: 1.0
     volumes: !override
       - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx:/var/lib/influxdb2
