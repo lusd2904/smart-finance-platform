@@ -2,7 +2,7 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
-**15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。
+**15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。**cursor-1 上 full-split 已弃用。** 详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)、[MEMORY-SLIM-AND-MIGRATION.md](./MEMORY-SLIM-AND-MIGRATION.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（slim overlay 与 compose 由 **PR #64** 落地）。大内存开发机仍可用全量拆分。
 
 ### Influx 冷打开（18G 恢复 / ~2992 shard）— cursor-1 已验证
 
@@ -95,7 +95,7 @@ sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPe
 
 适用：**一台 Docker 云主机（cursor-1，16 GiB + grok2api）**。不要改 grok2api，不要 `compose down`，不要删 Influx 数据。
 
-**16 GiB 主机请用 slim**（见文首「Slim 生产启动」）。下面 Full 滚动命令仅大内存机使用。
+**16 GiB 主机请用 slim**（见文首「Slim 生产启动」）。下面 Full 滚动命令仅大内存机使用；**cursor-1 禁止 full-split 生产**。
 
 ### 步骤（slim，推荐）
 
@@ -151,6 +151,7 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 | 把 mysql / redis / influx 和业务绑一次 `up --build` | 数据层被顺带重建 |
 | 改 grok2api | 独立服务，本次无关 |
 | 开 `docker-compose.monitor.yml` | 可选监控，云上不必为部署打开 |
+| cursor-1 上无 slim overlay 起 full 栈 | 10+ Python 进程，16G 易 OOM |
 
 Redis 只有在仍是 `redis:latest`、且还没有 `sentiment-redis-data` 时，才单独 `up ruoyi-redis`。第一次挂新卷会清空登录态，用户要重新登录。不需要就别动。
 
@@ -166,6 +167,8 @@ bash scripts/backup_data.sh
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --no-deps sfp-backup
 ```
+
+slim 默认不启 `sfp-backup`（`full-backup` profile）；cursor-1 用宿主机 cron + `scripts/backup_data.sh`。
 
 ### 备份（必做，Influx 卷没有副本）
 
@@ -203,6 +206,8 @@ cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 
 云 Agent / 沙箱验证时先 `source scripts/docker_host.sh`（`DOCKER_HOST=tcp://127.0.0.1:2375`，连宿主机 Engine；应用容器内不要挂 `docker.sock`）。
 
+**16 GiB 生产**用文首 slim 双文件命令；**大内存**用：
+
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --build
 ```
@@ -211,15 +216,15 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 |------|------|------|
 | 前端 / 网关 | http://127.0.0.1:12580（对外仍走 sfp.luapi.top） | 容器内非特权 nginx，监听 8080 |
 | 平台 API | http://127.0.0.1:19099（仅本机回环） | OpenAPI `/docs`；云上经网关反代访问 |
-| jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | |
+| jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | slim 下与三队列同进程 |
 | MySQL / Redis / InfluxDB | 不暴露宿主端口 | 业务容器走内网访问；本机调试临时改映射 |
 
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `quant` / `news` / `ai`：板块 API，交易实时单独低延迟
-- `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
-- `sentiment-jobs-market` / `quant` / `llm`：三个队列消费组，一组挂掉不影响另外两组和 API
+- `sentiment-trade` / `market` / `quant` / `news` / `ai`：板块 API，交易实时单独低延迟（**slim 下 market+quant→data，sentiment+ai→intel**）
+- `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler（**slim 下 `APP_JOB_GROUP=all` 含三队列**）
+- `sentiment-jobs-market` / `quant` / `llm`：三个队列消费组（**仅 full-split**）
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：
 
@@ -263,6 +268,8 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
   sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
 ```
+
+**cursor-1（slim）** 用 `bash scripts/deploy_and_verify_slim.sh`，不要跑上面 full 容器名列表。
 
 `market` / `quant` / `jobs-market` / `jobs-quant` 会等 Influx `healthy`。Influx 冷启动可达 10 分钟，期间这四个起不来是预期，**登录 API 不应跟着挂**。
 
@@ -320,7 +327,7 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 
 ### jobs worker 健康检查
 
-`jobs-market` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建三个 worker（不要 down 整栈）。
+`jobs-market` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**（**full-split**）。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建三个 worker（不要 down 整栈）。**slim** 只看 `sentiment-jobs` 一个 `/health`。
 
 ## 3. 监控（可选）
 
@@ -384,7 +391,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/open/requirements?status=pending"
 ```
 
-「总结并写入清单」和群聊发送都只入 Redis `llm` 队列并立即返回 `jobId`，由 `sentiment-jobs-llm` 调 Grok。测完在「AI 需求清单」手动改状态。
+「总结并写入清单」和群聊发送都只入 Redis `llm` 队列并立即返回 `jobId`，由 `sentiment-jobs-llm`（full）或 `sentiment-jobs`（slim）调 Grok。测完在「AI 需求清单」手动改状态。
 
 ## 8. 上线检查
 
@@ -395,3 +402,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 5. 合并功能分支 PR，不要直接推 `main`。
 6. 云上日常更新按文首「云主机怎么部署」滚业务容器。过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
 7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。
+8. **cursor-1**：确认 slim 双文件 compose 已启用，整栈 RSS < 5.5 GiB；勿起 full-split。
+
+## 9. 后续架构迁移（计划，独立 PR）
+
+行情 **读取**（`market-read`）与 Redis **队列消费**（workers）将分 PR 迁至 **Go / Rust**，以降低 Python 进程内存与 tail 延迟。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
+
+路线图与运维口径见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-与-workers计划独立-pr)。落地后同步更新本文件与 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。

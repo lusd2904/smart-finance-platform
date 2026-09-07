@@ -11,6 +11,8 @@
 - 智能选股 / 自选分析：适用范围选 **行情中心 (market)**，默认 Grok 4.6（OpenRouter `x-ai/grok-4.6`，直连 xAI `grok-4.6`）。未配行情模型时回退全局 / 助手。
 - 舆情分析优先 `sentiment`。AI 对话用 `chat` 或全局。同一编码不要重复启用。
 - 需求沟通「发送 / 总结」立即返回 `jobId`，由后台消费组调模型。离开页签会停轮询。
+- **16 GiB 生产（cursor-1）**：slim 栈将舆情采集与 AI API 合并为 `sentiment-intel`；`/ai/`、`/open/` 路径不变。
+- **后续（计划）**：`llm` 队列消费可迁至 Go/Rust worker；研判 ticket 与模型配置页行为不变。
 
 ## 操作步骤
 
