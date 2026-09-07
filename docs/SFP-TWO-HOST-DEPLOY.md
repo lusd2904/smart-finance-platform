@@ -14,13 +14,13 @@
 /workspace/sfp-data/
   mysql/              # 空库待 shard 上传后首次 init
   redis/
-  influx/data/        # 已有 ~18 GiB 时序（勿删）
-  influx/config/
+  influx/             # → 容器 /var/lib/influxdb2（influxd.bolt, engine/，约 18 GiB）
+  influx-config/      # → 容器 /etc/influxdb2
 ```
 
 ```bash
 export SFP_DATA_ROOT=/workspace/sfp-data
-mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx/data,influx/config}
+mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
 ```
 
 slim overlay **默认**把 MySQL / Redis / Influx 卷 bind 到上述路径（**不要**把仓库 bind 进 nginx）。

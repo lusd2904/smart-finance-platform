@@ -14,7 +14,7 @@
 ```bash
 source scripts/docker_host.sh          # sudo docker 或 DOCKER_HOST
 export SFP_DATA_ROOT=/workspace/sfp-data
-mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx/data,influx/config}
+mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
 
 sudo docker compose \
   -f docker-compose.sentiment.yml \

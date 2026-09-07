@@ -14,7 +14,7 @@ if [ "${1:-}" = "--influx-only" ]; then
   INFLUX_ONLY=1
 fi
 
-mkdir -p "$ROOT/redis" "$ROOT/influx/data" "$ROOT/influx/config"
+mkdir -p "$ROOT/redis" "$ROOT/influx" "$ROOT/influx-config"
 if [ "$INFLUX_ONLY" -eq 0 ]; then
   mkdir -p "$ROOT/mysql"
   echo "==> data dirs under $ROOT (mysql/ may be empty until first container init or shard upload)"

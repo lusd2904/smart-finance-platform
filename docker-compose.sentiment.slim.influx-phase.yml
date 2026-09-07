@@ -1,6 +1,6 @@
 # Optional third overlay: start market/heat/minute-kline reads before MySQL shard upload.
 #
-# Phase A (Influx 18G on disk, MySQL not ready):
+# Phase A (Influx 18G on disk at $SFP_DATA_ROOT/influx/, MySQL not ready):
 #   source scripts/docker_host.sh
 #   export SFP_DATA_ROOT=/workspace/sfp-data
 #   bash scripts/sfp_data_init.sh --influx-only

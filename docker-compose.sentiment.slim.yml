@@ -6,7 +6,7 @@
 #
 # Data bind (default SFP_DATA_ROOT=/workspace/sfp-data):
 #   bash scripts/sfp_data_init.sh
-#   mysql/ redis/ influx/data/ influx/config/  (empty mysql/ is OK on first init)
+#   mysql/ redis/ influx/ influx-config/  (influx/ = /var/lib/influxdb2; empty mysql/ OK)
 #
 # MySQL shard not uploaded yet (Influx-only heat/kline reads):
 #   bash scripts/up_slim_influx_phase.sh
@@ -207,10 +207,10 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx/data
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx
   sentiment-influxdb-config:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx/config
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx-config

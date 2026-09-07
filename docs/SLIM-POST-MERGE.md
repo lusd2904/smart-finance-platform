@@ -27,7 +27,7 @@ sudo docker compose \
 ### 从旧 full 栈迁移到 slim
 
 1. **不要** `compose down -v`。
-2. 确认 Influx 数据已在 `$SFP_DATA_ROOT/influx/data`。
+2. 确认 Influx 数据已在 `$SFP_DATA_ROOT/influx/`（含 `engine/`、`influxd.bolt` 等）。
 3. 用双文件 `up -d --build`；overlay 的 `profiles: [full-split]` 会停掉拆分 API/worker。
 4. 若仍有旧容器名：`sudo docker rm -f sentiment-market sentiment-quant sentiment-news sentiment-ai sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm`（仅当已停且确认无依赖）。
 
