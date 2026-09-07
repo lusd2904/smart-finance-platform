@@ -1,0 +1,93 @@
+# 双机 / 云主机部署（SFP + grok2api）
+
+适用：**生产云主机（cursor-1，16 GiB）** 与 **大内存开发机** 共用同一仓库，编排分 **slim** / **full** 两档。
+
+---
+
+## cursor-1（生产，~15 GiB RAM，无 swap）
+
+与 **grok2api** 同机。可用内存约 **6 GiB** 时，SFP 必须用 **slim 叠加层**，整栈峰值 RSS 目标 **< 5.5 GiB**（见 `docker-compose.sentiment.slim.yml` 各 `mem_limit`）。
+
+### 数据目录
+
+```text
+/workspace/sfp-data/
+  mysql/              # 空库待 shard 上传后首次 init
+  redis/
+  influx/data/        # 已有 ~18 GiB 时序（勿删）
+  influx/config/
+```
+
+```bash
+export SFP_DATA_ROOT=/workspace/sfp-data
+mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx/data,influx/config}
+```
+
+slim overlay **默认**把 MySQL / Redis / Influx 卷 bind 到上述路径（**不要**把仓库 bind 进 nginx）。
+
+### Docker
+
+- Socket：`/var/run/docker.sock`（`root:docker`）→ 使用 **`sudo docker`** / **`sudo docker compose`**
+- 数据根：`/workspace/docker`（vfs driver）
+- Agent 沙箱内无 socket 时：`source scripts/docker_host.sh` → `DOCKER_HOST=tcp://127.0.0.1:2375`
+
+### 启动（合并本 PR 后 **仅 slim**）
+
+```bash
+cd /path/to/smart-finance-platform
+git fetch origin && git checkout main && git pull --ff-only origin main
+
+source scripts/docker_host.sh
+export SFP_DATA_ROOT=/workspace/sfp-data
+
+sudo docker compose \
+  -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  up -d --build
+```
+
+日常滚动：
+
+```bash
+bash scripts/deploy_and_verify_slim.sh
+```
+
+### 验收
+
+```bash
+sudo docker ps --format 'table {{.Names}}\t{{.Status}}'
+sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
+curl -sf http://127.0.0.1:19099/health && echo
+curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
+```
+
+应看到：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sentiment-frontend` 为 healthy；**不应**再跑 `sentiment-market` / `sentiment-ai` / `jobs-market` 等拆分容器。
+
+### 禁止
+
+| 不要 | 原因 |
+|------|------|
+| `compose down` / `down -v` | Influx 冷启动慢；`-v` 丢 18G 时序 |
+| 无 overlay 的全量拆分栈 | 10+ Python 进程，16G 主机易 OOM |
+| 改 grok2api | 独立服务 |
+
+备份（slim 默认不启 `sfp-backup` 容器）：宿主机 cron 跑 `bash scripts/backup_data.sh`。
+
+---
+
+## 开发机 / 大内存（full split）
+
+内存充裕时用 **单文件** 全量拆分（6 API + 4 jobs），便于隔离 profiling：
+
+```bash
+docker compose -f docker-compose.sentiment.yml up -d --build
+bash scripts/deploy_and_verify.sh
+```
+
+合并 PR 后若仍要临时起拆分容器：`--profile full-split`。
+
+---
+
+## 合并后路线
+
+见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)：cursor-1 固定 slim；后续 PR 从默认 compose **删除**冗余拆分服务或让 slim 成为默认 sentiment 编排。

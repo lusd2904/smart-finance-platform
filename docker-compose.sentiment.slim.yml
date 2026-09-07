@@ -1,27 +1,20 @@
-# Slim overlay for 15–16 GiB hosts (~4–6 GiB steady-state RSS, no swap preferred).
+# Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS, **peak stack < 5.5 GiB**, no swap).
 #
-# Agent / sandbox verify (host Docker Engine, sibling containers — no docker.sock):
+# cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   source scripts/docker_host.sh
+#   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
 #
-# Full stack (6 API + 4 job processes, higher headroom):
-#   docker compose -f docker-compose.sentiment.yml up -d --build
+# Data bind (default SFP_DATA_ROOT=/workspace/sfp-data):
+#   mysql/ redis/ influx/data/ influx/config/
 #
-# Slim stack (4 API + 1 job worker, same routes/features):
-#   docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
+# Full split stack (large dev machines):
+#   docker compose -f docker-compose.sentiment.yml --profile full-split up -d --build
 #
-# Optional bind-mount data dirs (do not bind-mount repo into nginx):
-#   export SFP_DATA_ROOT=/var/lib/sfp
-#   mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx}
-#   then uncomment the volume overrides at the bottom of this file.
-#
-# Verify memory after steady state (Influx healthy, ~5 min idle):
+# Verify (Influx healthy, idle ~5 min):
 #   docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
-#
-# Migrating full → slim: use the dual-file command above; profiles disable split
-# API/worker containers. Trade stays isolated; LLM/采集与交易不同进程。
 
 x-slim-pool-env: &slim-pool-env
-  DB_POOL_SIZE: "6"
+  DB_POOL_SIZE: "4"
   DB_MAX_OVERFLOW: "2"
 
 x-slim-api-health: &slim-api-health
@@ -54,6 +47,10 @@ services:
   sentiment-jobs-llm:
     profiles: [full-split]
 
+  # Backup loops on docker.sock; on tight RAM hosts run scripts/backup_data.sh via cron instead.
+  sfp-backup:
+    profiles: [full-backup]
+
   # --- merged API: market + quant (Influx reads, WS) ---
   sentiment-data:
     build:
@@ -81,7 +78,7 @@ services:
         condition: service_healthy
       sentiment-influxdb:
         condition: service_healthy
-    mem_limit: 768m
+    mem_limit: 512m
     cpus: 1.0
     healthcheck: *slim-api-health
 
@@ -110,55 +107,56 @@ services:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
-    mem_limit: 768m
+    mem_limit: 512m
     cpus: 1.0
     healthcheck: *slim-api-health
 
-  # --- platform / trade: tighter caps, still isolated ---
   sentiment-backend:
     environment:
       <<: *slim-pool-env
-    mem_limit: 512m
+    mem_limit: 384m
 
   sentiment-trade:
     environment:
       <<: *slim-pool-env
-    mem_limit: 768m
+    mem_limit: 512m
 
-  # --- scheduler + all queue groups in one worker (APP_JOB_GROUP=all) ---
   sentiment-jobs:
     environment:
       <<: *slim-pool-env
       APP_ROLE: scheduler
       APP_JOB_GROUP: all
       APP_NAME: "Sentiment Jobs (slim)"
-    mem_limit: 1536m
-    cpus: 1.5
+    mem_limit: 1024m
+    cpus: 1.0
 
-  # --- data layer tuning ---
   sentiment-influxdb:
     environment:
-      # Steady-state RSS ~1.5–2.2 GiB with cache caps below. Cold TSI open may spike;
-      # if OOM during first boot after large restore, temporarily raise mem_limit to 5g.
-      GOMEMLIMIT: "2.5GiB"
-      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"
-      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "26214400"
-    mem_limit: 3g
-    cpus: 1.5
+      # 18G+ on-disk shards: steady RSS ~1.2–1.6 GiB with cache caps. TSI cold-open may
+      # spike; if OOM on first boot, temporarily raise mem_limit to 2.5g for one start.
+      GOMEMLIMIT: "1400MiB"
+      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "134217728"
+      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "16777216"
+      INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
+      INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
+      INFLUXD_QUERY_CONCURRENCY: "1"
+      INFLUXD_QUERY_QUEUE_SIZE: "2"
+    mem_limit: 1800m
+    cpus: 1.0
 
   ruoyi-mysql:
-    # ~5 Python API/job 进程 × (pool 6 + overflow 2) ≈ 40；scheduler 双引擎峰值 ≈ 16
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_general_ci
       --skip-character-set-client-handshake=1
-      --max-connections=120
-      --innodb-buffer-pool-size=256M
-      --innodb-log-buffer-size=16M
-      --table-open-cache=400
-    mem_limit: 768m
+      --max-connections=80
+      --innodb-buffer-pool-size=192M
+      --innodb-log-buffer-size=8M
+      --table-open-cache=256
+    mem_limit: 512m
 
   ruoyi-redis:
+    mem_limit: 128m
     command:
       [
         "redis-server",
@@ -167,12 +165,13 @@ services:
         "--appendonly",
         "yes",
         "--maxmemory",
-        "384mb",
+        "256mb",
         "--maxmemory-policy",
         "noeviction",
       ]
 
   sentiment-frontend:
+    mem_limit: 64m
     volumes:
       - ./ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf:/etc/nginx/conf.d/default.conf
     depends_on: !override
@@ -185,29 +184,28 @@ services:
       sentiment-intel:
         condition: service_healthy
 
-# Uncomment for SFP_DATA_ROOT bind mounts (replace named volumes on first use only):
-# volumes:
-#   sentiment-mysql-data:
-#     driver: local
-#     driver_opts:
-#       type: none
-#       o: bind
-#       device: ${SFP_DATA_ROOT}/mysql
-#   sentiment-redis-data:
-#     driver: local
-#     driver_opts:
-#       type: none
-#       o: bind
-#       device: ${SFP_DATA_ROOT}/redis
-#   sentiment-influxdb-data:
-#     driver: local
-#     driver_opts:
-#       type: none
-#       o: bind
-#       device: ${SFP_DATA_ROOT}/influx/data
-#   sentiment-influxdb-config:
-#     driver: local
-#     driver_opts:
-#       type: none
-#       o: bind
-#       device: ${SFP_DATA_ROOT}/influx/config
+volumes:
+  sentiment-mysql-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/mysql
+  sentiment-redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/redis
+  sentiment-influxdb-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx/data
+  sentiment-influxdb-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx/config

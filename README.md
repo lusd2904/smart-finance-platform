@@ -15,7 +15,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、持仓叠实时价自算盈亏、自动交易、风控规则与事件、通知中心。配了什么长桥账户（模拟或真实）就下到哪。手工单与自动交易共用仓位护栏；紧急停机拦新单、撤单仍可用。美股下单覆盖盘前 / 盘后 / 夜盘（长桥 `outside_rth`）；长桥模拟账户本身仍仅常规盘撮合。
 - 🔐 **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
-- 🧵 **任务拆分**：`sentiment-jobs` 只跑 APScheduler；market / quant / llm 三个消费组；交易实时单独进程。
+- 🧵 **任务拆分**：大内存机为 `sentiment-jobs` + market/quant/llm 三消费组；**16 GiB 云主机用 slim overlay**（4 合并 API + 单 jobs 进程），见 [docs/SFP-TWO-HOST-DEPLOY.md](./docs/SFP-TWO-HOST-DEPLOY.md)。
 - 🖥️ **桌面端**：以 `flutter_client/` 为准；`desktop/` Electron 壳已归档，不再构建。
 - 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。Debug 默认本机 Docker（`127.0.0.1:12580`，Android 模拟器 `10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。

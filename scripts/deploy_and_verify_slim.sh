@@ -9,6 +9,9 @@ source "$(dirname "$0")/docker_host.sh"
 export COMPOSE_FILE="docker-compose.sentiment.yml:docker-compose.sentiment.slim.yml"
 COMPOSE="docker compose"
 
+echo "==> [0/5] compose config（slim + SFP_DATA_ROOT=${SFP_DATA_ROOT})"
+$COMPOSE config >/dev/null
+
 echo "==> [1/5] 构建并滚动更新 slim API / jobs"
 $COMPOSE up -d --no-deps --build \
   sentiment-backend sentiment-data sentiment-intel sentiment-trade \
