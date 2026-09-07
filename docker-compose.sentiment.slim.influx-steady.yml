@@ -1,0 +1,18 @@
+# Optional fourth overlay: after sentiment-influxdb is healthy, lower Influx caps for steady-state.
+#
+# cursor-1 retest: ~2992 shards OOM at mem_limit 1.8g (exit 137). Use slim default (4g)
+# for COLD_OPEN, then apply this overlay once `influx ping` / healthcheck passes.
+#
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     -f docker-compose.sentiment.slim.influx-steady.yml \
+#     up -d --no-deps sentiment-influxdb
+#
+# Steady target: GOMEMLIMIT 2.5GiB, mem_limit 3g (whole slim stack RSS ~4–5 GiB).
+
+services:
+  sentiment-influxdb:
+    environment:
+      GOMEMLIMIT: "2560MiB"
+    mem_limit: 3g

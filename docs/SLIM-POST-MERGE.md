@@ -20,7 +20,7 @@ sudo docker compose \
 ```
 
 - 数据：`/workspace/sfp-data`（Influx 已有数据；MySQL 待上传后首次 init）
-- 内存：整栈 `mem_limit` 合计约 **5.4 GiB** 上限，稳态 RSS 目标 **4–5 GiB**
+- 内存：Influx **冷开** `mem_limit` **4g**；全栈 **稳态**（healthy 后 `influx-steady` 叠加）RSS 目标 **4–5 GiB**
 - 功能：登录、热度、舆情、选股、交易、自选、H5 `/m`、任务中心 jobs **路径与行为不变**
 - `sentiment-trade` **仍独立**；LLM/采集不与交易共进程
 
@@ -67,9 +67,9 @@ bash scripts/deploy_and_verify_slim.sh
 # 3. 健康
 sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | rg 'sentiment-(backend|trade|data|intel|jobs|frontend|influx)'
 
-# 4. 内存（Influx healthy 后空闲 5 分钟）
+# 4. 内存（Influx healthy 后空闲 5 分钟；冷开阶段 Influx 允许 4g）
 sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
-# 整栈 RSS 应 < 5.5 GiB；若 Influx 冷启动 OOM，临时将 influx mem_limit 提到 2.5g 启动一次后改回
+# 稳态：整栈 RSS ~4–5 GiB。若仍用冷开 4g，healthy 后跑: bash scripts/influx_slim_steady.sh
 
 # 5. 功能冒烟
 curl -sf http://127.0.0.1:19099/health

@@ -1,4 +1,8 @@
-# Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS, **peak stack < 5.5 GiB**, no swap).
+# Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS after Influx healthy, no swap).
+#
+# Influx COLD_OPEN (restored ~3k shards): default mem_limit 4g here. Host retest showed
+# exit 137 at ~1.8g while opening shards. After healthy, apply influx-steady overlay:
+#   -f docker-compose.sentiment.slim.influx-steady.yml  → mem_limit 3g, GOMEMLIMIT 2.5GiB
 #
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   source scripts/docker_host.sh
@@ -146,16 +150,16 @@ services:
 
   sentiment-influxdb:
     environment:
-      # 18G+ on-disk shards: steady RSS ~1.2–1.6 GiB with cache caps. TSI cold-open may
-      # spike; if OOM on first boot, temporarily raise mem_limit to 2.5g for one start.
-      GOMEMLIMIT: "1400MiB"
+      # COLD_OPEN default: ~3k shards need mem_limit ≥4g (cursor-1 retest: 1.8g → exit 137).
+      # After healthy, roll with docker-compose.sentiment.slim.influx-steady.yml (3g / 2.5GiB).
+      GOMEMLIMIT: "3584MiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "134217728"
       INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "16777216"
       INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
       INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
       INFLUXD_QUERY_CONCURRENCY: "1"
       INFLUXD_QUERY_QUEUE_SIZE: "2"
-    mem_limit: 1800m
+    mem_limit: 4g
     cpus: 1.0
 
   ruoyi-mysql:

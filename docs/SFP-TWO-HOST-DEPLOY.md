@@ -6,7 +6,26 @@
 
 ## cursor-1（生产，~15 GiB RAM，无 swap）
 
-与 **grok2api** 同机。可用内存约 **6 GiB** 时，SFP 必须用 **slim 叠加层**，整栈峰值 RSS 目标 **< 5.5 GiB**（见 `docker-compose.sentiment.slim.yml` 各 `mem_limit`）。
+与 **grok2api** 同机。slim 栈 **稳态** RSS 目标 **4–5 GiB**；**Influx 冷打开**阶段单独需要 `mem_limit: 4g`（cursor-1 实测 ~2992 shard 在 1.8g 上限 exit 137）。
+
+### Influx 内存两阶段
+
+| 阶段 | compose 文件 | Influx `mem_limit` | `GOMEMLIMIT` |
+|------|----------------|-------------------|--------------|
+| **COLD_OPEN**（默认 slim） | `docker-compose.sentiment.slim.yml` | **4g** | 3.5GiB |
+| **STEADY**（healthy 后） | `+ docker-compose.sentiment.slim.influx-steady.yml` | **3g** | 2.5GiB |
+
+```bash
+# 1) 冷打开（首次恢复 / 大库）
+sudo docker compose \
+  -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  up -d sentiment-influxdb
+# 等待 healthy（可能 10+ 分钟）
+
+# 2) 稳态降内存（只需一次，或每次冷开后）
+bash scripts/influx_slim_steady.sh
+```
 
 ### 数据目录
 

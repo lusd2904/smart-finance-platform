@@ -2,11 +2,11 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
-**16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**，整栈峰值 RSS **< 5.5 GiB**。详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。大内存开发机仍可用全量拆分。
+**16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。Influx **冷打开**（约 3k shard）默认 `mem_limit: 4g`；**healthy 后**用 `influx-steady` 叠加层降至 3g / GOMEMLIMIT 2.5GiB，整栈稳态 RSS **4–5 GiB**。详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。
 
 | 模式 | 命令 | 进程数（API + jobs） | 典型 RSS |
 |------|------|-------------------|----------|
-| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 稳态 4–5 GiB，峰值 < 5.5 GiB |
+| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx 4g；稳态 4–5 GiB |
 | **Full（大内存）** | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
 
 ### Slim 生产启动（cursor-1）
@@ -33,6 +33,13 @@ sudo docker compose \
 
 # 日常滚动
 bash scripts/deploy_and_verify_slim.sh
+```
+
+**Influx 冷打开完成后**（`sentiment-influxdb` healthy），降至稳态内存：
+
+```bash
+bash scripts/influx_slim_steady.sh
+# 或手动叠加: -f docker-compose.sentiment.slim.influx-steady.yml up -d --no-deps sentiment-influxdb
 ```
 
 Slim 合并方式（**对外路径不变**）：
