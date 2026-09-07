@@ -100,14 +100,6 @@ class WizardCommandBuilder:
                 self._register_cache_clear_command,
             ),
             (
-                WizardCommandRegistration('gen-export', '通过交互方式执行代码导出'),
-                self._register_gen_export_command,
-            ),
-            (
-                WizardCommandRegistration('gen-import', '通过交互方式执行物理表导入'),
-                self._register_gen_import_command,
-            ),
-            (
                 WizardCommandRegistration('prod-check', '通过交互方式执行生产巡检'),
                 self._register_prod_check_command,
             ),
@@ -202,80 +194,6 @@ class WizardCommandBuilder:
                 default_mode=default_mode,
                 default_cache_name=default_cache_name,
                 default_cache_key=default_cache_key,
-                default_dry_run=default_dry_run,
-            )
-
-    def _register_gen_export_command(self, app: typer.Typer, registration: WizardCommandRegistration) -> None:
-        """
-        注册 `gen-export` 子命令。
-
-        :param app: wizard 子应用
-        :param registration: 子命令注册元数据
-        :return: None
-        """
-
-        @app.command(registration.name, help=registration.help_text)
-        def gen_export(
-            output: OutputOption = 'text',
-            default_env: str = typer.Option('dev', '--default-env', help='向导默认环境'),
-            default_table_names: str = typer.Option('', '--default-table-names', help='向导默认业务表名称列表'),
-            default_mode: str = typer.Option('zip', '--default-mode', help='向导默认导出模式'),
-            default_output_file: str = typer.Option('', '--default-output-file', help='向导默认导出目标文件路径'),
-            default_dry_run: bool = typer.Option(
-                True, '--default-dry-run/--no-default-dry-run', help='向导默认 dry-run 选项'
-            ),
-        ) -> None:
-            """
-            通过交互方式执行代码导出。
-
-            :param output: 输出格式
-            :param default_env: 向导默认环境
-            :param default_table_names: 向导默认业务表名称列表
-            :param default_mode: 向导默认导出模式
-            :param default_output_file: 向导默认导出目标文件路径
-            :param default_dry_run: 向导默认 dry-run 选项
-            :return: None
-            """
-            self.flow_loader.load_runner('cli.wizard.flows.gen_export', 'run_gen_export_wizard')(
-                output,
-                default_env=default_env,
-                default_table_names=default_table_names,
-                default_mode=default_mode,
-                default_output_file=default_output_file,
-                default_dry_run=default_dry_run,
-            )
-
-    def _register_gen_import_command(self, app: typer.Typer, registration: WizardCommandRegistration) -> None:
-        """
-        注册 `gen-import` 子命令。
-
-        :param app: wizard 子应用
-        :param registration: 子命令注册元数据
-        :return: None
-        """
-
-        @app.command(registration.name, help=registration.help_text)
-        def gen_import(
-            output: OutputOption = 'text',
-            default_env: str = typer.Option('dev', '--default-env', help='向导默认环境'),
-            default_table_names: str = typer.Option('', '--default-table-names', help='向导默认物理表名称列表'),
-            default_dry_run: bool = typer.Option(
-                True, '--default-dry-run/--no-default-dry-run', help='向导默认 dry-run 选项'
-            ),
-        ) -> None:
-            """
-            通过交互方式执行物理表导入。
-
-            :param output: 输出格式
-            :param default_env: 向导默认环境
-            :param default_table_names: 向导默认物理表名称列表
-            :param default_dry_run: 向导默认 dry-run 选项
-            :return: None
-            """
-            self.flow_loader.load_runner('cli.wizard.flows.gen_import', 'run_gen_import_wizard')(
-                output,
-                default_env=default_env,
-                default_table_names=default_table_names,
                 default_dry_run=default_dry_run,
             )
 

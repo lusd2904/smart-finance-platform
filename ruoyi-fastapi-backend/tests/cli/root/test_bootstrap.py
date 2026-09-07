@@ -78,7 +78,6 @@ for module_name in [
     'module_admin.service.server_service',
     'module_admin.service.job_service',
     'module_admin.service.config_service',
-    'module_generator.service.gen_service',
     'textual',
     'utils.transport_crypto_util',
 ]:
@@ -97,7 +96,6 @@ print(json.dumps({
     'module_admin.service.server_service': 'module_admin.service.server_service' in sys.modules,
     'module_admin.service.job_service': 'module_admin.service.job_service' in sys.modules,
     'module_admin.service.config_service': 'module_admin.service.config_service' in sys.modules,
-    'module_generator.service.gen_service': 'module_generator.service.gen_service' in sys.modules,
     'textual': 'textual' in sys.modules,
     'utils.transport_crypto_util': 'utils.transport_crypto_util' in sys.modules,
 }, ensure_ascii=False))
@@ -122,7 +120,6 @@ print(json.dumps({
         'module_admin.service.server_service': False,
         'module_admin.service.job_service': False,
         'module_admin.service.config_service': False,
-        'module_generator.service.gen_service': False,
         'textual': False,
         'utils.transport_crypto_util': False,
     }

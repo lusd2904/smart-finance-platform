@@ -177,77 +177,17 @@ def test_complete_config_keys_returns_dynamic_readonly_choices(monkeypatch: Monk
     assert candidates == ['sys.user.initPassword']
 
 
-def test_complete_gen_table_names_returns_dynamic_readonly_choices(monkeypatch: MonkeyPatch) -> None:
-    """
-    校验代码生成业务表补全会返回动态只读查询结果。
-
-    :param monkeypatch: pytest monkeypatch 工具
-    :return: None
-    """
-
-    class _FakeGenRuntime:
-        """
-        模拟代码生成运行时模块。
-        """
-
-        class GenRuntime:
-            """
-            模拟代码生成运行时服务对象。
-            """
-
-            @staticmethod
-            def list_gen_tables(**kwargs: str) -> dict:
-                """
-                模拟业务表列表查询入口。
-
-                :param kwargs: 查询参数
-                :return: 伪造的结果字典
-                """
-                return kwargs
-
-            @staticmethod
-            def list_gen_db_tables(**kwargs: str) -> dict:
-                """
-                模拟数据库物理表列表查询入口。
-
-                :param kwargs: 查询参数
-                :return: 伪造的结果字典
-                """
-                return kwargs
-
-        GEN_RUNTIME = GenRuntime()
-
-    monkeypatch.setattr(completion_registry.dynamic_service, 'load_runtime_module', lambda module_name: _FakeGenRuntime)
-    monkeypatch.setattr(
-        completion_registry.dynamic_service,
-        'run_completion_coroutine',
-        lambda coroutine, *, env: {
-            'ok': True,
-            'items': [
-                {'tableName': 'sys_user'},
-                {'tableName': 'sys_role'},
-            ],
-        },
-    )
-
+def test_complete_gen_table_names_returns_empty_after_codegen_removal() -> None:
+    """代码生成已移除，补全入口应返回空列表。"""
     candidates = completion_gateway.complete_gen_table_names(None, None, 'sys_u')
+    assert candidates == []
 
-    assert candidates == ['sys_user']
+    db_candidates = completion_gateway.complete_gen_db_table_names(None, None, 'sys')
+    assert db_candidates == []
 
 
-def test_dynamic_completion_returns_empty_list_when_runtime_fails(monkeypatch: MonkeyPatch) -> None:
-    """
-    校验动态补全在运行时失败时会优雅降级为空列表。
-
-    :param monkeypatch: pytest monkeypatch 工具
-    :return: None
-    """
-    monkeypatch.setattr(
-        completion_registry.dynamic_service,
-        'load_runtime_module',
-        lambda module_name: (_ for _ in ()).throw(RuntimeError('boom')),
-    )
-
+def test_dynamic_completion_returns_empty_list_when_runtime_fails() -> None:
+    """代码生成已移除，动态补全入口始终返回空列表。"""
     candidates = completion_gateway.complete_gen_db_table_names(None, None, 'sys')
 
     assert candidates == []

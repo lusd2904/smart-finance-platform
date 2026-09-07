@@ -635,24 +635,9 @@ class DomainDynamicCompletionProvider:
         args: list[str] | None,
         incomplete: str,
     ) -> list[str]:
-        """
-        为代码生成业务表名称提供动态只读补全结果。
-
-        :param ctx: Click 上下文
-        :param args: 当前命令参数列表
-        :param incomplete: 当前未完成输入片段
-        :return: 业务表名称列表
-        """
-        del args
-        return self.dynamic_service.complete_dynamic_items(
-            ctx,
-            incomplete,
-            runtime_module_name='cli.runtime.gen',
-            runtime_object_name='GEN_RUNTIME',
-            runtime_method_name='list_gen_tables',
-            runtime_kwargs={'table_name': incomplete, 'paged': True, 'page_num': 1, 'page_size': 20},
-            field_name='tableName',
-        )
+        """代码生成已移除，保留空补全以兼容旧补全入口。"""
+        del ctx, args, incomplete
+        return []
 
     def complete_gen_db_table_names(
         self,
@@ -660,24 +645,9 @@ class DomainDynamicCompletionProvider:
         args: list[str] | None,
         incomplete: str,
     ) -> list[str]:
-        """
-        为数据库物理表名称提供动态只读补全结果。
-
-        :param ctx: Click 上下文
-        :param args: 当前命令参数列表
-        :param incomplete: 当前未完成输入片段
-        :return: 数据库物理表名称列表
-        """
-        del args
-        return self.dynamic_service.complete_dynamic_items(
-            ctx,
-            incomplete,
-            runtime_module_name='cli.runtime.gen',
-            runtime_object_name='GEN_RUNTIME',
-            runtime_method_name='list_gen_db_tables',
-            runtime_kwargs={'table_name': incomplete, 'paged': True, 'page_num': 1, 'page_size': 20},
-            field_name='tableName',
-        )
+        """代码生成已移除，保留空补全以兼容旧补全入口。"""
+        del ctx, args, incomplete
+        return []
 
     def complete_cache_keys(
         self,

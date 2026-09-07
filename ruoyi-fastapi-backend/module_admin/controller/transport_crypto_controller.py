@@ -1,14 +1,11 @@
 from fastapi import Request, Response
 
 from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPreset
-from common.aspect.interface_auth import UserInterfaceAuthDependency
-from common.aspect.pre_auth import PreAuthDependency
 from common.constant import ApiNamespace
 from common.router import APIRouterPro
 from common.vo import DataResponseModel
 from module_admin.entity.vo.transport_crypto_vo import (
     TransportCryptoFrontendConfigModel,
-    TransportCryptoMonitorModel,
     TransportCryptoPublicKeyModel,
 )
 from module_admin.service.transport_crypto_service import TransportCryptoService
@@ -57,22 +54,3 @@ async def get_transport_public_key(request: Request) -> Response:
 
     return ResponseUtil.success(data=transport_public_key)
 
-
-@transport_crypto_controller.get(
-    '/monitor',
-    summary='获取传输层加解密监控信息接口',
-    description='用于获取基于Redis聚合的传输层加解密运行状态与统计信息',
-    response_model=DataResponseModel[TransportCryptoMonitorModel],
-    dependencies=[PreAuthDependency(), UserInterfaceAuthDependency('monitor:transportCrypto:list')],
-)
-async def get_transport_crypto_monitor_info(request: Request) -> Response:
-    """
-    获取基于Redis聚合的传输层加解密监控信息
-
-    :param request: 当前请求对象
-    :return: 传输层加解密监控信息响应
-    """
-    transport_crypto_monitor_info = await TransportCryptoService.get_transport_crypto_monitor_info_services(request)
-    logger.info('获取成功')
-
-    return ResponseUtil.success(data=transport_crypto_monitor_info)

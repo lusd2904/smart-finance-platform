@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 from cli.tui.actions.builders import TuiActionSpecFactory
 from cli.tui.actions.factories.cache import CacheActionTemplateFactory
-from cli.tui.actions.factories.gen import GenActionTemplateFactory
 from cli.tui.actions.factories.jobs import JobActionTemplateFactory
 from cli.tui.actions.factories.static import StaticActionTemplateFactory
 from cli.tui.actions.registry import TuiActionRegistry, TuiActionSlotResolver
@@ -18,14 +17,12 @@ class TuiActionRegistryBuilder:
 
     :param jobs: 任务页动作模板工厂
     :param cache: 缓存页动作模板工厂
-    :param gen: 代码生成页动作模板工厂
     :param static: 静态页面动作模板工厂
     :param spec_factory: 动作规格构建器
     """
 
     jobs: JobActionTemplateFactory
     cache: CacheActionTemplateFactory
-    gen: GenActionTemplateFactory
     static: StaticActionTemplateFactory
     spec_factory: TuiActionSpecFactory
 
@@ -55,15 +52,6 @@ class TuiActionRegistryBuilder:
                     slot_templates={
                         'global': self.cache.create_clear_wizard_template(),
                         'utility': self.cache.create_warmup_template(),
-                    },
-                    spec_factory=self.spec_factory,
-                ),
-                'gen': TuiActionSlotResolver(
-                    slot_templates={
-                        'primary': self.gen.create_export_wizard_template(),
-                        'secondary': self.gen.create_import_wizard_template(),
-                        'global': self.gen.create_export_dry_run_template(),
-                        'utility': self.gen.create_sync_db_template(),
                     },
                     spec_factory=self.spec_factory,
                 ),

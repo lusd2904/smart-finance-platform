@@ -37,7 +37,7 @@ SECTION_PERMS: dict[str, str] = {
     'watchSignals': 'market:watchlist:list',
     'sentiment': 'sentiment:news:list',
     'briefings': 'market:finance:list',
-    'health': 'monitor:job:list',
+    'health': 'analysis:job:list',
 }
 
 

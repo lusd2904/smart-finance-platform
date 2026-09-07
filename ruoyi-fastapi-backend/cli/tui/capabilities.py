@@ -56,12 +56,6 @@ _BROWSER_CAPABILITY_SPECS: dict[str, tuple[TuiCapabilitySpec, ...]] = {
         TuiCapabilitySpec('cache_clear_wizard', 'wizard_entry', 'global', 'Y'),
         TuiCapabilitySpec('cache_warmup', 'low_risk_action', 'utility', 'W'),
     ),
-    'gen': (
-        TuiCapabilitySpec('gen_export_wizard', 'wizard_entry', 'primary', 'X'),
-        TuiCapabilitySpec('gen_import_wizard', 'wizard_entry', 'secondary', 'Z'),
-        TuiCapabilitySpec('gen_export_dry_run', 'preview', 'global', 'Y'),
-        TuiCapabilitySpec('gen_sync_db', 'low_risk_action', 'utility', 'W'),
-    ),
 }
 
 _DETAIL_CAPABILITY_SPECS: dict[str, tuple[TuiCapabilitySpec, ...]] = {

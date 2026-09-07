@@ -125,14 +125,6 @@ class TuiDiagnosticService:
         """
         return self.build_page_focus_hint('configs')
 
-    def build_gen_focus_hint(self) -> str:
-        """
-        构建代码生成页统一聚焦词。
-
-        :return: 聚焦提示
-        """
-        return self.build_page_focus_hint('gen')
-
     def build_crypto_focus_hint(self) -> str:
         """
         构建加密页统一聚焦词。
@@ -320,26 +312,6 @@ class TuiDiagnosticService:
         )
 
     @staticmethod
-    def _build_gen_subtitle(
-        matched_count: int,
-        importable_count: int,
-        *,
-        focus_hint: str,
-    ) -> str:
-        """
-        构建代码生成页诊断摘要。
-
-        :param matched_count: 当前匹配业务表数
-        :param importable_count: 可导入物理表数
-        :param focus_hint: 聚焦提示
-        :return: 页面摘要
-        """
-        return (
-            f'{focus_hint} | 当前已匹配 {matched_count} 张业务表，'
-            f'可导入物理表 {importable_count} 张，可继续查看表定义、预检查和代码预览'
-        )
-
-    @staticmethod
     def _build_crypto_subtitle(
         validate_payload: dict[str, Any] | None,
         public_payload: dict[str, Any] | None,
@@ -505,24 +477,6 @@ class TuiDiagnosticService:
             focus_hint=self.build_configs_focus_hint(),
         )
 
-    def build_gen_diagnostic_subtitle(
-        self,
-        matched_count: int,
-        importable_count: int,
-    ) -> str:
-        """
-        构建代码生成页统一诊断摘要。
-
-        :param matched_count: 当前匹配业务表数
-        :param importable_count: 可导入物理表数
-        :return: 页面摘要
-        """
-        return self.page_policy_registry.get('gen').subtitle_builder(
-            matched_count,
-            importable_count,
-            focus_hint=self.build_gen_focus_hint(),
-        )
-
     def build_crypto_diagnostic_subtitle(
         self,
         validate_payload: dict[str, Any] | None,
@@ -567,10 +521,6 @@ TUI_DIAGNOSTIC_PAGE_POLICY_REGISTRY = DiagnosticPagePolicyRegistry(
         'configs': DiagnosticPagePolicy(
             focus_terms=('高风险配置', '值不一致', '缓存漂移'),
             subtitle_builder=TuiDiagnosticService._build_configs_subtitle,
-        ),
-        'gen': DiagnosticPagePolicy(
-            focus_terms=('生成前校验', '同步预检查', '代码预览'),
-            subtitle_builder=TuiDiagnosticService._build_gen_subtitle,
         ),
         'crypto': DiagnosticPagePolicy(
             focus_terms=('运行校验', '公钥身份', '兼容版本'),

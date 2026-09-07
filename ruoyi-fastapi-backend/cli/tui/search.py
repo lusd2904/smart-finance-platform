@@ -164,10 +164,6 @@ def build_default_search_provider_registry(
                 '按缓存名搜索',
                 provider_factory.build(completion_provider_gateway.complete_cache_names),
             ),
-            'gen': SearchSuggestionProviderSpec(
-                '按业务表名搜索',
-                provider_factory.build(completion_provider_gateway.complete_gen_table_names),
-            ),
             'database': SearchSuggestionProviderSpec(
                 '按 revision 搜索',
                 provider_factory.build(completion_provider_gateway.complete_alembic_revisions),

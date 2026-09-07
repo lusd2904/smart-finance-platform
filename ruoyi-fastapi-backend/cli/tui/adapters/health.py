@@ -541,7 +541,7 @@ class DashboardPanelBuilder:
                 '## 次级入口',
                 f'[{TUI_KEYMAP_REGISTRY.get_navigation_shortcut("configs").upper()}] 参数配置 · {TUI_DIAGNOSTIC_SERVICE.build_configs_focus_hint()}',
                 '## 扩展入口',
-                f'[{TUI_KEYMAP_REGISTRY.get_navigation_shortcut("gen").upper()}] 代码生成 · {TUI_DIAGNOSTIC_SERVICE.build_gen_focus_hint()}',
+                f'[{TUI_KEYMAP_REGISTRY.get_navigation_shortcut("crypto").upper()}] 传输加密 · {TUI_DIAGNOSTIC_SERVICE.build_crypto_focus_hint()}',
                 f'[{TUI_KEYMAP_REGISTRY.get_navigation_shortcut("app").upper()}] 应用 · 配置摘要 / 路由状态',
             ]
 

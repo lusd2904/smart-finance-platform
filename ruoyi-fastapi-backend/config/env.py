@@ -50,7 +50,7 @@ class AppSettings(BaseSettings):
         if self.app_module == 'all':
             return None
         mapping = {
-            'platform': {'module_admin', 'module_generator', 'module_analysis', 'module_dashboard'},
+            'platform': {'module_admin', 'module_analysis', 'module_dashboard'},
             'market': {'module_market'},
             'quant': {'module_quant'},
             'trade': {'module_trade'},
