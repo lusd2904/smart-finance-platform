@@ -167,7 +167,63 @@ func resolveTarget(target string, args []string, kwargs map[string]any) (Spec, b
 	case "module_task.trade_task.run_feishu_push_job":
 		return Spec{JobType: "feishu_push", Payload: map[string]any{}}, true
 	default:
+		return resolveGoKey(target, args, kwargs)
+	}
+}
+
+// resolveGoKey accepts bare Redis job types (e.g. finance_briefings) as invoke_target
+// aliases for the legacy module_task.* paths. Additive only: Python paths keep working.
+func resolveGoKey(target string, args []string, kwargs map[string]any) (Spec, bool) {
+	if !KnownType(target) {
 		return Spec{}, false
+	}
+	switch target {
+	case "sentiment_collect":
+		analyze := true
+		if raw, ok := kwargs["analyze"]; ok {
+			analyze = boolFrom(raw, true)
+		}
+		return Spec{JobType: target, Payload: map[string]any{"analyze": analyze}}, true
+	case "market_sync":
+		return Spec{JobType: target, Payload: map[string]any{"years": 10}}, true
+	case "klines_slow":
+		years := intFrom(kwargs, "years", firstArgInt(args, 10))
+		return Spec{JobType: target, Payload: map[string]any{"years": years}}, true
+	case "market_review":
+		return Spec{JobType: target, Payload: map[string]any{"markets": marketsFrom(args, kwargs)}}, true
+	case "market_heat_collect":
+		market := strings.ToUpper(stringFrom(kwargs, "market", firstArg(args, "CN")))
+		return heatSpec(market), true
+	case "eod_kline_sync":
+		market := strings.ToUpper(stringFrom(kwargs, "market", firstArg(args, "")))
+		if market == "" {
+			return Spec{}, false
+		}
+		return Spec{JobType: target, Payload: map[string]any{"market": market}}, true
+	case "stock_pick_run":
+		return Spec{JobType: target, Payload: map[string]any{"trigger": "schedule"}}, true
+	case "strategy_run", "auto_trade_scan":
+		return Spec{JobType: target, Payload: optionalProfileUser(args, kwargs)}, true
+	case "factor_scan":
+		profile := stringFrom(kwargs, "profile", firstArg(args, "balanced"))
+		if profile == "" {
+			profile = "balanced"
+		}
+		return Spec{JobType: target, Payload: map[string]any{"profile": profile}}, true
+	case "factor_qc":
+		market := stringFrom(kwargs, "market", firstArg(args, "US"))
+		if market == "" {
+			market = "US"
+		}
+		return Spec{JobType: target, Payload: map[string]any{"market": market}}, true
+	case "daily_list_scan":
+		payload := map[string]any{}
+		if profile := stringFrom(kwargs, "profile", firstArg(args, "")); profile != "" {
+			payload["profile"] = profile
+		}
+		return Spec{JobType: target, Payload: payload}, true
+	default:
+		return Spec{JobType: target, Payload: map[string]any{}}, true
 	}
 }
 
@@ -311,6 +367,24 @@ func stringFrom(kwargs map[string]any, key, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+func boolFrom(raw any, fallback bool) bool {
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		default:
+			return fallback
+		}
+	default:
+		return fallback
+	}
 }
 
 func intFrom(kwargs map[string]any, key string, fallback int) int {

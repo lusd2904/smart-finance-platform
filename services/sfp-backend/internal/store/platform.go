@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strings"
 	"time"
 
@@ -232,6 +233,7 @@ func (db *DB) ListExtraAnalysisJobs(ctx context.Context, known map[int]bool) ([]
 		SELECT job_id, job_name, invoke_target, IFNULL(cron_expression,''), IFNULL(status,'1'), remark
 		FROM sys_job
 		WHERE invoke_target LIKE 'module_task.%'
+		   OR invoke_target IN (`+goInvokeTargetSQLIn()+`)
 		ORDER BY job_id`)
 	if err != nil {
 		return nil, err
@@ -255,6 +257,9 @@ func (db *DB) ListExtraAnalysisJobs(ctx context.Context, known map[int]bool) ([]
 }
 
 func isAnalysisTarget(target string) bool {
+	if _, ok := analysisGoInvokeTargets[target]; ok {
+		return true
+	}
 	if !strings.HasPrefix(target, "module_task.") || strings.Contains(target, "scheduler_test") {
 		return false
 	}
@@ -266,7 +271,34 @@ func isAnalysisTarget(target string) bool {
 	return false
 }
 
+// analysisGoInvokeTargets maps bare Redis job types to analysis UI categories.
+var analysisGoInvokeTargets = map[string]string{
+	"sentiment_collect": "sentiment", "sentiment_analyze": "sentiment",
+	"market_sync": "market", "finance_briefings": "market", "symbol_content": "market",
+	"market_heat_collect": "market", "eod_kline_sync": "market", "listings_sync": "market",
+	"klines_slow": "market", "board_warmup": "market", "mysql_to_influx": "market",
+	"watchlist_analyze": "market", "stock_pick_run": "market", "market_review": "market",
+	"factor_scan": "quant", "factor_qc": "quant", "indicator_refresh": "quant",
+	"strategy_run": "quant", "position_monitor": "quant", "daily_list_scan": "quant",
+	"daily_list_open": "trade", "auto_trade_scan": "trade",
+	"feishu_push": "trade",
+	"daily_review": "sentiment", "req_send": "sentiment", "req_summarize": "sentiment",
+	"ai_analyze": "sentiment", "ai_batch": "sentiment", "user_notice": "sentiment",
+}
+
+func goInvokeTargetSQLIn() string {
+	keys := make([]string, 0, len(analysisGoInvokeTargets))
+	for key := range analysisGoInvokeTargets {
+		keys = append(keys, "'"+key+"'")
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
+}
+
 func categoryFromTarget(target string) string {
+	if cat, ok := analysisGoInvokeTargets[target]; ok {
+		return cat
+	}
 	for mod, cat := range map[string]string{
 		"market_task": "market", "quant_task": "quant", "sentiment_task": "sentiment", "trade_task": "trade",
 	} {
