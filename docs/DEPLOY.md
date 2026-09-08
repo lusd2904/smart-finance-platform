@@ -229,8 +229,8 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**full / slim nginx 均 offload**；slim 上 `sentiment-data` 仍承接 `/quant/`、其余 `/market/`、行情 WS，不可删）
-- slim 合并：remaining market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`；热读另起 `sentiment-market-read`
+- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 热读 + 行情 WS（**full / slim nginx 均 offload**；slim 上 `sentiment-data` 仍承接 `/quant/`、其余 `/market/`，不可删）
+- slim 合并：remaining market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`；热读与行情 WS 另起 `sentiment-market-read`
 - `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
 - `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
 - `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
@@ -429,4 +429,4 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 行情热读（`market-read`）与 Redis 队列消费（workers）已在 slim / full 落地。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
 
-`sentiment-data` **仍不可删**（`/quant/`、其余 `/market/`、行情 WS）。512m → 384m 需 cursor-1 实测。口径见 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。
+`sentiment-data` **仍不可删**（`/quant/`、其余 `/market/` 写/入队）。512m → 384m 需 cursor-1 实测。口径见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md) 与 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。

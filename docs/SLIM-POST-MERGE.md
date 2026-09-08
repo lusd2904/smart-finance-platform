@@ -42,8 +42,8 @@ bash scripts/deploy_and_verify_slim.sh
 | `sentiment-influxdb` | `sentiment-influxdb` | 冷开 12g |
 | `sentiment-backend` | `sentiment-backend` | 登录 / 系统 |
 | `sentiment-trade` | `sentiment-trade` | 交易（独立） |
-| `sentiment-data` | `sentiment-data` | remaining `/market/` + `/quant/` + WS（热读已 offload） |
-| `sentiment-market-read` | `sentiment-market-read` | Go 热读（kline / board / heat / index / symbols history），256m |
+| `sentiment-data` | `sentiment-data` | remaining `/market/` + `/quant/`（热读与行情 WS 已 offload） |
+| `sentiment-market-read` | `sentiment-market-read` | Go 热读 + WS / live quotes，320m |
 | `sentiment-intel` | `sentiment-intel` | sentiment + ai API |
 | `sentiment-jobs` | `sentiment-jobs` | **scheduler only**（`APP_JOB_GROUP=none`） |
 | `sfp-market-worker` | `sfp-market-worker` | Go 消费 **market** 队列 |
@@ -58,10 +58,10 @@ bash scripts/deploy_and_verify_slim.sh
 
 ### market-read 与 slim nginx
 
-- **Full / Slim 栈**：nginx 把 K 线 / 热度 / 看板 / 指数条 / `symbols/*/history` 热读 offload 到 `sentiment-market-read`（Go，`mem_limit` 256m）。
-- **Slim 仍保留 `sentiment-data`**：`/quant/`、其余 `/market/`、行情 WS `/ws/` 仍走 Python。**不要删除 `sentiment-data`。**
-- `sentiment-data` slim `mem_limit` 仍为 **512m**（量化 + 剩余行情 + WS 尚未测到可安全降到 384m；后续再压）。
-- 行为不变：URL、JWT、WS 协议相同。
+- **Full / Slim 栈**：nginx 把 K 线 / 热度 / 看板 / 指数条 / `symbols/*/history` / `quotes/live` / `WS /ws/market/quotes` offload 到 `sentiment-market-read`（Go，`mem_limit` 320m）。
+- **Slim 仍保留 `sentiment-data`**：`/quant/`、其余 `/market/` 仍走 Python。**不要删除 `sentiment-data`。**
+- `sentiment-data` slim `mem_limit` 仍为 **512m**（量化 + 剩余行情尚未测到可安全降到 384m；后续再压）。
+- 行为不变：URL、JWT、WS 协议相同。回退只改 nginx，见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。
 
 ### 从旧 full 栈迁移到 slim
 
@@ -126,7 +126,7 @@ sudo docker compose \
 
 ## 下一 PR（计划，本 PR 不实施）
 
-目标：**删除**默认 compose 中的冗余拆分服务，避免新人误起 full 栈导致 OOM。**不要删除 `sentiment-data`**（slim 上仍承接 `/quant/`、剩余 `/market/`、行情 WS）。
+目标：**删除**默认 compose 中的冗余拆分服务，避免新人误起 full 栈导致 OOM。**不要删除 `sentiment-data`**（slim 上仍承接 `/quant/`、剩余 `/market/` 写/入队）。
 
 可选方案（二选一，由 Coordinator 定）：
 

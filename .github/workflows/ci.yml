@@ -208,6 +208,23 @@ jobs:
         working-directory: ruoyi-fastapi-backend
         run: /tmp/audit-venv/bin/pip-audit -r requirements-llm.txt --strict --progress-spinner off
 
+  market-read:
+    name: Go market-read tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/market-read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/market-read/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/market-read ./cmd/market-read
+
   market-worker:
     name: Go market-worker tests
     runs-on: ubuntu-latest

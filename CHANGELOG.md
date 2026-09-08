@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### ⚡ 行情 WS / live quotes 离开 sentiment-data
+- Go `sentiment-market-read` 增加 `WS /ws/market/quotes` 与 `GET /market/quotes/live`（腾讯 qt.gtimg.cn + Redis 短缓存）；FE 帧格式不变
+- `GET /market/index/quotes` 在 Redis 未命中时自行拉腾讯并回填 30s 缓存（不再依赖 Python WS 当 writer）
+- slim / full nginx 默认切到 Go；catch-all `/ws/`、`/market/`、`/quant/` 仍指向 Python，改 `proxy_pass` 即可回退
+- `sentiment-market-read` `mem_limit` 256m → 320m；`sentiment-data` 仍 512m（量化 / 写路径仍在）。清单见 `docs/SENTIMENT-DATA-OFFLOAD.md`
+- CI 增加 market-read `go test` / `go build`
+
 ### ⚡ Slim 启用 Go market-read 热读 offload
 - slim overlay 去掉 `sentiment-market-read` 的 `full-split` profile；`mem_limit` 仍 256m，depends_on mysql / redis / influx
 - slim nginx 与 full 栈相同：kline / board/quotes / heat/* / index/quotes / symbols/*/history → `sentiment-market-read:8080`

@@ -13,6 +13,7 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/heat"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/kline"
+	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/quotes"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/response"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/store"
 )
@@ -22,6 +23,7 @@ type Server struct {
 	Influx *influx.Client
 	Heat   *store.HeatStore
 	Cache  *cache.Cache
+	Quotes *quotes.Service
 }
 
 func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {
@@ -280,6 +282,10 @@ func (s *Server) HeatConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) IndexQuotes(w http.ResponseWriter, r *http.Request) {
+	if s.Quotes != nil {
+		response.Success(w, s.Quotes.IndexQuotes(r.Context()))
+		return
+	}
 	cached, err := s.Cache.GetJSON(r.Context(), cache.IndexQuotesKey)
 	if err == nil && cached != nil {
 		cached["cached"] = true
@@ -291,6 +297,20 @@ func (s *Server) IndexQuotes(w http.ResponseWriter, r *http.Request) {
 		"asOf":   nil,
 		"cached": false,
 	})
+}
+
+func (s *Server) LiveQuotes(w http.ResponseWriter, r *http.Request) {
+	pairs := quotes.ParseSymbolsQuery(r.URL.Query().Get("symbols"))
+	if s.Quotes == nil {
+		response.Success(w, map[string]interface{}{
+			"items":  []interface{}{},
+			"asOf":   nil,
+			"source": "empty",
+			"cached": false,
+		})
+		return
+	}
+	response.Success(w, s.Quotes.LiveQuotes(r.Context(), pairs))
 }
 
 func toJSONBars(bars []kline.Bar) []map[string]interface{} {

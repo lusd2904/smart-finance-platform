@@ -22,8 +22,8 @@
 
 | Slim 容器 | 合并内容 | 对外路径（不变） |
 |-----------|----------|------------------|
-| `sentiment-data` | remaining market + quant API + WS | 其余 `/market/`、`/quant/`、`/ws/` |
-| `sentiment-market-read` | Go 热读（256m） | kline / board / heat / index / `symbols/*/history` |
+| `sentiment-data` | remaining market + quant API | 其余 `/market/`、`/quant/` |
+| `sentiment-market-read` | Go 热读 + 行情 WS（320m） | kline / board / heat / index / history / `quotes/live` / `WS /ws/market/quotes` |
 | `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
 | `sentiment-trade` | **仍独立** | `/trade/` |
 | `sentiment-jobs` | `APP_JOB_GROUP=none`：仅 APScheduler；market/quant/llm 队列由 Go workers 消费 | 任务中心「jobs 在线」 |
@@ -93,16 +93,17 @@ PR **#66** / **#67** 落地 full 栈 `sentiment-market-read` 与三 Go workers�
 | 组件 | Slim 状态 |
 |------|-----------|
 | Go workers（market / quant / llm） | **已启用**（`docker-compose.sentiment.slim.yml` + `deploy_and_verify_slim.sh`） |
-| `sentiment-market-read` | **已启用**（去掉 slim `profiles: [full-split]`）；slim nginx 热读与 full 栈相同 |
-| `sentiment-data` | **仍保留**：`/quant/`、其余 `/market/`、行情 WS。**不要删除。** `mem_limit` 仍 512m |
+| `sentiment-market-read` | **已启用**；热读 + `GET /market/quotes/live` + `WS /ws/market/quotes`（`mem_limit` 320m） |
+| `sentiment-data` | **仍保留**：`/quant/`、其余 `/market/` 写/入队/AI。**不要删除。** `mem_limit` 仍 512m |
 | `sentiment-jobs` | scheduler-only（`APP_JOB_GROUP=none`） |
 
-HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 实测后再降。
+HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 实测后再降。  
+清单与回退：[SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。
 
 ### 与 slim 的关系
 
-- Slim 是当前 **16 GiB 上的进程合并**；Go workers + market-read 已叠加在 slim 拓扑上。
-- `sentiment-market-read` 只替换热读路径；量化、剩余行情写/业务、行情 WS 仍在 `sentiment-data`。
+- Slim 是当前 **16 GiB 上的进程合并**；Go workers + market-read（含行情 WS）已叠加在 slim 拓扑上。
+- `sentiment-market-read` 承接热读与行情推送；量化、剩余行情写/业务仍在 `sentiment-data`。
 
 ---
 
@@ -126,4 +127,5 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | **#64** | Slim overlay、`docker-compose.sentiment.slim.yml`、`deploy_and_verify_slim.sh`、`SFP-TWO-HOST-DEPLOY.md`、`SLIM-POST-MERGE.md` |
 | **#66** | Full 栈 `sentiment-market-read`（Go 热读） |
 | **#67** | Go workers + slim scheduler-only `sentiment-jobs` |
-| **本 PR** | Slim 启用 `sentiment-market-read` + nginx 热读 offload；`sentiment-data` 仍保留 |
+| **#75** | Slim 启用 `sentiment-market-read` + nginx 热读 offload |
+| **本 PR** | 行情 WS + `/market/quotes/live` 迁 Go；指数条自拉腾讯；`sentiment-data` 仍保留 |

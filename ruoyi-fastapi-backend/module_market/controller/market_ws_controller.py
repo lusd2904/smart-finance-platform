@@ -1,6 +1,8 @@
 """行情 WebSocket：指数快照 + 可选个股订阅。
 
 端点：WS /ws/market/quotes?interval=15
+DEPRECATED(ws-offload): nginx 默认路由至 sentiment-market-read (Go)。
+本 handler 仅作回退（把 nginx /ws/market/quotes 改回 Python upstream）。
 - 鉴权：Cookie Admin-Token，或开帧 {type:auth,token}。不再接受 query token。
   JWT 签名 + Redis 会话一致；失败以 code=4401 关闭。
 - 默认推送：每 interval 秒推送盘中指数快照，载荷与 GET /market/index/quotes 的 data 一致。

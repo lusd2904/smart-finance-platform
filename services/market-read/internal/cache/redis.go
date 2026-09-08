@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -32,8 +33,8 @@ func New(cfg *config.Config) *Cache {
 }
 
 func (c *Cache) Ping(ctx context.Context) error { return c.rdb.Ping(ctx).Err() }
-func (c *Cache) Close() error { return c.rdb.Close() }
-func (c *Cache) Client() *redis.Client { return c.rdb }
+func (c *Cache) Close() error                   { return c.rdb.Close() }
+func (c *Cache) Client() *redis.Client          { return c.rdb }
 
 func (c *Cache) GetJSON(ctx context.Context, key string) (map[string]interface{}, error) {
 	raw, err := c.rdb.Get(ctx, key).Result()
@@ -45,6 +46,18 @@ func (c *Cache) GetJSON(ctx context.Context, key string) (map[string]interface{}
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *Cache) SetJSON(ctx context.Context, key string, value interface{}, ttlSeconds int) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	ttl := time.Duration(ttlSeconds) * time.Second
+	if ttlSeconds <= 0 {
+		ttl = 0
+	}
+	return c.rdb.Set(ctx, key, raw, ttl).Err()
 }
 
 func (c *Cache) ResolveHeatWeights(ctx context.Context) map[string]float64 {

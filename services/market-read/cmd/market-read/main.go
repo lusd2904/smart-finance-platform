@@ -17,7 +17,10 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/handlers"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/middleware"
+	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/quotes"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/store"
+	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/tencent"
+	"github.com/lusd2904/smart-finance-platform/services/market-read/internal/ws"
 )
 
 func main() {
@@ -39,12 +42,18 @@ func main() {
 	influxClient := influx.New(cfg)
 	authn := auth.New(cfg, cacheClient.Client())
 	mw := &middleware.Middleware{Auth: authn}
+	quoteSvc := &quotes.Service{
+		Cache:   cacheClient,
+		Fetcher: tencent.NewHTTPFetcher(),
+	}
 	srv := &handlers.Server{
 		Auth:   authn,
 		Influx: influxClient,
 		Heat:   heatStore,
 		Cache:  cacheClient,
+		Quotes: quoteSvc,
 	}
+	wsGateway := &ws.Gateway{Auth: authn, Quotes: quoteSvc}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.Health)
@@ -58,6 +67,9 @@ func main() {
 	mux.Handle("/market/index/quotes", mw.RequirePerms(
 		"sentiment:news:list", "sentiment:analysis:list", "market:heat:list",
 	)(http.HandlerFunc(srv.IndexQuotes)))
+	mux.Handle("/market/quotes/live", mw.RequirePerms(
+		"sentiment:news:list", "sentiment:analysis:list", "market:heat:list", "market:kline:list", "market:watchlist:list",
+	)(http.HandlerFunc(srv.LiveQuotes)))
 	mux.Handle("/market/symbols/", mw.RequirePerms("market:kline:list")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if stringsHasSuffix(r.URL.Path, "/history") {
 			srv.SymbolHistory(w, r)
@@ -65,6 +77,8 @@ func main() {
 		}
 		http.NotFound(w, r)
 	})))
+	// Same FE contract as Python WS /ws/market/quotes (JWT+session; no extra perm).
+	mux.HandleFunc("/ws/market/quotes", wsGateway.ServeMarketQuotes)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
