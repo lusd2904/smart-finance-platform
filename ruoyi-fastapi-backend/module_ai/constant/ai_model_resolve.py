@@ -1,5 +1,6 @@
 """业务侧解析 AI 模型：不依赖数据库与环境变量，便于单测。"""
 
+import random
 from collections.abc import Sequence
 from typing import Any
 
@@ -41,30 +42,32 @@ def select_ai_model_row(
     preferred_codes: Sequence[str] | None = None,
 ) -> Any | None:
     """
-    从已启用模型中选出业务用连接。
-    顺序：preferred_scope -> preferred_codes（如 grok-4.6）-> global -> chat -> 第一条完整配置。
-    调用方应已按 model_sort, model_id 排好序。
+    从已启用且配置完整（base_url + api_key + model_code）的模型中选出业务用连接。
+    顺序：preferred_scope 池 -> preferred_codes 匹配池 -> global 池 -> chat 池 -> 全部完整配置。
+    每一档在命中的池内 random.choice，不再固定取第一行。
     """
     complete = [model for model in models if _is_complete_model(model)]
     if not complete:
         return None
 
-    def first_in_scope(scope: str) -> Any | None:
+    def pool_in_scope(scope: str) -> list[Any]:
         if not scope:
-            return None
-        return next((model for model in complete if (getattr(model, 'scope', None) or '') == scope), None)
+            return []
+        return [model for model in complete if (getattr(model, 'scope', None) or '') == scope]
 
-    hit = first_in_scope(preferred_scope)
-    if hit:
-        return hit
+    scope_pool = pool_in_scope(preferred_scope)
+    if scope_pool:
+        return random.choice(scope_pool)
     if preferred_codes:
-        for model in complete:
-            if _code_matches(getattr(model, 'model_code', None), preferred_codes):
-                return model
+        code_pool = [
+            model for model in complete if _code_matches(getattr(model, 'model_code', None), preferred_codes)
+        ]
+        if code_pool:
+            return random.choice(code_pool)
     for scope in ('global', 'chat'):
         if scope == preferred_scope:
             continue
-        hit = first_in_scope(scope)
-        if hit:
-            return hit
-    return complete[0]
+        fallback_pool = pool_in_scope(scope)
+        if fallback_pool:
+            return random.choice(fallback_pool)
+    return random.choice(complete)
