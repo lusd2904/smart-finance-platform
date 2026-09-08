@@ -9,17 +9,17 @@ Slim production no longer runs `sentiment-intel` / `sentiment-backend` Python co
 | `feishu_push` | **Native** | `notify-worker` → MySQL `plat_feishu_subscription` |
 | `user_notice` | **Native** | `notify-worker` → `plat_notification` insert |
 | `sentiment_analyze` | **Native** | `notify-worker` → OpenAI-compatible gateway + `sentiment_analysis` |
-| `sentiment_collect` | **Stub** | RSS scrapers not ported; use X monitor ingest (`POST /sentiment/ingest/x_monitor`) or `legacy-data` profile |
+| `sentiment_collect` | **Native (X-monitor path)** | Counts pending `sentiment_news` from ingest; RSS scrapers not ported — use `POST /sentiment/ingest/x_monitor` |
 | `daily_review` | **Native wrapper** | Same as `sentiment_collect` with `analyze=true` (runs analyze when `auto_analyze=1`) |
 | `req_send` | **Native** | `notify-worker` → parallel bot LLM round + `ai_req_message` / `ai_req_item` |
 | `req_summarize` | **Native** | Same as `req_send` with `summarize=true` |
-| `watchlist_analyze` | **Stub** | Needs FactorService + StockPickAnalyzer + Influx (market scope) |
-| `stock_pick_run` | **Stub** | Needs full stock-pick scoring engine |
-| `market_review` | **Stub** | Needs Influx benchmark context + market review analyzer |
-| `ai_analyze` | **Stub** | Needs `StockPickService.analyze_symbol` |
-| `ai_batch` | **Stub** | Depends on native `ai_analyze` |
+| `watchlist_analyze` | **Native** | Factor scoring + stock-pick LLM → `market_watchlist_analysis` |
+| `stock_pick_run` | **Native** | Heat/top50 candidates + factor scoring + optional AI → `market_stock_pick` |
+| `market_review` | **Native** | Influx benchmarks + briefings/sentiment + AI/rule fallback → `market_daily_review` |
+| `ai_analyze` | **Native** | `analyze_symbol` + persist `symbol_ai_analysis` |
+| `ai_batch` | **Native** | Batch `ai_analyze` + `plat_ai_batch_run` / `plat_ai_batch_item` |
 
-Stubbed jobs return HTTP 200 with `{"skipped": true, "reason": "<job>_deferred", "message": "..."}` — they do **not** POST to Python.
+All LLM jobs return real handler results (no `skipped: true` stubs).
 
 ## Routing changes
 
@@ -30,17 +30,19 @@ Stubbed jobs return HTTP 200 with `{"skipped": true, "reason": "<job>_deferred",
 ## Env (notify-worker)
 
 - `DB_*`, `REDIS_*`
+- `INFLUX_URL`, `INFLUX_TOKEN`, `INFLUX_ORG`, `INFLUX_BUCKET_US`, `INFLUX_BUCKET_CN` — klines for factor scoring and market review
 - `JWT_SECRET_KEY`, `CREDENTIAL_ENCRYPTION_KEY` — decrypt `ai_models.api_key` (Fernet)
 
 ## Kill list (removed Python delegation paths)
 
 | Reference | Action |
 |-----------|--------|
-| `notify-worker` → `delegateJobs` → `INTERNAL_JOBS_URL` | Removed; all llm types native or stub |
+| `notify-worker` → `delegateJobs` → `INTERNAL_JOBS_URL` | Removed; all llm types native |
 | `sfp-backend` `IntelBridgeTypes` → `INTEL_JOBS_URL/internal/jobs/run` | Cleared |
 | `INTEL_JOBS_URL` default `http://sentiment-intel:9099` | Default `""` in compose + config |
 | `sfp-notify-worker` `INTERNAL_JOBS_URL` | Removed from compose |
 | `workers/notify-worker/internal/delegate/python.go` | Deleted |
+| `workers/notify-worker/internal/jobs/stub.go` | Deleted — deferred handlers implemented |
 
 Still present (intentional):
 
