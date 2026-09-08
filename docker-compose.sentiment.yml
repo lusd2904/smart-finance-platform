@@ -372,7 +372,7 @@ services:
       retries: 12
       start_period: 25s
 
-  # quant 队列：Go worker（indicator_refresh 原生；因子/策略等委托 Python）
+  # quant 队列：Go worker（因子/策略/次日清单/持仓监控原生；开仓与 auto_trade 仍委托 P1）
   sfp-quant-worker:
     build:
       context: ./workers/quant-worker
@@ -398,6 +398,12 @@ services:
       INFLUX_BUCKET_CN: market_data
       INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
       PYTHON_DELEGATE_URL: http://sentiment-backend:9099/internal/jobs/run
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      LONGPORT_APP_KEY: ${LONGPORT_APP_KEY:-}
+      LONGPORT_APP_SECRET: ${LONGPORT_APP_SECRET:-}
+      LONGPORT_ACCESS_TOKEN: ${LONGPORT_ACCESS_TOKEN:-}
+      LONGPORT_REGION: ${LONGPORT_REGION:-cn}
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
     depends_on: *data-depends

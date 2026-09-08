@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### ⚙️ Go quant-worker：因子 / 策略 / 次日清单 / 持仓监控不再走 Python
+- `factor_scan` / `factor_qc` / `strategy_run` / `daily_list_scan` 改为 worker 原生（Influx K 线 + 8 族打分 + Alpha 子集 + Redis 读模型）
+- `position_monitor` 只读：Longbridge HTTP 持仓 + 止损告警写入 `plat_risk_event`；**不下单**（`soldCount=0`，交 P1 / #78）
+- `daily_list_open` / `auto_trade_scan` 仍委托 Python `/internal/jobs/run`（#78 接手下单）
+- Redis 队列名与 `sys_job` 任务类型不变（DB 2）；调度仍走已落地的 `sfp-scheduler`
+- cursor-1：`up -d --no-deps --build sfp-quant-worker`
+
 ### 🧵 Go sfp-scheduler 替换 Python sentiment-jobs
 - 新服务 `services/sfp-scheduler`：读 `sys_job` + Quartz cron，按原 payload 入 Redis DB 2（market/quant/llm）
 - slim/full 默认起 `sfp-scheduler`（`127.0.0.1:19098`）；Python `sentiment-jobs` 放到 profile `python-scheduler`

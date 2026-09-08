@@ -75,6 +75,17 @@ func (r *Reader) QueryLatestKlines(ctx context.Context, market string, symbols [
 	return out, nil
 }
 
+// QueryKlinesMany fetches up to `limit` daily bars per symbol (chunked).
+func (r *Reader) QueryKlinesMany(ctx context.Context, market string, symbols []string, start string, limit int) (map[string][]KlineBar, error) {
+	if limit <= 0 {
+		limit = 320
+	}
+	if start == "" {
+		start = "-1y"
+	}
+	return r.QueryLatestKlines(ctx, market, symbols, limit, start)
+}
+
 func (r *Reader) QueryKlines(ctx context.Context, market, symbol, start string, limit int) ([]KlineBar, error) {
 	sym := sanitizeSymbol(symbol)
 	if sym == "" {
