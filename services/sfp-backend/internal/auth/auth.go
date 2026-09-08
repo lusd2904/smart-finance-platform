@@ -318,6 +318,10 @@ func (s *Service) passwordExpired(ctx context.Context, pwdUpdate sql.NullTime) b
 	return time.Since(pwdUpdate.Time) > time.Duration(days)*24*time.Hour
 }
 
+func (s *Service) CheckCaptcha(ctx context.Context, uuid, code string) error {
+	return s.checkCaptcha(ctx, uuid, code)
+}
+
 func (s *Service) checkCaptcha(ctx context.Context, uuid, code string) error {
 	v, err := s.redis.Get(ctx, fmt.Sprintf("%s:%s", captchaCodesKey, uuid)).Result()
 	if err != nil {

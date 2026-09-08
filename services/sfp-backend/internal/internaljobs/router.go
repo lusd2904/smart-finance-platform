@@ -9,33 +9,25 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/jobqueue"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/jobs"
 )
 
-var intelJobs = map[string]bool{
-	"sentiment_collect": true, "sentiment_analyze": true, "watchlist_analyze": true,
-	"daily_review": true, "req_send": true, "req_summarize": true, "stock_pick_run": true,
-	"market_review": true, "ai_analyze": true, "ai_batch": true, "user_notice": true,
-	"market_heat_collect": true, "symbol_content": true,
-}
-
-var quantJobs = map[string]bool{
-	"factor_scan": true, "factor_qc": true, "strategy_run": true, "position_monitor": true,
-	"daily_list_scan": true, "daily_list_open": true, "auto_trade_scan": true,
-	"strategy_evaluate": true,
-}
-
 type Router struct {
-	token     string
-	intelURL  string
-	quantURL  string
-	client    *http.Client
+	token    string
+	intelURL string
+	quantURL string
+	enqueue  *jobqueue.Enqueuer
+	client   *http.Client
 }
 
-func New(token, intelURL, quantURL string) *Router {
+func New(token, intelURL, quantURL string, enqueue *jobqueue.Enqueuer) *Router {
 	return &Router{
 		token:    strings.TrimSpace(token),
 		intelURL: strings.TrimRight(strings.TrimSpace(intelURL), "/"),
 		quantURL: strings.TrimRight(strings.TrimSpace(quantURL), "/"),
+		enqueue:  enqueue,
 		client:   &http.Client{Timeout: 10 * time.Minute},
 	}
 }
@@ -53,8 +45,20 @@ type Request struct {
 
 func (r *Router) Run(ctx context.Context, jobType string, payload map[string]interface{}) (map[string]interface{}, error) {
 	jobType = strings.TrimSpace(jobType)
-	if jobType == "" {
-		return nil, fmt.Errorf("missing job type")
+	if err := jobs.ValidateType(jobType); err != nil {
+		return nil, err
+	}
+	if jobs.NativeGoWorkerTypes[jobType] {
+		if r.enqueue == nil {
+			return nil, fmt.Errorf("job queue unavailable")
+		}
+		job, err := r.enqueue.Enqueue(ctx, jobType, payload)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok": true, "queued": true, "jobId": job.JobID, "queue": job.Queue, "type": jobType,
+		}, nil
 	}
 	target := r.targetURL(jobType)
 	if target == "" {
@@ -92,15 +96,15 @@ func (r *Router) Run(ctx context.Context, jobType string, payload map[string]int
 }
 
 func (r *Router) targetURL(jobType string) string {
-	if intelJobs[jobType] {
+	if jobs.IntelBridgeTypes[jobType] {
 		return r.intelURL + "/internal/jobs/run"
 	}
-	if quantJobs[jobType] {
+	if jobs.QuantBridgeTypes[jobType] {
 		return r.quantURL + "/internal/jobs/run"
 	}
 	return ""
 }
 
 func (r *Router) IsKnown(jobType string) bool {
-	return r.targetURL(jobType) != ""
+	return jobs.IsDelegatable(jobType)
 }

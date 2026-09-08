@@ -3,20 +3,29 @@ package internaljobs
 import "testing"
 
 func TestRouterTargets(t *testing.T) {
-	r := New("secret", "http://intel:9099", "http://quant:9099")
+	r := New("secret", "http://intel:9099", "http://quant:9099", nil)
 	if r.targetURL("sentiment_collect") != "http://intel:9099/internal/jobs/run" {
 		t.Fatalf("intel route mismatch")
 	}
 	if r.targetURL("strategy_evaluate") != "http://quant:9099/internal/jobs/run" {
 		t.Fatalf("quant route mismatch")
 	}
-	if r.targetURL("unknown_job") != "" {
-		t.Fatalf("expected empty for unknown")
+	if r.targetURL("factor_scan") != "" {
+		t.Fatalf("native quant job should not delegate")
+	}
+	if r.targetURL("market_heat_collect") != "" {
+		t.Fatalf("native market job should not delegate")
+	}
+	if !r.IsKnown("factor_scan") {
+		t.Fatalf("factor_scan should be known")
+	}
+	if !r.IsKnown("sentiment_collect") {
+		t.Fatalf("sentiment_collect should be known")
 	}
 }
 
 func TestAuthorize(t *testing.T) {
-	r := New("secret", "http://intel:9099", "http://quant:9099")
+	r := New("secret", "http://intel:9099", "http://quant:9099", nil)
 	if !r.Authorize("secret") {
 		t.Fatalf("expected authorized")
 	}

@@ -5,16 +5,30 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/redis/go-redis/v9"
+
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/analysis"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/auth"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/captcha"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/config"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/dashboard"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/menurouter"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/response"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/scheduler"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/store"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/transportcrypto"
 )
 
 type Server struct {
-	Auth *auth.Service
-	DB   *store.DB
+	Auth      *auth.Service
+	DB        *store.DB
+	Config    *config.Config
+	Redis     *redis.Client
+	Scheduler *scheduler.Runtime
+	Commander *scheduler.Commander
+	Crypto    *transportcrypto.Provider
+	Dashboard *dashboard.Service
+	Analysis  *analysis.Service
 }
 
 func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {
