@@ -212,8 +212,32 @@ export function stubAccount() {
 
 export function stubOrders() {
   return [
-    { id: 'o-1', symbol: '00700', side: 'BUY', quantity: 100, price: 410.2, status: '待成交', open: true },
-    { id: 'o-2', symbol: 'AAPL', side: 'SELL', quantity: 20, price: 229.0, status: '已成交', open: false }
+    { id: 'o-1', orderId: 'ORD-700-093112', symbol: '00700', stockName: '腾讯控股', name: '腾讯控股', market: 'HK', side: 'BUY', quantity: 100, price: 410.2, status: 'pending', statusLabel: '待成交', orderType: 'LO', submittedAt: '09:31:12', open: true },
+    { id: 'o-2', orderId: 'ORD-AAPL-092845', symbol: 'AAPL', stockName: '苹果', name: '苹果', market: 'US', side: 'SELL', quantity: 20, price: 229.0, status: 'filled', statusLabel: '已成交', orderType: 'LO', submittedAt: '09:28:45', executedQuantity: 20, executedPrice: 229.0, open: false },
+    { id: 'o-3', orderId: 'ORD-300750-091502', symbol: '300750', stockName: '宁德时代', name: '宁德时代', market: 'CN', side: 'BUY', quantity: 100, price: 196.5, status: 'partial_filled', statusLabel: '部分成交', orderType: 'LO', submittedAt: '09:15:02', executedQuantity: 40, executedPrice: 196.5, open: true },
+    { id: 'o-4', orderId: 'ORD-9988-090802', symbol: '09988', stockName: '阿里巴巴-SW', name: '阿里巴巴-SW', market: 'HK', side: 'SELL', quantity: 200, price: 86.15, status: 'filled', statusLabel: '已成交', orderType: 'LO', submittedAt: '09:08:02', executedQuantity: 200, executedPrice: 86.15, open: false },
+    { id: 'o-5', orderId: 'ORD-TSLA-085512', symbol: 'TSLA', stockName: '特斯拉', name: '特斯拉', market: 'US', side: 'BUY', quantity: 10, price: 248.4, status: 'rejected', statusLabel: '已拒绝', orderType: 'LO', submittedAt: '08:55:12', remark: '资金不足', open: false },
+    { id: 'o-6', orderId: 'ORD-3888-084410', symbol: '03888', stockName: '金山软件', name: '金山软件', market: 'HK', side: 'BUY', quantity: 500, price: 32.8, status: 'cancelled', statusLabel: '已撤销', orderType: 'LO', submittedAt: '08:44:10', open: false },
+    { id: 'o-7', orderId: 'ORD-5-083302', symbol: '00005', stockName: '汇丰控股', name: '汇丰控股', market: 'HK', side: 'SELL', quantity: 400, price: 68.45, status: 'filled', statusLabel: '已成交', orderType: 'MO', submittedAt: '08:33:02', executedQuantity: 400, executedPrice: 68.45, open: false },
+    { id: 'o-8', orderId: 'ORD-600519-082118', symbol: '600519', stockName: '贵州茅台', name: '贵州茅台', market: 'CN', side: 'BUY', quantity: 10, price: 1482.0, status: 'filled', statusLabel: '已成交', orderType: 'LO', submittedAt: '08:21:18', executedQuantity: 10, executedPrice: 1482.0, open: false }
+  ]
+}
+
+export function stubRiskAlerts() {
+  return [
+    { id: 'ra-1', level: 'warn', title: '单票集中度接近上限', body: '00700 腾讯控股 市值占比 32.4% · 单票上限 30%', time: '10:21:08', createTime: '10:21:08' },
+    { id: 'ra-2', level: 'info', title: '日亏监控正常', body: '今日盈亏 +1.32% · 日亏限额 −5.00%', time: '09:45:00', createTime: '09:45:00' },
+    { id: 'ra-3', level: 'danger', title: '杠杆偏高', body: '仓位 74.6% · 建议控制新增开仓', time: '09:12:33', createTime: '09:12:33' }
+  ]
+}
+
+export function stubNotifications() {
+  return [
+    { id: 'n-1', title: '委托已提交', content: '00700 腾讯控股 买入 100 股 @ 410.20 已报入', level: 'info', category: 'trade', read: false, createTime: '09:31:12' },
+    { id: 'n-2', title: '部分成交', content: '300750 宁德时代 已成交 40 / 100 @ 196.50', level: 'success', category: 'trade', read: false, createTime: '09:16:40' },
+    { id: 'n-3', title: '单票集中度预警', content: '00700 市值占比接近 30% 上限，请关注风控规则 v0.2', level: 'warning', category: 'risk', read: false, createTime: '10:21:08' },
+    { id: 'n-4', title: '系统维护', content: '行情快照通道将于 16:00 进行例行巡检，终端不受影响', level: 'info', category: 'system', read: true, createTime: '08:05:00' },
+    { id: 'n-5', title: '卖出已成交', content: 'AAPL 苹果 卖出 20 股 @ 229.00 全部成交', level: 'success', category: 'trade', read: true, createTime: '09:28:51' }
   ]
 }
 

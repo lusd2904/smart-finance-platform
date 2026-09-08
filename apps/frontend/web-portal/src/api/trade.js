@@ -9,7 +9,8 @@ export function getTradePositions() {
 }
 
 export function getTradeOrders(scope = 'today') {
-  return request({ url: '/trade/orders', method: 'get', params: { scope }, timeout: 30000, silent: true })
+  const mapped = scope === 'today' ? 'today' : 'history'
+  return request({ url: '/trade/orders', method: 'get', params: { scope: mapped }, timeout: 30000, silent: true })
 }
 
 export function getTradeQuoteDepth(query) {
