@@ -14,13 +14,19 @@ const (
 )
 
 type Candidate struct {
-	Symbol    string
-	Name      string
-	MarketCap *float64
-	Turnover  *float64
-	ChangePct *float64
-	Last      *float64
-	Currency  string
+	Symbol        string
+	Name          string
+	MarketCap     *float64
+	Turnover      *float64
+	ChangePct     *float64
+	Last          *float64
+	ChangeAmount  *float64
+	TurnoverRate  *float64
+	VolumeRatio   *float64
+	Amplitude     *float64
+	PE            *float64
+	MainNetInflow *float64
+	Currency      string
 }
 
 type Extras struct {
@@ -33,14 +39,20 @@ type Extras struct {
 }
 
 type Top50Item struct {
-	RankNo    int
-	Symbol    string
-	Name      string
-	MarketCap *float64
-	Turnover  *float64
-	ChangePct *float64
-	Last      *float64
-	Currency  string
+	RankNo        int
+	Symbol        string
+	Name          string
+	MarketCap     *float64
+	Turnover      *float64
+	ChangePct     *float64
+	Last          *float64
+	ChangeAmount  *float64
+	TurnoverRate  *float64
+	VolumeRatio   *float64
+	Amplitude     *float64
+	PE            *float64
+	MainNetInflow *float64
+	Currency      string
 }
 
 type CollectResult struct {
@@ -251,6 +263,24 @@ func MergeCandidates(groups ...[]Candidate) []Candidate {
 			if current.Last == nil && item.Last != nil {
 				current.Last = item.Last
 			}
+			if current.ChangeAmount == nil && item.ChangeAmount != nil {
+				current.ChangeAmount = item.ChangeAmount
+			}
+			if current.TurnoverRate == nil && item.TurnoverRate != nil {
+				current.TurnoverRate = item.TurnoverRate
+			}
+			if current.VolumeRatio == nil && item.VolumeRatio != nil {
+				current.VolumeRatio = item.VolumeRatio
+			}
+			if current.Amplitude == nil && item.Amplitude != nil {
+				current.Amplitude = item.Amplitude
+			}
+			if current.PE == nil && item.PE != nil {
+				current.PE = item.PE
+			}
+			if current.MainNetInflow == nil && item.MainNetInflow != nil {
+				current.MainNetInflow = item.MainNetInflow
+			}
 			if item.Turnover != nil && deref(current.Turnover) < *item.Turnover {
 				current.Turnover = item.Turnover
 			}
@@ -351,14 +381,20 @@ func ranked(items []Candidate) []Top50Item {
 			name = item.Symbol
 		}
 		out = append(out, Top50Item{
-			RankNo:    i + 1,
-			Symbol:    item.Symbol,
-			Name:      name,
-			MarketCap: item.MarketCap,
-			Turnover:  item.Turnover,
-			ChangePct: item.ChangePct,
-			Last:      item.Last,
-			Currency:  item.Currency,
+			RankNo:        i + 1,
+			Symbol:        item.Symbol,
+			Name:          name,
+			MarketCap:     item.MarketCap,
+			Turnover:      item.Turnover,
+			ChangePct:     item.ChangePct,
+			Last:          item.Last,
+			ChangeAmount:  item.ChangeAmount,
+			TurnoverRate:  item.TurnoverRate,
+			VolumeRatio:   item.VolumeRatio,
+			Amplitude:     item.Amplitude,
+			PE:            item.PE,
+			MainNetInflow: item.MainNetInflow,
+			Currency:      item.Currency,
 		})
 	}
 	return out

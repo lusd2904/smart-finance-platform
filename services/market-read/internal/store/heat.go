@@ -54,15 +54,21 @@ type HeatRow struct {
 }
 
 type Top50Row struct {
-	RankNo     int
-	Symbol     string
-	Name       sql.NullString
-	MarketCap  sql.NullFloat64
-	Turnover   sql.NullFloat64
-	ChangePct  sql.NullFloat64
-	Last       sql.NullFloat64
-	Currency   sql.NullString
-	AsOfTime   sql.NullTime
+	RankNo        int
+	Symbol        string
+	Name          sql.NullString
+	MarketCap     sql.NullFloat64
+	Turnover      sql.NullFloat64
+	ChangePct     sql.NullFloat64
+	Last          sql.NullFloat64
+	ChangeAmount  sql.NullFloat64
+	TurnoverRate  sql.NullFloat64
+	VolumeRatio   sql.NullFloat64
+	Amplitude     sql.NullFloat64
+	PE            sql.NullFloat64
+	MainNetInflow sql.NullFloat64
+	Currency      sql.NullString
+	AsOfTime      sql.NullTime
 }
 
 func (s *HeatStore) GetHeat(ctx context.Context, market, tradeDate string) (*HeatRow, error) {
@@ -142,7 +148,9 @@ FROM market_heat_daily WHERE market = ? ORDER BY trade_date DESC LIMIT ?`,
 
 func (s *HeatStore) ListTop50(ctx context.Context, market, tradeDate string) ([]Top50Row, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT rank_no, symbol, name, market_cap, turnover, change_pct, last, currency, as_of_time
+SELECT rank_no, symbol, name, market_cap, turnover, change_pct, last,
+       change_amount, turnover_rate, volume_ratio, amplitude, pe, main_net_inflow,
+       currency, as_of_time
 FROM market_top50_snapshot WHERE market = ? AND trade_date = ? ORDER BY rank_no`,
 		strings.ToUpper(market), tradeDate)
 	if err != nil {
@@ -153,7 +161,8 @@ FROM market_top50_snapshot WHERE market = ? AND trade_date = ? ORDER BY rank_no`
 	for rows.Next() {
 		row := Top50Row{}
 		if err := rows.Scan(&row.RankNo, &row.Symbol, &row.Name, &row.MarketCap, &row.Turnover,
-			&row.ChangePct, &row.Last, &row.Currency, &row.AsOfTime); err != nil {
+			&row.ChangePct, &row.Last, &row.ChangeAmount, &row.TurnoverRate, &row.VolumeRatio,
+			&row.Amplitude, &row.PE, &row.MainNetInflow, &row.Currency, &row.AsOfTime); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -317,15 +326,21 @@ func SerializeTop50(rows []Top50Row) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, map[string]interface{}{
-			"rankNo":     row.RankNo,
-			"symbol":     row.Symbol,
-			"name":       nullString(row.Name, row.Symbol),
-			"marketCap":  nullFloat(row.MarketCap),
-			"turnover":   nullFloat(row.Turnover),
-			"changePct":  nullFloat(row.ChangePct),
-			"last":       cleanLast(row.Last),
-			"currency":   nullString(row.Currency, ""),
-			"asOfTime":   formatTime(row.AsOfTime),
+			"rankNo":        row.RankNo,
+			"symbol":        row.Symbol,
+			"name":          nullString(row.Name, row.Symbol),
+			"marketCap":     nullFloat(row.MarketCap),
+			"turnover":      nullFloat(row.Turnover),
+			"changePct":     nullFloat(row.ChangePct),
+			"last":          cleanLast(row.Last),
+			"changeAmount":  nullFloat(row.ChangeAmount),
+			"turnoverRate":  nullFloat(row.TurnoverRate),
+			"volumeRatio":   nullFloat(row.VolumeRatio),
+			"amplitude":     nullFloat(row.Amplitude),
+			"pe":            nullFloat(row.PE),
+			"mainNetInflow": nullFloat(row.MainNetInflow),
+			"currency":      nullString(row.Currency, ""),
+			"asOfTime":      formatTime(row.AsOfTime),
 		})
 	}
 	return out

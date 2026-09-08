@@ -134,6 +134,28 @@
             <span class="chg-cell" :class="changeClass(row.changePct)">{{ fmtPct(row.changePct) }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="changeAmount" label="涨跌额" width="100" align="right" sortable="custom">
+          <template #default="{ row }">
+            <span class="chg-cell" :class="changeClass(row.changeAmount)">{{ fmtSigned(row.changeAmount) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="turnoverRate" label="换手率" width="92" align="right" sortable="custom">
+          <template #default="{ row }">{{ fmtRate(row.turnoverRate) }}</template>
+        </el-table-column>
+        <el-table-column prop="volumeRatio" label="量比" width="80" align="right" sortable="custom">
+          <template #default="{ row }">{{ fmtNum(row.volumeRatio) }}</template>
+        </el-table-column>
+        <el-table-column prop="amplitude" label="振幅" width="88" align="right" sortable="custom">
+          <template #default="{ row }">{{ fmtRate(row.amplitude) }}</template>
+        </el-table-column>
+        <el-table-column prop="pe" label="PE" width="80" align="right" sortable="custom">
+          <template #default="{ row }">{{ fmtNum(row.pe) }}</template>
+        </el-table-column>
+        <el-table-column prop="mainNetInflow" label="主力净流入" width="122" align="right" sortable="custom">
+          <template #default="{ row }">
+            <span class="chg-cell" :class="changeClass(row.mainNetInflow)">{{ fmtAmount(row.mainNetInflow) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="172" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="goSymbol(row)">详情</el-button>
@@ -210,7 +232,7 @@
 <script setup name="MarketHeat">
 import { applyChartTheme } from '@/utils/echartsTheme'
 import { useEChart } from '@/composables/useEChart'
-import { changeClass, fmtAmount, fmtPct } from '@/utils/format'
+import { changeClass, fmtAmount, fmtNum, fmtPct, fmtRate, fmtSigned } from '@/utils/format'
 import {
   getMarketHeatDaily,
   getMarketHeatDates,

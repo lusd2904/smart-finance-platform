@@ -52,6 +52,35 @@ func TestSinaUSRowAmountFallback(t *testing.T) {
 	}
 }
 
+func TestCandidateFromEastmoneyAndDerived(t *testing.T) {
+	c := candidateFromEastmoney(map[string]any{
+		"f12": "000001", "f14": "平安", "f2": 10.0, "f3": 1.0, "f6": 1e9, "f20": 2e11,
+		"f15": 10.5, "f16": 9.5, "f18": 10.0,
+	})
+	if c.ChangeAmount == nil || *c.ChangeAmount < 0.09 || *c.ChangeAmount > 0.11 {
+		t.Fatalf("derived changeAmount=%v", c.ChangeAmount)
+	}
+	if c.Amplitude == nil || *c.Amplitude != 10 {
+		t.Fatalf("derived amplitude=%v", c.Amplitude)
+	}
+}
+
+func TestSinaUSRowParsesExtras(t *testing.T) {
+	row := sinaUSRow(map[string]any{
+		"symbol": "MSFT", "cname": "微软", "price": "100", "volume": "2",
+		"chg": "2", "diff": "2", "pe": "28.5", "high": "102", "low": "98", "preclose": "98",
+	})
+	if row.ChangeAmount == nil || *row.ChangeAmount != 2 {
+		t.Fatalf("changeAmount=%v", row.ChangeAmount)
+	}
+	if row.PE == nil || *row.PE != 28.5 {
+		t.Fatalf("pe=%v", row.PE)
+	}
+	if row.Amplitude == nil || *row.Amplitude < 4.08 || *row.Amplitude > 4.09 {
+		t.Fatalf("amplitude=%v", row.Amplitude)
+	}
+}
+
 func TestFetchPublicUniverseUsesInjectedHTTP(t *testing.T) {
 	orig := getText
 	defer func() { getText = orig }()
@@ -62,7 +91,7 @@ func TestFetchPublicUniverseUsesInjectedHTTP(t *testing.T) {
 		case strings.Contains(rawURL, "ulist.np"):
 			return `{"data":{"diff":[{"f3":1.2,"f6":2000000000,"f14":"上证","f104":2000,"f105":800,"f106":100}]}}`, nil
 		case strings.Contains(rawURL, "clist/get"):
-			return `{"data":{"diff":[{"f12":"600519","f14":"茅台","f2":1500,"f3":1.1,"f6":8000000000,"f20":15000000000}]}}`, nil
+			return `{"data":{"diff":[{"f12":"600519","f14":"茅台","f2":1500,"f3":1.1,"f4":16.5,"f6":8000000000,"f7":2.4,"f8":0.85,"f9":22.1,"f10":1.6,"f20":15000000000,"f62":120000000}]}}`, nil
 		case strings.Contains(rawURL, "getHQNodeData"):
 			return `[{"code":"000001","name":"平安","mktcap":25000000000,"amount":9000000000,"changepercent":-0.5,"trade":10}]`, nil
 		default:
@@ -82,6 +111,24 @@ func TestFetchPublicUniverseUsesInjectedHTTP(t *testing.T) {
 			found = true
 			if c.MarketCap == nil || *c.MarketCap != 15000000000 {
 				t.Fatalf("cap=%v", c.MarketCap)
+			}
+			if c.ChangeAmount == nil || *c.ChangeAmount != 16.5 {
+				t.Fatalf("changeAmount=%v", c.ChangeAmount)
+			}
+			if c.TurnoverRate == nil || *c.TurnoverRate != 0.85 {
+				t.Fatalf("turnoverRate=%v", c.TurnoverRate)
+			}
+			if c.VolumeRatio == nil || *c.VolumeRatio != 1.6 {
+				t.Fatalf("volumeRatio=%v", c.VolumeRatio)
+			}
+			if c.Amplitude == nil || *c.Amplitude != 2.4 {
+				t.Fatalf("amplitude=%v", c.Amplitude)
+			}
+			if c.PE == nil || *c.PE != 22.1 {
+				t.Fatalf("pe=%v", c.PE)
+			}
+			if c.MainNetInflow == nil || *c.MainNetInflow != 120000000 {
+				t.Fatalf("mainNetInflow=%v", c.MainNetInflow)
 			}
 		}
 	}
