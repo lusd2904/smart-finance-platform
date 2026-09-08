@@ -96,6 +96,7 @@ services:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -164,7 +165,7 @@ services:
 
   # Optional rollback target only (profile intel-python-fallback). Default slim uses Go sfp-intel.
   sentiment-intel:
-    profiles: [intel-python-fallback]
+    profiles: [intel-python-fallback, influx-phase]
     build:
       context: ./ruoyi-fastapi-backend
       dockerfile: Dockerfile.sentiment
@@ -201,6 +202,8 @@ services:
     # 并改 nginx catch-all 回 sentiment-backend（见 docs/SFP-BACKEND-ROLLOUT.md）。
 
   sfp-backend:
+    environment:
+      INTEL_JOBS_URL: http://sfp-intel:8080
     mem_limit: 256m
     cpus: 0.5
     ports:
@@ -215,6 +218,13 @@ services:
   sentiment-trade-api:
     mem_limit: 320m
     cpus: 0.35
+    depends_on: !override
+      sentiment-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
 
   sentiment-jobs:
     environment:
