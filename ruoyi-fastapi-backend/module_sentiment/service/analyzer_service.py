@@ -98,7 +98,7 @@ class SentimentAiAnalyzer:
                 resp = await client.post(url, json=payload, headers=headers)
                 if resp.status_code == HTTP_TOO_MANY_REQUESTS:
                     retry_after = resp.headers.get('Retry-After') or '60'
-                    logger.warning('[舆情AI分析] 模型限流 429，不重试')
+                    logger.warning(f'[舆情AI分析] 模型 {model_name} 限流 429，返回 429 供上层换模型')
                     return {
                         'ok': False,
                         'result': None,
@@ -122,6 +122,7 @@ class SentimentAiAnalyzer:
         except httpx.HTTPStatusError as e:
             if e.response is not None and e.response.status_code == HTTP_TOO_MANY_REQUESTS:
                 retry_after = e.response.headers.get('Retry-After') or '60'
+                logger.warning(f'[舆情AI分析] 模型 {model_name} 限流 429，返回 429 供上层换模型')
                 return {
                     'ok': False,
                     'result': None,
