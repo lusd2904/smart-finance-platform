@@ -1,5 +1,5 @@
 export const implementedPages = [
-  { path: 'market/heat', title: '三市场热度', component: () => import('@/views/market/Heat.vue') },
+  { path: 'market/heat', title: '市场热度', component: () => import('@/views/market/Heat.vue') },
   { path: 'market/board', title: '行情台', component: () => import('@/views/market/Board.vue') },
   { path: 'market/watchlist', title: '自选清单', component: () => import('@/views/market/Watchlist.vue') },
   { path: 'market/stocks', title: '全部股票', component: () => import('@/views/market/Stocks.vue') },

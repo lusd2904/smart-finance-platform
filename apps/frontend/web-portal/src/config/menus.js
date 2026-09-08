@@ -29,7 +29,7 @@ export const menuTree = [
         code: 'research',
         title: '研究',
         items: [
-          { title: '三市场热度', path: '/market/heat', icon: 'Histogram' },
+          { title: '市场热度', path: '/market/heat', icon: 'Histogram' },
           { title: '全部股票', path: '/market/stocks', icon: 'Collection' },
           { title: '智能选股', path: '/market/recommendations', icon: 'MagicStick' },
           { title: '财经资讯', path: '/market/finance-news', icon: 'Notebook' },

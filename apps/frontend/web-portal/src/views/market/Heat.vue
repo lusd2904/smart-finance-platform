@@ -1,5 +1,5 @@
 <template>
-  <PageFrame badge="「三市场热度 /market/heat」" :loading="loading" hide-hero>
+  <PageFrame badge="「市场热度 /market/heat」" :loading="loading" hide-hero>
     <section class="heat-hero">
       <div>
         <h2>行情中心</h2>
@@ -18,7 +18,6 @@
           <el-option v-for="d in dates" :key="d" :label="d" :value="d" />
         </el-select>
         <el-button type="primary" :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
-        <el-button link type="primary" @click="showCompare = !showCompare">{{ showCompare ? '收起三列对照' : '三列对照' }}</el-button>
       </div>
     </section>
 
@@ -40,7 +39,14 @@
     <div class="stat-strip">
       <article v-for="card in statCards" :key="card.key" class="stat-tile glass-panel">
         <span>{{ card.label }}</span>
-        <strong :class="card.cls">{{ card.value }}</strong>
+        <strong v-if="card.key === 'breadth'" class="numeric">
+          <span class="up">{{ heat.advanceCount ?? '--' }}</span>
+          <span> / </span>
+          <span class="down">{{ heat.declineCount ?? '--' }}</span>
+          <span> / </span>
+          <span class="flat">{{ heat.flatCount ?? '--' }}</span>
+        </strong>
+        <strong v-else :class="card.cls">{{ card.value }}</strong>
         <small>{{ card.sub }}</small>
       </article>
     </div>
@@ -48,7 +54,12 @@
     <el-row :gutter="12">
       <el-col :xs="24" :lg="10">
         <el-card shadow="never" class="glass-panel">
-          <template #header><h3>热度摘要</h3></template>
+          <template #header>
+            <div class="card-header">
+              <h3>热度摘要</h3>
+              <span class="mkt-tag">{{ marketLabel(market) }} · 收盘</span>
+            </div>
+          </template>
           <p v-if="heat.heatSummary" class="summary">{{ heat.heatSummary }}</p>
           <el-empty v-else description="暂无热度摘要" :image-size="64" />
         </el-card>
@@ -70,7 +81,7 @@
     <el-card shadow="never" class="glass-panel">
       <template #header>
         <div class="card-header">
-          <h3>成交额 Top50</h3>
+          <h3>Top50 热度榜</h3>
           <div class="table-tools">
             <el-input v-model="keyword" clearable placeholder="代码/名称" style="width:180px" />
             <el-radio-group v-model="quickSort" size="small">
@@ -80,32 +91,38 @@
           </div>
         </div>
       </template>
-      <el-table :data="sortedTop" stripe empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
+      <el-table :data="sortedTop" stripe max-height="360" empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
         <el-table-column prop="rankNo" label="#" width="52" />
-        <el-table-column prop="symbol" label="代码" width="112" />
+        <el-table-column prop="symbol" label="代码" width="120" />
         <el-table-column prop="name" label="名称" min-width="130" show-overflow-tooltip />
-        <el-table-column label="市值" width="118" align="right">
-          <template #default="{ row }">{{ fmtAmount(row.marketCap) }}</template>
-        </el-table-column>
-        <el-table-column label="成交额" width="122" align="right">
-          <template #default="{ row }">{{ fmtAmount(row.turnover) }}</template>
-        </el-table-column>
-        <el-table-column label="涨跌幅" width="104" align="right">
+        <el-table-column label="涨跌%" width="100" align="right">
           <template #default="{ row }">
             <span :class="changeClass(row.changePct)">{{ fmtChange(row.changePct) }}</span>
           </template>
         </el-table-column>
-        <el-table-column width="200">
+        <el-table-column label="热度" width="80" align="right">
+          <template #default="{ row }"><span class="numeric">{{ row.heatScore ?? row.heat ?? '--' }}</span></template>
+        </el-table-column>
+        <el-table-column label="成交额亿" width="100" align="right">
+          <template #default="{ row }"><span class="numeric">{{ turnoverYi(row.turnover) }}</span></template>
+        </el-table-column>
+        <el-table-column label="市场" width="72">
+          <template #default="{ row }">{{ shortMarket(row.market || market) }}</template>
+        </el-table-column>
+        <el-table-column label="档位" width="72">
+          <template #default="{ row }">{{ heatTier(row) }}</template>
+        </el-table-column>
+        <el-table-column width="168">
           <template #default="{ row }">
             <el-button link type="primary" @click="goTerminal($router, row, { tab: 'kline' })">K线</el-button>
             <el-button link type="primary" @click="goTerminal($router, row)">详情</el-button>
             <el-button v-if="!row.inWatchlist" link type="success" :loading="adding === row.symbol" @click="addWatch(row)">加自选</el-button>
-            <el-tag v-else size="small" type="success" effect="plain">已加入</el-tag>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
+    <button v-if="!showCompare" type="button" class="compare-link" @click="showCompare = true">三列对照（次要）</button>
     <section v-if="showCompare" class="heat-cols">
       <article v-for="card in compareCards" :key="card.market" class="heat-card glass-panel">
         <header class="heat-card-head">
@@ -122,7 +139,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
@@ -133,9 +151,11 @@ import { changeClass, fmtAmount, fmtChange, fmtPx } from '@/utils/format'
 import { goTerminal, marketLabel, unwrap, unwrapList } from '@/utils/list'
 import { stubDashboard } from '@/utils/stubs'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const datesLoading = ref(false)
-const market = ref('CN')
+const market = ref(normalizeMarket(route.query.market) || 'CN')
 const tradeDate = ref('')
 const dates = ref([])
 const heat = ref({})
@@ -164,8 +184,8 @@ const statCards = computed(() => {
   const d = Number(h.declineCount)
   const adCls = Number.isFinite(a) && Number.isFinite(d) && a !== d ? (a > d ? 'up' : 'down') : ''
   return [
-    { key: 'index', label: '指数涨跌', value: fmtChange(h.indexChangePct), sub: h.indexName || '--', cls: changeClass(h.indexChangePct) },
-    { key: 'turnover', label: '样本成交额', value: fmtAmount(h.totalTurnover, meta.value.currency || h.currency), sub: meta.value.currency || h.currency || '', cls: '' },
+    { key: 'index', label: '指数涨跌%', value: fmtChange(h.indexChangePct), sub: h.indexName || '--', cls: changeClass(h.indexChangePct) },
+    { key: 'turnover', label: '样本成交额', value: fmtAmount(h.totalTurnover, meta.value.currency || h.currency), sub: '样本池成交', cls: '' },
     { key: 'breadth', label: '涨 / 跌 / 平', value: adText, sub: '样本池广度', cls: adCls },
     {
       key: 'score',
@@ -195,10 +215,29 @@ const compareCards = computed(() => {
   }))
 })
 
+function normalizeMarket(v) {
+  const u = String(v || '').toUpperCase()
+  if (u === 'HK' || u === 'US' || u === 'CN') return u
+  if (u === 'A') return 'CN'
+  return ''
+}
 function shortMarket(m) {
   if (m === 'US') return '美'
   if (m === 'HK') return '港'
   return 'A'
+}
+function turnoverYi(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '--'
+  return (n / 1e8).toFixed(1)
+}
+function heatTier(row) {
+  if (row.tier || row.heatTier) return row.tier || row.heatTier
+  const s = Number(row.heatScore ?? row.heat)
+  if (!Number.isFinite(s)) return '--'
+  if (s >= 80) return '高'
+  if (s >= 50) return '中'
+  return '低'
 }
 
 function renderTrend() {
@@ -286,6 +325,7 @@ async function loadCompare() {
 
 async function onMarketChange() {
   tradeDate.value = ''
+  router.replace({ query: { ...route.query, market: market.value } })
   await loadDates()
   await loadDaily()
 }
@@ -307,7 +347,20 @@ async function addWatch(row) {
   }
 }
 
+watch(
+  () => route.query.market,
+  async (v) => {
+    const next = normalizeMarket(v) || 'CN'
+    if (next === market.value) return
+    market.value = next
+    tradeDate.value = ''
+    await loadDates()
+    await loadDaily()
+  }
+)
+
 onMounted(async () => {
+  if (!route.query.market) router.replace({ query: { ...route.query, market: market.value } })
   await loadDates()
   await refreshAll()
   window.addEventListener('resize', () => chart && chart.resize())
@@ -364,5 +417,14 @@ onBeforeUnmount(() => {
 .heat-card-head .muted { margin-left: auto; }
 .idx-chg { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .stat-tile small { color: var(--text-secondary); font-size: 12px; }
+.compare-link {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: fit-content;
+}
 @media (max-width: 900px) { .heat-cols { grid-template-columns: 1fr; } }
 </style>
