@@ -225,6 +225,23 @@ jobs:
           go test ./...
           go build -o /tmp/market-read ./cmd/market-read
 
+  sfp-intel:
+    name: Go sfp-intel tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/sfp-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/sfp-intel/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/sfp-intel ./cmd/sfp-intel
+
   market-worker:
     name: Go market-worker tests
     runs-on: ubuntu-latest
