@@ -276,6 +276,38 @@ jobs:
           go test ./...
           go build -o /tmp/quant-worker ./cmd/quant-worker
 
+  trade-exec:
+    name: Go trade-exec tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/trade-exec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: services/trade-exec/go.sum
+      - name: Test
+        run: go test ./...
+
+  trade-api:
+    name: Go trade-api tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/trade-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: services/trade-api/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/trade-api ./cmd/trade-api
+
   notify-worker:
     name: Go notify-worker tests
     runs-on: ubuntu-latest

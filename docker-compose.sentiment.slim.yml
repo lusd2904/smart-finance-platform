@@ -198,6 +198,10 @@ services:
       <<: *slim-pool-env
     mem_limit: 512m
 
+  sentiment-trade-api:
+    mem_limit: 256m
+    cpus: 0.25
+
   sentiment-jobs:
     environment:
       <<: *slim-pool-env
@@ -300,6 +304,8 @@ services:
       sentiment-backend:
         condition: service_healthy
       sentiment-trade:
+        condition: service_healthy
+      sentiment-trade-api:
         condition: service_healthy
       sentiment-data:
         condition: service_healthy
