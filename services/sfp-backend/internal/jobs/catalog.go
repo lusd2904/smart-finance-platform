@@ -62,10 +62,12 @@ var NativeGoWorkerTypes = map[string]bool{
 	"ai_analyze": true, "ai_batch": true,
 }
 
-// IntelBridgeTypes still require sentiment-intel Python handlers (empty in slim default).
+// IntelBridgeTypes is reserved for a future Go intel hop. Slim default is empty
+// (no Python sentiment-intel container is required).
 var IntelBridgeTypes = map[string]bool{}
 
-// QuantBridgeTypes still require sentiment-data Python handlers.
+// QuantBridgeTypes are synchronous jobs forwarded to STRATEGY_EVAL_URL
+// (Go-to-Go). Slim default leaves that URL empty unless configured.
 var QuantBridgeTypes = map[string]bool{
 	"strategy_evaluate": true,
 }
@@ -92,10 +94,10 @@ func IsDelegatable(jobType string) bool {
 
 func BridgeLabel(jobType string) string {
 	if IntelBridgeTypes[jobType] {
-		return "sentiment-intel"
+		return "intel-internal-jobs"
 	}
 	if QuantBridgeTypes[jobType] {
-		return "sentiment-data"
+		return "internal-jobs"
 	}
 	if NativeGoWorkerTypes[jobType] {
 		return "redis-go-worker"

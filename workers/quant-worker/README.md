@@ -13,9 +13,9 @@ Low-memory consumer for Redis `sfp:job:queue:quant` (Redis DB **2**). Job `type`
 | `daily_list_scan` | **Go (#77)** | CN calendar + BUY signals → `quant_daily_list` / items. **Generation only.** |
 | `position_monitor` | **Go (#78)** | Longbridge positions + −8% stop; MO sell only if `auto_trade_enabled` |
 | `daily_list_open` | **Go (#78)** | Queued items, market session, MO buy via official `openapi-go` TradeContext |
-| `auto_trade_scan` | **Go (#78)** | Universe / FX / guards / halt / LO submit; signals from Python `strategy_evaluate` |
+| `auto_trade_scan` | **Go (#78)** | Universe / FX / guards / halt / LO submit; signals from Go `sfp-backend` `strategy_evaluate` |
 
-Python `/internal/jobs/run` still accepts these types as an emergency fallback. Portal `/trade/*` stays on `sentiment-trade`.
+All listed job types run natively in this worker. There is no Python container fallback.
 
 ## Why trade jobs stay on quant-worker (not a new trade-worker)
 
@@ -58,7 +58,7 @@ Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
 
 Optional (trade + position monitor): `LONGPORT_*`, `JWT_SECRET_KEY`, `CREDENTIAL_ENCRYPTION_KEY` (Fernet, same derivation as Python `CryptoUtil`).
 
-`INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` route `strategy_evaluate` (auto_trade signals) through `sfp-backend`; set `STRATEGY_EVAL_URL` via `quant-python-fallback` + `--profile legacy-python` only for emergency rollback. Default slim does not start Python sentiment-data.
+`INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` route `strategy_evaluate` (auto_trade signals) through Go `sfp-backend` `/internal/jobs/run`. Default slim does not start Python sentiment-data.
 
 ## Host smoke (cursor-1 slim)
 

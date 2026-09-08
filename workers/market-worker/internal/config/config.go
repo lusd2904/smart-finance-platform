@@ -32,8 +32,6 @@ type Config struct {
 	VisibilityTimeout    time.Duration
 	MaxRetries           int
 	WorkerPort           int
-	InternalJobsURL      string
-	InternalJobToken     string
 	ConsumerPollInterval time.Duration
 	ReclaimInterval      time.Duration
 
@@ -103,9 +101,6 @@ func Load() Config {
 		MaxRetries:        envInt("JOB_MAX_RETRIES", 3),
 		WorkerPort:        envInt("WORKER_PORT", 9098),
 
-		InternalJobsURL:  internalJobsURL(),
-		InternalJobToken:  env("INTERNAL_JOB_TOKEN", ""),
-
 		ConsumerPollInterval: 200 * time.Millisecond,
 		ReclaimInterval:      30 * time.Second,
 
@@ -131,13 +126,6 @@ func envOr(fallback string, keys ...string) string {
 		return v
 	}
 	return fallback
-}
-
-func internalJobsURL() string {
-	if v := strings.TrimSpace(os.Getenv("INTERNAL_JOBS_URL")); v != "" {
-		return v
-	}
-	return "http://sfp-backend:9099/internal/jobs/run"
 }
 
 func (c Config) BucketForMarket(market string) string {

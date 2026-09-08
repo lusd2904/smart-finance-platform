@@ -16,6 +16,12 @@
 - slim nginx 正常路径无 Python upstream；CI 默认 Docker smoke 不再构建 `Dockerfile.sentiment`
 - 口径见 [docs/SLIM-POST-MERGE.md](./docs/SLIM-POST-MERGE.md)
 
+### 🧹 Remove leftover Python-delegate shells from Go workers
+- market-worker: delete unused `delegate` package and empty `delegateJobs` branch; all market jobs are native Go
+- quant-worker / trade-api: keep `INTERNAL_JOBS_URL` → Go `sfp-backend` for `strategy_evaluate`, rename `PythonClient` to `internaljobs.Client`
+- trade-api: drop `PythonProxy` / `TRADE_HTTP_FALLBACK_URL` thin shell; `/trade/*` is native-only
+- sfp-backend job catalog labels no longer imply a Python container
+
 ### ⚡ P3 finish：剩余 /market/ + /quant/ 离开 sentiment-data
 - 新增 Go `sentiment-data-api`（`:8081`）：SQL 读、自选 CRUD、JobQueue 入队、TradingView datafeed、简报/复盘/选股等
 - slim / full nginx catch-all `/market/`、`/quant/` → `data-api`；移除 `/ws/` catch-all（仅 quotes/jobs 有路由）

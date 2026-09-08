@@ -39,9 +39,6 @@ type Config struct {
 
 	InternalJobsURL  string
 	InternalJobToken string
-
-	// Optional HTTP fallback for unmigrated routes (trade-python-fallback profile only).
-	TradeHTTPFallbackURL string
 }
 
 func Load() (*Config, error) {
@@ -62,8 +59,8 @@ func Load() (*Config, error) {
 		RedisPassword: os.Getenv("REDIS_PASSWORD"),
 		RedisDB:       envInt("REDIS_DATABASE", 2),
 
-		CredentialKey:  strings.TrimSpace(os.Getenv("CREDENTIAL_ENCRYPTION_KEY")),
-		AppEnv:         env("APP_ENV", "prod"),
+		CredentialKey: strings.TrimSpace(os.Getenv("CREDENTIAL_ENCRYPTION_KEY")),
+		AppEnv:        env("APP_ENV", "prod"),
 
 		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
 		InfluxToken:    os.Getenv("INFLUX_TOKEN"),
@@ -72,9 +69,8 @@ func Load() (*Config, error) {
 		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
 		InfluxTimeout:  time.Duration(envInt("INFLUX_TIMEOUT_MS", 8000)) * time.Millisecond,
 
-		InternalJobsURL:      internalJobsURL(),
-		InternalJobToken:     strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
-		TradeHTTPFallbackURL: tradeHTTPFallbackURL(),
+		InternalJobsURL:  internalJobsURL(),
+		InternalJobToken: strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
 	}
 
 	jwtMinutes := envInt("JWT_REDIS_EXPIRE_MINUTES", 480)
@@ -118,13 +114,6 @@ func internalJobsURL() string {
 		return strings.TrimRight(v, "/")
 	}
 	return "http://sfp-backend:9099/internal/jobs/run"
-}
-
-func tradeHTTPFallbackURL() string {
-	if v := strings.TrimSpace(os.Getenv("TRADE_HTTP_FALLBACK_URL")); v != "" {
-		return strings.TrimRight(v, "/")
-	}
-	return ""
 }
 
 func envBool(key string, fallback bool) bool {

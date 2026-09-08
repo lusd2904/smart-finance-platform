@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/config"
-	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/queue"
@@ -16,8 +15,9 @@ import (
 )
 
 // Combined native set after #77 + #78:
-//   #77 — factor_scan, factor_qc, strategy_run, daily_list_scan
-//   #78 — daily_list_open, auto_trade_scan, position_monitor (MO sell when auto_trade on)
+//
+//	#77 — factor_scan, factor_qc, strategy_run, daily_list_scan
+//	#78 — daily_list_open, auto_trade_scan, position_monitor (MO sell when auto_trade on)
 var nativeJobs = map[string]bool{
 	"indicator_refresh": true,
 	"factor_scan":       true,
@@ -29,13 +29,8 @@ var nativeJobs = map[string]bool{
 	"auto_trade_scan":   true,
 }
 
-// No wholesale Python fallback for these job types. /internal/jobs/run still
-// accepts them as an emergency path, but the worker routes them natively.
-var delegateJobs = map[string]bool{}
-
 type Handler struct {
 	store    *store.Service
-	delegate *delegate.PythonClient
 	jobs     *jobs.Repo
 	broker   tradeexec.Broker
 	strategy jobs.StrategyClient
@@ -44,9 +39,9 @@ type Handler struct {
 	keys     jobs.EncKeys
 }
 
-func New(storeSvc *store.Service, python *delegate.PythonClient, repo *jobs.Repo, broker tradeexec.Broker, strategy jobs.StrategyClient, rdb *redis.Client, reader *influx.Reader, cfg config.Config) *Handler {
+func New(storeSvc *store.Service, repo *jobs.Repo, broker tradeexec.Broker, strategy jobs.StrategyClient, rdb *redis.Client, reader *influx.Reader, cfg config.Config) *Handler {
 	return &Handler{
-		store: storeSvc, delegate: python, jobs: repo, broker: broker, strategy: strategy, rdb: rdb, reader: reader,
+		store: storeSvc, jobs: repo, broker: broker, strategy: strategy, rdb: rdb, reader: reader,
 		keys: jobs.EncKeys{CredentialKey: cfg.CredentialKey, JWTSecret: cfg.JWTSecret, AppEnv: cfg.AppEnv},
 	}
 }
@@ -65,9 +60,6 @@ func DeferredJobTypes() []string {
 func (h *Handler) Handle(ctx context.Context, job queue.Job) (interface{}, error) {
 	if nativeJobs[job.Type] {
 		return h.handleNative(ctx, job)
-	}
-	if delegateJobs[job.Type] {
-		return h.delegate.Run(ctx, job.Type, job.Payload)
 	}
 	return nil, fmt.Errorf("unsupported quant job type: %s", job.Type)
 }

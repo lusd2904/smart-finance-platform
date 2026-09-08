@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/delegate"
+	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/internaljobs"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/platform"
 	"github.com/lusd2904/smart-finance-platform/services/trade-exec"
 	"github.com/redis/go-redis/v9"
@@ -23,7 +23,7 @@ type Keys struct {
 }
 
 type StrategyEvaluator struct {
-	Delegate *delegate.PythonClient
+	Jobs *internaljobs.Client
 }
 
 type StrategySignal struct {
@@ -37,14 +37,14 @@ type StrategySignal struct {
 }
 
 func (s *StrategyEvaluator) Evaluate(ctx context.Context, profile string, userID int, targets []platform.Target) ([]StrategySignal, error) {
-	if s == nil || s.Delegate == nil {
+	if s == nil || s.Jobs == nil {
 		return nil, fmt.Errorf("strategy evaluate client is not configured")
 	}
 	symbols := make([]map[string]string, 0, len(targets))
 	for _, t := range targets {
 		symbols = append(symbols, map[string]string{"symbol": t.Symbol, "market": t.Market})
 	}
-	out, err := s.Delegate.Run(ctx, "strategy_evaluate", map[string]interface{}{
+	out, err := s.Jobs.Run(ctx, "strategy_evaluate", map[string]interface{}{
 		"profile": profile, "userId": userID, "symbols": symbols,
 	})
 	if err != nil {
@@ -91,12 +91,12 @@ func (s *StrategyEvaluator) Evaluate(ctx context.Context, profile string, userID
 }
 
 type RunInput struct {
-	UserID          int
-	Profile         string
-	Source          string
-	Execute         *bool
-	CustomSymbols   []platform.Target
-	CustomConfig    map[string]interface{}
+	UserID        int
+	Profile       string
+	Source        string
+	Execute       *bool
+	CustomSymbols []platform.Target
+	CustomConfig  map[string]interface{}
 }
 
 func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexec.Broker, strategy *StrategyEvaluator, rdb *redis.Client, keys Keys, in RunInput) (map[string]interface{}, error) {

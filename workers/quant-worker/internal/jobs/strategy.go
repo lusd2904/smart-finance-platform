@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/delegate"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/internaljobs"
 )
 
-type PythonStrategy struct {
-	Client *delegate.PythonClient
+// InternalJobsStrategy evaluates auto-trade signals via Go sfp-backend /internal/jobs/run.
+type InternalJobsStrategy struct {
+	Client *internaljobs.Client
 }
 
-func (p *PythonStrategy) Evaluate(ctx context.Context, profile string, userID int, targets []Target) ([]StrategySignal, error) {
+func (p *InternalJobsStrategy) Evaluate(ctx context.Context, profile string, userID int, targets []Target) ([]StrategySignal, error) {
 	if p == nil || p.Client == nil {
 		return nil, fmt.Errorf("strategy evaluate client is not configured")
 	}

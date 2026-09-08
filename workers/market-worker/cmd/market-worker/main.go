@@ -14,7 +14,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/config"
-	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/handler"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/kline"
@@ -53,7 +52,7 @@ func main() {
 	}
 	defer syncStore.Close()
 
-	h := handler.New(syncStore, delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken))
+	h := handler.New(syncStore)
 	consumer := queue.NewConsumer(
 		rdb,
 		h.Handle,
