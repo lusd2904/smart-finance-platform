@@ -319,23 +319,28 @@ jobs:
         run: |
           cp ruoyi-fastapi-backend/.env.dockersentiment.example \
             ruoyi-fastapi-backend/.env.dockersentiment
+          {
+            echo 'MYSQL_ROOT_PASSWORD=ci'
+            echo 'REDIS_PASSWORD=ci'
+            echo 'INFLUXDB_PASSWORD=ci'
+            echo 'INFLUXDB_TOKEN=ci'
+            echo 'INTERNAL_JOB_TOKEN=ci-internal'
+            echo 'INITIAL_ADMIN_PASSWORD=ci-admin'
+          } > .env
       - name: Validate slim compose config
         run: |
-          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
-            docker compose \
-              -f docker-compose.sentiment.yml \
-              -f docker-compose.sentiment.slim.yml \
-              config >/dev/null
-          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
-            docker compose \
-              -f docker-compose.sentiment.yml \
-              -f docker-compose.sentiment.slim.yml \
-              -f docker-compose.sentiment.slim.influx-phase.yml \
-              config >/dev/null
-          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
-            docker compose \
-              -f docker-compose.sentiment.yml \
-              -f docker-compose.sentiment.slim.yml \
-              -f docker-compose.sentiment.slim.influx-steady.yml \
-              config >/dev/null
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            config >/dev/null
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            -f docker-compose.sentiment.slim.influx-phase.yml \
+            config >/dev/null
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            -f docker-compose.sentiment.slim.influx-steady.yml \
+            config >/dev/null
           echo "slim compose config ok"
