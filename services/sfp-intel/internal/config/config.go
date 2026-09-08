@@ -29,6 +29,7 @@ type Config struct {
 
 	CredentialEncryptionKey string
 	XMonitorIngestToken     string
+	InternalJobToken        string
 }
 
 func Load() (*Config, error) {
@@ -51,6 +52,7 @@ func Load() (*Config, error) {
 
 		CredentialEncryptionKey: strings.TrimSpace(os.Getenv("CREDENTIAL_ENCRYPTION_KEY")),
 		XMonitorIngestToken:     strings.TrimSpace(os.Getenv("SFP_X_MONITOR_INGEST_TOKEN")),
+		InternalJobToken:        strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
 	}
 	jwtMinutes := envInt("JWT_REDIS_EXPIRE_MINUTES", 480)
 	cfg.JWTRedisExpire = time.Duration(jwtMinutes) * time.Minute

@@ -16,6 +16,7 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/cache"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/config"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/handlers"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/llm"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/middleware"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/queue"
@@ -48,9 +49,11 @@ func main() {
 		Cfg: cfg, Store: st, Queue: enq,
 		Redis: cacheClient.Client(), Runs: llm.NewRunRegistry(),
 	}
+	internalJobs := &handlers.InternalJobs{Runner: &jobs.Runner{Store: st}, Token: cfg.InternalJobToken}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.Health)
+	mux.HandleFunc("/internal/jobs/run", internalJobs.Run)
 	mux.HandleFunc("/sentiment/ingest/x_monitor", srv.IngestXMonitor)
 
 	mux.Handle("/sentiment/news/list", mw.RequirePerms("sentiment:news:list")(http.HandlerFunc(srv.NewsList)))
