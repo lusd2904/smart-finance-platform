@@ -22,7 +22,9 @@ _DELEGATABLE = frozenset(
         # market queue — Go worker is native; keep Python handlers as fallback
         'market_heat_collect',
         'symbol_content',
-        # quant queue — heavy factor/strategy logic still Python
+        # quant queue — Go worker is native for factor/strategy/daily_list_scan/
+        # position_monitor; keep Python handlers as fallback. Order-submit
+        # jobs (daily_list_open / auto_trade_scan) stay here until P1.
         'factor_scan',
         'factor_qc',
         'strategy_run',

@@ -116,7 +116,7 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 同进程；热读 offload 至 Go market-read |
 | 任务中心 | `resources/guides/analysis.md` | slim：`sfp-scheduler` + 三 Go workers |
 | 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
-| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列 worker 可迁 Go |
+| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列：因子/策略/清单扫描/持仓监控已 Go 原生；开仓与 auto_trade 仍待 P1 |
 
 ---
 
@@ -129,4 +129,5 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | **#67** | Go workers + slim scheduler-only `sentiment-jobs` |
 | **#75** | Slim 启用 `sentiment-market-read` + nginx 热读 offload |
 | **#76** | 行情 WS + `/market/quotes/live` 迁 Go；指数条自拉腾讯；`sentiment-data` 仍保留 |
-| **本 PR** | Go `sfp-scheduler` 替换 Python `sentiment-jobs`；见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md) |
+| **#79** | Go `sfp-scheduler` 替换 Python `sentiment-jobs`；见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md) |
+| **本 PR (#77)** | quant-worker 因子/策略/清单扫描/持仓监控 Go 原生；`daily_list_open` / `auto_trade_scan` 仍委托，交 #78 |

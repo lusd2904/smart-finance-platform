@@ -125,6 +125,25 @@ sudo docker compose \
 
 ---
 
+## Go quant-worker 原生任务（P2）
+
+`sfp-quant-worker` 不再把 `factor_scan` / `factor_qc` / `strategy_run` / `daily_list_scan` / `position_monitor` 打回 Python。`daily_list_open` 与 `auto_trade_scan` 仍走 `handler.delegateJobs` → `/internal/jobs/run`（#78 / P1 下单接手；本 PR 不把这两类标成 native）。
+
+cursor-1 只重建 worker（不碰 MySQL / Redis / Influx）：
+
+```bash
+sudo docker compose \
+  -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build sfp-quant-worker
+
+curl -sf http://127.0.0.1:19096/health
+```
+
+冒烟步骤见 `workers/quant-worker/README.md`。
+
+---
+
 ## 下一 PR（计划，本 PR 不实施）
 
 目标：**删除**默认 compose 中的冗余拆分服务，避免新人误起 full 栈导致 OOM。**不要删除 `sentiment-data`**（slim 上仍承接 `/quant/`、剩余 `/market/` 写/入队）。

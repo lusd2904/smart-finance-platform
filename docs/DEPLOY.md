@@ -222,7 +222,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 | jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | slim/full 默认 `sfp-scheduler` |
 | market-read | http://127.0.0.1:19094/health（仅本机回环） | Go 行情只读热路径（#66） |
 | market worker | http://127.0.0.1:19097/health（仅本机回环） | Go 消费 market 队列（~384m RSS） |
-| quant worker | http://127.0.0.1:19096/health（仅本机回环） | Go 消费 quant 队列（indicator_refresh，~256m RSS） |
+| quant worker | http://127.0.0.1:19096/health（仅本机回环） | Go 消费 quant 队列（因子/策略/清单扫描/持仓监控原生；开仓与 auto_trade 仍委托 P1，~256m RSS） |
 | notify worker | http://127.0.0.1:19095/health（仅本机回环） | Go 消费 llm 队列（feishu_push） |
 | MySQL / Redis / InfluxDB | 不暴露宿主端口 | 业务容器走内网访问；本机调试临时改映射 |
 
@@ -347,7 +347,8 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 - **market**：`curl -sf http://127.0.0.1:19097/health`
 - **quant**：`curl -sf http://127.0.0.1:19096/health`
 - **notify (feishu)**：`curl -sf http://127.0.0.1:19095/health`
-- **Python 委托任务**（Grok/LLM / 因子策略）：由 Go worker HTTP 调用 `/internal/jobs/run`
+- **Python 委托任务**（Grok/LLM；quant 仅 `daily_list_open` / `auto_trade_scan`，交 #78）：由 Go worker HTTP 调用 `/internal/jobs/run`
+- **因子 / 策略 / 清单扫描 / 持仓监控**：`sfp-quant-worker` 原生（`position_monitor` 只读告警，不下单）
 - **热度 / 标的内容**：`sfp-market-worker` 原生。热度走新浪/腾讯/东财公开 HTTP；`symbol_content` 走 Longbridge OpenAPI HTTP（`LONGPORT_*`，无需 Python SDK）
 
 ## 3. 监控（可选）

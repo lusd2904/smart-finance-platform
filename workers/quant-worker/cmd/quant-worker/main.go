@@ -54,7 +54,15 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		resp := map[string]interface{}{"status": "up", "role": "quant-worker", "queueDepth": consumer.QueueDepth(ctx)}
+		resp := map[string]interface{}{
+			"status":        "up",
+			"role":          "quant-worker",
+			"queueDepth":    consumer.QueueDepth(ctx),
+			"nativeJobs":    handler.NativeJobTypes(),
+			"deferredToP1":  handler.DeferredJobTypes(),
+			"redisQueue":    "sfp:job:queue:quant",
+			"redisDatabase": cfg.RedisDB,
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	})
