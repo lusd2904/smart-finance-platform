@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### ⚙️ Go market-worker：热度 / 标的内容不再走 Python SDK
+- `market_heat_collect`（sys_job 113/114/115）改为 worker 原生：复用已有 `heat_eod` 公开源（新浪 / 腾讯 / 东财），写入 `market_heat_daily` + `market_top50_snapshot`
+- `symbol_content`（sys_job 104）改为 Longbridge OpenAPI HTTP（filings / news / topics，HMAC-SHA256），不再依赖 Python `longport` SDK
+- Redis 任务类型名不变；Python `/internal/jobs/run` 仍保留这两类作为回退
+
 ### 📱 独立移动 H5 壳 `/m/*`
 - Vue 管理台内新增独立移动路由树（不改 PC layout）：底栏 舆情 / 选股 / 热度 / 持仓 / 我的
 - 灰度自测：`?m=1` / cookie `sfp_m=1` 强制 `/m`；`?m=0` / `sfp_m=0` 强制 PC。查询参数写入 cookie（`Path=/`）。默认 UA 分流留给 nginx

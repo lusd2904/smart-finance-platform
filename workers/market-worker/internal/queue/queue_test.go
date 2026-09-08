@@ -34,7 +34,7 @@ func TestDecodeRejectsUnknownType(t *testing.T) {
 
 func TestMarketJobTypes(t *testing.T) {
 	for _, jobType := range []string{
-		"market_sync", "eod_kline_sync", "klines_slow", "mysql_to_influx", "market_heat_collect",
+		"market_sync", "eod_kline_sync", "klines_slow", "mysql_to_influx", "market_heat_collect", "symbol_content",
 	} {
 		if !marketJobTypes[jobType] {
 			t.Fatalf("missing job type %s", jobType)

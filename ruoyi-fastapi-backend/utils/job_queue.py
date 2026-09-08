@@ -2,7 +2,7 @@
 Redis 列表队列：把长任务从 API worker 卸到独立 jobs 消费组。
 
 三组队列（同一套代码，不复制后端）：
-- market：行情同步 / 简报 / 看板预热 / 代码表 / K 线（Go sfp-market-worker 消费；Longbridge 热度/内容委托 Python）
+- market：行情同步 / 简报 / 看板预热 / 代码表 / K 线 / 热度 / 标的内容（Go sfp-market-worker 原生）
 - quant：因子 / 策略 / 止损 / 指标快照（Go sfp-quant-worker 消费 indicator_refresh；其余委托 Python）
 - llm：舆情采集分析 / 自选研判 / 日评 / 需求沟通（Go sfp-notify-worker 消费 feishu_push；Grok/LLM 委托 Python）
 

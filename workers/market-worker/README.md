@@ -13,8 +13,8 @@ Low-memory consumer for Redis `sfp:job:queue:market`. Replaces the Python `senti
 | `board_warmup` | **Go** | Influx latest bars → Redis `sfp:cache:board:quotes` |
 | `listings_sync` | **Go** | Influx symbol tags → `market_instrument` (listed) |
 | `finance_briefings` | **Go** | RSS + internal pulse/tech scan → `finance_briefing` |
-| `market_heat_collect` | **Python delegate** | Longbridge live quotes + static info (no Go SDK) |
-| `symbol_content` | **Python delegate** | Longbridge ContentContext filings/news |
+| `market_heat_collect` | **Go** | Public EOD ranks (Sina / Tencent / Eastmoney) → `market_heat_daily` + Top50 |
+| `symbol_content` | **Go** | Longbridge HTTP filings/news/topics (HMAC, no Python SDK) |
 
 ## Related Go workers
 
@@ -42,7 +42,9 @@ Service name: `sfp-market-worker` in `docker-compose.sentiment.yml`.
 
 Health: `http://127.0.0.1:19097/health` (host) or `http://sfp-market-worker:9098/health` (compose network).
 
-Required env: `REDIS_*`, `DB_*`, `INFLUX_*`, `INTERNAL_JOB_TOKEN`, `PYTHON_DELEGATE_URL`.
+Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
+
+Optional: `LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN` / `LONGPORT_REGION` (default `cn`) for `symbol_content`. Heat does not need Longbridge. `PYTHON_DELEGATE_URL` / `INTERNAL_JOB_TOKEN` remain for any future Python fallback.
 
 ## Slim compose
 
