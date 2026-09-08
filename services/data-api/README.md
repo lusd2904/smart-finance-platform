@@ -6,7 +6,7 @@ Go HTTP microservice that offloads remaining `/market/` and `/quant/` routes fro
 
 `github.com/lusd2904/smart-finance-platform/services/data-api`
 
-Shared auth/config/response/cache/timeutil/influx are imported from `../market-read` via `go.mod` `replace`.
+Shared auth/config/response/cache/timeutil/influx are imported from `../market-read/pkg/*` (re-exports of market-read internals) via `go.mod` `replace`.
 
 ## Run locally
 

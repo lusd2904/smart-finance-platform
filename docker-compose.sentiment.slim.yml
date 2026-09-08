@@ -72,7 +72,7 @@ services:
     profiles: [full-split]
 
   # Go hot-read + WS/live quotes on slim. 320m covers WS fan-out + Tencent fetch.
-  # Python sentiment-data still owns /quant/ and remaining /market/ writes.
+  # Remaining /market/ + /quant/ → sentiment-data-api (Go). Python sentiment-data optional (legacy-data profile).
   sentiment-market-read:
     mem_limit: 320m
     cpus: 0.5
@@ -116,12 +116,24 @@ services:
       retries: 8
       start_period: 10s
 
+  sentiment-data-api:
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
+
   # Backup loops on docker.sock; on tight RAM hosts run scripts/backup_data.sh via cron instead.
   sfp-backup:
     profiles: [full-backup]
 
-  # --- merged API: remaining market writes + quant (WS offloaded to market-read) ---
+  # --- optional Python fallback: Longbridge / pandas / SSE (see docs/SENTIMENT-DATA-OFFLOAD.md) ---
   sentiment-data:
+    profiles: [legacy-data, influx-phase]
     build:
       context: ./ruoyi-fastapi-backend
       dockerfile: Dockerfile.sentiment
@@ -308,7 +320,7 @@ services:
         condition: service_healthy
       sentiment-trade-api:
         condition: service_healthy
-      sentiment-data:
+      sentiment-data-api:
         condition: service_healthy
       sentiment-intel:
         condition: service_healthy

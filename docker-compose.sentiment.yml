@@ -61,6 +61,8 @@ services:
         condition: service_healthy
       sentiment-trade-api:
         condition: service_healthy
+      sentiment-data-api:
+        condition: service_healthy
       # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
@@ -244,6 +246,34 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
+  # 剩余 /market/ + /quant/ HTTP（非热读）。Go 微服务，替代 fat Python sentiment-data。
+  sentiment-data-api:
+    build:
+      context: .
+      dockerfile: services/data-api/Dockerfile
+    image: sentiment-data-api:latest
+    container_name: sentiment-data-api
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":8081"
+      DB_HOST: ruoyi-mysql
+      REDIS_HOST: ruoyi-redis
+      INFLUX_URL: http://sentiment-influxdb:8086
+      LEGACY_DATA_URL: ${LEGACY_DATA_URL:-}
+    depends_on: *data-depends
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/health"]
       interval: 15s
       timeout: 5s
       retries: 8

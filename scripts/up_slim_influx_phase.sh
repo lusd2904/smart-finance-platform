@@ -14,8 +14,8 @@ COMPOSE="docker compose \
   -f docker-compose.sentiment.slim.yml \
   -f docker-compose.sentiment.slim.influx-phase.yml"
 
-echo "==> Starting influx-phase: redis + influx + sentiment-data"
-$COMPOSE up -d ruoyi-redis sentiment-influxdb sentiment-data
+echo "==> Starting influx-phase: redis + influx + sentiment-data (--profile influx-phase)"
+$COMPOSE up -d ruoyi-redis sentiment-influxdb --profile influx-phase sentiment-data
 
 echo "==> Wait for Influx (18G / ~2992 shards — 12g mem_limit + 4G loop swap on 15G host)..."
 for i in $(seq 1 60); do

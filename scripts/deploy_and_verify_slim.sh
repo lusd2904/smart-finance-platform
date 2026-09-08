@@ -15,10 +15,10 @@ COMPOSE="docker compose"
 echo "==> [0/5] compose config（slim + SFP_DATA_ROOT=${SFP_DATA_ROOT})"
 $COMPOSE config >/dev/null
 
-echo "==> [1/5] 构建并滚动更新 slim API / scheduler / Go workers / market-read / sfp-intel / sfp-backend"
+echo "==> [1/5] 构建并滚动更新 slim API / scheduler / Go workers / market-read / sfp-intel / sfp-backend / data-api"
 $COMPOSE up -d --no-deps --build \
-  sfp-backend sentiment-data sentiment-intel sentiment-trade \
-  sfp-scheduler sentiment-market-read sfp-intel \
+  sfp-backend sentiment-intel sentiment-trade \
+  sfp-scheduler sentiment-market-read sfp-intel sentiment-data-api \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 echo "==> [2/5] 等待平台 API 健康（最长 90s），再起前端"
@@ -59,6 +59,17 @@ for i in $(seq 1 20); do
   sleep 3
 done
 [ -n "$intel_ok" ] || echo "!! sfp-intel 尚未 healthy（MySQL 冷开时可稍后重试）"
+
+da_ok=""
+for i in $(seq 1 20); do
+  if docker exec sentiment-data-api wget -q --spider http://127.0.0.1:8081/health >/dev/null 2>&1; then
+    da_ok=1
+    echo "sentiment-data-api healthy"
+    break
+  fi
+  sleep 3
+done
+[ -n "$da_ok" ] || echo "!! sentiment-data-api 尚未 healthy（MySQL/Influx 冷开时可稍后重试）"
 
 $COMPOSE up -d --no-deps --build sentiment-frontend
 front_ok=""
