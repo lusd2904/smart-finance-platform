@@ -12,11 +12,14 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/analysis"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/auth"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/cache"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/config"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/dashboard"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/handlers"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/internaljobs"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/jobqueue"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/middleware"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/opensync"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/scheduler"
@@ -43,7 +46,20 @@ func main() {
 
 	authSvc := auth.New(cfg, cacheClient.Client(), db)
 	mw := &middleware.Middleware{Auth: authSvc}
-	srv := &handlers.Server{Auth: authSvc, DB: db}
+	sched := scheduler.New(cacheClient.Client())
+	commander := scheduler.NewCommander(cacheClient.Client())
+	enqueuer := jobqueue.New(cacheClient.Client(), nil)
+
+	srv := &handlers.Server{
+		Auth:      authSvc,
+		DB:        db,
+		Config:    cfg,
+		Redis:     cacheClient.Client(),
+		Scheduler: sched,
+		Commander: commander,
+		Dashboard: dashboard.New(db, cacheClient.Client(), sched),
+		Analysis:  analysis.New(db, sched, commander, cfg.AppRole),
+	}
 
 	cryptoProvider, err := transportcrypto.NewProvider(
 		cfg.TransportCryptoEnabled,
@@ -57,6 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("transport crypto: %v", err)
 	}
+	srv.Crypto = cryptoProvider
 	cryptoMW := transportcrypto.NewMiddleware(
 		cryptoProvider,
 		transportcrypto.SplitPaths(cfg.TransportCryptoEnabledPaths),
@@ -66,14 +83,15 @@ func main() {
 	platform := &handlers.PlatformServer{
 		Server: srv,
 		Sync:   opensync.New(cfg, db, cacheClient.Client()),
-		Jobs:   internaljobs.New(cfg.InternalJobToken, cfg.IntelJobsURL, cfg.QuantJobsURL),
+		Jobs:   internaljobs.New(cfg.InternalJobToken, cfg.IntelJobsURL, cfg.QuantJobsURL, enqueuer),
 	}
-	jobsWS := &ws.JobsGateway{Auth: authSvc, Scheduler: scheduler.New(cacheClient.Client())}
+	jobsWS := &ws.JobsGateway{Auth: authSvc, Scheduler: sched}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.Health)
 	mux.HandleFunc("/captchaImage", srv.CaptchaImage)
 	mux.HandleFunc("/login", methodPOST(srv.Login))
+	mux.HandleFunc("/register", methodPOST(srv.Register))
 	mux.Handle("/getInfo", mw.RequireAuth(http.HandlerFunc(srv.GetInfo)))
 	mux.Handle("/getRouters", mw.RequireAuth(http.HandlerFunc(srv.GetRouters)))
 	mux.HandleFunc("/logout", methodPOST(srv.Logout))
@@ -82,6 +100,22 @@ func main() {
 	mux.HandleFunc("/open/sync/token", cryptoMW.Wrap("/open/sync/token", methodPOST(platform.OpenSyncToken)))
 	mux.HandleFunc("/open/sync/pull", cryptoMW.Wrap("/open/sync/pull", methodPOST(platform.OpenSyncPull)))
 	mux.HandleFunc("/internal/jobs/run", platform.InternalJobsRun)
+
+	mux.HandleFunc("/transport/crypto/frontend-config", srv.TransportFrontendConfig)
+	mux.HandleFunc("/transport/crypto/public-key", srv.TransportPublicKey)
+
+	mux.Handle("/dashboard/summary", mw.RequirePerms("system:user:query")(http.HandlerFunc(srv.DashboardSummary)))
+
+	mux.Handle("/analysis/scheduler/overview", mw.RequirePerms("analysis:job:list")(http.HandlerFunc(srv.AnalysisSchedulerOverview)))
+	mux.Handle("/analysis/scheduler/jobs/", analysisJobRoutes(mw, srv))
+
+	mux.Handle("/system/dict/data/type/", mw.RequireAuth(http.HandlerFunc(srv.DictDataByType)))
+	mux.Handle("/system/config/configKey/", mw.RequireAuth(http.HandlerFunc(srv.ConfigByKey)))
+
+	mux.Handle("/common/upload", mw.RequireAuth(http.HandlerFunc(methodPOST(srv.CommonUpload))))
+	mux.Handle("/common/guide/", mw.RequireAuth(http.HandlerFunc(srv.CommonGuide)))
+	mux.Handle("/common/download", mw.RequireAuth(http.HandlerFunc(srv.CommonDownload)))
+	mux.Handle("/common/download/resource", mw.RequireAuth(http.HandlerFunc(srv.CommonDownloadResource)))
 
 	registerSystemRoutes(mux, mw, srv)
 
@@ -106,6 +140,22 @@ func main() {
 	_ = server.Shutdown(ctx)
 	_ = db.Close()
 	_ = cacheClient.Close()
+}
+
+func analysisJobRoutes(mw *middleware.Middleware, srv *handlers.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:
+			mw.RequirePerms("analysis:job:edit")(http.HandlerFunc(srv.AnalysisJobStatus)).ServeHTTP(w, r)
+		case strings.HasSuffix(path, "/run") && r.Method == http.MethodPost:
+			mw.RequirePerms("analysis:job:run")(http.HandlerFunc(srv.AnalysisJobRun)).ServeHTTP(w, r)
+		case strings.HasSuffix(path, "/logs") && r.Method == http.MethodGet:
+			mw.RequirePerms("analysis:job:query")(http.HandlerFunc(srv.AnalysisJobLogs)).ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 func registerSystemRoutes(mux *http.ServeMux, mw *middleware.Middleware, srv *handlers.Server) {

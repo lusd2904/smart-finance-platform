@@ -21,3 +21,8 @@ func FormatBeijing(t time.Time) string {
 	}
 	return t.Format("2006-01-02 15:04:05")
 }
+
+func TodayBeijingStart() time.Time {
+	now := NowBeijing()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, beijing)
+}

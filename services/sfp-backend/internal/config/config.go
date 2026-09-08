@@ -47,6 +47,15 @@ type Config struct {
 	TransportCryptoLegacyPairs  string
 	TransportCryptoEnabledPaths string
 	TransportCryptoRequiredPaths string
+	TransportCryptoExcludePaths  string
+	TransportCryptoPublicKeyTTL  int
+	TransportCryptoFrontendConfigTTL int
+	TransportCryptoMaxGetURLLength   int
+
+	AppRole     string
+	UploadPath  string
+	UploadPrefix string
+	DownloadPath string
 }
 
 func Load() (*Config, error) {
@@ -86,6 +95,15 @@ func Load() (*Config, error) {
 		TransportCryptoLegacyPairs:   env("TRANSPORT_CRYPTO_LEGACY_KEY_PAIRS", "[]"),
 		TransportCryptoEnabledPaths:  env("TRANSPORT_CRYPTO_ENABLED_PATHS", "/open/sync/token,/open/sync/pull"),
 		TransportCryptoRequiredPaths: env("TRANSPORT_CRYPTO_REQUIRED_PATHS", "/open/sync/token,/open/sync/pull"),
+		TransportCryptoExcludePaths:  env("TRANSPORT_CRYPTO_EXCLUDE_PATHS", "/transport/crypto/frontend-config,/transport/crypto/public-key,/common/download,/common/download/resource"),
+		TransportCryptoPublicKeyTTL:  envInt("TRANSPORT_CRYPTO_PUBLIC_KEY_TTL_SECONDS", 3600),
+		TransportCryptoFrontendConfigTTL: envInt("TRANSPORT_CRYPTO_FRONTEND_CONFIG_TTL_SECONDS", 300),
+		TransportCryptoMaxGetURLLength:   envInt("TRANSPORT_CRYPTO_MAX_GET_URL_LENGTH", 4096),
+
+		AppRole:      env("APP_ROLE", "api"),
+		UploadPath:   env("UPLOAD_PATH", "vf_admin/upload_path"),
+		UploadPrefix: env("UPLOAD_PREFIX", "/profile"),
+		DownloadPath: env("DOWNLOAD_PATH", "vf_admin/download_path"),
 	}
 
 	jwtMinutes := envInt("JWT_EXPIRE_MINUTES", 480)
