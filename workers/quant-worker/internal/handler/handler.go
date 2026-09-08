@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/delegate"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/store"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/tradeexec"
+	"github.com/redis/go-redis/v9"
 )
 
-// nativeJobs run entirely in Go (Influx + MySQL + Redis). No Python HTTP.
+// Combined native set after #77 + #78:
+//   #77 — factor_scan, factor_qc, strategy_run, daily_list_scan
+//   #78 — daily_list_open, auto_trade_scan, position_monitor (MO sell when auto_trade on)
 var nativeJobs = map[string]bool{
 	"indicator_refresh": true,
 	"factor_scan":       true,
@@ -18,30 +25,41 @@ var nativeJobs = map[string]bool{
 	"strategy_run":      true,
 	"daily_list_scan":   true,
 	"position_monitor":  true,
+	"daily_list_open":   true,
+	"auto_trade_scan":   true,
 }
 
-// delegateJobs remain Python until #78 / P1 owns Longbridge order submit.
-// Keep these off nativeJobs so the trade PR can claim them without a routing fight.
-var delegateJobs = map[string]bool{
-	"daily_list_open": true,
-	"auto_trade_scan": true,
-}
+// No wholesale Python fallback for these job types. /internal/jobs/run still
+// accepts them as an emergency path, but the worker routes them natively.
+var delegateJobs = map[string]bool{}
 
 type Handler struct {
 	store    *store.Service
 	delegate *delegate.PythonClient
+	jobs     *jobs.Repo
+	broker   tradeexec.Broker
+	strategy jobs.StrategyClient
+	rdb      *redis.Client
+	reader   *influx.Reader
+	keys     jobs.EncKeys
 }
 
-func New(store *store.Service, delegate *delegate.PythonClient) *Handler {
-	return &Handler{store: store, delegate: delegate}
+func New(storeSvc *store.Service, python *delegate.PythonClient, repo *jobs.Repo, broker tradeexec.Broker, strategy jobs.StrategyClient, rdb *redis.Client, reader *influx.Reader, cfg config.Config) *Handler {
+	return &Handler{
+		store: storeSvc, delegate: python, jobs: repo, broker: broker, strategy: strategy, rdb: rdb, reader: reader,
+		keys: jobs.EncKeys{CredentialKey: cfg.CredentialKey, JWTSecret: cfg.JWTSecret, AppEnv: cfg.AppEnv},
+	}
 }
 
 func NativeJobTypes() []string {
-	return []string{"indicator_refresh", "factor_scan", "factor_qc", "strategy_run", "daily_list_scan", "position_monitor"}
+	return []string{
+		"indicator_refresh", "factor_scan", "factor_qc", "strategy_run",
+		"daily_list_scan", "position_monitor", "daily_list_open", "auto_trade_scan",
+	}
 }
 
 func DeferredJobTypes() []string {
-	return []string{"daily_list_open", "auto_trade_scan"}
+	return nil
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) (interface{}, error) {
@@ -75,7 +93,11 @@ func (h *Handler) handleNative(ctx context.Context, job queue.Job) (interface{},
 	case "daily_list_scan":
 		return h.store.RunDailyListScan(ctx, job.Payload)
 	case "position_monitor":
-		return h.store.RunPositionMonitor(ctx)
+		return jobs.RunPositionMonitor(ctx, h.jobs, h.broker, h.rdb, h.keys, h.klineClose)
+	case "daily_list_open":
+		return jobs.RunDailyListOpen(ctx, h.jobs, h.broker, h.rdb, h.keys)
+	case "auto_trade_scan":
+		return jobs.RunAutoTradeScan(ctx, h.jobs, h.broker, h.strategy, h.rdb, h.keys, job.Payload)
 	default:
 		return nil, fmt.Errorf("unhandled native job: %s", job.Type)
 	}
@@ -86,4 +108,23 @@ func stringFrom(v interface{}) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+func (h *Handler) klineClose(ctx context.Context, market string, symbols []string) (map[string]float64, error) {
+	out := map[string]float64{}
+	if h.reader == nil {
+		return out, nil
+	}
+	grouped, err := h.reader.QueryLatestKlines(ctx, market, symbols, 1, "-30d")
+	if err != nil {
+		return out, err
+	}
+	for _, sym := range symbols {
+		bars := grouped[sym]
+		if len(bars) == 0 {
+			continue
+		}
+		out[sym] = bars[len(bars)-1].Close
+	}
+	return out, nil
 }

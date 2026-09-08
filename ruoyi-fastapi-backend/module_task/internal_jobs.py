@@ -22,9 +22,9 @@ _DELEGATABLE = frozenset(
         # market queue — Go worker is native; keep Python handlers as fallback
         'market_heat_collect',
         'symbol_content',
-        # quant queue — Go worker is native for factor/strategy/daily_list_scan/
-        # position_monitor; keep Python handlers as fallback. Order-submit
-        # jobs (daily_list_open / auto_trade_scan) stay here until P1.
+        # quant queue — Go worker is native for factor/strategy/daily_list/
+        # position_monitor + Longbridge submit (daily_list_open / auto_trade_scan).
+        # Keep Python handlers as emergency fallback.
         'factor_scan',
         'factor_qc',
         'strategy_run',
@@ -69,6 +69,9 @@ async def run_internal_job(
         raise HTTPException(status_code=401, detail='invalid internal token')
 
     job_type = str(body.type or '').strip()
+    if job_type == 'strategy_evaluate':
+        result = await _strategy_evaluate(body.payload or {})
+        return {'ok': True, 'type': job_type, 'result': result}
     if job_type not in KNOWN_JOBS:
         raise HTTPException(status_code=400, detail=f'unknown job type: {job_type}')
     if job_type not in _DELEGATABLE:
@@ -80,3 +83,17 @@ async def run_internal_job(
 
     result = await handler(body.payload or {})
     return {'ok': True, 'type': job_type, 'result': result}
+
+
+async def _strategy_evaluate(payload: dict[str, Any]) -> dict[str, Any]:
+    """Go trade jobs call this for signal generation only; they submit orders themselves."""
+    from config.database import AsyncSessionLocal
+    from module_quant.service.quant_service import QuantService
+    from module_quant.service.strategy_service import StrategyService
+
+    symbols = payload.get('symbols') or []
+    profile = str(payload.get('profile') or 'balanced').strip() or 'balanced'
+    user_id = int(payload.get('userId') or 0) or None
+    async with AsyncSessionLocal() as db:
+        profile_cfg = await QuantService.load_profile_config(db, profile, user_id=user_id)
+        return await StrategyService.run_strategy_cycle_async(symbols, profile, 'US', profile_cfg)

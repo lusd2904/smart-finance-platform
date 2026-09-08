@@ -55,6 +55,10 @@ func (s *Service) Close() error {
 	return s.db.Close()
 }
 
+func (s *Service) DB() *sql.DB {
+	return s.db
+}
+
 func (s *Service) RunIndicatorRefresh(ctx context.Context) (map[string]interface{}, error) {
 	byMarket := map[string][]string{}
 	names := map[string]string{}

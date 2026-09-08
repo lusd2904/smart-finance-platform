@@ -18,7 +18,7 @@ Low-memory consumer for Redis `sfp:job:queue:market`. Replaces the Python `senti
 
 ## Related Go workers
 
-- `sfp-quant-worker` — quant queue (factor / strategy / daily_list_scan / position_monitor native; open + auto_trade still Python/P1)
+- `sfp-quant-worker` — quant queue: #77 factor/strategy/daily_list_scan + #78 Longbridge trade (`daily_list_open`, `auto_trade_scan`, position_monitor MO sell)
 - `sfp-notify-worker` — `feishu_push` on llm queue
 
 ## Influx contract (unchanged)

@@ -372,13 +372,15 @@ services:
       retries: 12
       start_period: 25s
 
-  # quant 队列：Go worker（因子/策略/次日清单/持仓监控原生；开仓与 auto_trade 仍委托 P1）
+  # quant 队列：Go worker（#77 因子/策略/清单扫描 + #78 Longbridge 开仓/auto_trade/止损卖出）
   sfp-quant-worker:
     build:
       context: ./workers/quant-worker
       dockerfile: Dockerfile
     image: sfp-quant-worker:latest
     container_name: sfp-quant-worker
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
     ports:
       - "127.0.0.1:19096:9097"
     environment:
