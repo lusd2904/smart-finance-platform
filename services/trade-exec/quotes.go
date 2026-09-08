@@ -10,14 +10,6 @@ import (
 
 const cnNoDepthMsg = "A股盘口请使用时序库"
 
-func quoteCtx(creds Creds) (*quote.QuoteContext, error) {
-	cfg, err := buildConfig(creds)
-	if err != nil {
-		return nil, err
-	}
-	return quote.NewFromCfg(cfg)
-}
-
 func (s *SDKBroker) GetDepth(ctx context.Context, creds Creds, symbol, market string) map[string]interface{} {
 	code, mkt := ParseSymbolMarket(symbol, market)
 	if IsCNMarket(mkt, code) {
@@ -31,7 +23,6 @@ func (s *SDKBroker) GetDepth(ctx context.Context, creds Creds, symbol, market st
 	if err != nil {
 		return emptyDepth(code, mkt, true, "unavailable", err.Error(), lb)
 	}
-	defer qctx.Close()
 	raw, err := qctx.Depth(ctx, lb)
 	if err != nil {
 		return emptyDepth(code, mkt, true, "error", "盘口暂不可用: "+err.Error(), lb)
@@ -53,7 +44,6 @@ func (s *SDKBroker) GetTrades(ctx context.Context, creds Creds, symbol, market s
 	if err != nil {
 		return emptyTrades(code, mkt, true, "unavailable", err.Error(), lb)
 	}
-	defer qctx.Close()
 	raw, err := qctx.Trades(ctx, lb, int32(count))
 	if err != nil {
 		return emptyTrades(code, mkt, true, "error", "成交明细暂不可用: "+err.Error(), lb)
@@ -75,7 +65,6 @@ func (s *SDKBroker) GetCandlesticks(ctx context.Context, creds Creds, symbol, ma
 	if err != nil {
 		return emptyKlines(code, mkt, period, true, "unavailable", err.Error())
 	}
-	defer qctx.Close()
 	periodEnum := resolveLBPeriod(period)
 	if periodEnum == 0 {
 		return emptyKlines(code, mkt, period, true, "unavailable", "长桥 candlesticks 不可用或周期不支持")
@@ -118,7 +107,6 @@ func (s *SDKBroker) GetIntraday(ctx context.Context, creds Creds, symbol, market
 	if err != nil {
 		return emptyKlines(code, mkt, "intraday", true, "unavailable", err.Error())
 	}
-	defer qctx.Close()
 	lines, err := qctx.Intraday(ctx, lb)
 	if err != nil {
 		return emptyKlines(code, mkt, "intraday", true, "error", "分时暂不可用: "+err.Error())
@@ -165,7 +153,6 @@ func (s *SDKBroker) GetQuoteSnapshot(ctx context.Context, creds Creds, symbol, m
 		base["message"] = err.Error()
 		return base
 	}
-	defer qctx.Close()
 
 	quoteMap := map[string]interface{}{}
 	if rows, qerr := qctx.Quote(ctx, []string{lb}); qerr == nil && len(rows) > 0 {
