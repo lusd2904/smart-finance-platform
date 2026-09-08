@@ -14,6 +14,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/timeutil"
 )
 
 const disclaimer = "本内容为量化策略摘要，不构成投资建议或荐股，过往表现不代表未来。交易有风险，决策请独立判断。"
@@ -39,7 +40,7 @@ func NewService(cfg mwcfg.Config) (*Service, error) {
 func (s *Service) Close() error { return s.db.Close() }
 
 func (s *Service) RunFeishuPush(ctx context.Context) (map[string]interface{}, error) {
-	if !isCNTradingDay(time.Now()) {
+	if !timeutil.IsCNTradingDay(time.Now()) {
 		return map[string]interface{}{"skipped": true, "reason": "non_trading_day"}, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -169,11 +170,7 @@ func buildCard(list map[string]interface{}, items []map[string]interface{}, trad
 }
 
 func dueNow(pushTime, timezone string, now time.Time) bool {
-	loc, err := time.LoadLocation(timezone)
-	if err != nil || timezone == "" {
-		loc, _ = time.LoadLocation("Asia/Shanghai")
-	}
-	local := now.In(loc)
+	local := now.In(timeutil.LocationFor(timezone))
 	parts := strings.Split(pushTime, ":")
 	hour, minute := 18, 30
 	if len(parts) >= 2 {
@@ -181,12 +178,6 @@ func dueNow(pushTime, timezone string, now time.Time) bool {
 		fmt.Sscan(parts[1], &minute)
 	}
 	return local.Hour() == hour && local.Minute() >= minute && local.Minute() < minute+5
-}
-
-func isCNTradingDay(now time.Time) bool {
-	loc, _ := time.LoadLocation("Asia/Shanghai")
-	wd := now.In(loc).Weekday()
-	return wd != time.Saturday && wd != time.Sunday
 }
 
 func postWebhook(ctx context.Context, webhook string, payload map[string]interface{}) (bool, string) {
