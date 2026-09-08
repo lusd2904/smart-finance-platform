@@ -22,7 +22,8 @@
 
 | Slim 容器 | 合并内容 | 对外路径（不变） |
 |-----------|----------|------------------|
-| `sentiment-data` | market + quant API | `/market/`、`/quant/`、`/ws/` |
+| `sentiment-data` | remaining market + quant API + WS | 其余 `/market/`、`/quant/`、`/ws/` |
+| `sentiment-market-read` | Go 热读（256m） | kline / board / heat / index / `symbols/*/history` |
 | `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
 | `sentiment-trade` | **仍独立** | `/trade/` |
 | `sentiment-jobs` | `APP_JOB_GROUP=none`：仅 APScheduler；market/quant/llm 队列由 Go workers 消费 | 任务中心「jobs 在线」 |
@@ -61,8 +62,8 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
-- **不应**再跑：`sentiment-market`、`sentiment-ai`、`sentiment-market-read`、`jobs-market` 等 full-split 容器名
+- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sentiment-market-read`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
+- **不应**再跑：`sentiment-market`、`sentiment-ai`、`jobs-market` 等 full-split 容器名（`sentiment-market-read` 是 slim 热读，不是 full-split）
 - Influx healthy 后空闲 5 分钟，整栈 RSS **< 5.5 GiB**
 
 ### 禁止（与 DEPLOY.md 一致）
@@ -85,22 +86,23 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 
 ---
 
-## 后续迁移：market-read on slim（计划）
+## market-read on slim（已落地）
 
-PR **#66** / **#67** 已落地 full 栈 `sentiment-market-read` 与三 Go workers。**Slim 生产（cursor-1）现状**：
+PR **#66** / **#67** 落地 full 栈 `sentiment-market-read` 与三 Go workers。**Slim 生产（cursor-1）现状**：
 
 | 组件 | Slim 状态 |
 |------|-----------|
 | Go workers（market / quant / llm） | **已启用**（`docker-compose.sentiment.slim.yml` + `deploy_and_verify_slim.sh`） |
-| `sentiment-market-read` | **禁用**（`profiles: [full-split]`）；slim nginx 仍走 Python `sentiment-data` |
+| `sentiment-market-read` | **已启用**（去掉 slim `profiles: [full-split]`）；slim nginx 热读与 full 栈相同 |
+| `sentiment-data` | **仍保留**：`/quant/`、其余 `/market/`、行情 WS。**不要删除。** `mem_limit` 仍 512m |
 | `sentiment-jobs` | scheduler-only（`APP_JOB_GROUP=none`） |
 
-**下一 PR（可选）**：在 `nginx.dockersentiment.slim.conf` 增加与 full 栈相同的热读 offload → 启用 `sentiment-market-read` 并去掉 slim 上的 profile。HTTP / ticket 契约不变。
+HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 实测后再降。
 
 ### 与 slim 的关系
 
-- Slim 是当前 **16 GiB 上的进程合并**；Go workers 已叠加在 slim 拓扑上（scheduler + 三 worker，~768m RSS）。
-- `sentiment-market-read` 可在 slim 上叠加以替换 `sentiment-data` 中的读逻辑（需 nginx + compose 同 PR）。
+- Slim 是当前 **16 GiB 上的进程合并**；Go workers + market-read 已叠加在 slim 拓扑上。
+- `sentiment-market-read` 只替换热读路径；量化、剩余行情写/业务、行情 WS 仍在 `sentiment-data`。
 
 ---
 
@@ -110,7 +112,7 @@ PR **#66** / **#67** 已落地 full 栈 `sentiment-market-read` 与三 Go worker
 
 | 模块 | 指南文件 | Slim / 迁移相关要点 |
 |------|----------|---------------------|
-| 行情中心 | `resources/guides/market.md` | slim 下 market+quant 同进程；full 栈热读 offload 至 Go market-read |
+| 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 同进程；热读 offload 至 Go market-read |
 | 任务中心 | `resources/guides/analysis.md` | slim：`sentiment-jobs` scheduler + 三 Go workers |
 | 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
 | 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列 worker 可迁 Go |
@@ -122,6 +124,6 @@ PR **#66** / **#67** 已落地 full 栈 `sentiment-market-read` 与三 Go worker
 | PR | 内容 |
 |----|------|
 | **#64** | Slim overlay、`docker-compose.sentiment.slim.yml`、`deploy_and_verify_slim.sh`、`SFP-TWO-HOST-DEPLOY.md`、`SLIM-POST-MERGE.md` |
-| **#66** | Full 栈 `sentiment-market-read`（Go 热读）；slim 仍 Python 读路径 |
+| **#66** | Full 栈 `sentiment-market-read`（Go 热读） |
 | **#67** | Go workers + slim scheduler-only `sentiment-jobs` |
-| **后续** | Slim nginx market-read offload（可选） |
+| **本 PR** | Slim 启用 `sentiment-market-read` + nginx 热读 offload；`sentiment-data` 仍保留 |

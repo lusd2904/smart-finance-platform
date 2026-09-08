@@ -34,8 +34,8 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment
 
 ## 路由开关
 
-nginx（`ruoyi-fastapi-frontend/bin/nginx.dockersentiment.conf`）将上表路径 **默认** 代理到 `:8080`。
-回退 Python：把对应 `proxy_pass` 改回 `http://sentiment-market:9099/...` 并 reload 前端容器。
+nginx（`nginx.dockersentiment.conf` 与 slim 的 `nginx.dockersentiment.slim.conf`）将上表路径 **默认** 代理到 `:8080`。
+回退 Python：把对应 `proxy_pass` 改回 `http://sentiment-market:9099/...`（full）或 `http://sentiment-data:9099/...`（slim）并 reload 前端容器。
 
 ## 验证清单
 

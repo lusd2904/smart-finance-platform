@@ -71,7 +71,7 @@ bash scripts/deploy_and_verify_slim.sh
 
 Slim 合并方式（**对外路径不变**）：
 
-- `sentiment-data`：`APP_MODULE=data`（market + quant），nginx 仍反代 `/market/`、`/quant/`、`/ws/`
+- `sentiment-data`：`APP_MODULE=data`（remaining market + quant + WS）；热读走 `sentiment-market-read`
 - `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
 - `sentiment-jobs`：`APP_ROLE=scheduler` + `APP_JOB_GROUP=none`（仅 APScheduler；队列由 Go workers 消费）
@@ -139,9 +139,9 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sentiment-jobs` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy
+- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sentiment-jobs` / `sentiment-market-read` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy
 - full：`sentiment-backend` / `sentiment-trade` / `sentiment-frontend` + Go workers + `jobs-quant` / `jobs-llm` 应为 healthy
-- full：`sentiment-market-read` 应为 healthy（行情只读 Go 服务，见 `services/market-read/README.md`）
+- slim / full：`sentiment-market-read` 应为 healthy（行情只读 Go 服务，见 `services/market-read/README.md`）
 - 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
 - 浏览器强刷一次前端静态资源
 
@@ -229,8 +229,8 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**full 栈 nginx offload**；**slim 仍走 `sentiment-data` Python 读路径，不启 market-read 容器**）
-- slim 合并：market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`
+- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**full / slim nginx 均 offload**；slim 上 `sentiment-data` 仍承接 `/quant/`、其余 `/market/`、行情 WS，不可删）
+- slim 合并：remaining market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`；热读另起 `sentiment-market-read`
 - `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
 - `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
 - `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
@@ -425,8 +425,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。
 8. **cursor-1**：确认 slim 双文件 compose 已启用，整栈 RSS < 5.5 GiB；勿起 full-split。
 
-## 9. 后续架构迁移（计划，独立 PR）
+## 9. 后续架构迁移
 
-行情 **读取**（`market-read`）与 Redis **队列消费**（workers）将分 PR 迁至 **Go / Rust**，以降低 Python 进程内存与 tail 延迟。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
+行情热读（`market-read`）与 Redis 队列消费（workers）已在 slim / full 落地。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
 
-路线图与运维口径见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-与-workers计划独立-pr)。落地后同步更新本文件与 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)。
+`sentiment-data` **仍不可删**（`/quant/`、其余 `/market/`、行情 WS）。512m → 384m 需 cursor-1 实测。口径见 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。

@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### ⚡ Slim 启用 Go market-read 热读 offload
+- slim overlay 去掉 `sentiment-market-read` 的 `full-split` profile；`mem_limit` 仍 256m，depends_on mysql / redis / influx
+- slim nginx 与 full 栈相同：kline / board/quotes / heat/* / index/quotes / symbols/*/history → `sentiment-market-read:8080`
+- `/quant/`、其余 `/market/`、行情 `/ws/` 仍走 `sentiment-data`（不可删）；`mem_limit` 暂留 512m，384m 待 cursor-1 实测
+- Influx-only Phase A 仍不启 market-read（启动需 MySQL）
+
 ### ⚙️ Go market-worker：热度 / 标的内容不再走 Python SDK
 - `market_heat_collect`（sys_job 113/114/115）改为 worker 原生：复用已有 `heat_eod` 公开源（新浪 / 腾讯 / 东财），写入 `market_heat_daily` + `market_top50_snapshot`
 - `symbol_content`（sys_job 104）改为 Longbridge OpenAPI HTTP（filings / news / topics，HMAC-SHA256），不再依赖 Python `longport` SDK
