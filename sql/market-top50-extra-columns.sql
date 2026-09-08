@@ -1,5 +1,6 @@
 -- Top50 快照补涨跌额 / 换手率 / 量比 / 振幅 / PE / 主力净流入。
 -- 历史行保持 NULL，下次采集写入。可重复执行。不改写 market-heat.sql 基线。
+-- 新列挂在 change_pct 后：文件名排在 market-top50-last.sql 之前，不能依赖 last 已存在。
 
 SET @db := DATABASE();
 
@@ -9,7 +10,7 @@ SET @exists := (
 );
 SET @sql := IF(
   @exists=0,
-  'ALTER TABLE market_top50_snapshot ADD COLUMN `change_amount` DOUBLE NULL COMMENT ''涨跌额'' AFTER `last`',
+  'ALTER TABLE market_top50_snapshot ADD COLUMN `change_amount` DOUBLE NULL COMMENT ''涨跌额'' AFTER change_pct',
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;
