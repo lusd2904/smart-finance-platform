@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
+
+const closeLookbackDays = 7
 
 type top50MissingRow struct {
 	id        int64
@@ -57,7 +60,11 @@ WHERE trade_date >= ? AND trade_date <= ?
 	patched := 0
 	stillMissing := 0
 	for tradeDate, dayRows := range byDate {
-		closes, err := s.closeOnTradeDate(ctx, dayRows, tradeDate)
+		mkt := market
+		if mkt == "" || mkt == "ALL" {
+			mkt = dayRows[0].market
+		}
+		closes, err := s.closeOnTradeDate(ctx, dayRows, tradeDate, mkt)
 		if err != nil {
 			return nil, err
 		}
@@ -88,49 +95,69 @@ WHERE trade_date >= ? AND trade_date <= ?
 	}, nil
 }
 
-func (s *Service) closeOnTradeDate(ctx context.Context, dayRows []top50MissingRow, tradeDate string) (map[string]float64, error) {
+func (s *Service) closeOnTradeDate(ctx context.Context, dayRows []top50MissingRow, tradeDate, market string) (map[string]float64, error) {
 	if len(dayRows) == 0 {
 		return map[string]float64{}, nil
 	}
-	placeholders := make([]string, 0, len(dayRows))
-	args := make([]any, 0, len(dayRows)+1)
-	args = append(args, tradeDate)
-	seen := make(map[string]struct{})
+	requested := make([]string, 0, len(dayRows))
+	aliases := make([]string, 0)
+	seen := map[string]struct{}{}
 	for _, r := range dayRows {
 		sym := strings.TrimSpace(r.symbol)
 		if sym == "" {
 			continue
 		}
-		key := strings.ToUpper(sym)
-		if _, ok := seen[key]; ok {
-			continue
+		requested = append(requested, sym)
+		mkt := market
+		if mkt == "" {
+			mkt = r.market
 		}
-		seen[key] = struct{}{}
-		placeholders = append(placeholders, "?")
-		args = append(args, sym)
+		for _, alias := range priceSymbolAliases(sym, mkt) {
+			if _, ok := seen[alias]; ok {
+				continue
+			}
+			seen[alias] = struct{}{}
+			aliases = append(aliases, alias)
+		}
 	}
-	if len(placeholders) == 0 {
+	if len(aliases) == 0 {
 		return map[string]float64{}, nil
+	}
+	lookbackStart := tradeDate
+	if parsed, err := time.Parse("2006-01-02", tradeDate); err == nil {
+		lookbackStart = parsed.AddDate(0, 0, -closeLookbackDays).Format("2006-01-02")
+	}
+	placeholders := make([]string, len(aliases))
+	args := make([]any, 0, len(aliases)+2)
+	args = append(args, lookbackStart, tradeDate)
+	for i, alias := range aliases {
+		placeholders[i] = "?"
+		args = append(args, alias)
 	}
 	q := fmt.Sprintf(`
 SELECT symbol, close_price FROM market_price_history_daily
-WHERE trade_date = ? AND symbol IN (%s)`, strings.Join(placeholders, ","))
+WHERE trade_date >= ? AND trade_date <= ? AND symbol IN (%s)
+ORDER BY trade_date DESC`, strings.Join(placeholders, ","))
 	dbRows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer dbRows.Close()
-	out := make(map[string]float64)
+	found := make(map[string]float64)
 	for dbRows.Next() {
 		var symbol string
 		var closePrice *float64
 		if err := dbRows.Scan(&symbol, &closePrice); err != nil {
 			return nil, err
 		}
-		if closePrice == nil || *closePrice <= 0 {
+		key := strings.ToUpper(strings.TrimSpace(symbol))
+		if _, exists := found[key]; exists || closePrice == nil || *closePrice <= 0 {
 			continue
 		}
-		out[strings.ToUpper(strings.TrimSpace(symbol))] = *closePrice
+		found[key] = *closePrice
 	}
-	return out, dbRows.Err()
+	if err := dbRows.Err(); err != nil {
+		return nil, err
+	}
+	return mapClosesByAlias(requested, found, market), nil
 }

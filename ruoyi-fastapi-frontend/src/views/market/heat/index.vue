@@ -516,8 +516,8 @@ function syncQuoteSub() {
 }
 
 function normalizeQuote(item) {
-  const rawPrice = item.last != null ? item.last : item.price
-  const price = rawPrice == null ? null : Number(rawPrice)
+  const rawPrice = item.last != null && Number(item.last) !== 0 ? item.last : item.price
+  const price = rawPrice == null || Number(rawPrice) === 0 ? null : Number(rawPrice)
   const changeRate = item.changePct != null ? item.changePct : (item.changeRate == null ? item.change : item.changeRate)
   const nChange = Number(changeRate)
   const hasChange = changeRate != null && !Number.isNaN(nChange)

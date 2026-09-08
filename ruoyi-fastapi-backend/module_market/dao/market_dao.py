@@ -104,31 +104,63 @@ class MarketInstrumentDao:
 
     @classmethod
     async def get_close_on_trade_date(
-        cls, db: AsyncSession, symbols: list[str], trade_date: str
+        cls,
+        db: AsyncSession,
+        symbols: list[str],
+        trade_date: str,
+        market: str | None = None,
+        lookback_days: int = 7,
     ) -> dict[str, float]:
-        """Close price per symbol on a specific trade date (for Top50 last backfill)."""
+        """Close on trade_date (or nearest prior bar within lookback) per requested symbol.
+
+        Expands HK/CN/US aliases so Top50 `00700` matches daily `0700.HK`.
+        """
+        from module_market.service.heat_service import map_closes_by_alias, price_symbol_aliases
+
         uniq = [s for s in dict.fromkeys(symbols) if s]
         if not uniq:
             return {}
+        aliases: list[str] = []
+        seen: set[str] = set()
+        for symbol in uniq:
+            for alias in price_symbol_aliases(symbol, market):
+                if alias not in seen:
+                    seen.add(alias)
+                    aliases.append(alias)
+        end = str(trade_date)[:10]
+        start = end
+        if lookback_days > 0:
+            try:
+                start = (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+            except ValueError:
+                start = end
         rows = (
             await db.execute(
-                select(MarketPriceHistoryDaily.symbol, MarketPriceHistoryDaily.close_price).where(
-                    MarketPriceHistoryDaily.symbol.in_(uniq),
-                    MarketPriceHistoryDaily.trade_date == str(trade_date)[:10],
+                select(
+                    MarketPriceHistoryDaily.symbol,
+                    MarketPriceHistoryDaily.close_price,
+                    MarketPriceHistoryDaily.trade_date,
                 )
+                .where(
+                    MarketPriceHistoryDaily.symbol.in_(aliases),
+                    MarketPriceHistoryDaily.trade_date >= start,
+                    MarketPriceHistoryDaily.trade_date <= end,
+                )
+                .order_by(desc(MarketPriceHistoryDaily.trade_date))
             )
         ).all()
-        out: dict[str, float] = {}
-        for symbol, close in rows:
-            if close is None:
+        found: dict[str, float] = {}
+        for symbol, close, _row_date in rows:
+            key = str(symbol or '').strip().upper()
+            if key in found or close is None:
                 continue
             try:
                 value = float(close)
             except (TypeError, ValueError):
                 continue
             if value > 0:
-                out[str(symbol).strip().upper()] = value
-        return out
+                found[key] = value
+        return map_closes_by_alias(uniq, found, market)
 
     @classmethod
     async def get_latest_daily_quotes(cls, db: AsyncSession, symbols: list[str]) -> dict[str, dict[str, Any]]:

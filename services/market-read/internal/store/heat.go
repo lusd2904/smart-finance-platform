@@ -161,6 +161,98 @@ FROM market_top50_snapshot WHERE market = ? AND trade_date = ? ORDER BY rank_no`
 	return out, rows.Err()
 }
 
+func (s *HeatStore) FillMissingLastFromDaily(ctx context.Context, market, tradeDate string, top50 []map[string]interface{}) {
+	if s == nil || s.db == nil || len(top50) == 0 {
+		return
+	}
+	missing := make([]string, 0)
+	for _, item := range top50 {
+		if item["last"] != nil || item["symbol"] == nil {
+			continue
+		}
+		sym := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item["symbol"])))
+		if sym != "" {
+			missing = append(missing, sym)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	closes, err := s.closesOnTradeDate(ctx, missing, market, tradeDate)
+	if err != nil || len(closes) == 0 {
+		return
+	}
+	for _, item := range top50 {
+		if item["last"] != nil {
+			continue
+		}
+		sym := strings.ToUpper(strings.TrimSpace(fmt.Sprint(item["symbol"])))
+		last, ok := closes[sym]
+		if !ok || last <= 0 {
+			continue
+		}
+		item["last"] = last
+		_, _ = s.db.ExecContext(ctx, `
+UPDATE market_top50_snapshot SET last=?
+WHERE market=? AND trade_date=? AND UPPER(symbol)=? AND (last IS NULL OR last=0)`,
+			last, strings.ToUpper(market), tradeDate, sym)
+	}
+}
+
+func (s *HeatStore) closesOnTradeDate(ctx context.Context, symbols []string, market, tradeDate string) (map[string]float64, error) {
+	aliases := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, symbol := range symbols {
+		for _, alias := range priceSymbolAliases(symbol, market) {
+			if _, ok := seen[alias]; ok {
+				continue
+			}
+			seen[alias] = struct{}{}
+			aliases = append(aliases, alias)
+		}
+	}
+	if len(aliases) == 0 {
+		return map[string]float64{}, nil
+	}
+	lookbackStart := tradeDate
+	if parsed, err := time.Parse("2006-01-02", tradeDate); err == nil {
+		lookbackStart = parsed.AddDate(0, 0, -7).Format("2006-01-02")
+	}
+	placeholders := make([]string, len(aliases))
+	args := make([]any, 0, len(aliases)+2)
+	args = append(args, lookbackStart, tradeDate)
+	for i, alias := range aliases {
+		placeholders[i] = "?"
+		args = append(args, alias)
+	}
+	q := fmt.Sprintf(`
+SELECT symbol, close_price FROM market_price_history_daily
+WHERE trade_date >= ? AND trade_date <= ? AND symbol IN (%s)
+ORDER BY trade_date DESC`, strings.Join(placeholders, ","))
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	found := map[string]float64{}
+	for rows.Next() {
+		var symbol string
+		var closePrice sql.NullFloat64
+		if err := rows.Scan(&symbol, &closePrice); err != nil {
+			return nil, err
+		}
+		key := strings.ToUpper(strings.TrimSpace(symbol))
+		if _, exists := found[key]; exists || !closePrice.Valid || closePrice.Float64 <= 0 {
+			continue
+		}
+		found[key] = closePrice.Float64
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return mapClosesByAlias(symbols, found, market), nil
+}
+
 func (s *HeatStore) WatchlistSymbols(ctx context.Context, userID int64) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT symbol, market FROM market_watchlist WHERE user_id = ? AND enabled = '1'`, userID)
@@ -231,7 +323,7 @@ func SerializeTop50(rows []Top50Row) []map[string]interface{} {
 			"marketCap":  nullFloat(row.MarketCap),
 			"turnover":   nullFloat(row.Turnover),
 			"changePct":  nullFloat(row.ChangePct),
-			"last":       nullFloat(row.Last),
+			"last":       cleanLast(row.Last),
 			"currency":   nullString(row.Currency, ""),
 			"asOfTime":   formatTime(row.AsOfTime),
 		})
@@ -263,6 +355,13 @@ func nullFloat(v sql.NullFloat64) interface{} {
 		return v.Float64
 	}
 	return nil
+}
+
+func cleanLast(v sql.NullFloat64) interface{} {
+	if !v.Valid || v.Float64 == 0 {
+		return nil
+	}
+	return v.Float64
 }
 
 func nullInt(v sql.NullInt64) interface{} {

@@ -11,7 +11,13 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from module_market.service.heat_service import MarketHeatService, _clean_last, _quote_last_price
+from module_market.service.heat_service import (
+    MarketHeatService,
+    _clean_last,
+    _quote_last_price,
+    map_closes_by_alias,
+    price_symbol_aliases,
+)
 from module_market.service.live_quotes_service import LiveQuotesService
 from module_quant.service.longbridge_service import LongbridgeService
 from utils.longbridge_breaker import LongbridgeBreaker
@@ -262,14 +268,27 @@ async def test_enrich_top50_last_from_daily_quotes() -> None:
         {'symbol': 'AAPL', 'last': None},
         {'symbol': 'MSFT', 'last': 400.0},
     ]
-    quotes = {'AAPL': {'price': 191.2}, 'MSFT': {'price': 401.0}}
     with patch(
-        'module_market.dao.market_dao.MarketInstrumentDao.get_latest_daily_quotes',
-        new=AsyncMock(return_value=quotes),
+        'module_market.dao.market_dao.MarketInstrumentDao.get_close_on_trade_date',
+        new=AsyncMock(return_value={'AAPL': 191.2}),
     ):
-        await MarketHeatService._enrich_top50_last_from_daily_quotes(AsyncMock(), rows)
+        await MarketHeatService._enrich_top50_last_from_daily_quotes(
+            AsyncMock(), rows, trade_date='2026-08-27', market='US'
+        )
     assert rows[0]['last'] == 191.2
     assert rows[1]['last'] == 400.0
+
+
+def test_price_symbol_aliases_match_hk_and_cn() -> None:
+    hk = set(price_symbol_aliases('00700', 'HK'))
+    assert '0700.HK' in hk
+    assert '00700' in hk
+    cn = set(price_symbol_aliases('600519', 'CN'))
+    assert '600519.SH' in cn
+    mapped = map_closes_by_alias(['00700', '600519'], {'0700.HK': 320.5, '600519.SH': 1480.0}, 'HK')
+    assert mapped['00700'] == 320.5
+    mapped_cn = map_closes_by_alias(['600519'], {'600519.SH': 1480.0}, 'CN')
+    assert mapped_cn['600519'] == 1480.0
 
 
 def test_write_back_top50_last() -> None:
@@ -310,3 +329,30 @@ async def test_backfill_top50_last_dry_run() -> None:
     assert result['patched'] == 2
     assert result['stillMissing'] == 0
     patch_last.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backfill_top50_last_uses_symbol_aliases() -> None:
+    rows = [SimpleNamespace(id=11, market='HK', trade_date='2026-08-27', symbol='00700', last=None)]
+    with (
+        patch(
+            'module_market.dao.heat_dao.MarketHeatDao.list_top50_missing_last',
+            new=AsyncMock(return_value=rows),
+        ),
+        patch(
+            'module_market.dao.market_dao.MarketInstrumentDao.get_close_on_trade_date',
+            new=AsyncMock(return_value={'00700': 320.5}),
+        ) as closes,
+        patch(
+            'module_market.dao.heat_dao.MarketHeatDao.patch_top50_last',
+            new=AsyncMock(),
+        ) as patch_last,
+    ):
+        result = await MarketHeatService.backfill_top50_last(
+            AsyncMock(), start_date='2026-08-27', end_date='2026-08-27', markets=['HK']
+        )
+    closes.assert_awaited()
+    assert closes.await_args.args[2] == '2026-08-27'
+    assert closes.await_args.kwargs.get('market') == 'HK'
+    assert result['patched'] == 1
+    patch_last.assert_awaited()

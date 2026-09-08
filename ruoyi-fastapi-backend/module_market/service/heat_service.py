@@ -115,6 +115,75 @@ def _quote_last_price(quote: dict[str, Any] | None) -> float | None:
     return None
 
 
+def price_symbol_aliases(symbol: str, market: str | None = None) -> list[str]:
+    """Codes that may appear on Top50 vs market_price_history_daily for the same name."""
+    raw = str(symbol or '').strip().upper()
+    if not raw:
+        return []
+    mkt = str(market or '').strip().upper()
+    base = raw
+    if '.' in raw:
+        head, suffix = raw.rsplit('.', 1)
+        if suffix in {'US', 'HK', 'SH', 'SZ', 'SS'}:
+            base = head
+            if not mkt:
+                mkt = 'US' if suffix == 'US' else 'HK' if suffix == 'HK' else 'CN'
+    aliases = [raw, base]
+    if mkt == 'HK':
+        digits = ''.join(ch for ch in base if ch.isdigit()) or base
+        stripped = digits.lstrip('0') or '0'
+        aliases.extend(
+            [
+                f'{base}.HK',
+                digits,
+                stripped,
+                stripped.zfill(4),
+                stripped.zfill(5),
+                f'{stripped.zfill(4)}.HK',
+                f'{stripped.zfill(5)}.HK',
+            ]
+        )
+    elif mkt == 'CN':
+        aliases.extend([f'{base}.SH', f'{base}.SZ', f'{base}.SS'])
+    elif mkt == 'US':
+        aliases.append(f'{base}.US')
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in aliases:
+        key = str(item).strip().upper()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def map_closes_by_alias(
+    requested: list[str],
+    found: dict[str, float],
+    market: str | None = None,
+) -> dict[str, float]:
+    """Map daily-bar closes (any alias) back to the Top50 symbol keys."""
+    alias_to_requested: dict[str, str] = {}
+    for symbol in requested:
+        key = str(symbol or '').strip().upper()
+        if not key:
+            continue
+        for alias in price_symbol_aliases(key, market):
+            alias_to_requested.setdefault(alias, key)
+    out: dict[str, float] = {}
+    for db_symbol, close in found.items():
+        db_key = str(db_symbol or '').strip().upper()
+        target = alias_to_requested.get(db_key)
+        if target is None:
+            for alias in price_symbol_aliases(db_key, market):
+                target = alias_to_requested.get(alias)
+                if target is not None:
+                    break
+        if target is not None and target not in out and close and close > 0:
+            out[target] = close
+    return out
+
+
 def _heat_summary(score: float, market: str, index_change: float | None, advance: int, decline: int) -> str:
     label = MARKET_META[market]['label']
     trend = '震荡'
@@ -535,28 +604,37 @@ class MarketHeatService:
         cls._apply_last_map(top50, by_symbol)
 
     @classmethod
-    async def _enrich_top50_last_from_daily_quotes(cls, db: AsyncSession, top50: list[dict[str, Any]]) -> None:
-        """Fill leftover null last from stored daily bars. No live fetch."""
+    async def _enrich_top50_last_from_daily_quotes(
+        cls,
+        db: AsyncSession,
+        top50: list[dict[str, Any]],
+        trade_date: str | None = None,
+        market: str | None = None,
+    ) -> None:
+        """Fill leftover null last from stored daily bars on that trade date. No live fetch."""
         missing = [item.get('symbol') for item in top50 if item.get('last') is None and item.get('symbol')]
         if not missing:
             return
         try:
-            quotes = await MarketInstrumentDao.get_latest_daily_quotes(db, missing)
+            if trade_date:
+                by_symbol = await MarketInstrumentDao.get_close_on_trade_date(
+                    db, missing, str(trade_date)[:10], market=market
+                )
+            else:
+                quotes = await MarketInstrumentDao.get_latest_daily_quotes(db, missing)
+                by_symbol = {}
+                for symbol, raw in (quotes or {}).items():
+                    last = _quote_last_price(raw if isinstance(raw, dict) else None)
+                    if last is None:
+                        continue
+                    by_symbol[str(symbol).strip().upper()] = last
         except Exception as exc:
             logger.info(f'[热度] Top50 last 日K补价跳过: {exc}')
             return
-        if not quotes:
-            return
-        by_symbol: dict[str, float] = {}
-        for symbol, raw in quotes.items():
-            last = _quote_last_price(raw if isinstance(raw, dict) else None)
-            if last is None:
-                continue
-            by_symbol[str(symbol).strip().upper()] = last
         cls._apply_last_map(top50, by_symbol)
 
     @classmethod
-    def _write_back_top50_last(cls, rows: list[Any], top50: list[dict[str, Any]]) -> None:
+    def _write_back_top50_last(cls, rows: list[Any], top50: list[dict[str, Any]]) -> int:
         """Stamp enriched last onto loaded snapshot rows so the next read does not re-miss."""
         by_symbol = {
             str(item.get('symbol') or '').strip().upper(): item.get('last')
@@ -564,13 +642,16 @@ class MarketHeatService:
             if item.get('last') is not None and item.get('symbol')
         }
         if not by_symbol:
-            return
+            return 0
+        patched = 0
         for row in rows:
             if _clean_last(getattr(row, 'last', None)) is not None:
                 continue
             last = by_symbol.get(str(getattr(row, 'symbol', '') or '').strip().upper())
             if last is not None:
                 row.last = last
+                patched += 1
+        return patched
 
     @classmethod
     async def get_daily_services(
@@ -604,9 +685,13 @@ class MarketHeatService:
         watchlist = await MarketWatchlistDao.get_enabled(db, user_id=user_id) if user_id else []
         watch_set = {(w.symbol.upper(), (w.market or 'US').upper()) for w in watchlist}
         top50 = cls._serialize_top50(top50_rows)
+        await cls._enrich_top50_last_from_daily_quotes(db, top50, heat_row.trade_date, market)
+        if cls._write_back_top50_last(top50_rows, top50) > 0:
+            try:
+                await db.commit()
+            except Exception as exc:
+                logger.info(f'[热度] Top50 last 回写跳过: {exc}')
         await cls._enrich_top50_last_from_board_cache(top50, market)
-        await cls._enrich_top50_last_from_daily_quotes(db, top50)
-        cls._write_back_top50_last(top50_rows, top50)
         for item in top50:
             item['inWatchlist'] = (item['symbol'].upper(), market) in watch_set
 
@@ -665,7 +750,9 @@ class MarketHeatService:
 
             for trade_date, day_rows in sorted(by_date.items()):
                 symbols = [str(r.symbol) for r in day_rows if r.symbol]
-                closes = await MarketInstrumentDao.get_close_on_trade_date(db, symbols, trade_date)
+                closes = await MarketInstrumentDao.get_close_on_trade_date(
+                    db, symbols, trade_date, market=market
+                )
                 for row in day_rows:
                     last = closes.get(str(row.symbol or '').strip().upper())
                     if last is None:

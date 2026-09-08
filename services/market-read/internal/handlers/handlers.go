@@ -182,6 +182,7 @@ func (s *Server) HeatDaily(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	top50 := store.SerializeTop50(top50Rows)
+	s.Heat.FillMissingLastFromDaily(ctx, market, heatRow.TradeDate, top50)
 	board, _ := s.Cache.GetJSON(ctx, cache.BoardQuotesKey)
 	cache.EnrichTop50Last(top50, board, market)
 

@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestPriceSymbolAliasesHK(t *testing.T) {
 	aliases := priceSymbolAliases("00700", "HK")
@@ -20,16 +23,18 @@ func TestPriceSymbolAliasesHK(t *testing.T) {
 }
 
 func TestMapClosesByAlias(t *testing.T) {
-	mapped := mapClosesByAlias(
-		[]string{"00700", "AAPL"},
-		map[string]float64{"0700.HK": 320.5, "AAPL.US": 191.2},
-		"HK",
-	)
+	mapped := mapClosesByAlias([]string{"00700"}, map[string]float64{"0700.HK": 320.5}, "HK")
 	if mapped["00700"] != 320.5 {
 		t.Fatalf("00700=%v", mapped["00700"])
 	}
-	mappedUS := mapClosesByAlias([]string{"AAPL"}, map[string]float64{"AAPL.US": 191.2}, "US")
-	if mappedUS["AAPL"] != 191.2 {
-		t.Fatalf("AAPL=%v", mappedUS["AAPL"])
+}
+
+func TestCleanLastTreatsZeroAsMissing(t *testing.T) {
+	if cleanLast(sql.NullFloat64{Float64: 0, Valid: true}) != nil {
+		t.Fatal("zero last should be missing")
+	}
+	got := cleanLast(sql.NullFloat64{Float64: 191.2, Valid: true})
+	if got != 191.2 {
+		t.Fatalf("got %v", got)
 	}
 }

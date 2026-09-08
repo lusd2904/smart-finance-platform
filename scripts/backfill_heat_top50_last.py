@@ -3,7 +3,8 @@
 One-shot backfill for Heat Top50 missing last prices.
 
 Reads market_top50_snapshot rows where last IS NULL/0, fills from
-market_price_history_daily.close_price on the same trade_date.
+market_price_history_daily.close_price on that trade_date (or nearest
+prior bar within 7 days). Expands HK/CN/US symbol aliases.
 Does not wipe Influx/MySQL or re-run public EOD rank collection.
 
 Example (host, dockersentiment DB on 13306):
