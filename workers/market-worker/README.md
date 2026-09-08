@@ -48,4 +48,4 @@ Optional: `LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN` /
 
 ## Slim compose
 
-P1 slim stack: `sentiment-jobs` runs **scheduler only** (`APP_JOB_GROUP=none`); Go workers consume market/quant/llm queues. Memory budget: **384m** market + **256m** quant + **256m** notify.
+P1 slim stack: `sfp-scheduler` enqueues from `sys_job`; Go workers consume market/quant/llm queues. Memory budget: **64m** scheduler + **384m** market + **256m** quant + **256m** notify.

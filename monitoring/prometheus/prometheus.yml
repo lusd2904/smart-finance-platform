@@ -20,6 +20,7 @@ scrape_configs:
     static_configs:
       - targets:
           - 'sentiment-jobs:9098'
+          - 'sfp-scheduler:9098'
           - 'sfp-market-worker:9098'
           - 'sfp-quant-worker:9097'
           - 'sfp-notify-worker:9096'

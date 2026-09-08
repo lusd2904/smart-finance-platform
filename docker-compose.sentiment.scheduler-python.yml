@@ -1,0 +1,20 @@
+# Rollback overlay: Python sentiment-jobs on, Go sfp-scheduler off.
+#
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     -f docker-compose.sentiment.scheduler-python.yml \
+#     up -d --no-deps sentiment-jobs
+#   sudo docker rm -f sfp-scheduler
+#
+# Stop Python and return to Go:
+#   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+#     up -d --no-deps --build sfp-scheduler
+#   sudo docker rm -f sentiment-jobs
+
+services:
+  sfp-scheduler:
+    profiles: [go-scheduler]
+
+  sentiment-jobs:
+    profiles: !override []

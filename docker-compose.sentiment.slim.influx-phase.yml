@@ -33,6 +33,9 @@ services:
   sentiment-jobs:
     profiles: [mysql-ready]
 
+  sfp-scheduler:
+    profiles: [mysql-ready]
+
   sentiment-frontend:
     profiles: [mysql-ready]
 

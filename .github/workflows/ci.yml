@@ -276,6 +276,23 @@ jobs:
           go test ./...
           go build -o /tmp/notify-worker ./cmd/notify-worker
 
+  sfp-scheduler:
+    name: Go sfp-scheduler tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/sfp-scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/sfp-scheduler/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/sfp-scheduler ./cmd/sfp-scheduler
+
   image-build:
     name: Docker image build & smoke
     runs-on: ubuntu-latest
@@ -305,6 +322,15 @@ jobs:
           file: workers/market-worker/Dockerfile
           load: true
           tags: sfp-market-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build sfp-scheduler image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/sfp-scheduler
+          file: services/sfp-scheduler/Dockerfile
+          load: true
+          tags: sfp-scheduler:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build frontend image

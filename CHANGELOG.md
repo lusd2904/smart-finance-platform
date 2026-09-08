@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 🧵 Go sfp-scheduler 替换 Python sentiment-jobs
+- 新服务 `services/sfp-scheduler`：读 `sys_job` + Quartz cron，按原 payload 入 Redis DB 2（market/quant/llm）
+- slim/full 默认起 `sfp-scheduler`（`127.0.0.1:19098`）；Python `sentiment-jobs` 放到 profile `python-scheduler`
+- 回滚：`docker-compose.sentiment.scheduler-python.yml`。并排步骤与 job id 核对清单见 [docs/SFP-SCHEDULER.md](./docs/SFP-SCHEDULER.md)
+- 启停仍走库 `status`；立即执行仍走 `sfp:scheduler:command`；心跳键不变
+
 ### ⚡ 行情 WS / live quotes 离开 sentiment-data
 - Go `sentiment-market-read` 增加 `WS /ws/market/quotes` 与 `GET /market/quotes/live`（腾讯 qt.gtimg.cn + Redis 短缓存）；FE 帧格式不变
 - `GET /market/index/quotes` 在 Redis 未命中时自行拉腾讯并回填 30s 缓存（不再依赖 Python WS 当 writer）

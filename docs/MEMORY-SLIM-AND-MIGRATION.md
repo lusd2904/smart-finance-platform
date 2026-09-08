@@ -26,7 +26,7 @@
 | `sentiment-market-read` | Go 热读 + 行情 WS（320m） | kline / board / heat / index / history / `quotes/live` / `WS /ws/market/quotes` |
 | `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
 | `sentiment-trade` | **仍独立** | `/trade/` |
-| `sentiment-jobs` | `APP_JOB_GROUP=none`：仅 APScheduler；market/quant/llm 队列由 Go workers 消费 | 任务中心「jobs 在线」 |
+| `sfp-scheduler` | 读 `sys_job` + cron，入 Redis DB 2；Python `sentiment-jobs` 仅回滚 | 任务中心「jobs 在线」 |
 | `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` | Go 消费三队列（slim ~768m RSS 合计） | 后台任务执行 |
 | `sentiment-backend` | 登录 / 系统 / dashboard | `/prod-api/` 等 |
 
@@ -62,7 +62,7 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sentiment-market-read`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
+- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sfp-scheduler`、`sentiment-market-read`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
 - **不应**再跑：`sentiment-market`、`sentiment-ai`、`jobs-market` 等 full-split 容器名（`sentiment-market-read` 是 slim 热读，不是 full-split）
 - Influx healthy 后空闲 5 分钟，整栈 RSS **< 5.5 GiB**
 
@@ -95,7 +95,7 @@ PR **#66** / **#67** 落地 full 栈 `sentiment-market-read` 与三 Go workers�
 | Go workers（market / quant / llm） | **已启用**（`docker-compose.sentiment.slim.yml` + `deploy_and_verify_slim.sh`） |
 | `sentiment-market-read` | **已启用**；热读 + `GET /market/quotes/live` + `WS /ws/market/quotes`（`mem_limit` 320m） |
 | `sentiment-data` | **仍保留**：`/quant/`、其余 `/market/` 写/入队/AI。**不要删除。** `mem_limit` 仍 512m |
-| `sentiment-jobs` | scheduler-only（`APP_JOB_GROUP=none`） |
+| `sfp-scheduler` | Go 调度入队（替代 Python `sentiment-jobs`；回滚用 `docker-compose.sentiment.scheduler-python.yml`） |
 
 HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 实测后再降。  
 清单与回退：[SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。
@@ -114,7 +114,7 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | 模块 | 指南文件 | Slim / 迁移相关要点 |
 |------|----------|---------------------|
 | 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 同进程；热读 offload 至 Go market-read |
-| 任务中心 | `resources/guides/analysis.md` | slim：`sentiment-jobs` scheduler + 三 Go workers |
+| 任务中心 | `resources/guides/analysis.md` | slim：`sfp-scheduler` + 三 Go workers |
 | 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
 | 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列 worker 可迁 Go |
 
@@ -128,4 +128,5 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | **#66** | Full 栈 `sentiment-market-read`（Go 热读） |
 | **#67** | Go workers + slim scheduler-only `sentiment-jobs` |
 | **#75** | Slim 启用 `sentiment-market-read` + nginx 热读 offload |
-| **本 PR** | 行情 WS + `/market/quotes/live` 迁 Go；指数条自拉腾讯；`sentiment-data` 仍保留 |
+| **#76** | 行情 WS + `/market/quotes/live` 迁 Go；指数条自拉腾讯；`sentiment-data` 仍保留 |
+| **本 PR** | Go `sfp-scheduler` 替换 Python `sentiment-jobs`；见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md) |

@@ -18,7 +18,7 @@ $COMPOSE config >/dev/null
 echo "==> [1/5] 构建并滚动更新 slim API / scheduler / Go workers / market-read"
 $COMPOSE up -d --no-deps --build \
   sentiment-backend sentiment-data sentiment-intel sentiment-trade \
-  sentiment-jobs sentiment-market-read \
+  sfp-scheduler sentiment-market-read \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 echo "==> [2/5] 等待平台 API 健康（最长 90s），再起前端"
@@ -29,7 +29,7 @@ for i in $(seq 1 30); do
 done
 [ -n "$ok" ] || { echo "后端未就绪，查看日志: docker logs --tail 50 sentiment-backend"; exit 1; }
 
-for port in 19097 19096 19095; do
+for port in 19098 19097 19096 19095; do
   wok=""
   for i in $(seq 1 20); do
     if curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then wok=1; echo "worker :${port} healthy"; break; fi

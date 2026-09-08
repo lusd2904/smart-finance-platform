@@ -255,10 +255,11 @@ services:
       retries: 8
       start_period: 25s
 
-  # 独立 jobs：只跑 APScheduler，不消费队列
+  # Python APScheduler rollback (profile python-scheduler). Default scheduler is sfp-scheduler.
   sentiment-jobs:
     <<: *backend-image
     container_name: sentiment-jobs
+    profiles: [python-scheduler]
     command: ["python", "scheduler_app.py", "--env=dockersentiment"]
     ports:
       - "127.0.0.1:19098:9098"
@@ -283,6 +284,43 @@ services:
           "-c",
           "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
         ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Go scheduler: load sys_job + cron, enqueue Redis DB 2 payloads. Replaces sentiment-jobs.
+  sfp-scheduler:
+    build:
+      context: ./services/sfp-scheduler
+      dockerfile: Dockerfile
+    image: sfp-scheduler:latest
+    container_name: sfp-scheduler
+    ports:
+      - "127.0.0.1:19098:9098"
+    environment:
+      SCHEDULER_PORT: "9098"
+      # Existing sys_job hours were authored as container UTC (Python APScheduler
+      # used process-local TZ). Pin UTC so fire times stay identical. Binary
+      # default is Asia/Shanghai when SCHEDULER_TZ is unset.
+      TZ: UTC
+      SCHEDULER_TZ: UTC
+      REDIS_HOST: ruoyi-redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: "2"
+      DB_HOST: ruoyi-mysql
+      DB_PORT: "3306"
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: sentiment-ai
+    depends_on: *core-depends
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:9098/health"]
       interval: 10s
       timeout: 5s
       retries: 12

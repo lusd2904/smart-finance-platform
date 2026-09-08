@@ -132,7 +132,7 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-应看到：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sentiment-frontend` 为 healthy；**不应**再跑 `sentiment-market` / `sentiment-ai` / `jobs-market` 等拆分容器。
+应看到：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sfp-scheduler`、`sentiment-frontend` 为 healthy；**不应**再跑 `sentiment-market` / `sentiment-ai` / `jobs-market` 等拆分容器。
 
 ### 禁止
 
@@ -162,4 +162,4 @@ PR #64 合并后若仍要临时起拆分容器：`--profile full-split`。**不�
 ## 合并后路线
 
 1. **Slim 固定 cursor-1 生产** — 见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（PR #64 合并后；Go workers 见 PR #67）。
-2. **market-read on slim（已落地）** — slim nginx 与 full 栈相同热读 offload；`sentiment-data` 仍保留 `/quant/` + 其余 `/market/` + WS，见 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。
+2. **market-read on slim（已落地）** — slim nginx 与 full 栈相同热读 + 行情 WS offload；`sentiment-data` 仍保留 `/quant/` + 其余 `/market/`，见 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。
