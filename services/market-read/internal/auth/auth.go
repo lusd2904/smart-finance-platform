@@ -45,6 +45,28 @@ func (a *Authenticator) Authenticate(ctx context.Context, header string) (*User,
 	if err != nil {
 		return nil, err
 	}
+	return a.AuthenticateToken(ctx, token)
+}
+
+func (a *Authenticator) AuthenticateToken(ctx context.Context, token string) (*User, error) {
+	userID, err := a.VerifySession(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	perms, err := a.loadPermissions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &User{UserID: userID, Permissions: perms}, nil
+}
+
+// VerifySession matches Python utils.ws_auth.verify_ws_session:
+// JWT signature + Redis session token equality. No permission check.
+func (a *Authenticator) VerifySession(ctx context.Context, token string) (int64, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return 0, errors.New("用户未登录，请先完成登录")
+	}
 	claims := jwt.MapClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
 		if t.Method.Alg() != a.cfg.JWTAlgorithm {
@@ -53,7 +75,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, header string) (*User,
 		return []byte(a.cfg.JWTSecret), nil
 	})
 	if err != nil || !parsed.Valid {
-		return nil, errors.New("用户token已失效，请重新登录")
+		return 0, errors.New("用户token已失效，请重新登录")
 	}
 	userIDRaw, _ := claims["user_id"].(string)
 	if userIDRaw == "" {
@@ -63,11 +85,11 @@ func (a *Authenticator) Authenticate(ctx context.Context, header string) (*User,
 	}
 	sessionID, _ := claims["session_id"].(string)
 	if userIDRaw == "" {
-		return nil, errors.New("用户token不合法")
+		return 0, errors.New("用户token不合法")
 	}
 	userID, err := parseInt64(userIDRaw)
 	if err != nil || userID <= 0 {
-		return nil, errors.New("用户token不合法")
+		return 0, errors.New("用户token不合法")
 	}
 
 	redisKey := fmt.Sprintf("access_token:%d", userID)
@@ -76,15 +98,10 @@ func (a *Authenticator) Authenticate(ctx context.Context, header string) (*User,
 	}
 	stored, err := a.redis.Get(ctx, redisKey).Result()
 	if err != nil || stored != token {
-		return nil, errors.New("用户token已失效，请重新登录")
+		return 0, errors.New("用户token已失效，请重新登录")
 	}
 	_ = a.redis.Expire(ctx, redisKey, a.cfg.JWTRedisExpire).Err()
-
-	perms, err := a.loadPermissions(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	return &User{UserID: userID, Permissions: perms}, nil
+	return userID, nil
 }
 
 func (a *Authenticator) loadPermissions(ctx context.Context, userID int64) ([]string, error) {

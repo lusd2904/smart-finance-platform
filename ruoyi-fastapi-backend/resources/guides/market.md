@@ -10,8 +10,8 @@
 - 智能选股 / 自选分析读「AI 管理 → 模型管理」里适用范围为 **行情中心 (market)** 的模型，默认 Grok 4.6（OpenRouter 编码 `x-ai/grok-4.6`，直连 xAI 填 `grok-4.6`）。未配则回退全局 / 助手。
 - 自选与量化扫描池都走当前账号的 `market_watchlist`，账号之间隔离。
 - Influx 未就绪时登录仍可用，K 线 / 热度可能 502，等时序库起来再刷。
-- **16 GiB slim 栈**：热读走 Go `sentiment-market-read`；其余 `/market/`、`/quant/`、行情 WS 仍在合并进程 `sentiment-data`（`APP_MODULE=data`）。对外路径不变（见 `docs/SFP-TWO-HOST-DEPLOY.md`）。Influx 已有数据、MySQL 未上传时可先跑 `bash scripts/up_slim_influx_phase.sh` 只起 Python 热度/分钟 K 线读路径（Phase A 不启 market-read）。
-- 行情 **只读热路径**（K 线、热度、看板、指数条）由 Go 服务 `sentiment-market-read` 承接（full / slim nginx 均 offload）；写路径与采集仍在 Python（full：`sentiment-market`；slim：`sentiment-data`）。
+- **16 GiB slim 栈**：热读与行情 WS 走 Go `sentiment-market-read`；其余 `/market/`、`/quant/` 仍在合并进程 `sentiment-data`（`APP_MODULE=data`）。对外路径不变（见 `docs/SFP-TWO-HOST-DEPLOY.md`、`docs/SENTIMENT-DATA-OFFLOAD.md`）。Influx 已有数据、MySQL 未上传时可先跑 `bash scripts/up_slim_influx_phase.sh` 只起 Python 热度/分钟 K 线读路径（Phase A 不启 market-read）。
+- 行情 **热读 + WS**（K 线、热度、看板、指数条、live quotes、`/ws/market/quotes`）由 Go 服务 `sentiment-market-read` 承接（full / slim nginx 均 offload）；写路径与采集仍在 Python（full：`sentiment-market`；slim：`sentiment-data`）。
 
 ## 操作步骤
 

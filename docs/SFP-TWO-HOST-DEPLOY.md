@@ -3,6 +3,7 @@
 适用：**生产云主机（cursor-1，16 GiB）** 与 **大内存开发机** 共用同一仓库，编排分 **slim** / **full** 两档。
 
 运维速查（内存预算、迁移路线）：[MEMORY-SLIM-AND-MIGRATION.md](./MEMORY-SLIM-AND-MIGRATION.md)。  
+行情 WS / live quotes 离开 `sentiment-data`：[SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。  
 Slim overlay 与 compose 定义：**PR #64**；合并后见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。
 
 ---

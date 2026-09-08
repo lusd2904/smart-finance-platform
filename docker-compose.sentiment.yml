@@ -150,7 +150,7 @@ services:
       retries: 8
       start_period: 25s
 
-  # 行情只读热路径：K线/热度/看板/指数条。Go 微服务，目标 RSS 数百 MB 级。
+  # 行情只读热路径 + 行情 WS / live quotes。Go 微服务，目标 RSS 数百 MB 级。
   sentiment-market-read:
     build:
       context: ./services/market-read
@@ -165,7 +165,7 @@ services:
       REDIS_HOST: ruoyi-redis
       INFLUX_URL: http://sentiment-influxdb:8086
     depends_on: *data-depends
-    mem_limit: 256m
+    mem_limit: 320m
     cpus: 0.5
     networks:
       - sentiment-network

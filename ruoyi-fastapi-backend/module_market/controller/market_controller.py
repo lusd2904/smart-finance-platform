@@ -770,6 +770,8 @@ async def get_market_index_quotes(request: Request) -> Response:
         )
     ],
 )
+# DEPRECATED(read-offload): nginx 默认路由至 sentiment-market-read (Go, Tencent+Redis)。
+# 长桥 QuoteContext 推送仍仅存在于本 Python 回退路径。
 async def get_market_live_quotes(
     request: Request,
     symbols: Annotated[str | None, Query(description='逗号分隔 AAPL:US,00700:HK')] = None,
