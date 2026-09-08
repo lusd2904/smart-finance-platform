@@ -8,7 +8,6 @@
     <div class="glass-login-box glass-panel">
       <div class="login-header">
         <h1 class="glow-title">智慧金融</h1>
-        <p class="subtitle">行情 · 舆情 · 量化 · 交易</p>
       </div>
 
       <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" class="login-form" @keyup.enter="handleLogin">
@@ -61,8 +60,7 @@
         </el-form-item>
       </el-form>
       <div class="login-footer">
-        <p>对齐长桥 web-portal 玻璃主题 · 旧前端仍保留</p>
-        <button type="button" class="demo-link" @click="enterDemo">演示预览（不走正式登录）</button>
+        <button type="button" class="demo-link" @click="enterDemo">演示</button>
       </div>
     </div>
   </div>
@@ -158,7 +156,7 @@ async function handleLogin() {
       codeUrl.value = ''
       captchaHint.value = '点击获取'
     }
-    ElMessage.error(error?.message || '登录失败，可使用页底演示预览')
+    ElMessage.error(error?.message || '登录失败')
   } finally {
     loading.value = false
   }
@@ -166,7 +164,7 @@ async function handleLogin() {
 
 function enterDemo() {
   userStore.enterDemoSession()
-  ElMessage.success('已进入演示会话（标注为 stub 数据）')
+  ElMessage.success('已进入演示')
   router.replace('/index')
 }
 
@@ -222,16 +220,10 @@ onMounted(() => {
 
 .glow-title {
   font-size: 2.1rem;
-  margin: 0 0 10px;
+  margin: 0;
   font-weight: 800;
   color: var(--text-emphasis);
   letter-spacing: 4px;
-}
-
-.subtitle {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  letter-spacing: 5px;
 }
 
 .captcha-row {

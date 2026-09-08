@@ -72,7 +72,7 @@ Tokens:
 
 | Fix | What changed |
 | --- | --- |
-| Login habit | Always 账号 / 密码 / 验证码 + 「点击获取」. Does **not** auto-fetch a graphic captcha on mount. CTA is 「登 录」. 演示预览 is a muted footer link, not a peer of the primary path. |
+| Login habit | Always 账号 / 密码 / 验证码 + 「点击获取」. Does **not** auto-fetch a graphic captcha on mount. CTA is 「登 录」. Footer **演示** is muted and not a peer of the primary path. |
 | Numbers + chips | `tabular-nums` on tables / quote / asset figures. Session / market / change / AI / news chips are outline + tint, never solid high-sat blocks. |
 | Accent buttons | `--el-color-primary`, primary buttons, switch, radio-button, checkbox, tabs consume `--accent`. |
 | Workbench 快捷入口 | Live SFP labels: 交易终端 / 舆情大盘 / 资讯列表 / 行情中心 / 资金与日历 / 行情台 / 财经简报 / 量化策略 / 自选清单 / 市场分析 / **自动分析**. |
@@ -107,7 +107,7 @@ QA1 login habit / accent / tabular-nums / glass chips / 快捷入口 copy must n
 
 | Route | Page | Notes |
 | --- | --- | --- |
-| `/login` | Login | SFP `POST /login` + 验证码「点击获取」; footer **演示预览** if API is down |
+| `/login` | Login | SFP `POST /login` + 验证码「点击获取」; footer **演示** if API is down |
 | `/index` | 工作台 | Same IA as live workbench: sessions, assets, reviews, quick nav, sentiment, heat, quotes, health |
 | `/market/terminal` and `/trade/terminal` | 行情交易 | Same component. Top tickers + 自选 / 图表 / 盘口+下单 |
 | Other SFP menus | Placeholder | Keep sidebar IA; full pages stay on the old frontend until cutover |

@@ -6,11 +6,10 @@
       </div>
     </div>
     <div class="glass-panel body">
-      <p>该模块属于 SFP 现有信息架构，将在工作台 / 行情交易验证通过后再迁入本门户。</p>
-      <p class="hint">当前请继续使用旧前端 <code>ruoyi-fastapi-frontend</code> 访问完整功能。本目录不会覆盖其 dist。</p>
+      <p>即将上线</p>
       <div class="actions">
-        <el-button type="primary" @click="$router.push('/index')">返回工作台</el-button>
-        <el-button @click="$router.push('/trade/terminal')">打开行情交易</el-button>
+        <el-button type="primary" @click="$router.push('/index')">工作台</el-button>
+        <el-button @click="$router.push('/trade/terminal')">行情交易</el-button>
       </div>
     </div>
   </section>
@@ -22,7 +21,7 @@ import { useRoute } from 'vue-router'
 import { placeholderMeta } from '@/config/menus'
 
 const route = useRoute()
-const title = computed(() => placeholderMeta[route.path]?.title || route.meta.title || '模块迁移中')
+const title = computed(() => placeholderMeta[route.path]?.title || route.meta.title || '模块')
 </script>
 
 <style scoped lang="scss">
@@ -36,11 +35,6 @@ const title = computed(() => placeholderMeta[route.path]?.title || route.meta.ti
   display: grid;
   gap: 10px;
   color: var(--text-primary);
-}
-
-.hint {
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 
 .actions {

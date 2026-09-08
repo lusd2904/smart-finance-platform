@@ -1,6 +1,6 @@
 <template>
   <div class="pro-terminal-page" :class="{ 'is-fullscreen': isFullscreen }">
-    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">行情交易：接口降级为标注 stub 数据，布局与线上一致（自选 / 图表 / 盘口下单）。</div>
+    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示</div>
 
     <div class="terminal-topbar glass-panel">
       <div class="topbar-indices-wrap">
@@ -21,7 +21,7 @@
           v-model="searchKeyword"
           :fetch-suggestions="querySearch"
           value-key="symbol"
-          placeholder="搜索全市场代码 / 名称"
+          placeholder="代码 / 名称"
           size="small"
           class="top-search-box"
           :prefix-icon="Search"
@@ -68,7 +68,7 @@
           </div>
         </div>
         <div class="watchlist-body">
-          <el-empty v-if="!sortedWatchStocks.length" description="暂无自选，请先在自选清单添加标的" :image-size="56" />
+          <el-empty v-if="!sortedWatchStocks.length" description="暂无自选" :image-size="56" />
           <div
             v-for="item in sortedWatchStocks"
             :key="item.symbol + '.' + item.market"
@@ -158,17 +158,17 @@
           <div ref="chartRef" class="echarts-inner-dom"></div>
         </div>
         <el-tabs v-model="activeBottomTab" class="sub-analysis-tabs">
-          <el-tab-pane name="ai" label="AI 智能研判 (Grok 4.6)">
+          <el-tab-pane name="ai" label="AI 研判">
             <div class="tab-pane-ai">
               <strong>{{ activeStock.aiVerdict || '暂无结论' }}</strong>
-              <p>{{ activeStock.aiSummary || '暂无该标的 AI 研判，请到 AI 研判工作台生成。' }}</p>
+              <p>{{ activeStock.aiSummary || '暂无研判' }}</p>
               <div class="factor-chips-row">
                 <span v-for="f in activeStock.factors || []" :key="f.name" class="factor-score-chip">{{ f.name }} {{ f.score }}分</span>
               </div>
             </div>
           </el-tab-pane>
           <el-tab-pane name="news" label="标的快讯与舆情">
-            <div v-if="!(activeStock.news || []).length" class="muted">暂无该标的快讯</div>
+            <div v-if="!(activeStock.news || []).length" class="muted">暂无快讯</div>
             <div v-for="item in activeStock.news || []" :key="item.id" class="news-item-line">
               <el-tag size="small" :type="item.sentiment === 'bull' ? 'danger' : item.sentiment === 'bear' ? 'success' : 'info'">
                 {{ item.sentiment === 'bull' ? '利多' : item.sentiment === 'bear' ? '利空' : '中性' }}
@@ -178,7 +178,7 @@
             </div>
           </el-tab-pane>
           <el-tab-pane name="flow" label="资金大单博弈">
-            <div v-if="!activeStock.capitalFlow" class="muted">暂无资金流向数据</div>
+            <div v-if="!activeStock.capitalFlow" class="muted">暂无资金</div>
             <div v-else class="flow-cards-grid">
               <div>超大单净流入 <b class="up">{{ activeStock.capitalFlow.superIn - activeStock.capitalFlow.superOut }} 万</b></div>
               <div>大单净流入 <b>{{ activeStock.capitalFlow.largeIn - activeStock.capitalFlow.largeOut }} 万</b></div>
@@ -271,7 +271,7 @@
                 <span>{{ p.quantity }} 股</span>
                 <b :class="p.pnl >= 0 ? 'up' : 'down'">{{ fmtSigned(p.pnlRate) }}%</b>
               </div>
-              <div v-if="!positions.length" class="muted">暂无持仓数据</div>
+              <div v-if="!positions.length" class="muted">暂无持仓</div>
             </el-tab-pane>
           </el-tabs>
         </div>
@@ -616,13 +616,13 @@ async function submitOrder() {
         side: tradeForm.side,
         quantity: tradeForm.quantity,
         price: tradeForm.price,
-        status: '已提交(stub)',
+        status: '已提交',
         open: true
       })
     }
     ElMessage.success('下单请求已提交')
   } catch (e) {
-    ElMessage.error(e?.message || '下单失败（接口未就绪则请用演示会话）')
+    ElMessage.error(e?.message || '下单失败')
   } finally {
     orderSubmitting.value = false
   }

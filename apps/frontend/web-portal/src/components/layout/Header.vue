@@ -15,7 +15,7 @@
             <el-avatar :size="34">{{ userInitial }}</el-avatar>
             <div class="user-copy">
               <strong>{{ userStore.displayName }}</strong>
-              <span>{{ roleLabel }}</span>
+              <span v-if="userStore.usingStub">演示</span>
             </div>
             <el-icon><ArrowDown /></el-icon>
           </div>
@@ -51,7 +51,6 @@ const sessions = ref([
 ])
 
 const userInitial = computed(() => (userStore.displayName || 'U').slice(0, 1).toUpperCase())
-const roleLabel = computed(() => (userStore.usingStub ? '演示会话' : '平台用户'))
 
 function sessionText(s) {
   if (s.status === 'open') return '开市'

@@ -1,11 +1,10 @@
 <template>
   <div class="dashboard-page workbench-page" v-loading="loading">
-    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示 / 降级数据：后端接口不可用或已开启 VITE_USE_STUBS。登录与行情交易仍可导航。</div>
+    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示</div>
 
     <section class="hero-panel workbench-hero">
       <div class="hero-copy">
         <h2>{{ greetText }}，{{ userStore.displayName }}</h2>
-        <p>智慧金融分析平台 · 均衡总览</p>
       </div>
       <div class="header-actions">
         <span
@@ -121,7 +120,7 @@
               <b>{{ fmtChange(q.changeRate) }}</b>
             </div>
           </div>
-          <el-empty v-if="!quoteRows.length" description="看板缓存尚未生成" :image-size="56" />
+          <el-empty v-if="!quoteRows.length" description="暂无行情" :image-size="56" />
         </el-card>
         <el-card shadow="never" class="glass-panel">
           <template #header><div class="card-header"><h3>平台运行状态</h3></div></template>
