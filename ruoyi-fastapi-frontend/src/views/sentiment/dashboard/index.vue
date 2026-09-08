@@ -122,6 +122,7 @@ import { applyChartTheme } from '@/utils/echartsTheme';
 import { useEChart } from '@/composables/useEChart';
 import { getStats, getTrend, listAnalysis, collectNews, runAnalysis } from '@/api/sentiment';
 import { formatBeijingTime, formatBeijingTimeShort } from '@/utils/beijingTime';
+import { buildSentimentTrendOption } from '@/utils/sentimentTrendChart';
 
 const { proxy } = getCurrentInstance();
 
@@ -229,27 +230,8 @@ function getTrendData() {
 
 function renderTrend(list) {
   if (!trendRef.value) return;
-  const times = list.map(item => formatBeijingTimeShort(item.createTime));
-  const option = {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['美股', '港股', 'A股'], top: 0 },
-    grid: { left: 40, right: 20, top: 40, bottom: 30 },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: times,
-      axisLabel: {
-        formatter: value => (value ? String(value).slice(5, 16) : value)
-      }
-    },
-    yAxis: { type: 'value', name: '分数' },
-    series: [
-      { name: '美股', type: 'line', smooth: true, data: list.map(item => item.usScore), itemStyle: { color: '#409eff' }, areaStyle: { opacity: 0.08 } },
-      { name: '港股', type: 'line', smooth: true, data: list.map(item => item.hkScore), itemStyle: { color: '#e6a23c' }, areaStyle: { opacity: 0.08 } },
-      { name: 'A股', type: 'line', smooth: true, data: list.map(item => item.aScore), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } }
-    ]
-  };
-  setTrendOption(applyChartTheme(option));
+  // connectNulls 在 buildSentimentTrendOption 内：缺失分数跨点连线，不填 0。
+  setTrendOption(applyChartTheme(buildSentimentTrendOption(list, formatBeijingTimeShort)));
 }
 
 /** 立即采集 */

@@ -149,6 +149,8 @@ jobs:
       # package-lock.json 已入库；CI 与 Docker 前端镜像均依赖可复现安装
       - name: Install dependencies
         run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Sentiment trend chart unit tests
+        run: node --test src/utils/sentimentTrendChart.test.js
       # 棘轮式 lint：存量 137 个历史错误（no-unused-vars 等待逐步清理）记录在
       # LINT_ERROR_BUDGET，本次改动不允许新增；低于预算同样失败提示清理。
       - name: Lint (error budget ratchet)
