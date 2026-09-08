@@ -121,7 +121,7 @@ git pull --ff-only origin main
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
   sentiment-backend sentiment-trade sentiment-ai sentiment-news \
-  sentiment-market sentiment-quant \
+  sentiment-market sentiment-market-read sentiment-quant \
   sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm
 
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
@@ -139,6 +139,7 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 
 - slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sentiment-jobs` / `sentiment-frontend` 应为 healthy
 - full：`sentiment-backend` / `sentiment-trade` / `sentiment-frontend` + `jobs-market` / `jobs-quant` / `jobs-llm` 应为 healthy
+- full：`sentiment-market-read` 应为 healthy（行情只读 Go 服务，见 `services/market-read/README.md`）
 - 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
 - 浏览器强刷一次前端静态资源
 
@@ -222,14 +223,14 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `quant` / `news` / `ai`：板块 API，交易实时单独低延迟（**slim 下 market+quant→data，sentiment+ai→intel**）
+- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（交易实时单独低延迟；**slim 下 market+quant→data，sentiment+ai→intel**）
 - `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler（**slim 下 `APP_JOB_GROUP=all` 含三队列**）
-- `sentiment-jobs-market` / `quant` / `llm`：三个队列消费组（**仅 full-split**）
+- `sentiment-jobs-market` / `quant` / `llm`：三个队列消费组（**仅 full-split**），一组挂掉不影响另外两组和 API
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：
 
 ```bash
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm sentiment-trade sentiment-market sentiment-quant sentiment-news sentiment-ai sentiment-backend sentiment-frontend
+docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-jobs sentiment-jobs-market sentiment-jobs-quant sentiment-jobs-llm sentiment-trade sentiment-market sentiment-market-read sentiment-quant sentiment-news sentiment-ai sentiment-backend sentiment-frontend
 ```
 
 ### 增量 SQL（schema_version 登记制）

@@ -11,7 +11,7 @@
 - 自选与量化扫描池都走当前账号的 `market_watchlist`，账号之间隔离。
 - Influx 未就绪时登录仍可用，K 线 / 热度可能 502，等时序库起来再刷。
 - **16 GiB slim 栈**：本模块 HTTP + 行情 WS 在合并进程 `sentiment-data`（`APP_MODULE=data`）。对外 `/market/`、`/quant/`、行情 WS **路径不变**（见 `docs/SFP-TWO-HOST-DEPLOY.md`）。Influx 已有数据、MySQL 未上传时可先跑 `bash scripts/up_slim_influx_phase.sh` 只起热度/分钟 K 线读路径。
-- **后续（计划）**：K 线 tail、热度快照、指数报价等读取将抽出为 Go/Rust `market-read` 服务；页面与接口契约不变。
+- 行情 **只读热路径**（K 线、热度、看板、指数条）由 Go 服务 `sentiment-market-read` 承接；写路径与采集仍在 Python `sentiment-market`（full 栈 nginx offload）。
 
 ## 操作步骤
 

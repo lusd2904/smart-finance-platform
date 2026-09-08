@@ -55,6 +55,8 @@ services:
         condition: service_healthy
       sentiment-ai:
         condition: service_healthy
+      sentiment-market-read:
+        condition: service_healthy
       # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
@@ -129,6 +131,8 @@ services:
       APP_NAME: "Market API"
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # MARKET_READ_OFFLOAD=true (default via nginx) routes hot read paths to sentiment-market-read
+      MARKET_READ_OFFLOAD: ${MARKET_READ_OFFLOAD:-true}
     depends_on: *data-depends
     mem_limit: 1g
     cpus: 1.0
@@ -144,6 +148,33 @@ services:
       timeout: 5s
       retries: 8
       start_period: 25s
+
+  # 行情只读热路径：K线/热度/看板/指数条。Go 微服务，目标 RSS 数百 MB 级。
+  sentiment-market-read:
+    build:
+      context: ./services/market-read
+      dockerfile: Dockerfile
+    image: sentiment-market-read:latest
+    container_name: sentiment-market-read
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":8080"
+      DB_HOST: ruoyi-mysql
+      REDIS_HOST: ruoyi-redis
+      INFLUX_URL: http://sentiment-influxdb:8086
+    depends_on: *data-depends
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
 
   sentiment-quant:
     <<: *backend-image
