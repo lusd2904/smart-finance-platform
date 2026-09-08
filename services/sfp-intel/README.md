@@ -1,6 +1,6 @@
 # sfp-intel (Go)
 
-Go orchestration service for portal **sentiment** and **AI** HTTP paths. LLM inference stays on the existing OpenAI-compatible gateway (`ai_models.base_url` + encrypted `api_key`); this service does not embed models.
+Go orchestration service for portal **sentiment**, **AI chat**, **AI model admin**, **requirements board**, and **`/open/*`** HTTP paths. LLM inference uses the existing OpenAI-compatible gateway configured in MySQL `ai_models` (`base_url` + encrypted `api_key`); this service does not embed models.
 
 ## Routes (native Go)
 
@@ -17,22 +17,23 @@ Go orchestration service for portal **sentiment** and **AI** HTTP paths. LLM inf
 | `POST /sentiment/analysis/run` | Enqueue `sentiment_analyze` |
 | `GET /sentiment/analysis/{id}` | Analysis detail |
 | `GET/PUT /sentiment/config` | Business config + merged AI model readout |
+| `POST /ai/chat/send` | NDJSON SSE stream to OpenAI-compatible gateway |
+| `GET/PUT /ai/chat/config` | Per-user chat settings (`ai_chat_config`) |
+| `GET /ai/chat/session/list` | Session list (`sfp_chat_session`) |
+| `GET/DELETE /ai/chat/session/{id}` | Session detail / delete |
+| `POST /ai/chat/cancel` | Cancel in-flight stream by `runId` |
+| `POST /ai/chat/consultant` | Portfolio consultant (sync completion) |
+| `POST /ai/chat/oneshot` | One-shot symbol analysis (sync completion) |
+| `/ai/model/*` | Model CRUD (`ai_models`) |
+| `/ai/req/*` | Requirements room + backlog (`ai_req_*`) |
+| `POST /open/token` | External login → short-lived JWT |
+| `GET /open/requirements` | External requirements export |
 
 JWT + Redis session + RBAC match Python `PreAuthDependency` / `UserInterfaceAuthDependency`.
 
-## Deferred to Python (`sentiment-intel` via proxy)
+Chat sessions/messages persist in MySQL (`sfp_chat_session`, `sfp_chat_message`). Active runs are cancelled via an in-process registry keyed by `runId`.
 
-All `/ai/*` requests are **reverse-proxied** to `PYTHON_INTEL_URL` (default `http://sentiment-intel:9099`). This keeps heavy paths unchanged while sentiment orchestration moves to Go:
-
-- `POST /ai/chat/send` — SSE streaming (Agno)
-- `POST /ai/chat/consultant`, `/ai/chat/oneshot`
-- `/ai/chat/session/*`, `/ai/chat/config`, `/ai/chat/cancel`
-- `/ai/req/*` — requirements room bots
-- `/ai/model` CRUD (admin writes + cache eviction)
-
-`/open/*` remains on Python via nginx (not routed through sfp-intel).
-
-LLM **job bodies** (`sentiment_collect`, `sentiment_analyze`, …) still execute in Python via `sfp-notify-worker` delegate until a follow-up worker migration lands. Go owns HTTP enqueue + ingest + read orchestration.
+LLM **job bodies** (`sentiment_collect`, `sentiment_analyze`, `req_send`, `req_summarize`, …) still execute in Python via `sfp-notify-worker` delegate. Go owns HTTP enqueue, streaming chat, and read orchestration.
 
 ## Env
 
@@ -40,17 +41,10 @@ Same patterns as `market-read`:
 
 - `JWT_SECRET_KEY`, `DB_*`, `REDIS_*`, `CREDENTIAL_ENCRYPTION_KEY`
 - `SFP_X_MONITOR_INGEST_TOKEN` — required for X监测器 ingest
-- `PYTHON_INTEL_URL` — AI proxy upstream (rollback target)
 
 ## Rollback (Python intel)
 
-Slim nginx ships with Go routes by default. To revert sentiment/ai to Python only:
-
-1. In `ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf`, change `sfp-intel:8080` back to `sentiment-intel:9099` for `/prod-api/sentiment/` and `/prod-api/ai/`.
-2. `docker compose … exec sentiment-frontend nginx -s reload`
-3. Optional: stop `sfp-intel` container to free ~256m.
-
-Or apply overlay `docker-compose.sentiment.intel-python-fallback.yml` (documents profile; nginx edit still required).
+Apply overlay `docker-compose.sentiment.intel-python-fallback.yml` and swap nginx to `nginx.dockersentiment.slim.python-intel.conf` so `/sentiment/` + `/ai/` + `/open/` route to `sentiment-intel:9099` again.
 
 ## Local test
 

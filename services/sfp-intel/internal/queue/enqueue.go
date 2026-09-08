@@ -21,6 +21,8 @@ const (
 var jobGroups = map[string]string{
 	"sentiment_collect": "llm",
 	"sentiment_analyze": "llm",
+	"req_send":          "llm",
+	"req_summarize":     "llm",
 }
 
 type Enqueuer struct {
@@ -81,4 +83,19 @@ func (e *Enqueuer) Submit(ctx context.Context, jobType string, payload map[strin
 		return nil, err
 	}
 	return ticket, nil
+}
+
+func (e *Enqueuer) GetTicket(ctx context.Context, jobID string) (*Ticket, error) {
+	raw, err := e.redis.Get(ctx, fmt.Sprintf(ticketKeyFmt, jobID)).Result()
+	if err == redis.Nil {
+		return nil, fmt.Errorf("任务不存在或已过期")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ticket Ticket
+	if err := json.Unmarshal([]byte(raw), &ticket); err != nil {
+		return nil, err
+	}
+	return &ticket, nil
 }

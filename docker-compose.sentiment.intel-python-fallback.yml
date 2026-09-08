@@ -1,17 +1,21 @@
-# Python intel rollback: route /sentiment/ + /ai/ back to sentiment-intel; stop Go orchestration container.
+# Python intel rollback: route /sentiment/ + /ai/ + /open/ back to sentiment-intel; stop Go sfp-intel.
 #
 #   sudo docker compose \
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.intel-python-fallback.yml \
-#     up -d --no-deps sentiment-frontend
+#     --profile intel-python-fallback \
+#     up -d --no-deps sentiment-intel sentiment-frontend
 #   sudo docker compose … stop sfp-intel
 #
-# sentiment-intel must stay up for /open/ and as the AI proxy target when re-enabling Go later.
+# Requires nginx swap to nginx.dockersentiment.slim.python-intel.conf (mounted below).
 
 services:
   sfp-intel:
     profiles: [intel-go-off]
+
+  sentiment-intel:
+    profiles: [intel-python-fallback]
 
   sentiment-frontend:
     volumes:

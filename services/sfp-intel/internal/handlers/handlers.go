@@ -6,20 +6,23 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/auth"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/config"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/ingest"
-	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/proxy"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/llm"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/response"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/store"
 )
 
 type Server struct {
-	Cfg    *config.Config
-	Store  *store.Store
-	Queue  *queue.Enqueuer
-	AIProxy *proxy.PythonIntel
+	Cfg   *config.Config
+	Store *store.Store
+	Queue *queue.Enqueuer
+	Redis *redis.Client
+	Runs  *llm.RunRegistry
 }
 
 func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {
@@ -223,14 +226,6 @@ func (s *Server) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.SuccessMsg(w, "保存成功", nil)
-}
-
-func (s *Server) ProxyAI(w http.ResponseWriter, r *http.Request) {
-	if s.AIProxy == nil {
-		response.Error(w, "AI proxy not configured")
-		return
-	}
-	s.AIProxy.ServeHTTP(w, r)
 }
 
 func queryInt(r *http.Request, key string, fallback int) int {

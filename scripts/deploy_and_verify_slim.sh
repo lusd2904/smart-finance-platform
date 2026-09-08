@@ -17,7 +17,7 @@ $COMPOSE config >/dev/null
 
 echo "==> [1/5] 构建并滚动更新 slim API / scheduler / Go workers / market-read / sfp-intel / sfp-backend / data-api"
 $COMPOSE up -d --no-deps --build \
-  sfp-backend sentiment-intel sentiment-trade-api \
+  sfp-backend sentiment-trade-api \
   sfp-scheduler sentiment-market-read sfp-intel sentiment-data-api \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 

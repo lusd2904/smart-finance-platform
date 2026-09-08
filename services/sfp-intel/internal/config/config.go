@@ -29,9 +29,6 @@ type Config struct {
 
 	CredentialEncryptionKey string
 	XMonitorIngestToken     string
-
-	// PythonIntelURL is the fallback upstream for deferred /ai/* SSE and heavy paths.
-	PythonIntelURL string
 }
 
 func Load() (*Config, error) {
@@ -54,7 +51,6 @@ func Load() (*Config, error) {
 
 		CredentialEncryptionKey: strings.TrimSpace(os.Getenv("CREDENTIAL_ENCRYPTION_KEY")),
 		XMonitorIngestToken:     strings.TrimSpace(os.Getenv("SFP_X_MONITOR_INGEST_TOKEN")),
-		PythonIntelURL:          strings.TrimSpace(os.Getenv("PYTHON_INTEL_URL")),
 	}
 	jwtMinutes := envInt("JWT_REDIS_EXPIRE_MINUTES", 480)
 	cfg.JWTRedisExpire = time.Duration(jwtMinutes) * time.Minute
@@ -64,9 +60,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.MySQLPassword == "" {
 		return nil, fmt.Errorf("DB_PASSWORD is required")
-	}
-	if cfg.PythonIntelURL == "" {
-		cfg.PythonIntelURL = "http://sentiment-intel:9099"
 	}
 	return cfg, nil
 }
