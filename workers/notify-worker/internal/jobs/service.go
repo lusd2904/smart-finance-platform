@@ -10,6 +10,7 @@ import (
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/llm"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/timeutil"
 )
 
 type Service struct {
@@ -62,19 +63,11 @@ func (s *Service) Handle(ctx context.Context, jobType string, payload map[string
 }
 
 func nowBeijing() time.Time {
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		return time.Now()
-	}
-	return time.Now().In(loc)
+	return timeutil.NowShanghai()
 }
 
 func formatBeijing(t time.Time) string {
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		return t.Format("2006-01-02 15:04:05")
-	}
-	return t.In(loc).Format("2006-01-02 15:04:05")
+	return timeutil.FormatShanghai(t)
 }
 
 func intFrom(v interface{}) int64 {

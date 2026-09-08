@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata" // ensure Asia/Shanghai works without OS zoneinfo
+
 	"github.com/redis/go-redis/v9"
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"

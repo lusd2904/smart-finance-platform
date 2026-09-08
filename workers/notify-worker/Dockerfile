@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /notify-worker ./cmd/notify-worker
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates tzdata wget
 WORKDIR /app
 COPY --from=build /notify-worker /app/notify-worker
 ENV WORKER_PORT=9096
