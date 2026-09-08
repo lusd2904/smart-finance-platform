@@ -9,7 +9,6 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from module_admin.service.job_service import JobService
 from module_task.analysis_catalog import ANALYSIS_JOBS
 from module_task.invoke_targets import (
     GO_JOB_CATEGORY,
@@ -120,7 +119,7 @@ def test_live_like_before_after_counts() -> None:
 def test_admin_whitelist_accepts_go_keys() -> None:
     assert is_allowed_job_invoke_target('module_task.market_task.sync_market_job')
     assert is_allowed_job_invoke_target('finance_briefings')
-    assert JobService._is_go_invoke_target('indicator_refresh')
+    assert is_go_invoke_target('indicator_refresh')
     assert not is_allowed_job_invoke_target('os.system')
     assert not is_allowed_job_invoke_target('not_a_job')
     assert is_analysis_invoke_target('eod_kline_sync')
