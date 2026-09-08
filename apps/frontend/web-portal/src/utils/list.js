@@ -19,3 +19,21 @@ export function marketLabel(m) {
   if (m === 'CN') return 'A股'
   return m || '--'
 }
+
+export function goTerminal(router, row, extra = {}) {
+  if (!row?.symbol) {
+    router.push('/trade/terminal')
+    return
+  }
+  router.push({
+    path: '/trade/terminal',
+    query: { symbol: row.symbol, market: row.market || 'US', ...extra }
+  })
+}
+
+export function goAiChat(router, row) {
+  router.push({
+    path: '/ai/chat',
+    query: row?.symbol ? { symbol: row.symbol, market: row.market || 'US' } : {}
+  })
+}

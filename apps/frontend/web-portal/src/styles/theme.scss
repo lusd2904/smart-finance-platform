@@ -503,6 +503,114 @@ a {
   color: var(--text-emphasis);
 }
 
+.page-badge {
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+}
+
+.page-subtitle {
+  display: block !important;
+  margin: 4px 0 0;
+  max-width: 760px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.page-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legend-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-dots i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.legend-dots .dot-up { background: var(--stat-up); }
+.legend-dots .dot-down { background: var(--stat-down); }
+.legend-dots .dot-flat { background: var(--text-secondary); }
+
+.mkt-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) var(--chip-line), transparent);
+}
+
+.mkt-tag.is-us { color: #38bdf8; }
+.mkt-tag.is-hk { color: #f59e0b; }
+.mkt-tag.is-cn { color: #fb7185; }
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: color-mix(in srgb, var(--surface-soft) 80%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
+}
+
+.stub-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #b45309;
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.numeric,
+.heat-score,
+.idx-chg,
+.breadth-meta,
+.mover-row,
+.quote-chg {
+  font-variant-numeric: tabular-nums;
+}
+
 .hero-actions,
 .stat-strip,
 .heat-ad {

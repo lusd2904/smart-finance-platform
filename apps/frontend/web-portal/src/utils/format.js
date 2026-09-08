@@ -20,6 +20,27 @@ export function fmtChange(val) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
+export function fmtSci(val, currency) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '--'
+  const text = n.toExponential(2)
+  return currency ? `${text} ${currency}` : text
+}
+
+export function fmtCompact(val) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '--'
+  const abs = Math.abs(n)
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(1)}B`
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (abs >= 1e4) return `${(n / 1e4).toFixed(1)}万`
+  return String(Math.round(n))
+}
+
+export function fmtCount(n) {
+  return Number(n || 0).toLocaleString()
+}
+
 export function fmtAmount(val, currency) {
   const n = Number(val)
   if (!Number.isFinite(n)) return '--'

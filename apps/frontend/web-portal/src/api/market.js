@@ -83,6 +83,21 @@ export function getStockPickMood() {
   return request({ url: '/market/picks/mood', method: 'get', timeout: 20000, silent: true })
 }
 
+export function refreshStockPickMood() {
+  return request({ url: '/market/picks/mood/refresh', method: 'post', timeout: 15000 })
+}
+
+export function getLiveQuotes(symbols) {
+  const list = Array.isArray(symbols) ? symbols : [symbols]
+  return request({
+    url: '/market/quotes/live',
+    method: 'get',
+    params: { symbols: list.filter(Boolean).join(',') },
+    timeout: 8000,
+    silent: true
+  })
+}
+
 export function getStockPickLatest(query) {
   return request({ url: '/market/picks/latest', method: 'get', params: query, timeout: 30000, silent: true })
 }

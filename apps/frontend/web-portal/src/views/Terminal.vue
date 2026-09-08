@@ -413,17 +413,6 @@ function handleSearchSelect(item) {
   selectStockBySymbol(item.symbol)
 }
 
-function applyQuerySymbol() {
-  const symbol = String(route.query.symbol || '').trim()
-  if (!symbol) return
-  const hit = watchStocks.value.find((s) => String(s.symbol).toUpperCase() === symbol.toUpperCase())
-  if (hit) {
-    selectStock(hit)
-    return
-  }
-  activeSymbol.value = symbol
-}
-
 function applyStubTerminal() {
   usingStub.value = true
   liveMode.value = false
@@ -658,6 +647,27 @@ async function refreshLive() {
   await loadLive()
 }
 
+function applyQuerySymbol() {
+  const symbol = String(route.query.symbol || '').trim()
+  if (!symbol) return
+  const market = String(route.query.market || 'US').toUpperCase()
+  const existing = watchStocks.value.find((s) => s.symbol === symbol)
+  if (existing) {
+    selectStock(existing)
+    return
+  }
+  const incoming = {
+    symbol,
+    name: String(route.query.name || symbol),
+    market,
+    price: 0,
+    changeRate: 0,
+    groups: ['全部']
+  }
+  watchStocks.value = [incoming, ...watchStocks.value]
+  selectStock(incoming)
+}
+
 watch(
   () => [route.query.symbol, route.query.market],
   () => applyQuerySymbol()
@@ -665,6 +675,7 @@ watch(
 
 onMounted(async () => {
   await loadLive()
+  applyQuerySymbol()
   window.addEventListener('resize', () => chart && chart.resize())
 })
 
