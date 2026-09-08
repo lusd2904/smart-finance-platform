@@ -96,18 +96,15 @@ services:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
-      PYTHON_INTEL_URL: http://sentiment-intel:9099
     networks:
       - sentiment-network
     restart: unless-stopped
-    mem_limit: 256m
+    mem_limit: 320m
     cpus: 0.5
     depends_on:
       sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
-        condition: service_healthy
-      sentiment-intel:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
@@ -165,8 +162,9 @@ services:
     cpus: 1.0
     healthcheck: *slim-api-health
 
-  # --- merged API: sentiment + ai (舆情 / 选股 / open) ---
+  # Optional rollback target only (profile intel-python-fallback). Default slim uses Go sfp-intel.
   sentiment-intel:
+    profiles: [intel-python-fallback]
     build:
       context: ./ruoyi-fastapi-backend
       dockerfile: Dockerfile.sentiment
@@ -320,8 +318,6 @@ services:
       sentiment-trade-api:
         condition: service_healthy
       sentiment-data-api:
-        condition: service_healthy
-      sentiment-intel:
         condition: service_healthy
       sfp-intel:
         condition: service_healthy

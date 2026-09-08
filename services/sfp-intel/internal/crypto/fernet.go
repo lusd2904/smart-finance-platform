@@ -4,10 +4,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"strings"
+	"time"
 )
 
 func FernetKeyFromSecret(source string) []byte {
@@ -76,6 +79,64 @@ func DecryptCredential(token, credentialKey, jwtSecret string) string {
 		return token
 	}
 	return plain
+}
+
+func EncryptCredential(plain, credentialKey, jwtSecret string) string {
+	if plain == "" {
+		return plain
+	}
+	source := strings.TrimSpace(credentialKey)
+	if source == "" {
+		source = jwtSecret
+	}
+	out, err := EncryptFernet(plain, source)
+	if err != nil {
+		return plain
+	}
+	return out
+}
+
+func EncryptFernet(plain, source string) (string, error) {
+	key := FernetKeyFromSecret(source)
+	if len(key) != 32 {
+		return "", fmt.Errorf("fernet key length %d", len(key))
+	}
+	signing := key[:16]
+	encKey := key[16:]
+	iv := make([]byte, aes.BlockSize)
+	if _, err := rand.Read(iv); err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		return "", err
+	}
+	pt := pkcs7Pad([]byte(plain), aes.BlockSize)
+	ct := make([]byte, len(pt))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(ct, pt)
+	buf := make([]byte, 1+8+aes.BlockSize+len(ct))
+	buf[0] = 0x80
+	binary.BigEndian.PutUint64(buf[1:9], uint64(time.Now().Unix()))
+	copy(buf[9:9+aes.BlockSize], iv)
+	copy(buf[9+aes.BlockSize:], ct)
+	mac := hmac.New(sha256.New, signing)
+	mac.Write(buf)
+	sum := mac.Sum(nil)
+	out := append(buf, sum...)
+	return base64.URLEncoding.EncodeToString(out), nil
+}
+
+func pkcs7Pad(b []byte, block int) []byte {
+	n := block - (len(b) % block)
+	if n == 0 {
+		n = block
+	}
+	out := make([]byte, len(b)+n)
+	copy(out, b)
+	for i := len(b); i < len(out); i++ {
+		out[i] = byte(n)
+	}
+	return out
 }
 
 func padB64(s string) string {
