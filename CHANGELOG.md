@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### ⚡ P3 finish：剩余 /market/ + /quant/ 离开 sentiment-data
+- 新增 Go `sentiment-data-api`（`:8081`）：SQL 读、自选 CRUD、JobQueue 入队、TradingView datafeed、简报/复盘/选股等
+- slim / full nginx catch-all `/market/`、`/quant/` → `data-api`；移除 `/ws/` catch-all（仅 quotes/jobs 有路由）
+- 默认 slim **不启** `sentiment-data`（`profiles: [legacy-data, influx-phase]`）；11 条 Longbridge/pandas/SSE 路由经 `LEGACY_DATA_URL` 代理
+- 预期默认栈净减 ~250–400Mi RSS。清单 / 回退见 `docs/SENTIMENT-DATA-OFFLOAD.md`
+
 ### 💱 Go 交易作业（quant-worker + official Longbridge SDK）
 - `daily_list_open` / `auto_trade_scan` 改为 `sfp-quant-worker` 原生下单（官方 `openapi-go` HTTP TradeContext）
 - `position_monitor` 在 #77 只读告警之上升级：`auto_trade_enabled` 时 −8% 止损 MO sell
@@ -27,8 +33,8 @@
 ### ⚡ 行情 WS / live quotes 离开 sentiment-data
 - Go `sentiment-market-read` 增加 `WS /ws/market/quotes` 与 `GET /market/quotes/live`（腾讯 qt.gtimg.cn + Redis 短缓存）；FE 帧格式不变
 - `GET /market/index/quotes` 在 Redis 未命中时自行拉腾讯并回填 30s 缓存（不再依赖 Python WS 当 writer）
-- slim / full nginx 默认切到 Go；catch-all `/ws/`、`/market/`、`/quant/` 仍指向 Python，改 `proxy_pass` 即可回退
-- `sentiment-market-read` `mem_limit` 256m → 320m；`sentiment-data` 仍 512m（量化 / 写路径仍在）。清单见 `docs/SENTIMENT-DATA-OFFLOAD.md`
+- slim / full nginx 默认切到 Go；catch-all `/market/`、`/quant/` 已指向 `data-api`（见上方 P3）；`/ws/` 仅 quotes/jobs 有路由
+- `sentiment-market-read` `mem_limit` 256m → 320m；默认 slim 不启 `sentiment-data`（`legacy-data` profile 回退）。清单见 `docs/SENTIMENT-DATA-OFFLOAD.md`
 - CI 增加 market-read `go test` / `go build`
 
 ### ⚡ Slim 启用 Go market-read 热读 offload

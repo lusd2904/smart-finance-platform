@@ -242,6 +242,23 @@ jobs:
           go test ./...
           go build -o /tmp/sfp-intel ./cmd/sfp-intel
 
+  data-api:
+    name: Go data-api tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/data-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: services/data-api/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/data-api ./cmd/data-api
+
   market-worker:
     name: Go market-worker tests
     runs-on: ubuntu-latest

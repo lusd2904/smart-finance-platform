@@ -19,14 +19,14 @@ x-backend-image: &backend-image
 
 # 登录/系统/AI/交易 HTTP 只等 MySQL+Redis。Influx 冷启动可达 10 分钟，不能挡住登录。
 x-core-depends: &core-depends
-  ruoyi-mysql:
+  sentiment-mysql:
     condition: service_healthy
   ruoyi-redis:
     condition: service_healthy
 
 # 行情/量化读时序库，等 Influx healthy 再接流量。
 x-data-depends: &data-depends
-  ruoyi-mysql:
+  sentiment-mysql:
     condition: service_healthy
   ruoyi-redis:
     condition: service_healthy
@@ -60,6 +60,8 @@ services:
       sentiment-market-read:
         condition: service_healthy
       sentiment-trade-api:
+        condition: service_healthy
+      sentiment-data-api:
         condition: service_healthy
       # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
@@ -110,7 +112,7 @@ services:
       - ./ruoyi-fastapi-backend/.env.dockersentiment
     environment:
       LISTEN_ADDR: ":9099"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -200,7 +202,7 @@ services:
       - ./ruoyi-fastapi-backend/.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8080"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
       INFLUX_URL: http://sentiment-influxdb:8086
     depends_on: *data-depends
@@ -227,11 +229,11 @@ services:
       - ./ruoyi-fastapi-backend/.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8080"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
       TRADE_PYTHON_URL: http://sentiment-trade:9099
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -244,6 +246,33 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
+  # 剩余 /market/ + /quant/ HTTP（非热读）。Go 微服务，替代 fat Python sentiment-data。
+  sentiment-data-api:
+    build:
+      context: .
+      dockerfile: services/data-api/Dockerfile
+    image: sentiment-data-api:latest
+    container_name: sentiment-data-api
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":8081"
+      DB_HOST: sentiment-mysql
+      REDIS_HOST: ruoyi-redis
+      INFLUX_URL: http://sentiment-influxdb:8086
+    depends_on: *data-depends
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/health"]
       interval: 15s
       timeout: 5s
       retries: 8
@@ -380,7 +409,7 @@ services:
       REDIS_HOST: ruoyi-redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DATABASE: "2"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       DB_PORT: "3306"
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -412,7 +441,7 @@ services:
       REDIS_HOST: ruoyi-redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DATABASE: "2"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       DB_PORT: "3306"
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -460,7 +489,7 @@ services:
       REDIS_HOST: ruoyi-redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DATABASE: "2"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       DB_PORT: "3306"
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -507,7 +536,7 @@ services:
       REDIS_HOST: ruoyi-redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DATABASE: "2"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       DB_PORT: "3306"
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -517,7 +546,7 @@ services:
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -635,7 +664,7 @@ services:
       start_period: 10m
 
   # MySQL服务
-  ruoyi-mysql:
+  sentiment-mysql:
     image: mysql:8.0
     container_name: sentiment-mysql
     restart: unless-stopped
@@ -723,7 +752,7 @@ services:
       - ./scripts:/scripts:ro
       - ./backups:/backups
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       sentiment-influxdb:
         condition: service_healthy

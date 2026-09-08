@@ -28,7 +28,7 @@ services:
     ports:
       - "19099:9099"
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -36,9 +36,9 @@ services:
       - ruoyi-network
 
   # MySQL服务
-  ruoyi-mysql:
+  sentiment-mysql:
     image: mysql:8.0
-    container_name: ruoyi-mysql
+    container_name: sentiment-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}

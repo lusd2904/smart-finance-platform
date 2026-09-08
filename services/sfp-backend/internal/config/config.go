@@ -65,7 +65,7 @@ func Load() (*Config, error) {
 		JWTAlgorithm:     env("JWT_ALGORITHM", "HS256"),
 		AppSameTimeLogin: envBool("APP_SAME_TIME_LOGIN", true),
 
-		MySQLHost:     env("DB_HOST", "ruoyi-mysql"),
+		MySQLHost:     env("DB_HOST", "sentiment-mysql"),
 		MySQLPort:     envInt("DB_PORT", 3306),
 		MySQLUser:     env("DB_USERNAME", "root"),
 		MySQLPassword: os.Getenv("DB_PASSWORD"),

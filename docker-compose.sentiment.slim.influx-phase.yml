@@ -8,7 +8,7 @@
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.slim.influx-phase.yml \
-#     up -d ruoyi-redis sentiment-influxdb sentiment-data
+#     up -d ruoyi-redis sentiment-influxdb --profile influx-phase sentiment-data
 #
 # Phase B (after mysql/ populated or empty dir ready for init):
 #   bash scripts/sfp_data_init.sh
@@ -18,7 +18,7 @@
 #     up -d --build
 
 services:
-  ruoyi-mysql:
+  sentiment-mysql:
     profiles: [mysql-ready]
 
   sentiment-backend:
@@ -37,6 +37,9 @@ services:
     profiles: [mysql-ready]
 
   sentiment-trade-api:
+    profiles: [mysql-ready]
+
+  sentiment-data-api:
     profiles: [mysql-ready]
 
   sentiment-jobs:
