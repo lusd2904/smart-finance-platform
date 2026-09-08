@@ -7,5 +7,9 @@ export const implementedPages = [
   { path: 'market/finance-news', title: '财经资讯', component: () => import('@/views/market/FinanceNews.vue') },
   { path: 'market/flow', title: '资金与日历', component: () => import('@/views/market/Flow.vue') },
   { path: 'market/review', title: '市场分析', component: () => import('@/views/market/Review.vue') },
-  { path: 'analysis/jobs', title: '自动分析', component: () => import('@/views/analysis/Jobs.vue') }
+  { path: 'analysis/jobs', title: '自动分析', component: () => import('@/views/analysis/Jobs.vue') },
+  { path: 'trade/positions', title: '持仓', component: () => import('@/views/trade/Positions.vue') },
+  { path: 'trade/orders', title: '委托', component: () => import('@/views/trade/Orders.vue') },
+  { path: 'trade/risk', title: '风控', component: () => import('@/views/trade/Risk.vue') },
+  { path: 'trade/notifications', title: '通知中心', component: () => import('@/views/trade/Notifications.vue') }
 ]

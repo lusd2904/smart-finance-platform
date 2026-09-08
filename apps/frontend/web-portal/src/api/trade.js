@@ -39,3 +39,35 @@ export function getAutoTradeStatus() {
 export function saveAutoTradeSettings(data) {
   return request({ url: '/trade/auto/settings', method: 'put', data })
 }
+
+export function listNotifications(limit = 50) {
+  return request({ url: '/trade/notifications', method: 'get', params: { limit }, silent: true })
+}
+
+export function readNotifications(id) {
+  return request({ url: '/trade/notifications/read', method: 'post', data: id ? { id } : {} })
+}
+
+export function getRiskTearsheet(query) {
+  return request({ url: '/trade/risk/tearsheet', method: 'get', params: query, timeout: 30000, silent: true })
+}
+
+export function listRiskRules() {
+  return request({ url: '/trade/risk/rules', method: 'get', silent: true })
+}
+
+export function listRiskEvents(limit = 50, status) {
+  return request({ url: '/trade/risk/events', method: 'get', params: { limit, status }, silent: true })
+}
+
+export function evaluateRisk() {
+  return request({ url: '/trade/risk/evaluate', method: 'post', timeout: 60000 })
+}
+
+export function getTradeHalt() {
+  return request({ url: '/trade/halt', method: 'get', silent: true })
+}
+
+export function setTradeHalt(data) {
+  return request({ url: '/trade/halt', method: 'put', data })
+}

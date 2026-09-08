@@ -128,10 +128,6 @@ export const menuTree = [
 ]
 
 export const placeholderMeta = {
-  '/trade/positions': { title: '持仓', module: '交易中心' },
-  '/trade/orders': { title: '委托', module: '交易中心' },
-  '/trade/risk': { title: '风控', module: '交易中心' },
-  '/trade/notifications': { title: '通知中心', module: '交易中心' },
   '/quant/factor': { title: '因子分析', module: '量化交易' },
   '/quant/strategy': { title: '策略信号', module: '量化交易' },
   '/quant/longbridge': { title: '长桥配置', module: '量化交易' },
