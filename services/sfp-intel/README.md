@@ -33,7 +33,7 @@ JWT + Redis session + RBAC match Python `PreAuthDependency` / `UserInterfaceAuth
 
 Chat sessions/messages persist in MySQL (`sfp_chat_session`, `sfp_chat_message`). Active runs are cancelled via an in-process registry keyed by `runId`.
 
-LLM **job bodies** (`sentiment_collect`, `sentiment_analyze`, `req_send`, `req_summarize`, …) still execute in Python via `sfp-notify-worker` delegate. Go owns HTTP enqueue, streaming chat, and read orchestration.
+LLM **job bodies** execute in **`sfp-notify-worker`** (Go). This service owns HTTP enqueue, streaming chat, and read orchestration. See `docs/LLM-NOTIFY-JOBS-NATIVE.md`.
 
 ## Env
 

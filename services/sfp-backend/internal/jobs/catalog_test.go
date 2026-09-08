@@ -11,8 +11,8 @@ func TestNativeJobsNotDelegated(t *testing.T) {
 }
 
 func TestBridgeLabels(t *testing.T) {
-	if BridgeLabel("sentiment_collect") != "sentiment-intel" {
-		t.Fatalf("expected intel bridge")
+	if BridgeLabel("sentiment_collect") != "redis-go-worker" {
+		t.Fatalf("expected redis worker for sentiment_collect")
 	}
 	if BridgeLabel("strategy_evaluate") != "sentiment-data" {
 		t.Fatalf("expected quant bridge")

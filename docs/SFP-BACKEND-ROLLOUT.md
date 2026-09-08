@@ -26,7 +26,7 @@ Go service at `services/sfp-backend` replaces Python `sentiment-backend` (`APP_M
 | `WS /ws/jobs` | Scheduler heartbeat + queue depth (Redis `sfp:scheduler:heartbeat`) |
 | `POST /open/sync/token` | Admin sync JWT (transport crypto when enabled) |
 | `POST /open/sync/pull` | Allowlisted MySQL + Influx paging |
-| `POST /internal/jobs/run` | Native Go jobs → Redis queues; LLM → `sentiment-intel`; `strategy_evaluate` → `sentiment-data` |
+| `POST /internal/jobs/run` | Native Go jobs → Redis queues; `strategy_evaluate` → `sentiment-data` (optional legacy) |
 
 JWT/Redis contract matches `services/market-read/internal/auth` and Python `LoginService`.
 
@@ -34,16 +34,12 @@ JWT/Redis contract matches `services/market-read/internal/auth` and Python `Logi
 
 | Job category | Handler |
 |--------------|---------|
-| Market + quant native jobs (`factor_scan`, `market_heat_collect`, `feishu_push`, …) | Enqueue to `sfp:job:queue:{market\|quant\|llm}` for Go workers |
-| LLM / Grok pipelines (`sentiment_collect`, `ai_analyze`, …) | **Temporary bridge** → `INTEL_JOBS_URL` (`sentiment-intel`) |
-| `strategy_evaluate` (signal generation for Go trade path) | **Temporary bridge** → `QUANT_JOBS_URL` (`sentiment-data`) |
+| Market + quant + LLM native jobs (`factor_scan`, `feishu_push`, `sentiment_analyze`, `req_send`, …) | Enqueue to `sfp:job:queue:{market\|quant\|llm}` for Go workers |
+| `strategy_evaluate` (signal generation for Go trade path) | **Temporary bridge** → `QUANT_JOBS_URL` (`sentiment-data` legacy profile) |
 
-Go workers (`sfp-market-worker`, `sfp-quant-worker`, `sfp-notify-worker`) consume Redis directly; they only call `/internal/jobs/run` for the bridge types above.
+LLM job bodies run in `sfp-notify-worker` (no `INTEL_JOBS_URL` bridge). See `docs/LLM-NOTIFY-JOBS-NATIVE.md`.
 
-## Slim stack: `sentiment-backend` optional
-
-Default slim compose (`docker-compose.sentiment.slim.yml`) **does not start** `sentiment-backend`.
-Workers use `INTERNAL_JOBS_URL=http://sfp-backend:9099/internal/jobs/run`.
+Go workers consume Redis directly. `sfp-notify-worker` no longer calls `/internal/jobs/run`.
 
 Emergency Python platform fallback:
 

@@ -56,14 +56,14 @@ var NativeGoWorkerTypes = map[string]bool{
 	"indicator_refresh": true, "factor_scan": true, "factor_qc": true, "strategy_run": true,
 	"daily_list_scan": true, "position_monitor": true, "daily_list_open": true, "auto_trade_scan": true,
 	"feishu_push": true,
+	"sentiment_collect": true, "sentiment_analyze": true, "daily_review": true,
+	"req_send": true, "req_summarize": true, "user_notice": true,
+	"watchlist_analyze": true, "stock_pick_run": true, "market_review": true,
+	"ai_analyze": true, "ai_batch": true,
 }
 
-// IntelBridgeTypes still require sentiment-intel Python handlers.
-var IntelBridgeTypes = map[string]bool{
-	"sentiment_collect": true, "sentiment_analyze": true, "watchlist_analyze": true,
-	"daily_review": true, "req_send": true, "req_summarize": true, "stock_pick_run": true,
-	"market_review": true, "ai_analyze": true, "ai_batch": true, "user_notice": true,
-}
+// IntelBridgeTypes still require sentiment-intel Python handlers (empty in slim default).
+var IntelBridgeTypes = map[string]bool{}
 
 // QuantBridgeTypes still require sentiment-data Python handlers.
 var QuantBridgeTypes = map[string]bool{

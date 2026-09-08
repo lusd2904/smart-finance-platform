@@ -14,8 +14,8 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"
-	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/handler"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/store"
 )
@@ -32,10 +32,17 @@ func main() {
 	}
 	defer svc.Close()
 
+	jobsSvc, err := jobs.NewService(cfg)
+	if err != nil {
+		logger.Error("jobs service init failed", "err", err)
+		os.Exit(1)
+	}
+	defer jobsSvc.Close()
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort), Password: cfg.RedisPassword, DB: cfg.RedisDB,
 	})
-	h := handler.New(svc, delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken))
+	h := handler.New(svc, jobsSvc)
 	consumer := queue.NewConsumer(rdb, h.Handle, cfg.VisibilityTimeout, cfg.MaxRetries, cfg.ConsumerPollInterval, cfg.ReclaimInterval, logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -44,7 +51,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "up", "role": "notify-worker"})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "up", "role": "notify-worker", "nativeJobs": handler.NativeJobTypes(),
+		})
 	})
 	server := &http.Server{Addr: fmt.Sprintf(":%d", cfg.WorkerPort), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = server.ListenAndServe() }()
