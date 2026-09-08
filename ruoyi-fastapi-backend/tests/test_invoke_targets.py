@@ -68,7 +68,7 @@ def _apply_mapping(rows: list[tuple[int, str, str | None, str]]) -> list[tuple[i
 
 
 def test_go_keys_cover_catalog_and_categories() -> None:
-    assert GO_JOB_KEYS == frozenset(GO_JOB_CATEGORY)
+    assert frozenset(GO_JOB_CATEGORY) == GO_JOB_KEYS
     for spec in ANALYSIS_JOBS:
         assert spec.invoke_target in GO_JOB_KEYS
         assert GO_JOB_CATEGORY[spec.invoke_target] in {'market', 'quant', 'sentiment', 'trade'}
