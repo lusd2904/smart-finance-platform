@@ -6,6 +6,8 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 本仓库 2026-07-23 首次公开，默认分支 `main`。贡献走功能分支 + Pull Request，禁止直接推 `main`。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+**Web 门户（新）**：`apps/frontend/web-portal` 是对齐 longbridge `glass-dark` / `glass-light` 的 Vue3 重建件，当前实现登录 / 工作台 / 行情交易。生产仍用 `ruoyi-fastapi-frontend`，验证通过前不要删旧前端。运行说明见 [apps/frontend/web-portal/README.md](./apps/frontend/web-portal/README.md)。
+
 ## 🌟 核心功能一览
 
 - 📈 **行情中心**：三市场热度与 Top50、全部股票（全市场分页）、智能选股（指标 + 舆情 + 开盘指数）、行情台、自选三栏、财经资讯、AI 研判、资金与日历（板块资金 / 涨停 / 龙虎榜 / 宏观与财报日历）。大盘指数每市场三条（美股标普/纳指/道琼斯，港股恒指/恒科/国企，A 股上证/创业板/科创板）。一条行情 WS 推指数与个股最新价；高级图表为 KLineChart 画线工作区。
@@ -315,7 +317,8 @@ smart-finance-platform/
 ├── docs/PYTHON-REMOVED.md              # FastAPI 删除说明与回滚
 ├── sql/                                # MySQL 基线 + 增量
 ├── services/  workers/                 # Go API / workers / scheduler
-├── ruoyi-fastapi-frontend/             # Vue3 管理端
+├── ruoyi-fastapi-frontend/             # 现行 Vue3 管理端（生产仍用这份，勿删）
+├── apps/frontend/web-portal/           # 新门户（longbridge 玻璃主题，验证后可替换）
 ├── ruoyi-fastapi-app/                  # 移动端 H5 / 小程序基线（双轨保留）
 ├── flutter_client/                     # 四端 Flutter（iOS / Android / macOS / Windows）
 └── desktop/                            # Electron 壳（已归档，勿构建）

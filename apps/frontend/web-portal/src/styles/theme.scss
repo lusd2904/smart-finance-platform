@@ -1,0 +1,672 @@
+/* Chrome + Element Plus mappings ported from longbridge-platform-core
+   apps/frontend/web-portal/src/App.vue (unscoped :root / control styles).
+
+   Glass-dark / glass-light color surfaces stay in experience.scss.
+   [data-theme] beats :root, so this file must NOT reassign --page-bg,
+   --panel-surface, --accent, or other experience tokens. */
+
+:root {
+  --font-cjk:
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Noto Sans CJK SC',
+    'Microsoft YaHei',
+    'Source Han Sans SC';
+  --font-heading:
+    'Inter',
+    var(--font-cjk),
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Display',
+    'Segoe UI',
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  --font-body:
+    'Inter',
+    var(--font-cjk),
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Segoe UI',
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  --el-font-family: var(--font-body);
+  --sidebar-width: 248px;
+  --radius-strong: 28px;
+  --radius-soft: 20px;
+  --page-grid:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 48%);
+  --panel-highlight: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
+  --overlay-bg: rgba(16, 25, 45, 0.45);
+  --workspace-shell-bg: transparent;
+  --chrome-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05)), var(--overlay-bg);
+  --shell-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)), var(--workspace-shell-bg);
+  --panel-backdrop: blur(24px) saturate(145%);
+  --chrome-backdrop: blur(28px) saturate(150%);
+  --shell-backdrop: none;
+  --panel-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 8%, transparent);
+  --chrome-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 9%, transparent);
+  --shell-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 5%, transparent);
+  --chrome-shadow: 0 12px 30px rgba(2, 10, 24, 0.24);
+  --sidebar-shadow: 0 18px 44px rgba(3, 10, 24, 0.36);
+  --accent-ink: #06121d;
+  --button-primary-solid-bg: var(--accent);
+  --button-primary-solid-bg-hover: var(--accent-strong);
+  --button-primary-bg: var(--accent);
+  --button-primary-bg-hover: var(--accent-strong);
+  --button-primary-text: var(--accent-ink);
+  --button-primary-border: color-mix(in srgb, var(--accent) 40%, transparent);
+  --button-primary-shadow: 0 14px 32px color-mix(in srgb, var(--accent) 28%, transparent);
+  --button-secondary-bg: color-mix(in srgb, var(--surface-soft) 84%, var(--surface-strong) 16%);
+  --button-secondary-bg-hover: color-mix(in srgb, var(--surface-soft) 90%, var(--surface-strong) 10%);
+  --button-secondary-text: var(--text-primary);
+  --button-secondary-border: var(--border-soft);
+  --button-link-color: color-mix(in srgb, var(--accent) 74%, var(--text-primary) 12%);
+  --table-divider: color-mix(in srgb, var(--accent-strong) 7%, transparent);
+  --table-frame: color-mix(in srgb, var(--accent-strong) 11%, transparent);
+  --table-header-bg: color-mix(in srgb, var(--surface-soft) 88%, transparent);
+  --table-row-hover: color-mix(in srgb, var(--surface-soft) 92%, transparent);
+  --surface-panel: var(--panel-surface);
+  --info: color-mix(in srgb, var(--accent-strong) 72%, white 16%);
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --panel-stroke: color-mix(in srgb, var(--accent-strong) 7%, transparent);
+  --panel-edge: color-mix(in srgb, var(--accent-strong) 11%, transparent);
+  --control-border: color-mix(in srgb, var(--accent-strong) 13%, transparent);
+  --control-border-hover: color-mix(in srgb, var(--accent-strong) 22%, transparent);
+  --loading-mask: rgba(2, 6, 23, 0.45);
+  --stat-up: #ff0055; /* A-share 涨=红 */
+  --stat-down: #39ff14; /* A-share 跌=绿 */
+  --order-buy-solid: #dc2626;
+  --order-sell-solid: #16a34a;
+  --chip-fill: 15%;
+  --chip-ink: 62%;
+  --chip-line: 16%;
+  --stub-banner-display: flex;
+}
+
+[data-theme='glass-light'] {
+  --overlay-bg: rgba(255, 255, 255, 0.65);
+  --loading-mask: rgba(241, 245, 249, 0.55);
+  --accent-ink: #ffffff;
+  --stat-up: #dc2626;
+  --stat-down: #16a34a;
+  --chip-fill: 12%;
+  --chip-ink: 78%;
+  --chip-line: 22%;
+  --chrome-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --sidebar-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='glass-dark'] {
+  --overlay-bg: rgba(16, 25, 45, 0.45);
+  --loading-mask: rgba(2, 6, 23, 0.45);
+  --accent-ink: #06121d;
+  --stat-up: #ff0055;
+  --stat-down: #39ff14;
+  --chip-fill: 15%;
+  --chip-ink: 62%;
+  --chip-line: 16%;
+}
+
+:root,
+:root[data-theme] {
+  --el-color-info: var(--text-secondary) !important;
+  --el-color-primary: var(--accent) !important;
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 72%, white 28%) !important;
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 50%, white 50%) !important;
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 32%, white 68%) !important;
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 20%, white 80%) !important;
+  --el-color-primary-light-9: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  --el-color-primary-dark-2: var(--accent-strong) !important;
+  --el-color-success: var(--success) !important;
+  --el-color-warning: var(--warning) !important;
+  --el-color-danger: var(--danger) !important;
+  --el-text-color-primary: var(--text-primary) !important;
+  --el-text-color-regular: color-mix(in srgb, var(--text-primary) 78%, var(--text-secondary) 22%) !important;
+  --el-text-color-secondary: var(--text-secondary) !important;
+  --el-text-color-placeholder: color-mix(in srgb, var(--text-secondary) 82%, transparent) !important;
+  --el-disabled-text-color: color-mix(in srgb, var(--text-secondary) 74%, transparent) !important;
+  --el-border-color: var(--control-border);
+  --el-border-color-light: var(--panel-edge);
+  --el-border-color-lighter: color-mix(in srgb, var(--panel-edge) 76%, transparent);
+  --el-fill-color-blank: var(--surface-muted);
+  --el-fill-color-light: var(--surface-soft);
+  --el-fill-color-lighter: var(--surface-muted);
+  --el-fill-color-dark: color-mix(in srgb, var(--surface-emphasis) 92%, transparent);
+  --el-fill-color: color-mix(in srgb, var(--surface-soft) 72%, var(--surface-muted) 28%);
+  --el-bg-color: transparent;
+  --el-bg-color-page: transparent;
+  --el-bg-color-overlay: var(--surface-strong);
+  --el-color-white: var(--text-emphasis);
+  --el-box-shadow-light: var(--shadow-strong);
+  --el-mask-color: var(--loading-mask);
+  --el-mask-color-extra-light: color-mix(in srgb, var(--loading-mask) 68%, transparent);
+  --el-overlay-color-light: color-mix(in srgb, var(--loading-mask) 92%, transparent);
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+html {
+  height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: transparent;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-strong) 30%, transparent);
+  color: var(--text-emphasis);
+}
+
+.el-button {
+  --el-button-text-color: var(--button-secondary-text);
+  --el-button-bg-color: var(--button-secondary-bg);
+  --el-button-border-color: var(--button-secondary-border);
+  --el-button-hover-text-color: var(--button-secondary-text);
+  --el-button-hover-bg-color: var(--button-secondary-bg-hover);
+  --el-button-hover-border-color: var(--control-border-hover);
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.el-button--primary:not(.is-link):not(.is-text) {
+  --el-button-text-color: var(--button-primary-text);
+  --el-button-bg-color: var(--button-primary-solid-bg);
+  --el-button-border-color: var(--button-primary-border);
+  --el-button-hover-text-color: var(--button-primary-text);
+  --el-button-hover-bg-color: var(--button-primary-solid-bg-hover);
+  color: var(--button-primary-text) !important;
+  border: 1px solid var(--button-primary-border) !important;
+  background-color: var(--accent) !important;
+  background-image: none !important;
+  box-shadow: var(--button-primary-shadow);
+}
+
+.el-button--primary:not(.is-link):not(.is-text):hover,
+.el-button--primary:not(.is-link):not(.is-text):focus-visible {
+  background-color: var(--accent-strong) !important;
+  background-image: none !important;
+}
+
+.el-button.is-text:not(.is-link),
+.el-button--default:not(.is-link):not(.is-text) {
+  color: var(--button-secondary-text) !important;
+  border-color: var(--button-secondary-border) !important;
+  background: var(--button-secondary-bg) !important;
+}
+
+.el-button--primary.is-link,
+.el-link.el-link--primary {
+  color: var(--button-link-color) !important;
+}
+
+.el-dropdown__popper.el-popper,
+.el-select__popper.el-popper,
+.el-popover.el-popper,
+.el-picker__popper.el-popper {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px !important;
+  border: 1px solid var(--panel-edge) !important;
+  background: var(--panel-surface) !important;
+  box-shadow: var(--shadow-strong), var(--panel-inset);
+  backdrop-filter: var(--panel-backdrop);
+  -webkit-backdrop-filter: var(--panel-backdrop);
+}
+
+.el-card,
+.el-dialog,
+.el-message-box,
+.el-drawer,
+.el-notification,
+.el-message {
+  border-radius: 10px !important;
+  border: 1px solid var(--panel-edge) !important;
+  background: var(--panel-surface) !important;
+  box-shadow: var(--shadow-strong), var(--panel-inset);
+  backdrop-filter: var(--panel-backdrop);
+  -webkit-backdrop-filter: var(--panel-backdrop);
+  color: var(--text-primary);
+}
+
+.el-card__header,
+.el-card__body,
+.el-dialog__header,
+.el-dialog__body,
+.el-dialog__footer {
+  color: var(--text-primary);
+  border-color: var(--panel-stroke) !important;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner,
+.el-input-number,
+.el-radio-button__inner {
+  background: var(--surface-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--control-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.el-input__inner,
+.el-textarea__inner {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 12px 32px color-mix(in srgb, var(--accent-strong) 18%, transparent) !important;
+}
+
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-border-color: var(--table-frame);
+  --el-table-header-bg-color: var(--table-header-bg);
+  --el-table-row-hover-bg-color: var(--table-row-hover);
+  --el-table-text-color: var(--text-primary);
+  --el-table-header-text-color: var(--text-secondary);
+  color: var(--text-primary) !important;
+}
+
+.el-table th.el-table__cell,
+.el-table tr,
+.el-table td.el-table__cell {
+  background: transparent !important;
+}
+
+.el-overlay,
+.el-overlay-dialog {
+  background: transparent !important;
+}
+
+.el-loading-mask {
+  background: var(--loading-mask) !important;
+  backdrop-filter: blur(18px);
+}
+
+.el-tag,
+.el-tag.el-tag--dark,
+.el-tag--dark {
+  border-radius: 999px !important;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+.el-tag--primary,
+.el-tag--primary.el-tag--dark {
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--accent) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) var(--chip-line), transparent) !important;
+}
+
+.el-tag--success,
+.el-tag--success.el-tag--dark {
+  background: color-mix(in srgb, var(--stat-down) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--stat-down) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--stat-down) var(--chip-line), transparent) !important;
+}
+
+.el-tag--danger,
+.el-tag--danger.el-tag--dark {
+  background: color-mix(in srgb, var(--stat-up) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--stat-up) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--stat-up) var(--chip-line), transparent) !important;
+}
+
+.el-tag--warning,
+.el-tag--warning.el-tag--dark {
+  background: color-mix(in srgb, var(--warning) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--warning) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--warning) var(--chip-line), transparent) !important;
+}
+
+.el-tag--info,
+.el-tag--info.el-tag--dark {
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 22%, transparent) !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-checkbox-button.is-checked .el-checkbox-button__inner {
+  color: var(--accent-ink) !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+.el-switch.is-checked .el-switch__core {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-checkbox__input.is-indeterminate .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.el-tabs__active-bar {
+  background-color: var(--accent) !important;
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover {
+  color: var(--accent) !important;
+}
+
+.el-table,
+.el-table .cell,
+.stat-card strong,
+.quote-row,
+.price-info,
+.price-val,
+.change-pill,
+.idx-price,
+.idx-change,
+.q-right,
+.q-cell b,
+.main-price-num,
+.price-main-num,
+.cash-stat-capsule strong,
+.heat-index b,
+.score-box strong,
+.health-grid strong,
+.info-hero-price-box,
+.book-row,
+.numeric {
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: 'tnum' 1, 'lnum' 1 !important;
+}
+
+.el-divider {
+  border-color: var(--panel-stroke) !important;
+}
+
+/* Accent hairline from longbridge .content :where(.glass-panel)::before,
+   applied globally so Login (outside .content) matches. */
+.glass-panel,
+.hero-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-panel::before,
+.hero-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 42%;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 48%, transparent), transparent);
+  pointer-events: none;
+}
+
+.login-page .glass-login-box.glass-panel {
+  backdrop-filter: var(--panel-backdrop) !important;
+  -webkit-backdrop-filter: var(--panel-backdrop) !important;
+  box-shadow: var(--page-card-shadow), var(--panel-inset) !important;
+}
+
+.up,
+.bull {
+  color: var(--stat-up) !important;
+}
+
+.down,
+.bear {
+  color: var(--stat-down) !important;
+}
+
+.flat,
+.neutral {
+  color: var(--text-secondary) !important;
+}
+
+.stub-banner {
+  display: var(--stub-banner-display, flex);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--warning) 45%, var(--border-soft));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface-soft));
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.sfp-page {
+  display: grid;
+  gap: 10px;
+}
+
+.page-hero,
+.sfp-page .page-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}
+
+.page-hero h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-emphasis);
+}
+
+.page-badge {
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+}
+
+.page-subtitle {
+  display: block !important;
+  margin: 4px 0 0;
+  max-width: 760px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.page-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legend-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-dots i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.legend-dots .dot-up { background: var(--stat-up); }
+.legend-dots .dot-down { background: var(--stat-down); }
+.legend-dots .dot-flat { background: var(--text-secondary); }
+
+.mkt-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) var(--chip-line), transparent);
+}
+
+.mkt-tag.is-us { color: #38bdf8; }
+.mkt-tag.is-hk { color: #f59e0b; }
+.mkt-tag.is-cn { color: #fb7185; }
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: color-mix(in srgb, var(--surface-soft) 80%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
+}
+
+.stub-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #b45309;
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.numeric,
+.heat-score,
+.idx-chg,
+.breadth-meta,
+.mover-row,
+.quote-chg {
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-actions,
+.stat-strip,
+.heat-ad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat-tile {
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.stat-tile span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.stat-tile strong {
+  font-size: 18px;
+  color: var(--text-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.sfp-page .el-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.news-line,
+.job-card,
+.review-latest {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 6px;
+}
+
+.news-line,
+.job-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .stat-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
