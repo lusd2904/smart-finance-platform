@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -140,14 +141,18 @@ func (c *Client) fetchSina(symbol, market string, years int) ([]Row, error) {
 	}
 	arr := extractJSONArray(body)
 	start := startDate(years).Format("2006-01-02")
+	return parseSinaBars(arr, symbol, market, start), nil
+}
+
+func parseSinaBars(arr []interface{}, symbol, market, start string) []Row {
 	rows := make([]Row, 0, len(arr))
 	for _, item := range arr {
 		m, ok := item.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		d := strings.TrimSpace(fmt.Sprint(m["d"]))[:10]
-		if d == "" || d < start {
+		d, ok := tradeDatePrefix(m["d"])
+		if !ok || d < start {
 			continue
 		}
 		row, ok := validateOHLCV(symbol, market, d, m["o"], m["h"], m["l"], m["c"], m["v"], "sina")
@@ -155,7 +160,7 @@ func (c *Client) fetchSina(symbol, market string, years int) ([]Row, error) {
 			rows = append(rows, row)
 		}
 	}
-	return rows, nil
+	return rows
 }
 
 func (c *Client) fetchTencent(symbol, market string, years int) ([]Row, error) {
@@ -226,8 +231,8 @@ func parseTencentDaily(payload map[string]interface{}, symbol, market, start str
 		if !ok || len(parts) < 6 {
 			continue
 		}
-		d := strings.TrimSpace(fmt.Sprint(parts[0]))[:10]
-		if d == "" || d < start {
+		d, ok := tradeDatePrefix(parts[0])
+		if !ok || d < start {
 			continue
 		}
 		row, ok := validateOHLCV(symbol, market, d, parts[1], parts[3], parts[4], parts[2], parts[5], "tencent")
@@ -298,6 +303,28 @@ func parseTencentMinute(payload map[string]interface{}, symbol, market string) [
 		})
 	}
 	return rows
+}
+
+// tradeDatePrefix returns the YYYY-MM-DD prefix of a vendor date field.
+// Short, empty, or unexpected values are skipped instead of slicing [:10].
+func tradeDatePrefix(raw interface{}) (string, bool) {
+	if raw == nil {
+		return "", false
+	}
+	s := strings.TrimSpace(fmt.Sprint(raw))
+	if s == "" {
+		return "", false
+	}
+	if len(s) < 10 {
+		slog.Warn("kline: skip bar with short date", "date", s, "len", len(s))
+		return "", false
+	}
+	d := s[:10]
+	if _, err := time.Parse("2006-01-02", d); err != nil {
+		slog.Warn("kline: skip bar with invalid date", "date", s)
+		return "", false
+	}
+	return d, true
 }
 
 func validateOHLCV(symbol, market, tradeDate string, o, h, l, c, v interface{}, source string) (Row, bool) {
