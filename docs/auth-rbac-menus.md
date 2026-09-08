@@ -47,7 +47,7 @@ SFP 业务模块（行情、交易、量化、舆情、AI、任务中心等）**
 ## 新环境 / 已有库
 
 - **新装**：`ruoyi-fastapi.sql` 种子已同步精简菜单。
-- **已有库**：执行 `ruoyi-fastapi-backend/sql/strip-ruoyi-admin-menus.sql`，然后用户重新登录。
+- **已有库**：执行 `sql/strip-ruoyi-admin-menus.sql`，然后用户重新登录。
 
 ## 各模块「使用说明」
 

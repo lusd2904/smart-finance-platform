@@ -7,23 +7,19 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets:
-          - 'sentiment-backend:9099'
-          - 'sentiment-trade:9099'
-          - 'sentiment-market:9099'
-          - 'sentiment-quant:9099'
-          - 'sentiment-news:9099'
-          - 'sentiment-ai:9099'
+          - 'sfp-backend:9099'
+          - 'sfp-intel:8080'
+          - 'sentiment-trade-api:8080'
+          - 'sentiment-data-api:8081'
+          - 'sentiment-market-read:8080'
           - 'host.docker.internal:19099'
 
   - job_name: 'smart-finance-jobs'
     metrics_path: '/metrics'
     static_configs:
       - targets:
-          - 'sentiment-jobs:9098'
           - 'sfp-scheduler:9098'
           - 'sfp-market-worker:9098'
           - 'sfp-quant-worker:9097'
           - 'sfp-notify-worker:9096'
-          - 'sentiment-jobs-quant:9098'
-          - 'sentiment-jobs-llm:9098'
           - 'host.docker.internal:19098'

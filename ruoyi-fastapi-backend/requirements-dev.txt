@@ -1,2 +1,0 @@
-# Development-only dependencies (lint, format). Not installed in production Docker images.
-ruff==0.15.0

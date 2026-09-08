@@ -32,8 +32,7 @@ bash scripts/deploy_and_verify_slim.sh
 |------|------|
 | `docker-compose.sentiment.yml` | 基础服务定义 |
 | `docker-compose.sentiment.slim.yml` | **cursor-1 唯一 overlay**（合并 API、Go workers、Influx 12g） |
-| `docker-compose.sentiment.scheduler-python.yml` | 可选：回滚到 Python `sentiment-jobs`（需 `--profile legacy-python` 或 overlay `!override`） |
-| `--profile legacy-python` | 紧急回退：起 Python fat 容器（默认 slim **不启**） |
+| （已删除）`docker-compose.sentiment.*python*.yml` | Python fat / scheduler 回退已从仓库移除，见 [PYTHON-REMOVED.md](./PYTHON-REMOVED.md) |
 
 **全栈 `up -d --build` 会起的 slim 服务**（Go-only。`profiles: [full-split]` 与 `legacy-python` **不会**起）：
 
@@ -53,7 +52,7 @@ bash scripts/deploy_and_verify_slim.sh
 | `sfp-notify-worker` | `sfp-notify-worker` | Go 消费 **llm** 队列 |
 | `sentiment-frontend` | `sentiment-frontend` | nginx（`nginx.dockersentiment.slim.conf`，无 Python upstream） |
 
-**默认不启动** Python fat：`sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`。紧急回退：`--profile legacy-python` + 对应 overlay（见下文）。
+Python fat 容器（`sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`）**已从仓库删除**，compose 里不再有定义。对照旧代码见 [PYTHON-REMOVED.md](./PYTHON-REMOVED.md)。
 
 - 数据：`$SFP_DATA_ROOT`（cursor-1 默认 `/workspace/sfp-data`；Influx 已有数据；MySQL 待上传后首次 init）
 - 内存：Influx **冷开** `mem_limit` **12g** / `GOMEMLIMIT` **10GiB** + **4G loop swap**（vfs 服务级 bind；峰值 ~11.7GiB → healthy）。**勿冷开后立即降至 3g**；长期稳态可选 `influx-steady`
@@ -67,27 +66,9 @@ bash scripts/deploy_and_verify_slim.sh
 - slim nginx **没有** `sentiment-backend` / `sentiment-data` / `sentiment-trade` / `sentiment-intel` upstream。
 - 行为不变：URL、JWT、WS 协议相同。紧急回退见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。
 
-### 紧急回退（`legacy-python`，非生产）
+### 紧急回退
 
-默认 slim **不启** Python fat 容器。仅当 Go 路径不可用时：
-
-```bash
-sudo docker compose \
-  -f docker-compose.sentiment.yml \
-  -f docker-compose.sentiment.slim.yml \
-  --profile legacy-python \
-  up -d sentiment-backend sentiment-data sentiment-intel sentiment-trade
-```
-
-再按需叠加 overlay（会改 nginx / env，不是默认路径）：
-
-| Overlay | 作用 |
-|---------|------|
-| `docker-compose.sentiment.intel-python-fallback.yml` | `/sentiment/` `/ai/` `/open/` → `sentiment-intel` |
-| `docker-compose.sentiment.platform-python-fallback.yml` | 平台 catch-all → `sentiment-backend` |
-| `docker-compose.sentiment.trade-python-fallback.yml` | `TRADE_HTTP_FALLBACK_URL` → `sentiment-trade` |
-| `docker-compose.sentiment.quant-python-fallback.yml` | `STRATEGY_EVAL_URL` → `sentiment-data` |
-| `docker-compose.sentiment.scheduler-python.yml` | Python `sentiment-jobs` 替换 `sfp-scheduler` |
+Python fat overlay **已删除**。不要在生产机上重建 FastAPI 容器。若必须对照旧实现，从删除前提交检出 `ruoyi-fastapi-backend/`（见 [PYTHON-REMOVED.md](./PYTHON-REMOVED.md)）。
 
 ### 从旧 full 栈迁移到 slim
 
@@ -170,6 +151,6 @@ curl -sf http://127.0.0.1:19096/health
 
 ---
 
-## Python fat 容器（已从默认 slim 拿掉）
+## Python fat 容器（已从仓库删除）
 
-默认 `docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up` **不启动** `sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`。定义仍留在 compose 里，仅 `--profile legacy-python`（或 scheduler overlay）可起，供紧急回退。cursor-1 生产不要开这个 profile。
+`docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up` 只起 Go 服务。fat 镜像、`--profile legacy-python` overlay 与 `Dockerfile.sentiment` 已不在 `main`。

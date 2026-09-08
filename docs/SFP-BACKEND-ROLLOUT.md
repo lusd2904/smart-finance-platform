@@ -1,6 +1,6 @@
 # sfp-backend rollout (Go platform API)
 
-Go service at `services/sfp-backend` replaces Python `sentiment-backend` (`APP_MODULE=platform`) for portal auth, RBAC, dashboard, analysis scheduler UI, and internal job routing.
+Go service at `services/sfp-backend` is the platform API. Python `sentiment-backend` has been **deleted from main** ([PYTHON-REMOVED.md](./PYTHON-REMOVED.md)); do not apply the old `platform-python-fallback` overlay.
 
 ## Implemented in Go (nginx → `sfp-backend:9099`)
 

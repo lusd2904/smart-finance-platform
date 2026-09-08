@@ -77,7 +77,7 @@ Slim 合并方式（**对外路径不变，Go-only**）：
 - `sfp-backend`：登录 / 系统 / dashboard / ws/jobs / open/sync
 - `sfp-scheduler`：Go 读 `sys_job` + cron，入 Redis DB 2
 - `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（slim ~768m RSS 合计；full ~896m）
-- Python fat（`sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`）**默认不启动**；紧急回退 `--profile legacy-python`（见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)）
+- Python fat 容器已从仓库删除（见 [PYTHON-REMOVED.md](./PYTHON-REMOVED.md)）
 - 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
 - **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx；登录/热度/任务需 Phase B 全栈（Go）。
 
@@ -122,16 +122,16 @@ git pull --ff-only origin main
 只重建业务容器（先 API / jobs，再前端）：
 
 ```bash
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
-  sentiment-backend sentiment-trade sentiment-ai sentiment-news \
-  sentiment-market sentiment-market-read sentiment-quant \
-  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
-  sfp-market-worker sfp-quant-worker sfp-notify-worker
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build \
+  sfp-backend sfp-intel sentiment-trade-api sentiment-data-api sentiment-market-read \
+  sfp-scheduler sfp-market-worker sfp-quant-worker sfp-notify-worker
 
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build sentiment-frontend
 ```
 
-或 `bash scripts/deploy_and_verify.sh`（同样不碰 MySQL / Redis / Influx）。
+或 `bash scripts/deploy_and_verify_slim.sh`（同样不碰 MySQL / Redis / Influx）。
 
 ### 验收
 
@@ -192,7 +192,7 @@ bash scripts/backup_data.sh
 ## 1. 环境变量
 
 ```bash
-cp ruoyi-fastapi-backend/.env.dockersentiment.example ruoyi-fastapi-backend/.env.dockersentiment
+cp .env.dockersentiment.example .env.dockersentiment
 cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 ```
 
@@ -236,15 +236,15 @@ Slim 生产进程（共享 MySQL / Redis / Influx，不分库）：
 - `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
 - `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
 - `sfp-notify-worker`：Go 消费 **llm** 队列（full ~256m；slim 224m）
-- Python fat 与 `sentiment-jobs-quant` / `llm`：**profile `legacy-python` / `full-split`**，默认不启
+- Python fat 与 `sentiment-jobs-*` 已从仓库删除
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：
 
 ```bash
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
-  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
-  sfp-market-worker sfp-quant-worker sfp-notify-worker \
-  sentiment-trade sentiment-market sentiment-market-read sentiment-quant sentiment-news sentiment-ai sentiment-backend sentiment-frontend
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build \
+  sfp-backend sfp-intel sentiment-trade-api sentiment-data-api sentiment-market-read \
+  sfp-scheduler sfp-market-worker sfp-quant-worker sfp-notify-worker sentiment-frontend
 ```
 
 ### 增量 SQL（schema_version 登记制）
@@ -259,8 +259,8 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 ```
 
 - 新环境：compose 首次挂载初始化全量基线后，迁移器自动预登记同一批基线文件，只补真正的增量。
-- 新增增量脚本：放进 `ruoyi-fastapi-backend/sql/*.sql`（kebab-case 命名、幂等可重放），下次 apply 自动消费；
-  细节见 `ruoyi-fastapi-backend/sql/README.md`。
+- 新增增量脚本：放进 `sql/*.sql`（kebab-case 命名、幂等可重放），下次 apply 自动消费；
+  细节见 `sql/README.md`。
 - 服务层不再运行时建表：代码依赖的表（如 `market_price_history_daily`）缺失时按日志提示执行迁移即可。
 - 量化读写已走 `market_watchlist`，旧表 `quant_watchlist` 保留只读历史（不 DROP）。
 
@@ -274,15 +274,15 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 - **不要**把 `ruoyi-redis` / `sentiment-influxdb` / `sentiment-mysql` 和业务容器绑在一次 `up --build` 里「顺便重建」。数据层单独决策。
 - 自动交易扫描只入 `quant` 队列；是否真下单仍看该账户 `auto_trade_enabled`。平台不再做纸账户拦截，委托直接进配置的长桥账户（模拟或真实由凭据决定）。
 
-推荐滚动（先 API，再前端；脚本 `scripts/deploy_and_verify.sh` 已按这个顺序）：
+推荐滚动（先 API，再前端；脚本 `scripts/deploy_and_verify_slim.sh` 已按这个顺序）：
 
 ```bash
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
-  sentiment-backend sentiment-trade sentiment-ai sentiment-news \
-  sentiment-market sentiment-quant \
-  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
-  sfp-market-worker sfp-quant-worker sfp-notify-worker
-docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build \
+  sfp-backend sfp-intel sentiment-trade-api sentiment-data-api sentiment-market-read \
+  sfp-scheduler sfp-market-worker sfp-quant-worker sfp-notify-worker
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  up -d --no-deps --build sentiment-frontend
 ```
 
 **cursor-1（slim）** 用 `bash scripts/deploy_and_verify_slim.sh`，不要跑上面 full 容器名列表。
@@ -364,8 +364,7 @@ docker compose -f docker-compose.monitor.yml up -d
 
 ## 4. PostgreSQL（可选，不是默认栈）
 
-`docker-compose.pg.yml` 与 `ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql` 已提供。  
-当前推荐生产仍用 MySQL；切换 Postgres 需要独立评估数据迁移，不要直接替换正在跑的 sentiment 栈。
+历史 `docker-compose.pg.yml` 与 Python PG 后端已随 FastAPI 树删除。`sql/ruoyi-fastapi-pg.sql` 仅作基线参考，**不会**被 MySQL 迁移器扫描。生产继续用 MySQL。
 
 ## 5. 桌面端
 
@@ -386,7 +385,7 @@ npx playwright install chromium
 npm run e2e:web
 ```
 
-后端单测在 `sentiment-backend` 容器内运行 `python -m pytest tests/ -q`。
+Go 后端单测：`cd services/<svc> && go test ./...`（CI 默认路径）。Python FastAPI 单测已随该树删除。
 
 ## 7. 需求清单对外接口
 
@@ -424,11 +423,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 4. 确认 `sfp-scheduler` 健康（`http://127.0.0.1:19098/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
 5. 合并功能分支 PR，不要直接推 `main`。
 6. 云上日常更新按文首「云主机怎么部署」滚业务容器。过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
-7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。
+7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sfp-intel` / `sfp-backend` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。
 8. **cursor-1**：确认 slim 双文件 compose 已启用，整栈 RSS < 5.5 GiB；勿起 full-split。
 
 ## 9. 后续架构迁移
 
 行情热读（`market-read`）与 Redis 队列消费（workers）已在 slim / full 落地。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
 
-Python `sentiment-data` **默认不启动**；`/quant/` 与其余 `/market/` 走 `sentiment-data-api`（Go）。紧急回退 `--profile legacy-python`。口径见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。
+`/quant/` 与其余 `/market/` 走 `sentiment-data-api`（Go）。Python `sentiment-data` 已从仓库删除。口径见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。

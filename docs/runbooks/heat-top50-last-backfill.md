@@ -4,6 +4,8 @@ Heat H5/Flutter reads `top50[].last`. Rows collected before the `last` column or
 
 This runbook fills **only** missing `market_top50_snapshot.last` from stored daily bars (`market_price_history_daily.close_price` on that `trade_date`, or the nearest prior bar within 7 days). HK/CN/US aliases are expanded (`00700` ↔ `0700.HK`, `600519` ↔ `600519.SH`). It does **not** wipe Influx/MySQL or re-run public rank collection.
 
+The old Python one-shot (`scripts/backfill_heat_top50_last.py`) was removed with the FastAPI tree. Use the Go binary below.
+
 ## When to run
 
 - After deploying PR #63 (collector + read-path fixes).
@@ -13,44 +15,9 @@ This runbook fills **only** missing `market_top50_snapshot.last` from stored dai
 ## Prerequisites
 
 - MySQL reachable with `market_top50_snapshot` and `market_price_history_daily` populated for the target dates.
-- If `stillMissing` > 0, sync daily K for missing symbols first (`scripts/sync_klines_slow.py` or `klines_slow` job).
+- If `stillMissing` > 0, sync daily K for missing symbols first (Go `klines_slow` job on `sfp-market-worker`).
 
-## Option A — Python one-shot (recommended on host)
-
-From repo root on the cloud host (default dockersentiment DB on `127.0.0.1:13306`):
-
-```bash
-# Dry-run: counts only
-python3 scripts/backfill_heat_top50_last.py \
-  --from 2026-08-27 --to 2026-08-27 --dry-run
-
-# Apply for one day, all markets
-python3 scripts/backfill_heat_top50_last.py \
-  --from 2026-08-27 --to 2026-08-27
-
-# Date range
-python3 scripts/backfill_heat_top50_last.py \
-  --from 2026-08-20 --to 2026-08-29 --markets CN,HK,US
-```
-
-Inside `sentiment-backend` container:
-
-```bash
-docker exec -it sentiment-backend python3 /app/scripts/backfill_heat_top50_last.py \
-  --from 2026-08-27 --to 2026-08-27 --env dockersentiment
-```
-
-Env overrides (host defaults):
-
-| Variable | Default |
-|----------|---------|
-| `LISTING_DB_HOST` | `127.0.0.1` |
-| `LISTING_DB_PORT` | `13306` |
-| `LISTING_DB_NAME` | `sentiment-ai` |
-
-## Option B — Go binary (market-worker path)
-
-Build once:
+## Go binary (market-worker)
 
 ```bash
 cd workers/market-worker
@@ -101,4 +68,4 @@ Expect `missing = 0` after a successful backfill (or after daily K sync for any 
 
 ## Going forward
 
-New EOD rows from `market_heat_collect` (Go `sfp-market-worker`) include `last` from Sina/Tencent/Eastmoney. Read-path enrichment in `MarketHeatService.get_daily_services` still fills transient gaps from board cache / latest daily quotes but the backfill above is the durable fix for historical gaps.
+New EOD rows from `market_heat_collect` (Go `sfp-market-worker`) include `last` from Sina/Tencent/Eastmoney.

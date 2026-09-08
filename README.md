@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地/私有化一体化平台。底座是 **RuoYi-Vue3 + FastAPI**，业务覆盖 **行情、舆情、量化、交易、AI 研判**。列表浏览走 Influx / MySQL，长桥只用于交易台实时报价和下单；调度与长任务从 API 进程拆出，避免 Grok / 采集把 HTTP 打满。
+Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地/私有化一体化平台。Web 管理端仍是 **RuoYi-Vue3**；**生产后端已全部是 Go**（`sfp-backend`、`sfp-intel`、`sentiment-trade-api`、`sentiment-data-api`、`sentiment-market-read`、workers、`sfp-scheduler`）。Python RuoYi-FastAPI 运行时已从 `main` 删除，见 [docs/PYTHON-REMOVED.md](./docs/PYTHON-REMOVED.md)。业务覆盖 **行情、舆情、量化、交易、AI 研判**。列表浏览走 Influx / MySQL，长桥只用于交易台实时报价和下单；调度与长任务从 API 进程拆出，避免 Grok / 采集把 HTTP 打满。
 
 本仓库 2026-07-23 首次公开，默认分支 `main`。贡献走功能分支 + Pull Request，禁止直接推 `main`。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
@@ -15,14 +15,14 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 💹 **交易中心**：长桥账户 / 持仓 / 委托、盘口深度与分时、持仓叠实时价自算盈亏、自动交易、风控规则与事件、通知中心。配了什么长桥账户（模拟或真实）就下到哪。手工单与自动交易共用仓位护栏；紧急停机拦新单、撤单仍可用。美股下单覆盖盘前 / 盘后 / 夜盘（长桥 `outside_rth`）；长桥模拟账户本身仍仅常规盘撮合。
 - 🔐 **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
-- 🧵 **任务拆分**：调度为 Go `sfp-scheduler`（入队）+ market/quant/llm 三消费组；Python `sentiment-jobs` 仅作回滚。**16 GiB 云主机用 slim overlay**，见 [docs/SFP-TWO-HOST-DEPLOY.md](./docs/SFP-TWO-HOST-DEPLOY.md) 与 [docs/SFP-SCHEDULER.md](./docs/SFP-SCHEDULER.md)。
+- 🧵 **任务拆分**：调度为 Go `sfp-scheduler`（入队）+ market/quant/llm 三消费组。**16 GiB 云主机用 slim overlay**，见 [docs/SFP-TWO-HOST-DEPLOY.md](./docs/SFP-TWO-HOST-DEPLOY.md) 与 [docs/SFP-SCHEDULER.md](./docs/SFP-SCHEDULER.md)。
 - 🖥️ **桌面端**：以 `flutter_client/` 为准；`desktop/` Electron 壳已归档，不再构建。
 - 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。Debug 默认本机 Docker（`127.0.0.1:12580`，Android 模拟器 `10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
 ## 🚀 0829 迭代更新日志（策略按账户绑定、实时价、账号隔离）
 
-明细见 [CHANGELOG.md](./CHANGELOG.md) `[Unreleased]`。增量 SQL 用 `python3 scripts/sql_migrate.py apply`（含 `user-strategy-bind.sql`）。**不要 `compose down`，不要重建 MySQL / Redis / Influx。**
+明细见 [CHANGELOG.md](./CHANGELOG.md) `[Unreleased]`。增量 SQL 用 `python3 scripts/sql_migrate.py apply`（扫描仓库根目录 `sql/`）。**不要 `compose down`，不要重建 MySQL / Redis / Influx。**
 
 ### 1. 🎯 量化策略与登录账户绑定
 - 策略配置页为当前账户选一个生效档（保守 / 均衡 / 进取），写入 `plat_user_strategy_bind`；三档权重覆盖仍是本账户自己的。
@@ -259,12 +259,12 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 - **方案 1：Docker Compose 一键启动（推荐）**
   ```bash
-  cp ruoyi-fastapi-backend/.env.dockersentiment.example \
-     ruoyi-fastapi-backend/.env.dockersentiment
+  cp .env.dockersentiment.example .env.dockersentiment
   cp ruoyi-fastapi-frontend/.env.docker.example \
      ruoyi-fastapi-frontend/.env.docker
 
-  docker compose -f docker-compose.sentiment.yml up -d --build
+  docker compose -f docker-compose.sentiment.yml \
+    -f docker-compose.sentiment.slim.yml up -d --build
   ```
 
   | 服务 | 地址 |
@@ -279,16 +279,11 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
   **禁止 `compose down` 整栈。** 更新单个服务：
 
   ```bash
-  docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-backend sentiment-frontend
+  docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+    up -d --no-deps --build sfp-backend sentiment-frontend
   ```
 
-  已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)。补全市场代码与日 K（本机 Docker 默认口，限流慢拉）：
-
-  ```bash
-  ruoyi-fastapi-backend/.venv/bin/python scripts/sync_market_listings.py
-  ruoyi-fastapi-backend/.venv/bin/python -u scripts/sync_klines_slow.py
-  touch logs/kline_sync.stop   # 下一只标的前退出
-  ```
+  已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)。全市场代码 / 日 K 回填走 Go `sfp-market-worker` 任务（旧 Python `sync_*.py` 已随 FastAPI 树删除）。
 
 - **方案 2：桌面端**用 `flutter_client/`（见方案 3）。`desktop/` Electron 已归档，不要再构建。
 
@@ -302,7 +297,8 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 - **方案 4：检查与监控（可选）**
   ```bash
-  cd ruoyi-fastapi-backend && uv run pytest tests/ -q
+  # Go 服务单测示例
+  (cd services/sfp-backend && go test ./...)
   npm install && npx playwright install chromium && npm run e2e:web
   docker compose -f docker-compose.monitor.yml up -d
   ```
@@ -312,21 +308,21 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 ```text
 smart-finance-platform/
-├── docker-compose.sentiment.yml   # 默认业务栈
-├── docker-compose.monitor.yml     # Prometheus / Grafana
+├── docker-compose.sentiment.yml        # Go 业务栈
+├── docker-compose.sentiment.slim.yml   # 16 GiB 主机 overlay
+├── docker-compose.monitor.yml          # Prometheus / Grafana
 ├── docs/DEPLOY.md
-├── ruoyi-fastapi-backend/         # FastAPI
-│   ├── module_market/  module_sentiment/  module_quant/
-│   ├── module_trade/   module_ai/         module_analysis/
-│   └── sql/
-├── ruoyi-fastapi-frontend/        # Vue3 管理端
-├── ruoyi-fastapi-app/             # 移动端 H5 / 小程序基线（双轨保留）
-├── flutter_client/                # 四端 Flutter（iOS / Android / macOS / Windows）
-└── desktop/                       # Electron 壳（已归档，勿构建）
+├── docs/PYTHON-REMOVED.md              # FastAPI 删除说明与回滚
+├── sql/                                # MySQL 基线 + 增量
+├── services/  workers/                 # Go API / workers / scheduler
+├── ruoyi-fastapi-frontend/             # Vue3 管理端
+├── ruoyi-fastapi-app/                  # 移动端 H5 / 小程序基线（双轨保留）
+├── flutter_client/                     # 四端 Flutter（iOS / Android / macOS / Windows）
+└── desktop/                            # Electron 壳（已归档，勿构建）
 ```
 
 - **Web 前端**：Vue 3 · Element Plus · Vite · ECharts · Pinia
-- **后端**：Python ≥3.10 · FastAPI · SQLAlchemy async · JWT
+- **后端**：Go（sfp-backend / sfp-intel / trade-api / data-api / market-read / scheduler / workers）
 - **数据**：MySQL 8（业务）· Redis（会话 / 队列 / 缓存）· InfluxDB 2.x（K 线）
 - **客户端**：Flutter 3.13+（Riverpod · Dio · go_router · flutter_secure_storage）
 - **券商**：Longbridge OpenAPI（可选）
@@ -341,16 +337,16 @@ smart-finance-platform/
 ## 💻 常用维护命令
 
 ```bash
-# 业务栈
-docker compose -f docker-compose.sentiment.yml up -d --build
-docker compose -f docker-compose.sentiment.yml logs -f sentiment-backend
+# 业务栈（16 GiB 主机加 slim overlay）
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
+docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml logs -f sfp-backend
 
-# 增量 SQL
+# 增量 SQL（扫描 sql/）
 python3 scripts/sql_migrate.py apply --dry-run
 python3 scripts/sql_migrate.py status
 
 # 一键部署并冒烟
-./scripts/deploy_and_verify.sh
+./scripts/deploy_and_verify_slim.sh
 
 # 监控
 docker compose -f docker-compose.monitor.yml up -d

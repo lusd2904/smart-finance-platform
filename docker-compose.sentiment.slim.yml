@@ -6,9 +6,9 @@
 # Do NOT drop to influx-steady (3g) immediately after cold open — leave headroom until full-stack stable.
 # Optional later: docker-compose.sentiment.slim.influx-steady.yml → 3g / 2560MiB
 #
-# Go-only runtime. Default slim does NOT start Python fat containers
-# (sentiment-backend / sentiment-data / sentiment-intel / sentiment-trade / sentiment-jobs).
-# Emergency rollback: --profile legacy-python (+ overlay files below). See docs/SLIM-POST-MERGE.md.
+# Go-only runtime. Python fat containers (sentiment-backend / sentiment-data / sentiment-intel /
+# sentiment-trade / sentiment-jobs) have been removed from the repo. Rollback is git history,
+# see docs/PYTHON-REMOVED.md.
 #
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   cd /workspace/sfp-slim-64
@@ -16,7 +16,6 @@
 #   export SFP_DATA_ROOT=/workspace/sfp-data
 #   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
 #   # daily roll: bash scripts/deploy_and_verify_slim.sh
-#   # confirm no Python fats: docker compose … ps --format '{{.Name}}' | rg 'sentiment-(backend|data|intel|trade)$'
 #
 # Data bind (default SFP_DATA_ROOT=/workspace/sfp-data). cursor-1 restored layout:
 #
@@ -38,46 +37,10 @@
 #   bash scripts/up_slim_influx_phase.sh
 #   (+ docker-compose.sentiment.slim.influx-phase.yml)
 #
-# Full split stack (large dev machines):
-#   docker compose -f docker-compose.sentiment.yml --profile full-split up -d --build
-#
 # Verify (Influx healthy, idle ~5 min):
 #   docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
 
-x-slim-pool-env: &slim-pool-env
-  DB_POOL_SIZE: "4"
-  DB_MAX_OVERFLOW: "2"
-
-x-slim-api-health: &slim-api-health
-  test:
-    [
-      "CMD",
-      "python",
-      "-c",
-      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-    ]
-  interval: 15s
-  timeout: 5s
-  retries: 8
-  start_period: 25s
-
 services:
-  # --- disable full-split API / worker containers when slim overlay is active ---
-  sentiment-market:
-    profiles: [full-split]
-  sentiment-quant:
-    profiles: [full-split]
-  sentiment-news:
-    profiles: [full-split]
-  sentiment-ai:
-    profiles: [full-split]
-  sentiment-jobs-quant:
-    profiles: [full-split]
-  sentiment-jobs-llm:
-    profiles: [full-split]
-
-  # Go hot-read + WS/live quotes on slim. 320m covers WS fan-out + Tencent fetch.
-  # Remaining /market/ + /quant/ → sentiment-data-api (Go). Python sentiment-data is --profile legacy-python only.
   sentiment-market-read:
     mem_limit: 320m
     cpus: 0.5
@@ -90,34 +53,8 @@ services:
         condition: service_healthy
 
   sfp-intel:
-    build:
-      context: ./services/sfp-intel
-      dockerfile: Dockerfile
-    image: sfp-intel:latest
-    container_name: sfp-intel
-    env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
-    environment:
-      LISTEN_ADDR: ":8080"
-      DB_HOST: sentiment-mysql
-      REDIS_HOST: ruoyi-redis
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
-    networks:
-      - sentiment-network
-    restart: unless-stopped
     mem_limit: 320m
     cpus: 0.5
-    depends_on:
-      sentiment-mysql:
-        condition: service_healthy
-      ruoyi-redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 10s
 
   sentiment-data-api:
     mem_limit: 256m
@@ -130,84 +67,8 @@ services:
       sentiment-influxdb:
         condition: service_healthy
 
-  # Backup loops on docker.sock; on tight RAM hosts run scripts/backup_data.sh via cron instead.
   sfp-backup:
     profiles: [full-backup]
-
-  # Emergency rollback only. Default slim never starts this.
-  #   docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
-  #     --profile legacy-python up -d sentiment-data
-  # Then point nginx /market/ + /quant/ at sentiment-data:9099 (not shipped in slim conf).
-  sentiment-data:
-    profiles: [legacy-python]
-    build:
-      context: ./ruoyi-fastapi-backend
-      dockerfile: Dockerfile.sentiment
-    image: sentiment-backend:latest
-    container_name: sentiment-data
-    volumes:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment:/app/.env.dockersentiment:ro
-    networks:
-      - sentiment-network
-    restart: unless-stopped
-    environment:
-      <<: *slim-pool-env
-      APP_ROLE: api
-      APP_MODULE: data
-      APP_JOB_GROUP: none
-      APP_NAME: "Data API (market+quant)"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on:
-      sentiment-mysql:
-        condition: service_healthy
-      ruoyi-redis:
-        condition: service_healthy
-      sentiment-influxdb:
-        condition: service_healthy
-    # Follow-up: after WS offload is proven on cursor-1, consider 384m.
-    # Still owns /quant/ + remaining /market/ writes — 384 not yet measured.
-    mem_limit: 512m
-    cpus: 1.0
-    healthcheck: *slim-api-health
-
-  # Emergency rollback only (--profile legacy-python). Default slim uses Go sfp-intel.
-  sentiment-intel:
-    profiles: [legacy-python]
-    build:
-      context: ./ruoyi-fastapi-backend
-      dockerfile: Dockerfile.sentiment
-    image: sentiment-backend:latest
-    container_name: sentiment-intel
-    volumes:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment:/app/.env.dockersentiment:ro
-    networks:
-      - sentiment-network
-    restart: unless-stopped
-    environment:
-      <<: *slim-pool-env
-      APP_ROLE: api
-      APP_MODULE: intel
-      APP_JOB_GROUP: none
-      APP_NAME: "Intel API (sentiment+ai)"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on:
-      sentiment-mysql:
-        condition: service_healthy
-      ruoyi-redis:
-        condition: service_healthy
-    mem_limit: 512m
-    cpus: 1.0
-    healthcheck: *slim-api-health
-
-  sentiment-backend:
-    profiles: [legacy-python]
-    environment:
-      <<: *slim-pool-env
-    mem_limit: 384m
-    # 默认 slim 不启动 Python platform。紧急回退：--profile legacy-python
-    # 并改 nginx catch-all 回 sentiment-backend（见 docs/SFP-BACKEND-ROLLOUT.md）。
 
   sfp-backend:
     environment:
@@ -216,12 +77,6 @@ services:
     cpus: 0.5
     ports:
       - "127.0.0.1:19099:9099"
-
-  sentiment-trade:
-    profiles: [legacy-python]
-    environment:
-      <<: *slim-pool-env
-    mem_limit: 512m
 
   sentiment-trade-api:
     mem_limit: 320m
@@ -234,21 +89,10 @@ services:
       sentiment-influxdb:
         condition: service_healthy
 
-  sentiment-jobs:
-    profiles: [legacy-python]
-    environment:
-      <<: *slim-pool-env
-      APP_ROLE: scheduler
-      APP_JOB_GROUP: none
-      APP_NAME: "Sentiment Jobs (slim scheduler)"
-    mem_limit: 384m
-    cpus: 0.5
-
   sfp-scheduler:
     mem_limit: 64m
     cpus: 0.25
 
-  # Go queue consumers: sfp-scheduler + three workers.
   sfp-market-worker:
     mem_limit: 320m
     cpus: 0.5
@@ -291,24 +135,24 @@ services:
     mem_limit: 512m
     volumes: !override
       - ${SFP_DATA_ROOT:-/workspace/sfp-data}/mysql:/var/lib/mysql
-      - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
-      - ./ruoyi-fastapi-backend/sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
-      - ./ruoyi-fastapi-backend/sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
-      - ./ruoyi-fastapi-backend/sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
-      - ./ruoyi-fastapi-backend/sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
-      - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
-      - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
-      - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
-      - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
-      - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
-      - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
-      - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
-      - ./ruoyi-fastapi-backend/sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
-      - ./ruoyi-fastapi-backend/sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
-      - ./ruoyi-fastapi-backend/sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
-      - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
-      - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
-      - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
+      - ./sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
+      - ./sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
+      - ./sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
+      - ./sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
+      - ./sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
+      - ./sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
+      - ./sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
+      - ./sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
+      - ./sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
+      - ./sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
+      - ./sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
+      - ./sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
+      - ./sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
+      - ./sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
+      - ./sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
+      - ./sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
+      - ./sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
+      - ./sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
 
   ruoyi-redis:
     mem_limit: 128m

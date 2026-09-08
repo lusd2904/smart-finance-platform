@@ -1,4 +1,4 @@
-# Optional third overlay: start market/heat/minute-kline reads before MySQL shard upload.
+# Optional third overlay: start Redis + Influx before MySQL shard upload.
 #
 # Phase A (Influx 18G on disk at $SFP_DATA_ROOT/influx/, MySQL not ready):
 #   source scripts/docker_host.sh
@@ -21,13 +21,7 @@ services:
   sentiment-mysql:
     profiles: [mysql-ready]
 
-  sentiment-backend:
-    profiles: [mysql-ready]
-
   sfp-backend:
-    profiles: [mysql-ready]
-
-  sentiment-intel:
     profiles: [mysql-ready]
 
   sfp-intel:
@@ -37,9 +31,6 @@ services:
     profiles: [mysql-ready]
 
   sentiment-data-api:
-    profiles: [mysql-ready]
-
-  sentiment-jobs:
     profiles: [mysql-ready]
 
   sfp-scheduler:
@@ -60,7 +51,3 @@ services:
   # market-read fatals without MySQL; keep it off during Influx-only Phase A.
   sentiment-market-read:
     profiles: [mysql-ready]
-
-  # Python sentiment-data is not started in Phase A. Heat/kline reads wait for
-  # Phase B (Go market-read + data-api, mysql-ready). Emergency Python:
-  # --profile legacy-python (see docker-compose.sentiment.slim.yml).
