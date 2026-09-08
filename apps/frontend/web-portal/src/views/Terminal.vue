@@ -1,6 +1,6 @@
 <template>
   <div class="pro-terminal-page" :class="{ 'is-fullscreen': isFullscreen }">
-    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示</div>
+    <div v-if="usingStub && showStubBanner()" class="stub-banner">演示</div>
 
     <div class="terminal-topbar glass-panel">
       <div class="topbar-indices-wrap">
@@ -289,7 +289,7 @@ import { getKline, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketW
 import { getAutoTradeStatus, getTradeAccount, getTradeOrders, getTradePositions, getTradeQuoteDepth, getTradeQuoteSnapshot, getTradeQuoteTrades, saveAutoTradeSettings, submitTradeOrder } from '@/api/trade'
 import { useUserStore } from '@/store/user'
 import { fmtNum, fmtPx, fmtSigned, formatTurnover, formatVolume, renderSparklinePath } from '@/utils/format'
-import { hideStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
+import { showStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
 
 const userStore = useUserStore()
 const usingStub = ref(false)

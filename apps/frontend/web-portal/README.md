@@ -66,7 +66,7 @@ Tokens:
 | Tables / quote numbers use `tabular-nums` | Designer QA: number columns must not jitter. |
 | Pills / chips are tinted glass, not solid neon blocks | Overrides `el-tag` including `effect="dark"`. glass-dark chips use ~15% fill + mixed ink (not solid neon). |
 | Brand copy 智慧金融 | Product name only. |
-| Stub banner | Migration aid; hide later with `VITE_HIDE_STUB_BANNER=true` or `--stub-banner-display: none`. |
+| Stub banner | Shown only in stub/demo. 联调 hide: `VITE_SHOW_STUB_BANNER=false`. |
 
 ## Designer QA round 1 (this PR)
 
@@ -99,7 +99,7 @@ QA1 login habit / accent / tabular-nums / glass chips / 快捷入口 copy must n
 | Login mesh quieter | Login uses `<CyberBackground quiet />`: canvas opacity 0.36, particle/line alpha ~42%, fewer shooting lines. Glass card stays the focus. |
 | glass-dark 「偏多」 chips | `--chip-fill: 15%` + ink mixed toward `--text-primary`. Stance tags use `--stat-up` / `--stat-down`, not solid neon. |
 | Terminal quote colors | Depth / quote / change pills / K-line candles all read `--stat-up` / `--stat-down`. **极速买入 / 卖出** stay A-share solid `--order-buy-solid` `#dc2626` / `--order-sell-solid` `#16a34a`. |
-| Stub banner | Still shown. Disable later: `VITE_HIDE_STUB_BANNER=true` or CSS `--stub-banner-display: none`. |
+| Stub banner | Shown only in stub/demo. 联调: `VITE_SHOW_STUB_BANNER=false`. |
 
 金融台大管家: re-screenshot glass-dark + glass-light × **登录 / 工作台 / 行情交易** (6 shots) for designer round 3.
 

@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-page workbench-page" v-loading="loading">
-    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示</div>
+    <div v-if="usingStub && showStubBanner()" class="stub-banner">演示</div>
 
     <section class="hero-panel workbench-hero">
       <div class="hero-copy">
@@ -97,9 +97,12 @@
               <div class="heat-head"><strong>{{ m.label }}</strong><span>{{ m.data?.tradeDate }}</span></div>
               <div class="heat-index">
                 <span>{{ m.data?.indexName || '--' }}</span>
-                <b :class="changeClass(m.data?.indexChangePct)">{{ fmtChange(m.data?.indexChangePct) }}</b>
+                <b class="idx-chg" :class="changeClass(m.data?.indexChangePct)">{{ fmtChange(m.data?.indexChangePct) }}</b>
               </div>
-              <div class="muted">涨 {{ m.data?.advanceCount ?? '-' }} / 跌 {{ m.data?.declineCount ?? '-' }}</div>
+              <div class="heat-ad">
+                <span class="ad-up">涨 {{ m.data?.advanceCount ?? '-' }}</span>
+                <span class="ad-down">跌 {{ m.data?.declineCount ?? '-' }}</span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -146,7 +149,7 @@ import { getDashboardSummary } from '@/api/dashboard'
 import { getMarketReviewLatest } from '@/api/market'
 import { useUserStore } from '@/store/user'
 import { changeClass, fmtAmount, fmtChange, sectionOk } from '@/utils/format'
-import { hideStubBanner, stubDashboard, stubReviews, useStubs } from '@/utils/stubs'
+import { showStubBanner, stubDashboard, stubReviews, useStubs } from '@/utils/stubs'
 
 const userStore = useUserStore()
 const loading = ref(false)
@@ -387,6 +390,26 @@ onMounted(() => refreshAll())
     border-color: color-mix(in srgb, var(--accent) 32%, var(--border-soft));
     background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
   }
+}
+
+.heat-ad {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.idx-chg.up,
+.ad-up {
+  color: var(--stat-up, #dc2626);
+}
+
+.idx-chg.down,
+.ad-down {
+  color: var(--stat-down, #16a34a);
+}
+
+.idx-chg.flat {
+  color: var(--text-secondary);
 }
 
 .heat-index b,

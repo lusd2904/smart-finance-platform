@@ -2,8 +2,24 @@ import { currencyOf } from './format'
 
 export const useStubs = () => String(import.meta.env.VITE_USE_STUBS || '').toLowerCase() === 'true'
 
-/** Designer: keep the yellow stub banner for now. Set VITE_HIDE_STUB_BANNER=true to hide later. */
-export const hideStubBanner = () => String(import.meta.env.VITE_HIDE_STUB_BANNER || '').toLowerCase() === 'true'
+function envBool(name) {
+  const raw = import.meta.env[name]
+  if (raw === undefined || raw === '') return null
+  const v = String(raw).toLowerCase()
+  if (['false', '0', 'no', 'off'].includes(v)) return false
+  if (['true', '1', 'yes', 'on'].includes(v)) return true
+  return null
+}
+
+/** Demo/stub chrome. Off unless stub/demo mode. 联调: VITE_SHOW_STUB_BANNER=false */
+export function showStubBanner() {
+  const show = envBool('VITE_SHOW_STUB_BANNER')
+  if (show !== null) return show
+  if (envBool('VITE_HIDE_STUB_BANNER') === true) return false
+  return true
+}
+
+export const hideStubBanner = () => !showStubBanner()
 
 export function stubDashboard() {
   return {

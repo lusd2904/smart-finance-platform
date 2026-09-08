@@ -15,7 +15,7 @@
             <el-avatar :size="34">{{ userInitial }}</el-avatar>
             <div class="user-copy">
               <strong>{{ userStore.displayName }}</strong>
-              <span v-if="userStore.usingStub">演示</span>
+              <span v-if="userStore.usingStub && showStubBanner()">演示</span>
             </div>
             <el-icon><ArrowDown /></el-icon>
           </div>
@@ -40,7 +40,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 import ThemeSwitcher from './ThemeSwitcher.vue'
 import { useUserStore } from '@/store/user'
 import { getDashboardSummary } from '@/api/dashboard'
-import { stubDashboard } from '@/utils/stubs'
+import { showStubBanner, stubDashboard } from '@/utils/stubs'
 
 const router = useRouter()
 const userStore = useUserStore()

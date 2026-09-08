@@ -51,7 +51,7 @@
           </div>
         </el-form-item>
         <div class="form-tools">
-          <el-checkbox v-model="rememberMe">记住密码</el-checkbox>
+          <el-checkbox v-model="rememberMe">记住账号</el-checkbox>
         </div>
         <el-form-item>
           <el-button type="primary" size="large" class="login-button cyber-btn" :loading="loading" @click="handleLogin">

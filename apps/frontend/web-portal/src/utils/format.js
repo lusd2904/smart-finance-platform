@@ -15,7 +15,7 @@ export function fmtSigned(v, d = 2) {
 }
 
 export function fmtChange(val) {
-  const n = Number(val)
+  const n = toSignedNumber(val)
   if (!Number.isFinite(n)) return '--'
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
@@ -44,8 +44,16 @@ export function formatTurnover(turnover) {
   return fmtAmount(turnover)
 }
 
+function toSignedNumber(val) {
+  if (typeof val === 'string') {
+    const n = Number(val.replace(/%/g, '').replace(/,/g, '').trim())
+    return Number.isFinite(n) ? n : NaN
+  }
+  return Number(val)
+}
+
 export function changeClass(val) {
-  const n = Number(val)
+  const n = toSignedNumber(val)
   if (!Number.isFinite(n) || n === 0) return 'flat'
   return n > 0 ? 'up' : 'down'
 }
