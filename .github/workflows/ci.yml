@@ -476,4 +476,10 @@ jobs:
             -f docker-compose.sentiment.slim.yml \
             -f docker-compose.sentiment.trade-python-fallback.yml \
             config >/dev/null
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            -f docker-compose.sentiment.quant-python-fallback.yml \
+            --profile legacy-data \
+            config >/dev/null
           echo "slim compose config ok"

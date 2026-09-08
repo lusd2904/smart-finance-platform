@@ -15,20 +15,20 @@ import (
 )
 
 type Router struct {
-	token    string
-	intelURL string
-	quantURL string
-	enqueue  *jobqueue.Enqueuer
-	client   *http.Client
+	token           string
+	intelURL        string
+	strategyEvalURL string
+	enqueue         *jobqueue.Enqueuer
+	client          *http.Client
 }
 
-func New(token, intelURL, quantURL string, enqueue *jobqueue.Enqueuer) *Router {
+func New(token, intelURL, strategyEvalURL string, enqueue *jobqueue.Enqueuer) *Router {
 	return &Router{
-		token:    strings.TrimSpace(token),
-		intelURL: strings.TrimRight(strings.TrimSpace(intelURL), "/"),
-		quantURL: strings.TrimRight(strings.TrimSpace(quantURL), "/"),
-		enqueue:  enqueue,
-		client:   &http.Client{Timeout: 10 * time.Minute},
+		token:           strings.TrimSpace(token),
+		intelURL:        strings.TrimRight(strings.TrimSpace(intelURL), "/"),
+		strategyEvalURL: strings.TrimRight(strings.TrimSpace(strategyEvalURL), "/"),
+		enqueue:         enqueue,
+		client:          &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 
@@ -100,7 +100,10 @@ func (r *Router) targetURL(jobType string) string {
 		return r.intelURL + "/internal/jobs/run"
 	}
 	if jobs.QuantBridgeTypes[jobType] {
-		return r.quantURL + "/internal/jobs/run"
+		if r.strategyEvalURL == "" {
+			return ""
+		}
+		return r.strategyEvalURL + "/internal/jobs/run"
 	}
 	return ""
 }

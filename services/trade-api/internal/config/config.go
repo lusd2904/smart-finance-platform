@@ -37,11 +37,11 @@ type Config struct {
 	InfluxBucketCN string
 	InfluxTimeout  time.Duration
 
-	PythonDelegateURL string
-	InternalJobToken  string
+	InternalJobsURL  string
+	InternalJobToken string
 
-	// Optional Python sentiment-trade fallback for unmigrated routes.
-	PythonTradeURL string
+	// Optional HTTP fallback for unmigrated routes (trade-python-fallback profile only).
+	TradeHTTPFallbackURL string
 }
 
 func Load() (*Config, error) {
@@ -72,9 +72,9 @@ func Load() (*Config, error) {
 		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
 		InfluxTimeout:  time.Duration(envInt("INFLUX_TIMEOUT_MS", 8000)) * time.Millisecond,
 
-		PythonDelegateURL: strings.TrimRight(strings.TrimSpace(os.Getenv("PYTHON_DELEGATE_URL")), "/"),
-		InternalJobToken:  strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
-		PythonTradeURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("TRADE_PYTHON_URL")), "/"),
+		InternalJobsURL:      internalJobsURL(),
+		InternalJobToken:     strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
+		TradeHTTPFallbackURL: tradeHTTPFallbackURL(),
 	}
 
 	jwtMinutes := envInt("JWT_REDIS_EXPIRE_MINUTES", 480)
@@ -111,6 +111,20 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func internalJobsURL() string {
+	if v := strings.TrimSpace(os.Getenv("INTERNAL_JOBS_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return "http://sfp-backend:9099/internal/jobs/run"
+}
+
+func tradeHTTPFallbackURL() string {
+	if v := strings.TrimSpace(os.Getenv("TRADE_HTTP_FALLBACK_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return ""
 }
 
 func envBool(key string, fallback bool) bool {

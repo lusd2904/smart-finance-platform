@@ -30,7 +30,7 @@ type Config struct {
 
 	InternalJobToken string
 	IntelJobsURL     string
-	QuantJobsURL     string
+	StrategyEvalURL  string
 
 	InfluxURL      string
 	InfluxToken    string
@@ -78,7 +78,7 @@ func Load() (*Config, error) {
 
 		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"),
 		IntelJobsURL:     env("INTEL_JOBS_URL", ""),
-		QuantJobsURL:     env("QUANT_JOBS_URL", "http://sentiment-data:9099"),
+		StrategyEvalURL:  strategyEvalURL(),
 
 		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
 		InfluxToken:    os.Getenv("INFLUX_TOKEN"),
@@ -123,6 +123,13 @@ func Load() (*Config, error) {
 func (c *Config) MySQLDSN() string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=Local&charset=utf8mb4",
 		c.MySQLUser, c.MySQLPassword, c.MySQLHost, c.MySQLPort, c.MySQLDatabase)
+}
+
+func strategyEvalURL() string {
+	if v := strings.TrimSpace(os.Getenv("STRATEGY_EVAL_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return ""
 }
 
 func env(key, fallback string) string {

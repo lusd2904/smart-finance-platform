@@ -48,13 +48,13 @@ func main() {
 	}
 	defer svc.Close()
 
-	python := delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken)
+	jobsClient := delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken)
 	h := handler.New(
 		svc,
-		python,
+		jobsClient,
 		&jobspkg.Repo{DB: svc.DB()},
 		tradeexec.NewSDKBroker(),
-		&jobspkg.PythonStrategy{Client: python},
+		&jobspkg.PythonStrategy{Client: jobsClient},
 		rdb,
 		reader,
 		cfg,

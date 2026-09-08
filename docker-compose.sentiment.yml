@@ -120,7 +120,7 @@ services:
       INFLUX_BUCKET_US: market_us
       INFLUX_BUCKET_CN: market_data
       INTEL_JOBS_URL: ""
-      QUANT_JOBS_URL: http://sentiment-data:9099
+      STRATEGY_EVAL_URL: ""
     depends_on: *core-depends
     mem_limit: 128m
     cpus: 0.25
@@ -217,7 +217,7 @@ services:
       retries: 8
       start_period: 10s
 
-  # 交易门户 HTTP（Go）：全部 /trade/* 原生；strategy_evaluate 仍委托 sentiment-backend internal jobs
+  # 交易门户 HTTP（Go）：全部 /trade/* 原生；strategy_evaluate 经 sfp-backend internal jobs（需 STRATEGY_EVAL_URL 或 quant-python-fallback）
   sentiment-trade-api:
     build:
       context: .
@@ -235,7 +235,7 @@ services:
       INFLUX_ORG: longbridge
       INFLUX_BUCKET_US: market_us
       INFLUX_BUCKET_CN: market_data
-      PYTHON_DELEGATE_URL: http://sfp-backend:9099/internal/jobs/run
+      INTERNAL_JOBS_URL: http://sfp-backend:9099/internal/jobs/run
       INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
     depends_on: *data-depends
     mem_limit: 384m

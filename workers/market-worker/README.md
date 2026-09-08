@@ -44,7 +44,7 @@ Health: `http://127.0.0.1:19097/health` (host) or `http://sfp-market-worker:9098
 
 Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
 
-Optional: `LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN` / `LONGPORT_REGION` (default `cn`) for `symbol_content`. Heat does not need Longbridge. `PYTHON_DELEGATE_URL` / `INTERNAL_JOB_TOKEN` remain for any future Python fallback.
+Optional: `LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN` / `LONGPORT_REGION` (default `cn`) for `symbol_content`. Heat does not need Longbridge. `INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` for emergency job fallback via `sfp-backend`.
 
 ## Slim compose
 
