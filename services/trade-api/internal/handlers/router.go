@@ -14,6 +14,9 @@ type PythonProxy struct {
 }
 
 func NewPythonProxy(base string) (*PythonProxy, error) {
+	if strings.TrimSpace(base) == "" {
+		return nil, nil
+	}
 	u, err := url.Parse(strings.TrimRight(base, "/"))
 	if err != nil {
 		return nil, err
@@ -23,7 +26,7 @@ func NewPythonProxy(base string) (*PythonProxy, error) {
 
 func (p *PythonProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p == nil || p.Target == nil {
-		http.Error(w, "python trade fallback not configured", http.StatusBadGateway)
+		http.Error(w, "route not implemented", http.StatusNotImplemented)
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(p.Target)
@@ -36,9 +39,14 @@ func (p *PythonProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
+// NotImplementedFallback is used when PythonTradeURL is empty and no native route matches.
+func NotImplementedFallback(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "route not implemented", http.StatusNotImplemented)
+}
+
 // TradeRouter dispatches native Go handlers or Python fallback.
 type TradeRouter struct {
-	Native map[string]http.Handler
+	Native   map[string]http.Handler
 	Fallback http.Handler
 }
 
@@ -67,6 +75,21 @@ func (tr *TradeRouter) match(method, path string) http.Handler {
 	}
 	if method == "POST" && strings.HasPrefix(path, "/trade/order/") && strings.HasSuffix(path, "/cancel") {
 		return tr.Native["POST /trade/order/{id}/cancel"]
+	}
+	if method == "GET" && strings.HasPrefix(path, "/trade/backtest/") {
+		return tr.Native["GET /trade/backtest/{id}"]
+	}
+	if method == "DELETE" && strings.HasPrefix(path, "/trade/risk/rules/") {
+		return tr.Native["DELETE /trade/risk/rules/{id}"]
+	}
+	if method == "PUT" && strings.HasPrefix(path, "/trade/risk/events/") && strings.HasSuffix(path, "/status") {
+		return tr.Native["PUT /trade/risk/events/{id}/status"]
+	}
+	if method == "GET" && strings.HasPrefix(path, "/trade/ai/batches/") && strings.HasSuffix(path, "/items") {
+		return tr.Native["GET /trade/ai/batches/{id}/items"]
+	}
+	if method == "PUT" && strings.HasPrefix(path, "/trade/strategy-profiles/") {
+		return tr.Native["PUT /trade/strategy-profiles/{code}"]
 	}
 	return nil
 }

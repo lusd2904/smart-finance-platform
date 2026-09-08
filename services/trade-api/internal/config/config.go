@@ -30,7 +30,17 @@ type Config struct {
 	CredentialKey string
 	AppEnv        string
 
-	// Python sentiment-trade fallback for routes not yet native in Go.
+	InfluxURL      string
+	InfluxToken    string
+	InfluxOrg      string
+	InfluxBucketUS string
+	InfluxBucketCN string
+	InfluxTimeout  time.Duration
+
+	PythonDelegateURL string
+	InternalJobToken  string
+
+	// Optional Python sentiment-trade fallback for unmigrated routes.
 	PythonTradeURL string
 }
 
@@ -54,7 +64,17 @@ func Load() (*Config, error) {
 
 		CredentialKey:  strings.TrimSpace(os.Getenv("CREDENTIAL_ENCRYPTION_KEY")),
 		AppEnv:         env("APP_ENV", "prod"),
-		PythonTradeURL: strings.TrimRight(env("TRADE_PYTHON_URL", "http://sentiment-trade:9099"), "/"),
+
+		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
+		InfluxToken:    os.Getenv("INFLUX_TOKEN"),
+		InfluxOrg:      env("INFLUX_ORG", "longbridge"),
+		InfluxBucketUS: env("INFLUX_BUCKET_US", "market_us"),
+		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
+		InfluxTimeout:  time.Duration(envInt("INFLUX_TIMEOUT_MS", 8000)) * time.Millisecond,
+
+		PythonDelegateURL: strings.TrimRight(strings.TrimSpace(os.Getenv("PYTHON_DELEGATE_URL")), "/"),
+		InternalJobToken:  strings.TrimSpace(os.Getenv("INTERNAL_JOB_TOKEN")),
+		PythonTradeURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("TRADE_PYTHON_URL")), "/"),
 	}
 
 	jwtMinutes := envInt("JWT_REDIS_EXPIRE_MINUTES", 480)
