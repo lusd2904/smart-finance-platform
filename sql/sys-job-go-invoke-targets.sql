@@ -2,8 +2,20 @@
 -- Idempotent. Leaves module_task.scheduler_test.job (RuoYi demo) untouched.
 -- Operator copy + before/after queries: scripts/migrate_sys_job_go_invoke_targets.sql
 
-UPDATE sys_job SET invoke_target = 'sentiment_collect'
+-- Job 100 舆情采集与AI分析: empty job_kwargs must be {"analyze":true}.
+UPDATE sys_job
+SET invoke_target = 'sentiment_collect',
+    job_kwargs = CASE
+      WHEN job_kwargs IS NULL OR TRIM(job_kwargs) IN ('', '{}') THEN '{"analyze":true}'
+      ELSE job_kwargs
+    END
 WHERE invoke_target = 'module_task.sentiment_task.collect_and_analyze_job';
+
+UPDATE sys_job
+SET job_kwargs = '{"analyze":true}'
+WHERE job_id = 100
+  AND invoke_target = 'sentiment_collect'
+  AND (job_kwargs IS NULL OR TRIM(job_kwargs) IN ('', '{}'));
 
 UPDATE sys_job
 SET invoke_target = 'sentiment_collect',

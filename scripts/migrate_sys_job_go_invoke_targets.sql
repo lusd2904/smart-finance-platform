@@ -34,8 +34,20 @@
 -- ORDER BY job_id;
 
 -- --- sentiment ---
-UPDATE sys_job SET invoke_target = 'sentiment_collect'
+-- Job 100 舆情采集与AI分析: empty job_kwargs must be {"analyze":true}.
+UPDATE sys_job
+SET invoke_target = 'sentiment_collect',
+    job_kwargs = CASE
+      WHEN job_kwargs IS NULL OR TRIM(job_kwargs) IN ('', '{}') THEN '{"analyze":true}'
+      ELSE job_kwargs
+    END
 WHERE invoke_target = 'module_task.sentiment_task.collect_and_analyze_job';
+
+UPDATE sys_job
+SET job_kwargs = '{"analyze":true}'
+WHERE job_id = 100
+  AND invoke_target = 'sentiment_collect'
+  AND (job_kwargs IS NULL OR TRIM(job_kwargs) IN ('', '{}'));
 
 UPDATE sys_job
 SET invoke_target = 'sentiment_collect',
@@ -166,8 +178,9 @@ WHERE invoke_target = 'module_task.trade_task.run_feishu_push_job';
 -- GROUP BY status, invoke_target
 -- ORDER BY status, invoke_target;
 --
--- -- Enabled production IDs (101,103,104,107,113-115,117,121-123) must be Go keys:
+-- -- Enabled production IDs (101,103,104,107,113-115,117,121-123) must be Go keys.
+-- -- Job 100 (舆情采集与AI分析) job_kwargs must be {"analyze":true}:
 -- SELECT job_id, invoke_target, job_kwargs, status
 -- FROM sys_job
--- WHERE job_id IN (101,103,104,107,113,114,115,117,121,122,123)
+-- WHERE job_id IN (100,101,103,104,107,113,114,115,117,121,122,123)
 -- ORDER BY job_id;

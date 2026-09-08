@@ -51,6 +51,7 @@ sudo docker exec sentiment-redis redis-cli -n 2 -a "$REDIS_PASSWORD" LRANGE sfp:
 
 | id | 核对 | type | queue | payload |
 |---:|------|------|-------|---------|
+| 100 | [ ] | `sentiment_collect` | llm | `{"analyze":true}`（空 `job_kwargs` 也按 true；再看 `sentiment_ai_config.auto_analyze`，默认开） |
 | 101 | [ ] | `market_sync` | market | `{"years":10}` |
 | 103 | [ ] | `finance_briefings` | market | `{}` |
 | 104 | [ ] | `symbol_content` | market | `{}` |
@@ -101,6 +102,7 @@ mysql ... < scripts/migrate_sys_job_go_invoke_targets.sql
 ```
 
 热度 / 收盘 K 线等按市场拆行的任务，Go key 相同，市场写在 `job_kwargs`（例如 `{"market":"CN"}`）。
+**job 100**（`sentiment_collect` / 舆情采集与AI分析）的 `job_kwargs` 必须是 `{"analyze":true}`；空 kwargs 时 scheduler `resolveGoKey` 与 notify-worker 都按 true，再尊重 `sentiment_ai_config.auto_analyze`（默认开）。幂等补写：`sql/sys-job-100-analyze-true.sql`。
 `module_task.scheduler_test.job`（若依演示行）不改。
 
 别名可在确认 `python_analysis = 0` 且稳定一版后从 `resolveTarget` 删掉。
