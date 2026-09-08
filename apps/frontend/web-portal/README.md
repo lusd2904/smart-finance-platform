@@ -109,8 +109,21 @@ QA1 login habit / accent / tabular-nums / glass chips / 快捷入口 copy must n
 | --- | --- | --- |
 | `/login` | Login | SFP `POST /login` + 验证码「点击获取」; footer **演示** if API is down |
 | `/index` | 工作台 | Same IA as live workbench: sessions, assets, reviews, quick nav, sentiment, heat, quotes, health |
-| `/market/terminal` and `/trade/terminal` | 行情交易 | Same component. Top tickers + 自选 / 图表 / 盘口+下单 |
-| Other SFP menus | Placeholder | Keep sidebar IA; full pages stay on the old frontend until cutover |
+| `/market/terminal` and `/trade/terminal` | 行情交易 | Same component. Accepts `?symbol=&market=` |
+| `/market/heat` | 三市场热度 | Heat daily/dates + Top50 |
+| `/market/board` | 行情台 | Board quotes + index cards |
+| `/market/watchlist` | 自选清单 | Overview, add/remove |
+| `/market/stocks` | 全部股票 | Instrument universe pagination |
+| `/market/recommendations` | 智能选股 | Picks mood + latest sheet |
+| `/market/finance-news` | 财经资讯 | Finance briefings |
+| `/market/flow` | 资金与日历 | Flow board + calendar |
+| `/market/review` | 市场分析 | Latest + history + analyze |
+| `/analysis/jobs` | 自动分析 | Scheduler overview |
+| `/trade/positions` | 持仓 | Longbridge positions |
+| `/trade/orders` | 委托 | Today / history + cancel |
+| `/trade/risk` | 风控 | Tearsheet, rules, events |
+| `/trade/notifications` | 通知中心 | Trade notices |
+| Other SFP menus | Placeholder | Quant / sentiment / AI / system still pending |
 
 APIs are called when reachable. Failures fall back to a visible **stub banner**
 rather than a blank page. Production transport-crypto envelopes are **not**

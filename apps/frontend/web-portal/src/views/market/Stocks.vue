@@ -29,8 +29,8 @@
         </el-table-column>
         <el-table-column prop="tradeDate" label="最新日" width="118" />
         <el-table-column width="88">
-          <template #default>
-            <el-button link type="primary" @click="$router.push('/trade/terminal')">行情</el-button>
+          <template #default="{ row }">
+            <el-button link type="primary" @click="$router.push(terminalRoute(row))">行情</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -53,6 +53,7 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { listInstrumentUniverse } from '@/api/market'
 import { changeClass, fmtChange, fmtPx } from '@/utils/format'
 import { marketLabel, unwrap, unwrapList, unwrapTotal } from '@/utils/list'
+import { terminalRoute } from '@/utils/nav'
 
 const loading = ref(false)
 const market = ref('')

@@ -281,7 +281,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, FullScreen, Refresh, Search, StarFilled } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
@@ -291,6 +292,7 @@ import { useUserStore } from '@/store/user'
 import { fmtNum, fmtPx, fmtSigned, formatTurnover, formatVolume, renderSparklinePath } from '@/utils/format'
 import { showStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
 
+const route = useRoute()
 const userStore = useUserStore()
 const usingStub = ref(false)
 const liveMode = ref(false)
@@ -411,6 +413,17 @@ function handleSearchSelect(item) {
   selectStockBySymbol(item.symbol)
 }
 
+function applyQuerySymbol() {
+  const symbol = String(route.query.symbol || '').trim()
+  if (!symbol) return
+  const hit = watchStocks.value.find((s) => String(s.symbol).toUpperCase() === symbol.toUpperCase())
+  if (hit) {
+    selectStock(hit)
+    return
+  }
+  activeSymbol.value = symbol
+}
+
 function applyStubTerminal() {
   usingStub.value = true
   liveMode.value = false
@@ -434,6 +447,7 @@ function unwrap(res) {
 async function loadLive() {
   if (useStubs() || userStore.usingStub) {
     applyStubTerminal()
+    applyQuerySymbol()
     return
   }
   try {
@@ -499,14 +513,17 @@ async function loadLive() {
     }
     if (!any) {
       applyStubTerminal()
+      applyQuerySymbol()
       return
     }
     usingStub.value = false
     liveMode.value = true
+    applyQuerySymbol()
     if (!activeSymbol.value && watchStocks.value[0]) selectStock(watchStocks.value[0])
     else if (activeSymbol.value) await loadSymbolExtras(activeStock.value)
   } catch {
     applyStubTerminal()
+    applyQuerySymbol()
   }
 }
 
@@ -640,6 +657,11 @@ async function onToggleAutoTrade(val) {
 async function refreshLive() {
   await loadLive()
 }
+
+watch(
+  () => [route.query.symbol, route.query.market],
+  () => applyQuerySymbol()
+)
 
 onMounted(async () => {
   await loadLive()

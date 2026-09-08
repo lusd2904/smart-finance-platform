@@ -53,7 +53,7 @@
         </el-table-column>
         <el-table-column label="" width="88">
           <template #default="{ row }">
-            <el-button link type="primary" @click="$router.push('/trade/terminal')">行情</el-button>
+            <el-button link type="primary" @click="$router.push(terminalRoute(row))">行情</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -67,6 +67,7 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { getMarketHeatDaily, getMarketHeatDates } from '@/api/market'
 import { changeClass, fmtAmount, fmtChange } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
+import { terminalRoute } from '@/utils/nav'
 
 const loading = ref(false)
 const market = ref('CN')

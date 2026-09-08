@@ -11,7 +11,7 @@
     <div class="stat-strip">
       <article class="stat-tile glass-panel"><span>交易日</span><strong>{{ board.tradeDate || '--' }}</strong></article>
       <article class="stat-tile glass-panel"><span>涨停</span><strong class="up">{{ board.limitUpCount ?? (board.limitUp || []).length }}</strong></article>
-      <article class="stat-tile glass-panel"><span>龙虎榜</span><strong>{{ (board.longhu || board.dragonTiger || []).length }}</strong></article>
+      <article class="stat-tile glass-panel"><span>龙虎榜</span><strong>{{ (board.lhb || board.longhu || board.dragonTiger || []).length }}</strong></article>
       <article class="stat-tile glass-panel"><span>板块</span><strong>{{ sectors.length }}</strong></article>
     </div>
 
@@ -79,11 +79,19 @@ const calendar = ref([])
 async function load() {
   loading.value = true
   try {
-    const res = await getMarketFlowBoard({ kind: sectorKind.value })
+    const res = await getMarketFlowBoard({ sectorKind: sectorKind.value, limit: 20 })
     const data = unwrap(res)
     board.value = data
-    sectors.value = data.sectors || data.industry || data.concept || []
-    calendar.value = data.calendar || data.events || data.macro || []
+    sectors.value = data.sectors || data[sectorKind.value] || data.industry || []
+    const cal = data.calendar || {}
+    if (Array.isArray(cal)) {
+      calendar.value = cal
+    } else {
+      calendar.value = [
+        ...(cal.macro || []).map((r) => ({ date: r.time || cal.date, title: r.title, kind: '宏观', market: r.country })),
+        ...(cal.earnings || []).map((r) => ({ date: r.time || cal.date, title: `${r.symbol} ${r.name || ''}`.trim(), kind: '财报', market: 'US' }))
+      ]
+    }
   } catch {
     board.value = {}
     sectors.value = []

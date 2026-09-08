@@ -39,6 +39,11 @@
         </el-table-column>
         <el-table-column prop="score" label="得分" width="80" align="right" />
         <el-table-column prop="recommendation" label="建议" width="90" />
+        <el-table-column width="88">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="$router.push(terminalRoute(row))">行情</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </PageFrame>
@@ -51,6 +56,7 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { getStockPickDates, getStockPickLatest, getStockPickMood, runStockPick } from '@/api/market'
 import { changeClass, fmtChange, fmtPx } from '@/utils/format'
 import { marketLabel, unwrap, unwrapList } from '@/utils/list'
+import { terminalRoute } from '@/utils/nav'
 
 const loading = ref(false)
 const running = ref(false)
@@ -75,12 +81,21 @@ async function load() {
     }
     if (moodRes.status === 'fulfilled') {
       const mood = unwrap(moodRes.value)
-      const markets = mood.markets || mood.items || []
-      moodCards.value = markets.map((m) => ({
-        market: m.market,
-        label: marketLabel(m.market),
-        sentText: m.sentimentText || m.sentText || m.score || '--'
-      }))
+      const sent = mood.sentiment || {}
+      const markets = mood.markets || mood.items
+      if (Array.isArray(markets) && markets.length) {
+        moodCards.value = markets.map((m) => ({
+          market: m.market,
+          label: marketLabel(m.market),
+          sentText: m.sentimentText || m.sentText || m.score || '--'
+        }))
+      } else {
+        moodCards.value = [
+          { market: 'CN', label: 'A股', sentText: `${sent.aDirection || '—'} ${sent.aScore ?? '--'}` },
+          { market: 'HK', label: '港股', sentText: `${sent.hkDirection || '—'} ${sent.hkScore ?? '--'}` },
+          { market: 'US', label: '美股', sentText: `${sent.usDirection || '—'} ${sent.usScore ?? '--'}` }
+        ]
+      }
     }
     if (dateRes.status === 'fulfilled') {
       dates.value = unwrapList(dateRes.value).map((d) => (typeof d === 'string' ? d : d.tradeDate)).filter(Boolean)

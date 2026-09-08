@@ -16,13 +16,14 @@
         <el-table-column label="状态" width="110">
           <template #default="{ row }">{{ row.statusLabel || row.status || '--' }}</template>
         </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="90" align="right" />
-        <el-table-column prop="price" label="价格" width="90" align="right" />
-        <el-table-column prop="executedQuantity" label="成交量" width="90" align="right" />
+        <el-table-column prop="quantity" label="数量" width="90" />
+        <el-table-column prop="price" label="价格" width="90" />
+        <el-table-column prop="executedQuantity" label="成交量" width="90" />
+        <el-table-column prop="executedPrice" label="成交价" width="90" />
         <el-table-column prop="updatedAt" label="更新" min-width="150" />
-        <el-table-column width="80">
+        <el-table-column width="88">
           <template #default="{ row }">
-            <el-button v-if="scope === 'today' && row.orderId" link type="danger" @click="cancel(row)">撤单</el-button>
+            <el-button v-if="row.orderId && scope === 'today' && orderLooksOpen(row)" link type="danger" @click="cancel(row)">撤单</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -32,19 +33,33 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { cancelTradeOrder, getTradeOrders } from '@/api/trade'
-import { unwrapList } from '@/utils/list'
+import { unwrap, unwrapList } from '@/utils/list'
+
+const OPEN_STATUS = new Set(['submitted', 'new', 'wait_to_new', 'waittonew', 'partial_filled', 'partialfilled', 'wait_to_cancel', 'waittocancel', 'pending', 'partial', 'open', 'not_reported', 'notreported'])
+const OPEN_LABEL = new Set(['已提交', '待成交', '待报', '待撤', '部分成交'])
 
 const loading = ref(false)
 const scope = ref('today')
 const list = ref([])
 
+function orderLooksOpen(row) {
+  if (!row) return false
+  if (row.open === true) return true
+  const status = String(row.status || '').trim()
+  const compact = status.toLowerCase().replace(/[\s-]/g, '_')
+  if (OPEN_STATUS.has(compact) || OPEN_STATUS.has(compact.replace(/_/g, ''))) return true
+  return OPEN_LABEL.has(String(row.statusLabel || '').trim())
+}
+
 async function load() {
   loading.value = true
   try {
-    list.value = unwrapList(await getTradeOrders(scope.value))
+    const res = await getTradeOrders(scope.value)
+    const d = unwrap(res)
+    list.value = d.orders || unwrapList(res)
   } catch {
     list.value = []
   } finally {
@@ -53,13 +68,12 @@ async function load() {
 }
 
 async function cancel(row) {
-  try {
-    await cancelTradeOrder(row.orderId)
-    ElMessage.success('已撤单')
-    load()
-  } catch (e) {
-    ElMessage.error(e?.message || '撤单失败')
-  }
+  await ElMessageBox.confirm(`确认撤单 ${row.orderId}？`, '委托')
+  const res = await cancelTradeOrder(row.orderId)
+  const d = res.data || {}
+  if (d.ok !== false) ElMessage.success(d.message || '已撤')
+  else ElMessage.error(d.message || '失败')
+  load()
 }
 
 onMounted(load)
