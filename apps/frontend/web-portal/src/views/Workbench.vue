@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-page workbench-page" v-loading="loading">
-    <div v-if="usingStub" class="stub-banner">演示 / 降级数据：后端接口不可用或已开启 VITE_USE_STUBS。登录与行情交易仍可导航。</div>
+    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">演示 / 降级数据：后端接口不可用或已开启 VITE_USE_STUBS。登录与行情交易仍可导航。</div>
 
     <section class="hero-panel workbench-hero">
       <div class="hero-copy">
@@ -147,7 +147,7 @@ import { getDashboardSummary } from '@/api/dashboard'
 import { getMarketReviewLatest } from '@/api/market'
 import { useUserStore } from '@/store/user'
 import { changeClass, fmtAmount, fmtChange, sectionOk } from '@/utils/format'
-import { stubDashboard, stubReviews, useStubs } from '@/utils/stubs'
+import { hideStubBanner, stubDashboard, stubReviews, useStubs } from '@/utils/stubs'
 
 const userStore = useUserStore()
 const loading = ref(false)

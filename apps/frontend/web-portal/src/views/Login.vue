@@ -1,6 +1,6 @@
 <template>
   <div class="login-page">
-    <CyberBackground />
+    <CyberBackground quiet />
     <div class="top-bar">
       <ThemeSwitcher />
     </div>
@@ -282,6 +282,7 @@ onMounted(() => {
   font-weight: 700;
   font-size: 1rem;
   border-radius: 25px;
+  color: var(--accent-ink) !important;
 }
 
 .login-footer {

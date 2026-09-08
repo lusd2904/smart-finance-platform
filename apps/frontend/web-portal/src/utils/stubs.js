@@ -2,6 +2,9 @@ import { currencyOf } from './format'
 
 export const useStubs = () => String(import.meta.env.VITE_USE_STUBS || '').toLowerCase() === 'true'
 
+/** Designer: keep the yellow stub banner for now. Set VITE_HIDE_STUB_BANNER=true to hide later. */
+export const hideStubBanner = () => String(import.meta.env.VITE_HIDE_STUB_BANNER || '').toLowerCase() === 'true'
+
 export function stubDashboard() {
   return {
     generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),

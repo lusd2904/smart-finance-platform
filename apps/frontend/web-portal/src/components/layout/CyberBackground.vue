@@ -1,10 +1,14 @@
 <template>
-  <canvas ref="canvasRef" class="cyber-canvas"></canvas>
+  <canvas ref="canvasRef" class="cyber-canvas" :class="{ quiet }"></canvas>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useTheme } from '../../composables/useTheme.js'
+
+const { quiet } = defineProps({
+  quiet: { type: Boolean, default: false }
+})
 
 const canvasRef = ref(null)
 const { activeTheme } = useTheme()
@@ -98,7 +102,7 @@ class ShootingLine {
     }
   }
 
-  draw(ctx, isDark) {
+  draw(ctx, isDark, dim = 1) {
     const currentX = this.startX + (this.endX - this.startX) * this.progress
     const currentY = this.startY + (this.endY - this.startY) * this.progress
     
@@ -110,10 +114,10 @@ class ShootingLine {
     const grad = ctx.createLinearGradient(tailX, tailY, currentX, currentY)
     if (isDark) {
       grad.addColorStop(0, 'rgba(56, 189, 248, 0)')
-      grad.addColorStop(1, 'rgba(56, 189, 248, 0.6)') // 天蓝色光束
+      grad.addColorStop(1, `rgba(56, 189, 248, ${0.6 * dim})`)
     } else {
       grad.addColorStop(0, 'rgba(2, 132, 199, 0)')
-      grad.addColorStop(1, 'rgba(2, 132, 199, 0.4)')
+      grad.addColorStop(1, `rgba(2, 132, 199, ${0.4 * dim})`)
     }
 
     ctx.beginPath()
@@ -149,8 +153,9 @@ const resizeCanvas = () => {
   }
 
   // 生成长线条
+  const lineCount = quiet ? 3 : 5
   if (shootingLines.length === 0) {
-    shootingLines = Array.from({ length: 5 }, () => new ShootingLine(canvas.width, canvas.height))
+    shootingLines = Array.from({ length: lineCount }, () => new ShootingLine(canvas.width, canvas.height))
   } else {
     shootingLines.forEach(line => line.reset(canvas.width, canvas.height))
   }
@@ -160,7 +165,8 @@ const draw = () => {
   if (!ctx || !canvas) return
   
   const isDark = activeTheme.value === 'glass-dark'
-  const particleColor = isDark ? 'rgba(56, 189, 248, 0.8)' : 'rgba(2, 132, 199, 0.65)' 
+  const dim = quiet ? 0.42 : 1
+  const particleColor = isDark ? `rgba(56, 189, 248, ${0.8 * dim})` : `rgba(2, 132, 199, ${0.65 * dim})`
   const lineColorRGB = isDark ? '56, 189, 248' : '2, 132, 199'
   
   // 核心修复：必须使用 clearRect 保证全透明，绝对不能用 fillRect 积累背景色，否则会遮盖底层的流光网格！
@@ -169,7 +175,7 @@ const draw = () => {
   // 绘制长线条
   for (let i = 0; i < shootingLines.length; i++) {
     shootingLines[i].update()
-    shootingLines[i].draw(ctx, isDark)
+    shootingLines[i].draw(ctx, isDark, dim)
   }
 
   // 绘制节点和互相之间的短连线
@@ -184,7 +190,7 @@ const draw = () => {
       const dist = Math.sqrt(dx * dx + dy * dy)
       
       if (dist < CONNECTION_DISTANCE) {
-        const opacity = (1 - dist / CONNECTION_DISTANCE) * 0.3
+        const opacity = (1 - dist / CONNECTION_DISTANCE) * 0.3 * dim
         ctx.beginPath()
         ctx.moveTo(p1.x, p1.y)
         ctx.lineTo(p2.x, p2.y)
@@ -227,6 +233,10 @@ onUnmounted(() => {
   height: 100vh;
   z-index: -3; /* 保证底部的 css gradient 能透上来 */
   pointer-events: none;
-  opacity: 0.7; 
+  opacity: 0.7;
+}
+
+.cyber-canvas.quiet {
+  opacity: 0.36;
 }
 </style>

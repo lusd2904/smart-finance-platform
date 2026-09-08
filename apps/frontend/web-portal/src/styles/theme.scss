@@ -82,6 +82,12 @@
   --loading-mask: rgba(2, 6, 23, 0.45);
   --stat-up: #ff0055;
   --stat-down: #39ff14;
+  --order-buy-solid: #dc2626;
+  --order-sell-solid: #16a34a;
+  --chip-fill: 15%;
+  --chip-ink: 62%;
+  --chip-line: 16%;
+  --stub-banner-display: flex;
 }
 
 [data-theme='glass-light'] {
@@ -90,6 +96,9 @@
   --accent-ink: #ffffff;
   --stat-up: #dc2626;
   --stat-down: #16a34a;
+  --chip-fill: 12%;
+  --chip-ink: 78%;
+  --chip-line: 22%;
   --chrome-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
   --sidebar-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
@@ -100,6 +109,9 @@
   --accent-ink: #06121d;
   --stat-up: #ff0055;
   --stat-down: #39ff14;
+  --chip-fill: 15%;
+  --chip-ink: 62%;
+  --chip-line: 16%;
 }
 
 :root,
@@ -328,30 +340,30 @@ a {
 
 .el-tag--primary,
 .el-tag--primary.el-tag--dark {
-  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
-  color: var(--accent) !important;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--accent) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) var(--chip-line), transparent) !important;
 }
 
 .el-tag--success,
 .el-tag--success.el-tag--dark {
-  background: color-mix(in srgb, var(--success) 14%, transparent) !important;
-  color: var(--success) !important;
-  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--stat-down) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--stat-down) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--stat-down) var(--chip-line), transparent) !important;
 }
 
 .el-tag--danger,
 .el-tag--danger.el-tag--dark {
-  background: color-mix(in srgb, var(--danger) 14%, transparent) !important;
-  color: var(--danger) !important;
-  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--stat-up) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--stat-up) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--stat-up) var(--chip-line), transparent) !important;
 }
 
 .el-tag--warning,
 .el-tag--warning.el-tag--dark {
-  background: color-mix(in srgb, var(--warning) 14%, transparent) !important;
-  color: var(--warning) !important;
-  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--warning) var(--chip-fill), transparent) !important;
+  color: color-mix(in srgb, var(--warning) var(--chip-ink), var(--text-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--warning) var(--chip-line), transparent) !important;
 }
 
 .el-tag--info,
@@ -410,8 +422,8 @@ a {
 .info-hero-price-box,
 .book-row,
 .numeric {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: 'tnum' 1, 'lnum' 1 !important;
 }
 
 .el-divider {
@@ -459,7 +471,7 @@ a {
 }
 
 .stub-banner {
-  display: flex;
+  display: var(--stub-banner-display, flex);
   align-items: center;
   gap: 8px;
   padding: 8px 12px;

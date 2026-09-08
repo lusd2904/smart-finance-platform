@@ -64,9 +64,9 @@ Tokens:
 | Primary buttons / EP active states use `--accent` | Designer QA: leftover Element blue and App.vue navy `#164a72` must not win. glass-dark CTA ink is `#06121d` on cyan. |
 | `--stat-up` / `--stat-down` neon on glass-dark | `#ff0055` / `#39ff14` (A-share 红涨绿跌 + longbridge neon). glass-light stays `#dc2626` / `#16a34a`. |
 | Tables / quote numbers use `tabular-nums` | Designer QA: number columns must not jitter. |
-| Pills / chips are tinted glass, not solid neon blocks | Overrides `el-tag` including `effect="dark"`. |
+| Pills / chips are tinted glass, not solid neon blocks | Overrides `el-tag` including `effect="dark"`. glass-dark chips use ~15% fill + mixed ink (not solid neon). |
 | Brand copy 智慧金融 | Product name only. |
-| Stub banner | Migration aid; not a longbridge component. |
+| Stub banner | Migration aid; hide later with `VITE_HIDE_STUB_BANNER=true` or `--stub-banner-display: none`. |
 
 ## Designer QA round 1 (this PR)
 
@@ -89,6 +89,19 @@ PORTAL_URL=http://127.0.0.1:5180 ARTIFACT_DIR=/opt/cursor/artifacts \
 ```
 
 Files: `qa1_login_{dark,light}.png`, `qa1_workbench_{dark,light}.png`, `qa1_terminal_{dark,light}.png`.
+
+## Designer QA round 2 (this PR)
+
+QA1 login habit / accent / tabular-nums / glass chips / 快捷入口 copy must not regress.
+
+| Polish | What changed |
+| --- | --- |
+| Login mesh quieter | Login uses `<CyberBackground quiet />`: canvas opacity 0.36, particle/line alpha ~42%, fewer shooting lines. Glass card stays the focus. |
+| glass-dark 「偏多」 chips | `--chip-fill: 15%` + ink mixed toward `--text-primary`. Stance tags use `--stat-up` / `--stat-down`, not solid neon. |
+| Terminal quote colors | Depth / quote / change pills / K-line candles all read `--stat-up` / `--stat-down`. **极速买入 / 卖出** stay A-share solid `--order-buy-solid` `#dc2626` / `--order-sell-solid` `#16a34a`. |
+| Stub banner | Still shown. Disable later: `VITE_HIDE_STUB_BANNER=true` or CSS `--stub-banner-display: none`. |
+
+金融台大管家: re-screenshot glass-dark + glass-light × **登录 / 工作台 / 行情交易** (6 shots) for designer round 3.
 
 ## Screens in this slice
 

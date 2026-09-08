@@ -1,6 +1,6 @@
 <template>
   <div class="pro-terminal-page" :class="{ 'is-fullscreen': isFullscreen }">
-    <div v-if="usingStub" class="stub-banner">行情交易：接口降级为标注 stub 数据，布局与线上一致（自选 / 图表 / 盘口下单）。</div>
+    <div v-if="usingStub && !hideStubBanner()" class="stub-banner">行情交易：接口降级为标注 stub 数据，布局与线上一致（自选 / 图表 / 盘口下单）。</div>
 
     <div class="terminal-topbar glass-panel">
       <div class="topbar-indices-wrap">
@@ -289,7 +289,7 @@ import { getKline, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketW
 import { getAutoTradeStatus, getTradeAccount, getTradeOrders, getTradePositions, getTradeQuoteDepth, getTradeQuoteSnapshot, getTradeQuoteTrades, saveAutoTradeSettings, submitTradeOrder } from '@/api/trade'
 import { useUserStore } from '@/store/user'
 import { fmtNum, fmtPx, fmtSigned, formatTurnover, formatVolume, renderSparklinePath } from '@/utils/format'
-import { stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
+import { hideStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
 
 const userStore = useUserStore()
 const usingStub = ref(false)
@@ -556,10 +556,19 @@ function setPeriod(p) {
   loadSymbolExtras(activeStock.value)
 }
 
+function quotePalette() {
+  const styles = getComputedStyle(document.documentElement)
+  return {
+    up: styles.getPropertyValue('--stat-up').trim() || '#ff0055',
+    down: styles.getPropertyValue('--stat-down').trim() || '#39ff14'
+  }
+}
+
 function renderChart() {
   if (!chartRef.value) return
   if (!chart) chart = echarts.init(chartRef.value)
   const dark = document.documentElement.dataset.theme !== 'glass-light'
+  const { up, down } = quotePalette()
   const data = bars.value.map((b) => [b.open ?? b[1], b.close ?? b[2], b.low ?? b[3], b.high ?? b[4]])
   const cats = bars.value.map((b, i) => b.time || b.date || b.t || i)
   const closes = bars.value.map((b) => Number(b.close ?? b[2]) || 0)
@@ -581,7 +590,7 @@ function renderChart() {
     ],
     dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }],
     series: [
-      { type: 'candlestick', data, itemStyle: { color: '#ff4d6d', color0: '#22c55e', borderColor: '#ff4d6d', borderColor0: '#22c55e' } },
+      { type: 'candlestick', data, itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down } },
       ...(mainIndicators.value.includes('MA') ? [{ type: 'line', data: ma, symbol: 'none', lineStyle: { width: 1, color: '#00f0ff' } }] : []),
       { type: 'bar', data: bars.value.map((b) => b.volume || 0), xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: '#64748b' } }
     ]
@@ -818,8 +827,8 @@ onBeforeUnmount(() => {
 
 .buy-btn.active { background: color-mix(in srgb, var(--stat-up) 18%, transparent); }
 .sell-btn.active { background: color-mix(in srgb, var(--stat-down) 18%, transparent); }
-.btn-order-buy { width: 100%; background: #dc2626 !important; border: 0 !important; color: #fff !important; }
-.btn-order-sell { width: 100%; background: #16a34a !important; border: 0 !important; color: #fff !important; }
+.btn-order-buy { width: 100%; background: var(--order-buy-solid) !important; border: 0 !important; color: #fff !important; }
+.btn-order-sell { width: 100%; background: var(--order-sell-solid) !important; border: 0 !important; color: #fff !important; }
 
 .quick-trade-card, .right-pane { display: grid; gap: 8px; }
 .ratio-pill-row, .period-button-group, .indicator-group-wrap, .trade-side-switcher { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
