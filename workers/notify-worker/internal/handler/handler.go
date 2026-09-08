@@ -36,7 +36,7 @@ func NativeJobTypes() []string {
 }
 
 func DeferredJobTypes() []string {
-	return []string{"watchlist_analyze", "stock_pick_run", "market_review", "ai_analyze", "ai_batch"}
+	return []string{}
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) (interface{}, error) {

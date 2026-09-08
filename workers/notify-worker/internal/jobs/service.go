@@ -9,13 +9,15 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/llm"
 )
 
 type Service struct {
-	db  *sql.DB
-	cfg mwcfg.Config
-	llm *llm.Client
+	db     *sql.DB
+	cfg    mwcfg.Config
+	llm    *llm.Client
+	influx *influx.Reader
 }
 
 func NewService(cfg mwcfg.Config) (*Service, error) {
@@ -54,8 +56,16 @@ func (s *Service) Handle(ctx context.Context, jobType string, payload map[string
 		return s.RunReqSend(ctx, payload, false)
 	case "req_summarize":
 		return s.RunReqSend(ctx, payload, true)
-	case "watchlist_analyze", "stock_pick_run", "market_review", "ai_analyze", "ai_batch":
-		return RunDeferred(jobType)
+	case "watchlist_analyze":
+		return s.RunWatchlistAnalyze(ctx, payload)
+	case "stock_pick_run":
+		return s.RunStockPick(ctx, payload)
+	case "market_review":
+		return s.RunMarketReview(ctx, payload)
+	case "ai_analyze":
+		return s.RunAIAnalyze(ctx, payload)
+	case "ai_batch":
+		return s.RunAIBatch(ctx, payload)
 	default:
 		return nil, fmt.Errorf("unsupported llm job type: %s", jobType)
 	}

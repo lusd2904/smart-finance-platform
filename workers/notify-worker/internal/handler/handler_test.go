@@ -15,9 +15,7 @@ func TestAllLLMJobsAreNative(t *testing.T) {
 }
 
 func TestDeferredJobTypesDocumented(t *testing.T) {
-	for _, jobType := range DeferredJobTypes() {
-		if !nativeJobs[jobType] {
-			t.Fatalf("%s should still be routed natively (stub)", jobType)
-		}
+	if len(DeferredJobTypes()) != 0 {
+		t.Fatalf("all llm jobs should be native, deferred=%v", DeferredJobTypes())
 	}
 }

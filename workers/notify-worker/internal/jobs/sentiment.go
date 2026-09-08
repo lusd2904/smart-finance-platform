@@ -33,11 +33,14 @@ type aiModelRow struct {
 }
 
 func (s *Service) RunSentimentCollect(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	pending, err := s.countPendingSentimentNews(ctx, analyzeWindowMinutes)
+	if err != nil {
+		return nil, err
+	}
 	result := map[string]interface{}{
+		"fetched": pending,
 		"saved":   0,
-		"skipped": true,
-		"reason":  "rss_scrapers_not_ported",
-		"message": "舆情 RSS 采集尚未迁移至 Go；请使用 X 监测器 ingest 或 legacy-data profile。",
+		"message": fmt.Sprintf("RSS 采集未迁移；当前依赖 X-monitor ingest。最近 %d 分钟待分析 %d 条。", analyzeWindowMinutes, pending),
 	}
 	if !boolFrom(payload["analyze"], false) {
 		return result, nil
@@ -61,6 +64,14 @@ func (s *Service) RunSentimentCollect(ctx context.Context, payload map[string]in
 		result[k] = v
 	}
 	return result, nil
+}
+
+func (s *Service) countPendingSentimentNews(ctx context.Context, windowMinutes int) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM sentiment_news
+WHERE analyzed = '0' AND pub_time >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`, windowMinutes).Scan(&count)
+	return count, err
 }
 
 func (s *Service) RunSentimentAnalyze(ctx context.Context) (map[string]interface{}, error) {
