@@ -218,6 +218,13 @@ services:
   sentiment-trade-api:
     mem_limit: 320m
     cpus: 0.35
+    depends_on: !override
+      sentiment-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
 
   sentiment-jobs:
     environment:
