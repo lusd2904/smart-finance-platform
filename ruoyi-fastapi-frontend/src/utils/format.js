@@ -21,6 +21,27 @@ export function fmtAmount(val, currency) {
   return currency ? `${text} ${currency}` : text
 }
 
+/** 普通数值，缺省两位小数 */
+export function fmtNum(val, digits = 2) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '--'
+  return n.toFixed(digits)
+}
+
+/** 比率（换手 / 振幅），不带正负号 */
+export function fmtRate(val) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '--'
+  return `${n.toFixed(2)}%`
+}
+
+/** 带正负号的数值（涨跌额） */
+export function fmtSigned(val, digits = 2) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return '--'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`
+}
+
 /** 涨跌语义 class：up=红 down=绿 flat=灰 */
 export function changeClass(val) {
   const n = Number(val)

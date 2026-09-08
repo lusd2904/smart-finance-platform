@@ -57,6 +57,12 @@ class TopPickRow {
     this.turnover,
     this.last,
     this.changePct,
+    this.changeAmount,
+    this.turnoverRate,
+    this.volumeRatio,
+    this.amplitude,
+    this.pe,
+    this.mainNetInflow,
     this.inWatchlist = false,
   });
 
@@ -71,6 +77,12 @@ class TopPickRow {
         (json['price'] as num?)?.toDouble() ??
         (json['close'] as num?)?.toDouble(),
     changePct: (json['changePct'] as num?)?.toDouble(),
+    changeAmount: (json['changeAmount'] as num?)?.toDouble(),
+    turnoverRate: (json['turnoverRate'] as num?)?.toDouble(),
+    volumeRatio: (json['volumeRatio'] as num?)?.toDouble(),
+    amplitude: (json['amplitude'] as num?)?.toDouble(),
+    pe: (json['pe'] as num?)?.toDouble(),
+    mainNetInflow: (json['mainNetInflow'] as num?)?.toDouble(),
     inWatchlist: (json['inWatchlist'] as bool?) ?? false,
   );
 
@@ -81,6 +93,12 @@ class TopPickRow {
   final double? turnover;
   final double? last;
   final double? changePct;
+  final double? changeAmount;
+  final double? turnoverRate;
+  final double? volumeRatio;
+  final double? amplitude;
+  final double? pe;
+  final double? mainNetInflow;
   final bool inWatchlist;
 }
 

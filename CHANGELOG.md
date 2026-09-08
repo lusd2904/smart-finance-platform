@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 📈 热度 Top50 增补行情列
+- `market_top50_snapshot` 增量列：`change_amount` / `turnover_rate` / `volume_ratio` / `amplitude` / `pe` / `main_net_inflow`（可空，历史行保持 NULL）
+- `market_heat_collect` 从东财 / 新浪公开源写入能拿到的字段；缺失保持 NULL，不编造
+- `GET /market/heat/daily` 的 `top50[]` 返回 camelCase：`changeAmount`、`turnoverRate`、`volumeRatio`、`amplitude`、`pe`、`mainNetInflow`
+- RuoYi 行情中心与 Flutter web-portal Top50 表展示上述列
+
 ### 🧹 删除 Python RuoYi-FastAPI 运行时（Linguist / 死代码）
 - 从 `main` 删除 `ruoyi-fastapi-backend/`、`ruoyi-fastapi-test/`、Python compose fallback overlay、原版 `docker-compose.my.yml` / `.pg.yml`，以及依赖 `module_*` 的回填脚本
 - SQL 基线/增量迁到仓库根 `sql/`；Go `env_file` 模板迁到 `.env.dockersentiment.example`

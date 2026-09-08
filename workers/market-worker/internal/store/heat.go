@@ -144,11 +144,15 @@ ON DUPLICATE KEY UPDATE
 	for _, item := range result.Top50 {
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO market_top50_snapshot (
-  market, trade_date, rank_no, symbol, name, market_cap, turnover, change_pct, last, currency, as_of_time, create_time
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  market, trade_date, rank_no, symbol, name, market_cap, turnover, change_pct, last,
+  change_amount, turnover_rate, volume_ratio, amplitude, pe, main_net_inflow,
+  currency, as_of_time, create_time
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			result.Market, result.TradeDate, item.RankNo, item.Symbol, item.Name,
 			nullFloat(item.MarketCap), nullFloat(item.Turnover), nullFloat(item.ChangePct),
-			nullFloat(item.Last), item.Currency, asOf, asOf,
+			nullFloat(item.Last), nullFloat(item.ChangeAmount), nullFloat(item.TurnoverRate),
+			nullFloat(item.VolumeRatio), nullFloat(item.Amplitude), nullFloat(item.PE),
+			nullFloat(item.MainNetInflow), item.Currency, asOf, asOf,
 		); err != nil {
 			return fmt.Errorf("insert top50 %s: %w", item.Symbol, err)
 		}

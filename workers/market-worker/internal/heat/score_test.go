@@ -89,6 +89,41 @@ func TestResolveTradeDateUsesMarketTZ(t *testing.T) {
 	}
 }
 
+func TestMergeCandidatesFillsExtras(t *testing.T) {
+	out := MergeCandidates(
+		[]Candidate{{Symbol: "AAA", Turnover: f64(1), ChangePct: f64(1)}},
+		[]Candidate{{
+			Symbol: "aaa", ChangeAmount: f64(0.5), TurnoverRate: f64(1.2),
+			VolumeRatio: f64(1.5), Amplitude: f64(3), PE: f64(18), MainNetInflow: f64(1e7),
+		}},
+	)
+	if len(out) != 1 {
+		t.Fatalf("len=%d", len(out))
+	}
+	got := out[0]
+	if got.ChangeAmount == nil || *got.ChangeAmount != 0.5 || got.PE == nil || *got.PE != 18 {
+		t.Fatalf("%+v", got)
+	}
+	if got.TurnoverRate == nil || got.VolumeRatio == nil || got.Amplitude == nil || got.MainNetInflow == nil {
+		t.Fatalf("extras %+v", got)
+	}
+}
+
+func TestFilterTop50KeepsExtras(t *testing.T) {
+	top := FilterTop50("US", []Candidate{{
+		Symbol: "C", Name: "C", MarketCap: f64(50e9), Turnover: f64(3e9),
+		ChangePct: f64(2), Last: f64(30), ChangeAmount: f64(0.6), TurnoverRate: f64(1.1),
+		VolumeRatio: f64(1.4), Amplitude: f64(2.2), PE: f64(25), MainNetInflow: f64(8e6),
+		Currency: "USD",
+	}})
+	if len(top) != 1 {
+		t.Fatalf("len=%d", len(top))
+	}
+	if top[0].ChangeAmount == nil || top[0].PE == nil || top[0].MainNetInflow == nil {
+		t.Fatalf("extras dropped %+v", top[0])
+	}
+}
+
 func TestHeatSummary(t *testing.T) {
 	text := HeatSummary(80, "US", f64(1.5), 120, 40)
 	if text == "" || !strings.Contains(text, "美股偏强") || !strings.Contains(text, "普涨") || !strings.Contains(text, "活跃") {

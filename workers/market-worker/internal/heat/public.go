@@ -96,13 +96,16 @@ func fetchHK() ([]Candidate, Extras) {
 func fetchUS() ([]Candidate, Extras) {
 	sinaVol := safeList(func() ([]Candidate, error) { return FetchSinaUSRank(6, "volume") })
 	sinaAmt := safeList(func() ([]Candidate, error) { return FetchSinaUSRank(3, "amount") })
+	emRows := safeList(func() ([]Candidate, error) {
+		return FetchEastmoneyRank("m:105,m:106,m:107", 1, 80)
+	})
 	emIndex := safeQuote(func() (map[string]any, error) { return FetchEastmoneyIndex("100.SPX") })
-	extras := Extras{Source: []string{"sina-us", "eastmoney-index"}}
+	extras := Extras{Source: []string{"sina-us", "eastmoney-rank", "eastmoney-index"}}
 	extras.IndexChange = firstFloat(emIndex["change_pct"])
 	extras.Advance = asIntPtr(emIndex["advance"])
 	extras.Decline = asIntPtr(emIndex["decline"])
 	extras.Flat = asIntPtr(emIndex["flat"])
-	return MergeCandidates(sinaVol, sinaAmt), extras
+	return MergeCandidates(emRows, sinaVol, sinaAmt), extras
 }
 
 func ParseTencentQuote(text string) (map[string]any, error) {
@@ -167,7 +170,8 @@ func FetchEastmoneyRank(fs string, pages, pageSize int) ([]Candidate, error) {
 	for page := 1; page <= pages; page++ {
 		qs := url.Values{
 			"pn": {strconv.Itoa(page)}, "pz": {strconv.Itoa(pageSize)}, "po": {"1"}, "np": {"1"},
-			"fltt": {"2"}, "invt": {"2"}, "fs": {fs}, "fid": {"f6"}, "fields": {"f12,f14,f2,f3,f6,f20"},
+			"fltt": {"2"}, "invt": {"2"}, "fs": {fs}, "fid": {"f6"},
+			"fields": {"f12,f14,f2,f3,f4,f6,f7,f8,f9,f10,f15,f16,f18,f20,f62"},
 		}
 		payload, err := getJSON("https://push2.eastmoney.com/api/qt/clist/get?" + qs.Encode())
 		if err != nil {
@@ -178,15 +182,7 @@ func FetchEastmoneyRank(fs string, pages, pageSize int) ([]Candidate, error) {
 			break
 		}
 		for _, raw := range rows {
-			row := jsonMap(raw)
-			out = append(out, Candidate{
-				Symbol:    fmt.Sprint(row["f12"]),
-				Name:      fmt.Sprint(orDefault(row["f14"], row["f12"])),
-				MarketCap: anyFloat(row["f20"]),
-				Turnover:  anyFloat(row["f6"]),
-				ChangePct: anyFloat(row["f3"]),
-				Last:      anyFloat(row["f2"]),
-			})
+			out = append(out, candidateFromEastmoney(jsonMap(raw)))
 		}
 	}
 	return out, nil
@@ -210,15 +206,19 @@ func FetchSinaCNRank(pages int) ([]Candidate, error) {
 				v := *cap * 10000
 				cap = &v
 			}
-			sym := fmt.Sprint(orDefault(row["code"], row["symbol"]))
-			out = append(out, Candidate{
-				Symbol:    sym,
-				Name:      fmt.Sprint(orDefault(row["name"], "")),
-				MarketCap: cap,
-				Turnover:  anyFloat(row["amount"]),
-				ChangePct: anyFloat(row["changepercent"]),
-				Last:      anyFloat(row["trade"]),
-			})
+			c := Candidate{
+				Symbol:       fmt.Sprint(orDefault(row["code"], row["symbol"])),
+				Name:         fmt.Sprint(orDefault(row["name"], "")),
+				MarketCap:    cap,
+				Turnover:     anyFloat(row["amount"]),
+				ChangePct:    anyFloat(row["changepercent"]),
+				Last:         anyFloat(row["trade"]),
+				ChangeAmount: pickFloat(row, "pricechange", "change"),
+				TurnoverRate: pickFloat(row, "turnoverratio", "turnoverRatio"),
+				PE:           pickFloat(row, "per", "pe"),
+			}
+			fillDerived(&c, anyFloat(row["high"]), anyFloat(row["low"]), pickFloat(row, "settlement", "preclose", "prevclose"))
+			out = append(out, c)
 		}
 	}
 	return out, nil
@@ -241,14 +241,18 @@ func FetchSinaHKRank(pages int) ([]Candidate, error) {
 			if cap != nil && *cap <= 0 {
 				cap = nil
 			}
-			out = append(out, Candidate{
-				Symbol:    fmt.Sprint(orDefault(row["symbol"], "")),
-				Name:      fmt.Sprint(orDefault(row["name"], row["engname"])),
-				MarketCap: cap,
-				Turnover:  anyFloat(row["amount"]),
-				ChangePct: anyFloat(row["changepercent"]),
-				Last:      anyFloat(row["lasttrade"]),
-			})
+			c := Candidate{
+				Symbol:       fmt.Sprint(orDefault(row["symbol"], "")),
+				Name:         fmt.Sprint(orDefault(row["name"], row["engname"])),
+				MarketCap:    cap,
+				Turnover:     anyFloat(row["amount"]),
+				ChangePct:    anyFloat(row["changepercent"]),
+				Last:         anyFloat(row["lasttrade"]),
+				ChangeAmount: pickFloat(row, "change", "pricechange"),
+				PE:           pickFloat(row, "pe", "per"),
+			}
+			fillDerived(&c, anyFloat(row["high"]), anyFloat(row["low"]), pickFloat(row, "prevclose", "preclose", "settlement"))
+			out = append(out, c)
 		}
 	}
 	return out, nil
@@ -296,13 +300,65 @@ func sinaUSRow(row map[string]any) Candidate {
 		v := *price * *volume
 		amount = &v
 	}
-	return Candidate{
-		Symbol:    strings.ToUpper(fmt.Sprint(orDefault(row["symbol"], ""))),
-		Name:      fmt.Sprint(orDefault(row["cname"], row["name"])),
-		MarketCap: anyFloat(row["mktcap"]),
-		Turnover:  amount,
-		ChangePct: anyFloat(row["chg"]),
-		Last:      price,
+	c := Candidate{
+		Symbol:       strings.ToUpper(fmt.Sprint(orDefault(row["symbol"], ""))),
+		Name:         fmt.Sprint(orDefault(row["cname"], row["name"])),
+		MarketCap:    anyFloat(row["mktcap"]),
+		Turnover:     amount,
+		ChangePct:    anyFloat(row["chg"]),
+		Last:         price,
+		ChangeAmount: pickFloat(row, "diff", "pricechange", "change"),
+		TurnoverRate: pickFloat(row, "turnoverratio", "turnoverRate"),
+		VolumeRatio:  pickFloat(row, "volumeRatio", "volratio"),
+		Amplitude:    pickFloat(row, "amplitude"),
+		PE:           pickFloat(row, "pe", "per", "perc"),
+	}
+	fillDerived(&c, anyFloat(row["high"]), anyFloat(row["low"]), pickFloat(row, "preclose", "prevclose", "settlement"))
+	return c
+}
+
+func candidateFromEastmoney(row map[string]any) Candidate {
+	c := Candidate{
+		Symbol:        fmt.Sprint(row["f12"]),
+		Name:          fmt.Sprint(orDefault(row["f14"], row["f12"])),
+		MarketCap:     anyFloat(row["f20"]),
+		Turnover:      anyFloat(row["f6"]),
+		ChangePct:     anyFloat(row["f3"]),
+		Last:          anyFloat(row["f2"]),
+		ChangeAmount:  anyFloat(row["f4"]),
+		TurnoverRate:  anyFloat(row["f8"]),
+		VolumeRatio:   anyFloat(row["f10"]),
+		Amplitude:     anyFloat(row["f7"]),
+		PE:            anyFloat(row["f9"]),
+		MainNetInflow: anyFloat(row["f62"]),
+	}
+	fillDerived(&c, anyFloat(row["f15"]), anyFloat(row["f16"]), anyFloat(row["f18"]))
+	return c
+}
+
+func pickFloat(row map[string]any, keys ...string) *float64 {
+	for _, key := range keys {
+		if f := anyFloat(row[key]); f != nil {
+			return f
+		}
+	}
+	return nil
+}
+
+func fillDerived(c *Candidate, high, low, prev *float64) {
+	if c == nil {
+		return
+	}
+	if c.ChangeAmount == nil && c.Last != nil && c.ChangePct != nil {
+		denom := 100 + *c.ChangePct
+		if denom != 0 {
+			v := *c.Last * *c.ChangePct / denom
+			c.ChangeAmount = &v
+		}
+	}
+	if c.Amplitude == nil && high != nil && low != nil && prev != nil && *prev != 0 {
+		v := (*high - *low) / *prev * 100
+		c.Amplitude = &v
 	}
 }
 

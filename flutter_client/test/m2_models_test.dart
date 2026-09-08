@@ -264,6 +264,26 @@ void main() {
       );
       expect(TopPickRow.fromJson(const {}).last, isNull);
     });
+
+    test('解析涨跌额 / 换手 / 量比 / 振幅 / PE / 主力净流入', () {
+      final row = TopPickRow.fromJson(const {
+        'rankNo': 1,
+        'symbol': '600519',
+        'name': '茅台',
+        'changeAmount': 12.5,
+        'turnoverRate': 1.2,
+        'volumeRatio': 1.8,
+        'amplitude': 3.4,
+        'pe': 22.1,
+        'mainNetInflow': 120000000,
+      });
+      expect(row.changeAmount, 12.5);
+      expect(row.turnoverRate, 1.2);
+      expect(row.volumeRatio, 1.8);
+      expect(row.amplitude, 3.4);
+      expect(row.pe, 22.1);
+      expect(row.mainNetInflow, 120000000);
+    });
   });
 
   group('PositionQuote / UsdHkdFx', () {
