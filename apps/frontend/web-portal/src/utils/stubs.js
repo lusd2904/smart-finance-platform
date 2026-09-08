@@ -196,7 +196,18 @@ export function stubKline(price = 400) {
 }
 
 export function stubAccount() {
-  return { availableCash: 326800, currency: 'HKD', netAssets: 1284500 }
+  return {
+    availableCash: 326800,
+    currency: 'HKD',
+    netAssets: 1284500,
+    marketValue: 957700,
+    todayPnl: 12480,
+    todayPnlPct: 1.32,
+    totalUnrealizedPnl: 48620,
+    totalUnrealizedPnlPct: 5.35,
+    positionRatio: 0.746,
+    accountName: 'HKD 主账户'
+  }
 }
 
 export function stubOrders() {
@@ -208,7 +219,8 @@ export function stubOrders() {
 
 export function stubPositions() {
   return [
-    { symbol: '00700', quantity: 400, currentPrice: 412.6, pnl: 2640, pnlRate: 1.62 },
-    { symbol: '300750', quantity: 200, currentPrice: 198.32, pnl: 832, pnlRate: 2.14 }
+    { symbol: '00700', symbolName: '腾讯控股', name: '腾讯控股', market: 'HK', quantity: 400, costPrice: 406, currentPrice: 412.6, last: 412.6, pnl: 2640, pnlRate: 1.62, pnlPct: 1.62, currency: 'HKD' },
+    { symbol: '300750', symbolName: '宁德时代', name: '宁德时代', market: 'CN', quantity: 200, costPrice: 194.16, currentPrice: 198.32, last: 198.32, pnl: 832, pnlRate: 2.14, pnlPct: 2.14, currency: 'CNY' },
+    { symbol: 'AAPL', symbolName: '苹果', name: '苹果', market: 'US', quantity: 20, costPrice: 229.24, currentPrice: 228.14, last: 228.14, pnl: -22, pnlRate: -0.48, pnlPct: -0.48, currency: 'USD' }
   ]
 }
