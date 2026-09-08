@@ -78,7 +78,7 @@ async def test_widget_dashboard_aggregates_mocked_services() -> None:
     trend_row = type(
         'Row',
         (),
-        {'create_time': None, 'us_score': 70, 'hk_score': 51, 'a_score': 40},
+        {'create_time': None, 'us_score': 4, 'hk_score': -2, 'a_score': 72.5},
     )()
     index_items = [
         {
@@ -121,6 +121,9 @@ async def test_widget_dashboard_aggregates_mocked_services() -> None:
     assert payload['latest']['analysisId'] == 9
     assert len(payload['trend']) == 1
     assert payload['trend'][0]['usScore'] == 70
+    assert payload['trend'][0]['hkScore'] == 40
+    assert payload['trend'][0]['aScore'] == 72.5
+    assert payload['markets'][0]['score'] == 72
     assert payload['indexes'] == index_items
     assert payload['indexesAsOf'] == '2026-08-24 10:30:00'
     assert payload['indexesCached'] is False

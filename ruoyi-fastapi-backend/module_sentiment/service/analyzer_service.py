@@ -9,18 +9,31 @@ from utils.log_util import logger
 GATEWAY_FAILOVER_CODES = frozenset({502, 503, 524})
 HTTP_TOO_MANY_REQUESTS = 429
 
-ANALYSIS_SYSTEM_PROMPT = """你是一名资深宏观与市场策略分析师。用户会给你一批最新财经舆情快讯，请你综合分析这批舆情对全球主要股指的短期（1-3个交易日）影响。
+ANALYSIS_SYSTEM_PROMPT = """你是一名资深宏观与市场策略分析师。用户会给你【分时线截至分析时刻】快照以及一批财经舆情快讯。请综合「截至 asOf 的分时涨跌」与「舆情」分析对全球主要股指的短期（1-3个交易日）影响，不可只看新闻，也不可用当前最新 tick。
 
 请严格按以下JSON格式输出（不要输出任何JSON以外的内容，不要用markdown代码块包裹）：
 {
-  "summary": "本批舆情的整体综述，150字以内",
-  "us": {"direction": "利多|利空|中性", "score": -10到10的数字, "reason": "对美股三大指数（道琼斯、纳斯达克、标普500）的影响分析，100字以内"},
-  "hk": {"direction": "利多|利空|中性", "score": -10到10的数字, "reason": "对港股恒生指数的影响分析，100字以内"},
-  "a": {"direction": "利多|利空|中性", "score": -10到10的数字, "reason": "对A股上证指数、深证成指的影响分析，100字以内"},
+  "summary": "本批舆情与分时快照的整体综述，150字以内",
+  "us": {"direction": "利多|利空|中性", "score": 0到100的数字, "reason": "对美股三大指数（道琼斯、纳斯达克、标普500 / SPY QQQ DIA）的影响分析，100字以内"},
+  "hk": {"direction": "利多|利空|中性", "score": 0到100的数字, "reason": "对港股恒生指数的影响分析，100字以内"},
+  "a": {"direction": "利多|利空|中性", "score": 0到100的数字, "reason": "对A股上证指数、深证成指的影响分析，100字以内"},
   "risk_events": "值得重点关注的风险事件或催化剂，没有则填'无'"
 }
 
-评分标准：score为影响强度，正数利多负数利空，绝对值越大影响越强；0为中性。"""
+评分标准：
+- score 为 0–100 百分制：0 极空、50 中性、100 极多。不要输出 -10..+10。
+- 必须同时结合分时快照与舆情。若某市场截至 asOf 的会话 pct_chg 偏空（例如 |avg pct_chg|≥0.5% 且为下跌），不得输出「利多」，除非舆情有明确、可验证的对冲利好；reason 必须引用该 pct_chg、session 与 quoteTime。
+- 美股用 SPY/QQQ/DIA 分时，不是现金指数最新价。会话为 overnight / pre / regular / post / closed。只用提示中 asOf 之前的分钟K，禁止用分析时刻之后或“现在”的最新成交。
+- 回放历史分析时同样按该条 create_time/asOf 重放当时的分时，而不是今天的最新 tick。
+- 若提示中写明分时不可用，则仅基于舆情分析，并在理由中注明行情暂缺。"""
+
+
+_MARKET_PROMPT_LABELS = {
+    'US': '美股三大指数',
+    'HK': '港股指数',
+    'CN': 'A股指数',
+}
+_MARKET_PROMPT_ORDER = ('US', 'HK', 'CN')
 
 
 class SentimentAiAnalyzer:
@@ -28,12 +41,96 @@ class SentimentAiAnalyzer:
     舆情AI分析器：调用OpenAI兼容接口分析舆情对大盘的影响
     """
 
+    @staticmethod
+    def _format_quote_num(value: Any) -> str:
+        if value is None or value == '':
+            return '--'
+        return str(value)
+
+    @staticmethod
+    def _format_quote_pct(value: Any) -> str:
+        if value is None or value == '':
+            return '--'
+        try:
+            return f'{float(value):+.2f}%'
+        except (TypeError, ValueError):
+            return str(value)
+
     @classmethod
-    def _build_user_prompt(cls, news_list: list[dict[str, Any]]) -> str:
+    def _format_index_quotes_block(
+        cls,
+        index_quotes: list[dict[str, Any]] | None,
+        quotes_unavailable: bool = False,
+        sessions: dict[str, dict[str, Any]] | None = None,
+    ) -> str:
+        """构建【分时线截至分析时刻】前缀，供模型与舆情一并打分。"""
+        lines = ['【分时线截至分析时刻】']
+        if quotes_unavailable or not index_quotes:
+            lines.append(
+                '本次未能获取分时K（Influx minute_kline 暂不可用），请仅基于下方舆情分析，并在理由中注明分时行情暂缺。'
+            )
+            return '\n'.join(lines)
+        lines.append(
+            '以下为 Influx minute_kline 截至 asOf 的会话快照（不是腾讯/长桥当前最新价）。'
+            '美股为 SPY/QQQ/DIA 分时。评分必须用 asOf 之前最后一根分时的 pct_chg；'
+            '回放历史行时按该 asOf 重放，禁止用今天的最新 tick。'
+        )
+        grouped: dict[str, list[dict[str, Any]]] = {key: [] for key in _MARKET_PROMPT_ORDER}
+        for item in index_quotes:
+            market = str(item.get('market') or '').upper()
+            if market in grouped:
+                grouped[market].append(item)
+        session_map = sessions or {}
+        for market in _MARKET_PROMPT_ORDER:
+            items = grouped[market]
+            if not items:
+                continue
+            sess = session_map.get(market) or {}
+            session_tag = str(sess.get('session') or items[0].get('session') or '').strip()
+            header = f'{_MARKET_PROMPT_LABELS[market]}（{market}）'
+            if session_tag:
+                header = f'{header} [session={session_tag}]'
+            lines.append(header)
+            for item in items:
+                name = item.get('name') or item.get('symbol') or ''
+                symbol = item.get('symbol') or ''
+                last = cls._format_quote_num(item.get('last'))
+                prev_close = cls._format_quote_num(item.get('prevClose'))
+                pct_chg = cls._format_quote_pct(item.get('changePct'))
+                quote_time = item.get('quoteTime') or '--'
+                item_session = item.get('session') or session_tag or '--'
+                source = item.get('source') or 'minute_kline'
+                as_of = item.get('asOf') or ''
+                extra = f' session={item_session} quoteTime={quote_time} source={source}'
+                if as_of:
+                    extra += f' asOf={as_of}'
+                lines.append(
+                    f'- {name} ({symbol}): last={last} prevClose={prev_close} pct_chg={pct_chg}{extra}'
+                )
+                path = item.get('path')
+                if path:
+                    lines.append(f'  path: {path}')
+        return '\n'.join(lines)
+
+    @classmethod
+    def _build_user_prompt(
+        cls,
+        news_list: list[dict[str, Any]],
+        index_quotes: list[dict[str, Any]] | None = None,
+        quotes_unavailable: bool = False,
+        sessions: dict[str, dict[str, Any]] | None = None,
+    ) -> str:
         """
-        构建用户提示词（带正文摘要，避免只有标题）
+        构建用户提示词（先指数行情，再正文摘要，避免只有标题）
         """
-        lines = ['以下是最新采集的财经舆情快讯（含正文，请基于正文分析，不要只看标题）：\n']
+        lines = [
+            cls._format_index_quotes_block(
+                index_quotes, quotes_unavailable=quotes_unavailable, sessions=sessions
+            ),
+            '',
+            '以下是最新采集的财经舆情快讯（含正文，请基于正文分析，不要只看标题）：',
+            '',
+        ]
         for i, news in enumerate(news_list, 1):
             pub_time = news.get('pub_time') or ''
             title = (news.get('title') or '')[:200]
@@ -73,6 +170,9 @@ class SentimentAiAnalyzer:
         model_name: str,
         news_list: list[dict[str, Any]],
         temperature: float = 0.2,
+        index_quotes: list[dict[str, Any]] | None = None,
+        quotes_unavailable: bool = False,
+        sessions: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         调用OpenAI兼容 chat/completions 接口执行分析
@@ -87,7 +187,15 @@ class SentimentAiAnalyzer:
             'temperature': temperature,
             'messages': [
                 {'role': 'system', 'content': ANALYSIS_SYSTEM_PROMPT},
-                {'role': 'user', 'content': cls._build_user_prompt(news_list)},
+                {
+                    'role': 'user',
+                    'content': cls._build_user_prompt(
+                        news_list,
+                        index_quotes=index_quotes,
+                        quotes_unavailable=quotes_unavailable,
+                        sessions=sessions,
+                    ),
+                },
             ],
         }
         headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}

@@ -34,6 +34,8 @@
 </template>
 
 <script setup name="DashAiVerdict">
+import { sentimentIndexTo100 } from '@/utils/sentimentScore'
+
 const props = defineProps({
   section: { type: Object, default: null }
 })
@@ -50,7 +52,7 @@ const marketScores = computed(() => {
     else if (dir.includes('空')) cls = 'bear'
     return { key, name, direction: dir || '--', score: score === 0 || score ? score : '--', cls }
   }
-  return [pack('us', '美股', a.usDirection, a.usScore), pack('hk', '港股', a.hkDirection, a.hkScore), pack('a', 'A股', a.aDirection, a.aScore)]
+  return [pack('us', '美股', a.usDirection, sentimentIndexTo100(a.usScore)), pack('hk', '港股', a.hkDirection, sentimentIndexTo100(a.hkScore)), pack('a', 'A股', a.aDirection, sentimentIndexTo100(a.aScore))]
 })
 
 function go(path) {

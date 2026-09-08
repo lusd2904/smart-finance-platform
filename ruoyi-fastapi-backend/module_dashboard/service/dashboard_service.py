@@ -318,19 +318,12 @@ class DashboardService:
             SentimentAnalysisDao,
             SentimentNewsDao,
         )
-        from module_sentiment.entity.vo.sentiment_vo import SentimentAnalysisModel
-        from utils.common_util import CamelCaseUtil
+        from module_sentiment.service.sentiment_service import SentimentService
         from utils.time_format_util import apply_beijing_times
 
         stats = await SentimentNewsDao.count_news(query_db)
         latest = await SentimentAnalysisDao.get_latest_analysis(query_db)
-        latest_data = (
-            apply_beijing_times(
-                SentimentAnalysisModel(**CamelCaseUtil.transform_result(latest)).model_dump(by_alias=True)
-            )
-            if latest
-            else None
-        )
+        latest_data = apply_beijing_times(SentimentService.dump_analysis_100(latest)) if latest else None
         return {
             'ok': True,
             'reason': None,

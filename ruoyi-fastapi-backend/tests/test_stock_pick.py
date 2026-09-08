@@ -31,6 +31,9 @@ def test_closed_market_drops_index_from_score() -> None:
 def test_normalize_and_reco() -> None:
     assert normalize_sentiment(0) == 50
     assert normalize_sentiment(10) == 100
+    assert normalize_sentiment(4) == 70
+    assert normalize_sentiment(-2) == 40
+    assert normalize_sentiment(72.5) == 72.5
     assert reco_from_signal('BUY', 70) == ('买入', '偏多')
     assert reco_from_signal('SELL', 40) == ('回避', '偏空')
     assert is_index_symbol('^GSPC', 'index') is True
