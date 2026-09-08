@@ -1,9 +1,12 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.alias_generators import to_camel
 
 from utils.time_format_util import format_beijing_datetime
+
+X_MONITOR_INGEST_BATCH_MAX = 200
 
 
 class SentimentNewsModel(BaseModel):
@@ -123,3 +126,41 @@ class DeleteSentimentNewsModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel)
 
     news_ids: str = Field(description='需要删除的资讯ID')
+
+
+class XMonitorIngestItemModel(BaseModel):
+    """
+    X监测器单条入库条目（客户端 source 会被服务端覆盖为 x_monitor）
+    """
+
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
+
+    posted_at: Any = Field(default=None, description='发布时间')
+    author: str | None = Field(default=None, description='作者')
+    author_id: str | int | None = Field(default=None, description='作者ID')
+    text: str | None = Field(default=None, description='正文')
+    url: str | None = Field(default=None, description='原文链接')
+    topics: Any = Field(default=None, description='主题，数组或逗号分隔字符串')
+    source: str | None = Field(default=None, description='客户端来源，忽略并强制 x_monitor')
+
+
+class XMonitorIngestRequest(BaseModel):
+    """
+    X监测器批量入库请求
+    """
+
+    items: list[XMonitorIngestItemModel] = Field(
+        default_factory=list,
+        max_length=X_MONITOR_INGEST_BATCH_MAX,
+        description=f'条目列表，最多 {X_MONITOR_INGEST_BATCH_MAX} 条',
+    )
+
+
+class XMonitorIngestResult(BaseModel):
+    """
+    X监测器批量入库结果
+    """
+
+    accepted: int = Field(description='可映射条目数')
+    inserted: int = Field(description='新入库条数')
+    skipped: int = Field(description='已存在而跳过的条数（按 uniq_hash / url）')
