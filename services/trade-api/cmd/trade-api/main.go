@@ -16,9 +16,9 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/autoscan"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/cache"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/config"
-	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/handlers"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/influx"
+	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/internaljobs"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/middleware"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/platform"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/queue"
@@ -75,7 +75,6 @@ func main() {
 		Platform: &platform.Service{
 			Repo:          platformRepo,
 			Influx:        influx.New(cfg),
-			Delegate:      delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken),
 			Queue:         queue.NewEnqueuer(cacheClient.Client()),
 			Broker:        broker,
 			Redis:         cacheClient.Client(),
@@ -83,7 +82,7 @@ func main() {
 			JWTSecret:     cfg.JWTSecret,
 			AppEnv:        cfg.AppEnv,
 		},
-		AutoScan: &autoscan.StrategyEvaluator{Delegate: delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken)},
+		AutoScan: &autoscan.StrategyEvaluator{Jobs: internaljobs.New(cfg.InternalJobsURL, cfg.InternalJobToken)},
 		AutoKeys: autoscan.Keys{
 			CredentialKey: cfg.CredentialKey,
 			JWTSecret:     cfg.JWTSecret,
@@ -91,23 +90,12 @@ func main() {
 		},
 	}
 
-	var fallback http.Handler = http.HandlerFunc(handlers.NotImplementedFallback)
-	if cfg.TradeHTTPFallbackURL != "" {
-		proxy, err := handlers.NewPythonProxy(cfg.TradeHTTPFallbackURL)
-		if err != nil {
-			log.Fatalf("proxy: %v", err)
-		}
-		if proxy != nil {
-			fallback = proxy
-		}
-	}
-
 	wrap := func(perms []string, fn http.HandlerFunc) http.Handler {
 		return mw.RequirePerms(perms...)(http.HandlerFunc(fn))
 	}
 
 	router := &handlers.TradeRouter{
-		Fallback: fallback,
+		Fallback: http.HandlerFunc(handlers.NotImplementedFallback),
 		Native: map[string]http.Handler{
 			"GET /trade/account": wrap([]string{"trade:account:list"}, srv.Account),
 			"GET /trade/positions": wrap([]string{"trade:position:list"}, srv.Positions),
@@ -165,12 +153,8 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	fallbackMode := "native-only"
-	if cfg.TradeHTTPFallbackURL != "" {
-		fallbackMode = cfg.TradeHTTPFallbackURL
-	}
 	go func() {
-		log.Printf("trade-api listening on %s (fallback %s)", cfg.ListenAddr, fallbackMode)
+		log.Printf("trade-api listening on %s (native-only)", cfg.ListenAddr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

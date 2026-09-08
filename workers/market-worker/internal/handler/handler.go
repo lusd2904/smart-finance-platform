@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/store"
 )
 
-// nativeJobs run entirely in Go without Python delegation.
+// nativeJobs run entirely in this Go worker. There is no Python fallback.
 var nativeJobs = map[string]bool{
 	"market_sync":         true,
 	"eod_kline_sync":      true,
@@ -22,25 +21,25 @@ var nativeJobs = map[string]bool{
 	"symbol_content":      true,
 }
 
-// delegateJobs is the leftover Python fallback list. Heat / symbol_content
-// now run natively (public HTTP + Longbridge REST). Keep the map for future jobs.
-var delegateJobs = map[string]bool{}
-
 type Handler struct {
-	store    *store.Service
-	delegate *delegate.PythonClient
+	store *store.Service
 }
 
-func New(store *store.Service, delegate *delegate.PythonClient) *Handler {
-	return &Handler{store: store, delegate: delegate}
+func New(store *store.Service) *Handler {
+	return &Handler{store: store}
+}
+
+func NativeJobTypes() []string {
+	out := make([]string, 0, len(nativeJobs))
+	for t := range nativeJobs {
+		out = append(out, t)
+	}
+	return out
 }
 
 func (h *Handler) Handle(ctx context.Context, job queue.Job) (interface{}, error) {
 	if nativeJobs[job.Type] {
 		return h.handleNative(ctx, job)
-	}
-	if delegateJobs[job.Type] {
-		return h.delegate.Run(ctx, job.Type, job.Payload)
 	}
 	return nil, fmt.Errorf("unsupported market job type: %s", job.Type)
 }

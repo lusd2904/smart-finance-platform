@@ -3,48 +3,15 @@ package handlers
 import (
 	"io"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 )
 
-// PythonProxy forwards unmigrated /trade/* routes to sentiment-trade (rollback path).
-type PythonProxy struct {
-	Target *url.URL
-}
-
-func NewPythonProxy(base string) (*PythonProxy, error) {
-	if strings.TrimSpace(base) == "" {
-		return nil, nil
-	}
-	u, err := url.Parse(strings.TrimRight(base, "/"))
-	if err != nil {
-		return nil, err
-	}
-	return &PythonProxy{Target: u}, nil
-}
-
-func (p *PythonProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if p == nil || p.Target == nil {
-		http.Error(w, "route not implemented", http.StatusNotImplemented)
-		return
-	}
-	proxy := httputil.NewSingleHostReverseProxy(p.Target)
-	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
-		http.Error(rw, "sentiment-trade fallback unavailable: "+err.Error(), http.StatusBadGateway)
-	}
-	orig := r.URL.Path
-	r.URL.Path = orig
-	r.Host = p.Target.Host
-	proxy.ServeHTTP(w, r)
-}
-
-// NotImplementedFallback is used when TradeHTTPFallbackURL is empty and no native route matches.
+// NotImplementedFallback is used when no native /trade/* route matches.
 func NotImplementedFallback(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "route not implemented", http.StatusNotImplemented)
 }
 
-// TradeRouter dispatches native Go handlers or Python fallback.
+// TradeRouter dispatches native Go handlers.
 type TradeRouter struct {
 	Native   map[string]http.Handler
 	Fallback http.Handler

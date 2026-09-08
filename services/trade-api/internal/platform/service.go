@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/backtest"
-	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/services/trade-exec"
@@ -32,7 +31,6 @@ const (
 type Service struct {
 	Repo          *Repo
 	Influx        *influx.Client
-	Delegate      *delegate.PythonClient
 	Queue         *queue.Enqueuer
 	Broker        tradeexec.Broker
 	Redis         *redis.Client

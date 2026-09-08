@@ -14,9 +14,9 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/config"
-	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/delegate"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/handler"
 	mwinflux "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/internaljobs"
 	jobspkg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/store"
@@ -48,13 +48,12 @@ func main() {
 	}
 	defer svc.Close()
 
-	jobsClient := delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken)
+	jobsClient := internaljobs.New(cfg.InternalJobsURL, cfg.InternalJobToken)
 	h := handler.New(
 		svc,
-		jobsClient,
 		&jobspkg.Repo{DB: svc.DB()},
 		tradeexec.NewSDKBroker(),
-		&jobspkg.PythonStrategy{Client: jobsClient},
+		&jobspkg.InternalJobsStrategy{Client: jobsClient},
 		rdb,
 		reader,
 		cfg,
