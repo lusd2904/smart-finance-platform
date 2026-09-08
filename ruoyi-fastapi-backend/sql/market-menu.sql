@@ -46,4 +46,4 @@ insert into sys_role_menu values ('2', '2107');
 -- ----------------------------
 -- E. 定时任务：每日收盘后同步行情（05:30 执行，status '0' 启用）
 -- ----------------------------
-insert into sys_job values(101, '行情数据每日同步', 'default', 'default', 'module_task.market_task.sync_market_job', NULL, NULL, '0 30 5 * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '每日收盘后同步行情数据与技术指标');
+insert into sys_job values(101, '行情数据每日同步', 'default', 'default', 'market_sync', NULL, NULL, '0 30 5 * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '每日收盘后同步行情数据与技术指标');

@@ -24,4 +24,4 @@ CREATE TABLE IF NOT EXISTS quant_factor_qc (
 
 DELETE FROM sys_job WHERE job_id = 108;
 INSERT INTO sys_job VALUES
-(108, '因子质检IC/IR', 'default', 'default', 'module_task.quant_task.run_factor_qc_job', NULL, NULL, '0 40 6 * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '收盘后对美股股票池做 Alphalens 风格截面 IC/IR 与五分位收益质检');
+(108, '因子质检IC/IR', 'default', 'default', 'factor_qc', NULL, NULL, '0 40 6 * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '收盘后对美股股票池做 Alphalens 风格截面 IC/IR 与五分位收益质检');

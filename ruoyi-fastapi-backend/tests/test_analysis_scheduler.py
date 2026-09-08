@@ -1,4 +1,3 @@
-import importlib
 import os
 import sys
 
@@ -7,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config.env import AppSettings
 from module_analysis.service.analysis_job_service import AnalysisJobService
 from module_task.analysis_catalog import ANALYSIS_JOB_MAP, ANALYSIS_JOBS, humanize_cron
+from module_task.invoke_targets import GO_JOB_KEYS, is_analysis_invoke_target, is_go_invoke_target
 from utils.scheduler_runtime import SchedulerRuntime
 
 
@@ -34,9 +34,9 @@ def test_catalog_job_ids_unique_and_targets_exist() -> None:
     assert len(ids) == len(set(ids))
     assert set(ANALYSIS_JOB_MAP) == set(ids)
     for spec in ANALYSIS_JOBS:
-        module_path, func_name = spec.invoke_target.rsplit('.', 1)
-        module = importlib.import_module(module_path)
-        assert callable(getattr(module, func_name)), spec.invoke_target
+        assert spec.invoke_target in GO_JOB_KEYS, spec.invoke_target
+        assert spec.invoke_target == spec.queue_type, spec.code
+        assert is_go_invoke_target(spec.invoke_target)
 
 
 def test_humanize_cron_known_schedules() -> None:
@@ -63,4 +63,10 @@ def test_auto_trade_uses_free_job_id() -> None:
 def test_extra_jobs_are_treated_as_analysis_targets() -> None:
     assert AnalysisJobService._is_analysis_target('module_task.market_task.analyze_market_review_job')
     assert AnalysisJobService._category_from_target('module_task.market_task.analyze_market_review_job') == 'market'
+    assert AnalysisJobService._is_analysis_target('finance_briefings')
+    assert AnalysisJobService._category_from_target('finance_briefings') == 'market'
+    assert AnalysisJobService._category_from_target('indicator_refresh') == 'quant'
+    assert AnalysisJobService._category_from_target('feishu_push') == 'trade'
+    assert is_analysis_invoke_target('market_heat_collect')
     assert not AnalysisJobService._is_analysis_target('module_task.scheduler_test.job')
+    assert not is_analysis_invoke_target('not_a_job')

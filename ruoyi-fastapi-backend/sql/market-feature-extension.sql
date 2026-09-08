@@ -48,6 +48,6 @@ insert into sys_role_menu values ('2', '2223');
 -- C. 定时任务
 -- ----------------------------
 -- 财经资讯刷新：每小时
-insert into sys_job values(103, '财经资讯简报刷新', 'default', 'default', 'module_task.market_task.refresh_finance_briefings_job', NULL, NULL, '0 15 * * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '聚合内部简报与外部新闻写入 finance_briefing');
+insert into sys_job values(103, '财经资讯简报刷新', 'default', 'default', 'finance_briefings', NULL, NULL, '0 15 * * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '聚合内部简报与外部新闻写入 finance_briefing');
 -- 热门标的内容缓存：每30分钟（默认暂停，需长桥凭据后启用）
-insert into sys_job values(104, '标的内容缓存刷新', 'default', 'default', 'module_task.market_task.refresh_symbol_content_job', NULL, NULL, '0 0/30 * * * ?', '3', '1', '1', 'admin', sysdate(), '', null, '长桥公告/资讯/讨论缓存，凭据配置后启用');
+insert into sys_job values(104, '标的内容缓存刷新', 'default', 'default', 'symbol_content', NULL, NULL, '0 0/30 * * * ?', '3', '1', '1', 'admin', sysdate(), '', null, '长桥公告/资讯/讨论缓存，凭据配置后启用');

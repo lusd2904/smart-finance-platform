@@ -60,9 +60,9 @@ INSERT INTO sys_role_menu VALUES
 ('2', '2235'), ('2', '2236'), ('2', '2237'), ('2', '2238'), ('2', '2239');
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 116, '收盘后扫描次日策略清单', 'default', 'default', 'module_task.quant_task.run_daily_list_scan_job', NULL, NULL, '0 20 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后扫描策略，生成下一交易日清单；非交易日跳过'
+SELECT 116, '收盘后扫描次日策略清单', 'default', 'default', 'daily_list_scan', NULL, NULL, '0 20 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后扫描策略，生成下一交易日清单；非交易日跳过'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 116);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 118, '开盘执行排队模拟单', 'default', 'default', 'module_task.quant_task.run_daily_list_open_job', NULL, NULL, '0 31 1 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股开盘后把排队的模拟开仓送到长桥模拟账户'
+SELECT 118, '开盘执行排队模拟单', 'default', 'default', 'daily_list_open', NULL, NULL, '0 31 1 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股开盘后把排队的模拟开仓送到长桥模拟账户'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 118);

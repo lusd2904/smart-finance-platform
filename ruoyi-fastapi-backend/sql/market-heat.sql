@@ -58,9 +58,9 @@ INSERT INTO sys_menu VALUES
 INSERT INTO sys_role_menu VALUES ('2', '2600'), ('2', '2601'), ('2', '2602');
 
 INSERT INTO sys_job VALUES
-(113, 'A股收盘热度采集', 'default', 'default', 'module_task.market_task.collect_market_heat_cn_job', NULL, NULL, '0 5 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后采集指数/成交额/A-D 与 Top50'),
-(114, '港股收盘热度采集', 'default', 'default', 'module_task.market_task.collect_market_heat_hk_job', NULL, NULL, '0 5 8 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '港股收盘后采集指数/成交额/A-D 与 Top50'),
-(115, '美股收盘热度采集', 'default', 'default', 'module_task.market_task.collect_market_heat_us_job', NULL, NULL, '0 5 21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股收盘后采集指数/成交额/A-D 与 Top50');
+(113, 'A股收盘热度采集', 'default', 'default', 'market_heat_collect', NULL, '{"market":"CN"}', '0 5 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后采集指数/成交额/A-D 与 Top50'),
+(114, '港股收盘热度采集', 'default', 'default', 'market_heat_collect', NULL, '{"market":"HK"}', '0 5 8 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '港股收盘后采集指数/成交额/A-D 与 Top50'),
+(115, '美股收盘热度采集', 'default', 'default', 'market_heat_collect', NULL, '{"market":"US"}', '0 5 21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股收盘后采集指数/成交额/A-D 与 Top50');
 
 INSERT INTO sys_config (config_id, config_name, config_key, config_value, config_type, create_by, create_time, update_by, update_time, remark)
 SELECT 500, '热度权重-指数', 'market.heat.weight.index', '0.4', 'Y', 'admin', sysdate(), '', null, '市场热度指数涨跌权重'

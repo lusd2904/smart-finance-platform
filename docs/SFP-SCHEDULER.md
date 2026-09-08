@@ -95,3 +95,40 @@ JSON 还必须带 `jobId`（32 hex）、`queue`、`enqueuedAt`（`YYYY-MM-DD HH:
 ## 内存
 
 `sfp-scheduler` slim `mem_limit` **64m**（full 128m），替代 Python scheduler ~384m。
+
+## `sys_job.invoke_target`：Go key 为库内真源
+
+`jobs.Resolve` 的规范输入是 Redis 作业类型（`finance_briefings`、`market_heat_collect` 等）。
+Python `module_task.*` 仍解析一轮（#92 别名），方便混跑或回滚；**库内应以 Go key 为准**。
+
+幂等迁移（可重复执行，不停机）：
+
+```bash
+# 部署后由 sql_migrate 自动跑，或手工：
+mysql ... < scripts/migrate_sys_job_go_invoke_targets.sql
+# 等价增量：ruoyi-fastapi-backend/sql/sys-job-go-invoke-targets.sql
+```
+
+热度 / 收盘 K 线等按市场拆行的任务，Go key 相同，市场写在 `job_kwargs`（例如 `{"market":"CN"}`）。
+`module_task.scheduler_test.job`（若依演示行）不改。
+
+别名可在确认 `python_analysis = 0` 且稳定一版后从 `resolveTarget` 删掉。
+
+### 核对计数
+
+```sql
+-- BEFORE / AFTER 同一条：分析任务里还应剩几条 Python 路径
+SELECT COUNT(*) AS python_analysis
+FROM sys_job
+WHERE invoke_target LIKE 'module_task%'
+  AND invoke_target NOT LIKE 'module_task.scheduler_test%';
+
+-- 启用中的任务应已是 Go key
+SELECT job_id, job_name, invoke_target, job_kwargs, status
+FROM sys_job
+WHERE status = '0'
+  AND invoke_target NOT LIKE 'module_task.scheduler_test%'
+ORDER BY job_id;
+```
+
+应用后期望：`python_analysis = 0`；启用行的 `invoke_target` 都在 `jobs.jobGroups` 里。

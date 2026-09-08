@@ -16,23 +16,24 @@ func TestEncodePayloadShapeMatchesPython(t *testing.T) {
 	cases := []struct {
 		id      int
 		target  string
+		kwargs  string
 		jobType string
 		queue   string
 	}{
-		{101, "module_task.market_task.sync_market_job", "market_sync", "market"},
-		{103, "module_task.market_task.refresh_finance_briefings_job", "finance_briefings", "market"},
-		{104, "module_task.market_task.refresh_symbol_content_job", "symbol_content", "market"},
-		{107, "module_task.quant_task.run_indicator_refresh_job", "indicator_refresh", "quant"},
-		{113, "module_task.market_task.collect_market_heat_cn_job", "market_heat_collect", "market"},
-		{114, "module_task.market_task.collect_market_heat_hk_job", "market_heat_collect", "market"},
-		{115, "module_task.market_task.collect_market_heat_us_job", "market_heat_collect", "market"},
-		{117, "module_task.trade_task.run_feishu_push_job", "feishu_push", "llm"},
-		{121, "module_task.market_task.eod_kline_sync_cn_job", "eod_kline_sync", "market"},
-		{122, "module_task.market_task.eod_kline_sync_hk_job", "eod_kline_sync", "market"},
-		{123, "module_task.market_task.eod_kline_sync_us_job", "eod_kline_sync", "market"},
+		{101, "market_sync", "", "market_sync", "market"},
+		{103, "finance_briefings", "", "finance_briefings", "market"},
+		{104, "symbol_content", "", "symbol_content", "market"},
+		{107, "indicator_refresh", "", "indicator_refresh", "quant"},
+		{113, "market_heat_collect", `{"market":"CN"}`, "market_heat_collect", "market"},
+		{114, "market_heat_collect", `{"market":"HK"}`, "market_heat_collect", "market"},
+		{115, "market_heat_collect", `{"market":"US"}`, "market_heat_collect", "market"},
+		{117, "feishu_push", "", "feishu_push", "llm"},
+		{121, "eod_kline_sync", `{"market":"CN"}`, "eod_kline_sync", "market"},
+		{122, "eod_kline_sync", `{"market":"HK"}`, "eod_kline_sync", "market"},
+		{123, "eod_kline_sync", `{"market":"US"}`, "eod_kline_sync", "market"},
 	}
 	for _, tc := range cases {
-		spec, err := jobs.Resolve(tc.target, "", "")
+		spec, err := jobs.Resolve(tc.target, "", tc.kwargs)
 		if err != nil {
 			t.Fatalf("job %d resolve: %v", tc.id, err)
 		}
@@ -72,7 +73,7 @@ func TestEncodePayloadShapeMatchesPython(t *testing.T) {
 }
 
 func TestEncodeHeatPayloadKeepsNullTradeDate(t *testing.T) {
-	spec, err := jobs.Resolve("module_task.market_task.collect_market_heat_us_job", "", "")
+	spec, err := jobs.Resolve("market_heat_collect", "", `{"market":"US"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

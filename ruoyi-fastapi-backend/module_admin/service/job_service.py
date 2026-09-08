@@ -24,6 +24,12 @@ class JobService:
     """
 
     @classmethod
+    def _is_go_invoke_target(cls, invoke_target: str | None) -> bool:
+        from module_task.invoke_targets import is_go_invoke_target
+
+        return is_go_invoke_target(invoke_target or '')
+
+    @classmethod
     async def get_job_list_services(
         cls, query_db: AsyncSession, query_object: JobPageQueryModel, is_page: bool = False
     ) -> PageModel | list[dict[str, Any]]:
@@ -75,7 +81,9 @@ class JobService:
             raise ServiceException(message=f'新增定时任务{page_object.job_name}失败，目标字符串不允许http(s)调用')
         if StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_ERROR_LIST):
             raise ServiceException(message=f'新增定时任务{page_object.job_name}失败，目标字符串存在违规')
-        if not StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_WHITE_LIST):
+        if not StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_WHITE_LIST) and not cls._is_go_invoke_target(
+            page_object.invoke_target
+        ):
             raise ServiceException(message=f'新增定时任务{page_object.job_name}失败，目标字符串不在白名单内')
         if not await cls.check_job_unique_services(query_db, page_object):
             raise ServiceException(message=f'新增定时任务{page_object.job_name}失败，定时任务已存在')
@@ -136,7 +144,9 @@ class JobService:
                     )
                 if StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_ERROR_LIST):
                     raise ServiceException(message=f'修改定时任务{page_object.job_name}失败，目标字符串存在违规')
-                if not StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_WHITE_LIST):
+                if not StringUtil.startswith_any_case(page_object.invoke_target, JobConstant.JOB_WHITE_LIST) and not cls._is_go_invoke_target(
+                    page_object.invoke_target
+                ):
                     raise ServiceException(message=f'修改定时任务{page_object.job_name}失败，目标字符串不在白名单内')
                 if not await cls.check_job_unique_services(query_db, page_object):
                     raise ServiceException(message=f'修改定时任务{page_object.job_name}失败，定时任务已存在')

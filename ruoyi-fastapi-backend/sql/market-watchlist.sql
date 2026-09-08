@@ -62,4 +62,4 @@ INSERT INTO sys_menu VALUES
 INSERT INTO sys_role_menu VALUES ('2', '2132'), ('2', '2133'), ('2', '2134'), ('2', '2135'), ('2', '2136');
 
 INSERT INTO sys_job VALUES
-(109, '自选清单小时分析', 'default', 'default', 'module_task.market_task.analyze_watchlist_job', NULL, NULL, '0 20 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '每小时综合技术指标、长桥资讯与舆情对行情自选给出建议');
+(109, '自选清单小时分析', 'default', 'default', 'watchlist_analyze', NULL, NULL, '0 20 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '每小时综合技术指标、长桥资讯与舆情对行情自选给出建议');

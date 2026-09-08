@@ -17,13 +17,13 @@ INSERT INTO sys_role_menu VALUES
 ('2', '2500'), ('2', '2501'), ('2', '2502'), ('2', '2503'), ('2', '2504'), ('2', '2505');
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 103, '财经资讯简报刷新', 'default', 'default', 'module_task.market_task.refresh_finance_briefings_job', NULL, NULL, '0 15 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '聚合内部简报与外部新闻写入 finance_briefing'
+SELECT 103, '财经资讯简报刷新', 'default', 'default', 'finance_briefings', NULL, NULL, '0 15 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '聚合内部简报与外部新闻写入 finance_briefing'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 103);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 104, '标的内容缓存刷新', 'default', 'default', 'module_task.market_task.refresh_symbol_content_job', NULL, NULL, '0 0/30 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '长桥公告/资讯/讨论缓存，凭据配置后启用'
+SELECT 104, '标的内容缓存刷新', 'default', 'default', 'symbol_content', NULL, NULL, '0 0/30 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '长桥公告/资讯/讨论缓存，凭据配置后启用'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 104);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 112, '自动交易扫描', 'default', 'default', 'module_task.trade_task.run_auto_trade_scan_job', NULL, NULL, '0 0/15 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '按策略扫描美/港热度池机会，默认只评估不向券商提交委托；A股不参与'
+SELECT 112, '自动交易扫描', 'default', 'default', 'auto_trade_scan', NULL, NULL, '0 0/15 * * * ?', '3', '1', '1', 'admin', sysdate(), '', NULL, '按策略扫描美/港热度池机会，默认只评估不向券商提交委托；A股不参与'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 112);

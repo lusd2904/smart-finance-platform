@@ -48,4 +48,4 @@ insert into sys_role_menu values ('2', '2009');
 -- ----------------------------
 -- E. 定时任务：每10分钟舆情采集与AI分析（status '0' 启用）
 -- ----------------------------
-insert into sys_job values(100, '舆情采集与AI分析', 'default', 'default', 'module_task.sentiment_task.collect_and_analyze_job', NULL, NULL, '0 0/10 * * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '每10分钟执行舆情采集与AI分析');
+insert into sys_job values(100, '舆情采集与AI分析', 'default', 'default', 'sentiment_collect', NULL, NULL, '0 0/10 * * * ?', '3', '1', '0', 'admin', sysdate(), '', null, '每10分钟执行舆情采集与AI分析');

@@ -81,13 +81,31 @@ func TestResolveGoNativeAliasesMatchPythonPaths(t *testing.T) {
 		jobArgs      string
 		jobKwargs    string
 	}{
-		{"module_task.market_task.refresh_finance_briefings_job", "finance_briefings", "", ""},
-		{"module_task.quant_task.run_indicator_refresh_job", "indicator_refresh", "", ""},
-		{"module_task.trade_task.run_feishu_push_job", "feishu_push", "", ""},
+		{"module_task.sentiment_task.collect_and_analyze_job", "sentiment_collect", "", `{"analyze":true}`},
+		{"module_task.sentiment_task.collect_only_job", "sentiment_collect", "", `{"analyze":false}`},
 		{"module_task.market_task.sync_market_job", "market_sync", "", ""},
+		{"module_task.market_task.sync_klines_slow_job", "klines_slow", "", `{"years":8}`},
+		{"module_task.market_task.sync_listings_job", "listings_sync", "", ""},
+		{"module_task.market_task.refresh_finance_briefings_job", "finance_briefings", "", ""},
 		{"module_task.market_task.refresh_symbol_content_job", "symbol_content", "", ""},
+		{"module_task.market_task.analyze_watchlist_job", "watchlist_analyze", "", ""},
+		{"module_task.market_task.analyze_market_review_job", "market_review", "US", ""},
+		{"module_task.market_task.collect_market_heat_cn_job", "market_heat_collect", "", `{"market":"CN"}`},
+		{"module_task.market_task.collect_market_heat_hk_job", "market_heat_collect", "", `{"market":"HK"}`},
 		{"module_task.market_task.collect_market_heat_us_job", "market_heat_collect", "", `{"market":"US"}`},
 		{"module_task.market_task.eod_kline_sync_cn_job", "eod_kline_sync", "", `{"market":"CN"}`},
+		{"module_task.market_task.eod_kline_sync_hk_job", "eod_kline_sync", "", `{"market":"HK"}`},
+		{"module_task.market_task.eod_kline_sync_us_job", "eod_kline_sync", "", `{"market":"US"}`},
+		{"module_task.market_task.run_stock_pick_job", "stock_pick_run", "", ""},
+		{"module_task.quant_task.run_strategy_job", "strategy_run", "", ""},
+		{"module_task.quant_task.run_daily_factor_scan_job", "factor_scan", "", ""},
+		{"module_task.quant_task.run_position_monitor_job", "position_monitor", "", ""},
+		{"module_task.quant_task.run_indicator_refresh_job", "indicator_refresh", "", ""},
+		{"module_task.quant_task.run_factor_qc_job", "factor_qc", "", ""},
+		{"module_task.quant_task.run_daily_list_scan_job", "daily_list_scan", "", ""},
+		{"module_task.quant_task.run_daily_list_open_job", "daily_list_open", "", ""},
+		{"module_task.trade_task.run_auto_trade_scan_job", "auto_trade_scan", "", ""},
+		{"module_task.trade_task.run_feishu_push_job", "feishu_push", "", ""},
 	}
 	for _, tc := range cases {
 		py, err := Resolve(tc.pythonTarget, tc.jobArgs, tc.jobKwargs)
@@ -113,7 +131,13 @@ func TestResolveEnabledProductionJobsGoKeys(t *testing.T) {
 		103: "finance_briefings",
 		104: "symbol_content",
 		107: "indicator_refresh",
+		113: "market_heat_collect",
+		114: "market_heat_collect",
+		115: "market_heat_collect",
 		117: "feishu_push",
+		121: "eod_kline_sync",
+		122: "eod_kline_sync",
+		123: "eod_kline_sync",
 	}
 	kwargs := map[int]string{
 		113: `{"market":"CN"}`,
@@ -126,10 +150,7 @@ func TestResolveEnabledProductionJobsGoKeys(t *testing.T) {
 	for _, id := range EnabledProductionIDs {
 		target := goKeys[id]
 		if target == "" {
-			target = "market_heat_collect"
-			if id >= 121 {
-				target = "eod_kline_sync"
-			}
+			t.Fatalf("job %d missing canonical Go key", id)
 		}
 		kw := kwargs[id]
 		spec, err := Resolve(target, "", kw)

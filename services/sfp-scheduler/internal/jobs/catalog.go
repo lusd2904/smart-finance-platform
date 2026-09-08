@@ -82,8 +82,10 @@ func KnownType(jobType string) bool {
 	return ok
 }
 
-// Resolve maps a Python invoke_target plus optional sys_job args/kwargs
-// onto the Redis job type and payload workers already consume.
+// Resolve maps sys_job.invoke_target plus optional args/kwargs onto the
+// Redis job type and payload workers consume. Canonical DB values are the
+// bare Go keys (resolveGoKey). module_task.* aliases stay for one release
+// after the SQL migration so mixed or rolled-back rows still enqueue.
 func Resolve(invokeTarget, jobArgs, jobKwargs string) (Spec, error) {
 	target := strings.TrimSpace(invokeTarget)
 	args := splitArgs(jobArgs)
@@ -171,8 +173,8 @@ func resolveTarget(target string, args []string, kwargs map[string]any) (Spec, b
 	}
 }
 
-// resolveGoKey accepts bare Redis job types (e.g. finance_briefings) as invoke_target
-// aliases for the legacy module_task.* paths. Additive only: Python paths keep working.
+// resolveGoKey is the canonical path: sys_job.invoke_target is the Redis job type.
+// Python module_task.* strings above remain as a one-release safety net.
 func resolveGoKey(target string, args []string, kwargs map[string]any) (Spec, bool) {
 	if !KnownType(target) {
 		return Spec{}, false
