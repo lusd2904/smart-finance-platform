@@ -208,6 +208,57 @@ jobs:
         working-directory: ruoyi-fastapi-backend
         run: /tmp/audit-venv/bin/pip-audit -r requirements-llm.txt --strict --progress-spinner off
 
+  market-worker:
+    name: Go market-worker tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/market-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: workers/market-worker/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/market-worker ./cmd/market-worker
+
+  quant-worker:
+    name: Go quant-worker tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/quant-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Test and build
+        run: |
+          go mod tidy
+          go test ./...
+          go build -o /tmp/quant-worker ./cmd/quant-worker
+
+  notify-worker:
+    name: Go notify-worker tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/notify-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Test and build
+        run: |
+          go mod tidy
+          go test ./...
+          go build -o /tmp/notify-worker ./cmd/notify-worker
+
   image-build:
     name: Docker image build & smoke
     runs-on: ubuntu-latest
@@ -228,6 +279,15 @@ jobs:
           file: ruoyi-fastapi-backend/Dockerfile.sentiment
           load: true
           tags: smart-finance-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build market-worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: workers/market-worker
+          file: workers/market-worker/Dockerfile
+          load: true
+          tags: sfp-market-worker:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build frontend image

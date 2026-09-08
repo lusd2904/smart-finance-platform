@@ -63,7 +63,7 @@ services:
     profiles: [full-split]
   sentiment-ai:
     profiles: [full-split]
-  sentiment-jobs-market:
+  sfp-market-worker:
     profiles: [full-split]
   sentiment-jobs-quant:
     profiles: [full-split]
@@ -148,10 +148,10 @@ services:
     environment:
       <<: *slim-pool-env
       APP_ROLE: scheduler
-      APP_JOB_GROUP: all
-      APP_NAME: "Sentiment Jobs (slim)"
-    mem_limit: 1024m
-    cpus: 1.0
+      APP_JOB_GROUP: none
+      APP_NAME: "Sentiment Jobs (slim scheduler)"
+    mem_limit: 384m
+    cpus: 0.5
 
   sentiment-influxdb:
     environment:

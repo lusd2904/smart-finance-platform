@@ -2,9 +2,9 @@
 Redis 列表队列：把长任务从 API worker 卸到独立 jobs 消费组。
 
 三组队列（同一套代码，不复制后端）：
-- market：行情同步 / 简报 / 看板预热 / 内容缓存
-- quant：因子 / 策略 / 止损 / 指标快照
-- llm：舆情采集分析 / 自选研判 / 日评 / 需求沟通 summarize 与群聊回复
+- market：行情同步 / 简报 / 看板预热 / 代码表 / K 线（Go sfp-market-worker 消费；Longbridge 热度/内容委托 Python）
+- quant：因子 / 策略 / 止损 / 指标快照（Go sfp-quant-worker 消费 indicator_refresh；其余委托 Python）
+- llm：舆情采集分析 / 自选研判 / 日评 / 需求沟通（Go sfp-notify-worker 消费 feishu_push；Grok/LLM 委托 Python）
 
 调度任务优先入队；HTTP 重操作只入队并立即返回 jobId。
 
@@ -215,7 +215,9 @@ class JobQueue:
     @classmethod
     def consume_keys(cls, group: str | None) -> list[str]:
         if not group or group in {'all', '*'}:
-            return [LEGACY_QUEUE_KEY, *QUEUE_KEYS.values()]
+            # market / quant / llm queues are consumed by Go workers (sfp-market-worker,
+            # sfp-quant-worker, sfp-notify-worker). Python scheduler+worker only drains legacy.
+            return [LEGACY_QUEUE_KEY]
         if group == 'none':
             return []
         key = QUEUE_KEYS.get(group)

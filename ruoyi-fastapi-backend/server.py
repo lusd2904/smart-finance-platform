@@ -215,6 +215,9 @@ def create_app() -> FastAPI:
     handle_exception(app)
     # 自动注册路由
     auto_register_routers(app)
+    from module_task.internal_jobs import router as internal_jobs_router
+
+    app.include_router(internal_jobs_router)
 
     @app.get('/health', summary='健康检查', include_in_schema=False)
     async def health() -> dict[str, Any]:
