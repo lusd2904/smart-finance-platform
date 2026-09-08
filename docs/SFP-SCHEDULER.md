@@ -42,6 +42,7 @@ sudo docker compose \
   -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
   -f docker-compose.sentiment.scheduler-python.yml \
+  --profile legacy-python \
   up -d --no-deps sentiment-jobs
 sudo docker rm -f sfp-scheduler
 curl -sf http://127.0.0.1:19098/health && echo

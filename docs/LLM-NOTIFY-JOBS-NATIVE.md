@@ -48,8 +48,8 @@ Still present (intentional):
 
 | Reference | Reason |
 |-----------|--------|
-| `STRATEGY_EVAL_URL` on `sfp-backend` | `strategy_evaluate` → legacy Python data (`quant-python-fallback` + `legacy-data` profile) |
-| `intel-python-fallback` compose profile | Rollback nginx → `sentiment-intel:9099` for HTTP only |
+| `STRATEGY_EVAL_URL` on `sfp-backend` | `strategy_evaluate` → legacy Python data (`quant-python-fallback` + `--profile legacy-python`) |
+| `--profile legacy-python` + intel overlay | Rollback nginx → `sentiment-intel:9099` for HTTP only |
 | Python `job_queue.HANDLERS` | Emergency fallback when Python workers are started manually |
 
 ## Rollback

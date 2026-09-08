@@ -8,7 +8,7 @@
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.slim.influx-phase.yml \
-#     up -d ruoyi-redis sentiment-influxdb --profile influx-phase sentiment-data
+#     up -d ruoyi-redis sentiment-influxdb
 #
 # Phase B (after mysql/ populated or empty dir ready for init):
 #   bash scripts/sfp_data_init.sh
@@ -61,9 +61,6 @@ services:
   sentiment-market-read:
     profiles: [mysql-ready]
 
-  sentiment-data:
-    depends_on: !override
-      ruoyi-redis:
-        condition: service_healthy
-      sentiment-influxdb:
-        condition: service_healthy
+  # Python sentiment-data is not started in Phase A. Heat/kline reads wait for
+  # Phase B (Go market-read + data-api, mysql-ready). Emergency Python:
+  # --profile legacy-python (see docker-compose.sentiment.slim.yml).

@@ -1,12 +1,12 @@
-# Emergency overlay: restore Python APP_MODULE=platform container (ws/jobs, open/sync were on Go sfp-backend).
+# Emergency overlay: restore Python APP_MODULE=platform (not default slim).
 #
 #   docker compose -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.platform-python-fallback.yml \
-#     --profile python-platform-fallback up -d sentiment-backend
+#     --profile legacy-python up -d sentiment-backend
 #
-# Also revert nginx ws/jobs + open/sync to sentiment-backend in nginx.dockersentiment.slim.conf.
+# Also revert nginx ws/jobs + open/sync to sentiment-backend (do not ship that in slim conf).
 
 services:
   sentiment-backend:
-    profiles: [python-platform-fallback]
+    profiles: [legacy-python]

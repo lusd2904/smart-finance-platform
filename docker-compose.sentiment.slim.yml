@@ -6,12 +6,17 @@
 # Do NOT drop to influx-steady (3g) immediately after cold open — leave headroom until full-stack stable.
 # Optional later: docker-compose.sentiment.slim.influx-steady.yml → 3g / 2560MiB
 #
+# Go-only runtime. Default slim does NOT start Python fat containers
+# (sentiment-backend / sentiment-data / sentiment-intel / sentiment-trade / sentiment-jobs).
+# Emergency rollback: --profile legacy-python (+ overlay files below). See docs/SLIM-POST-MERGE.md.
+#
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
 #   cd /workspace/sfp-slim-64
 #   source scripts/docker_host.sh
 #   export SFP_DATA_ROOT=/workspace/sfp-data
 #   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
 #   # daily roll: bash scripts/deploy_and_verify_slim.sh
+#   # confirm no Python fats: docker compose … ps --format '{{.Name}}' | rg 'sentiment-(backend|data|intel|trade)$'
 #
 # Data bind (default SFP_DATA_ROOT=/workspace/sfp-data). cursor-1 restored layout:
 #
@@ -72,7 +77,7 @@ services:
     profiles: [full-split]
 
   # Go hot-read + WS/live quotes on slim. 320m covers WS fan-out + Tencent fetch.
-  # Remaining /market/ + /quant/ → sentiment-data-api (Go). Python sentiment-data optional (legacy-data profile).
+  # Remaining /market/ + /quant/ → sentiment-data-api (Go). Python sentiment-data is --profile legacy-python only.
   sentiment-market-read:
     mem_limit: 320m
     cpus: 0.5
@@ -129,9 +134,12 @@ services:
   sfp-backup:
     profiles: [full-backup]
 
-  # --- optional Python fallback: Longbridge / pandas / SSE (see docs/SENTIMENT-DATA-OFFLOAD.md) ---
+  # Emergency rollback only. Default slim never starts this.
+  #   docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
+  #     --profile legacy-python up -d sentiment-data
+  # Then point nginx /market/ + /quant/ at sentiment-data:9099 (not shipped in slim conf).
   sentiment-data:
-    profiles: [legacy-data, influx-phase]
+    profiles: [legacy-python]
     build:
       context: ./ruoyi-fastapi-backend
       dockerfile: Dockerfile.sentiment
@@ -163,9 +171,9 @@ services:
     cpus: 1.0
     healthcheck: *slim-api-health
 
-  # Optional rollback target only (profile intel-python-fallback). Default slim uses Go sfp-intel.
+  # Emergency rollback only (--profile legacy-python). Default slim uses Go sfp-intel.
   sentiment-intel:
-    profiles: [intel-python-fallback, influx-phase]
+    profiles: [legacy-python]
     build:
       context: ./ruoyi-fastapi-backend
       dockerfile: Dockerfile.sentiment
@@ -194,11 +202,11 @@ services:
     healthcheck: *slim-api-health
 
   sentiment-backend:
-    profiles: [python-platform-fallback]
+    profiles: [legacy-python]
     environment:
       <<: *slim-pool-env
     mem_limit: 384m
-    # 默认 slim 不启动 Python platform；紧急回退：--profile python-platform-fallback
+    # 默认 slim 不启动 Python platform。紧急回退：--profile legacy-python
     # 并改 nginx catch-all 回 sentiment-backend（见 docs/SFP-BACKEND-ROLLOUT.md）。
 
   sfp-backend:
@@ -210,7 +218,7 @@ services:
       - "127.0.0.1:19099:9099"
 
   sentiment-trade:
-    profiles: [trade-python-fallback]
+    profiles: [legacy-python]
     environment:
       <<: *slim-pool-env
     mem_limit: 512m
@@ -227,6 +235,7 @@ services:
         condition: service_healthy
 
   sentiment-jobs:
+    profiles: [legacy-python]
     environment:
       <<: *slim-pool-env
       APP_ROLE: scheduler

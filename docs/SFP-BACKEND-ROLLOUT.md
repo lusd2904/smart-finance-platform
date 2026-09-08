@@ -35,7 +35,7 @@ JWT/Redis contract matches `services/market-read/internal/auth` and Python `Logi
 | Job category | Handler |
 |--------------|---------|
 | Market + quant + LLM native jobs (`factor_scan`, `feishu_push`, `sentiment_analyze`, `req_send`, …) | Enqueue to `sfp:job:queue:{market\|quant\|llm}` for Go workers |
-| `strategy_evaluate` (signal generation for Go trade path) | Optional bridge → `STRATEGY_EVAL_URL` (`quant-python-fallback` + `legacy-data` profile) |
+| `strategy_evaluate` (signal generation for Go trade path) | Optional bridge → `STRATEGY_EVAL_URL` (`quant-python-fallback` + `--profile legacy-python`) |
 
 LLM job bodies run in `sfp-notify-worker` (no `INTEL_JOBS_URL` bridge). See `docs/LLM-NOTIFY-JOBS-NATIVE.md`.
 
@@ -47,7 +47,7 @@ Emergency Python platform fallback:
 docker compose -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
   -f docker-compose.sentiment.platform-python-fallback.yml \
-  --profile python-platform-fallback up -d sentiment-backend
+  --profile legacy-python up -d sentiment-backend
 ```
 
 ## Tests

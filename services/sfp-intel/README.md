@@ -44,7 +44,7 @@ Same patterns as `market-read`:
 
 ## Rollback (Python intel)
 
-Apply overlay `docker-compose.sentiment.intel-python-fallback.yml` and swap nginx to `nginx.dockersentiment.slim.python-intel.conf` so `/sentiment/` + `/ai/` + `/open/` route to `sentiment-intel:9099` again.
+Apply overlay `docker-compose.sentiment.intel-python-fallback.yml` with `--profile legacy-python` and swap nginx to `nginx.dockersentiment.slim.python-intel.conf` so `/sentiment/` + `/ai/` + `/open/` route to `sentiment-intel:9099` again. Default slim does not start Python intel.
 
 ## Local test
 

@@ -14,8 +14,8 @@ COMPOSE="docker compose \
   -f docker-compose.sentiment.slim.yml \
   -f docker-compose.sentiment.slim.influx-phase.yml"
 
-echo "==> Starting influx-phase: redis + influx + sentiment-data (--profile influx-phase)"
-$COMPOSE up -d ruoyi-redis sentiment-influxdb --profile influx-phase sentiment-data
+echo "==> Starting influx-phase: redis + influx only (no Python fat containers)"
+$COMPOSE up -d ruoyi-redis sentiment-influxdb
 
 echo "==> Wait for Influx (18G / ~2992 shards — 12g mem_limit + 4G loop swap on 15G host)..."
 for i in $(seq 1 60); do
@@ -26,5 +26,6 @@ for i in $(seq 1 60); do
   sleep 10
 done
 
-echo "==> Done. Market heat/kline APIs need auth once full stack is up."
+echo "==> Done. Heat/kline APIs need Phase B (MySQL + Go market-read / data-api)."
 echo "    Full stack: bash scripts/deploy_and_verify_slim.sh"
+echo "    Default slim does not start Python fat containers."

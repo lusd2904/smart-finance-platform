@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   backend-lint:
@@ -389,15 +390,6 @@ jobs:
             exit 1
           fi
       - uses: docker/setup-buildx-action@v3
-      - name: Build backend image (sentiment)
-        uses: docker/build-push-action@v6
-        with:
-          context: ruoyi-fastapi-backend
-          file: ruoyi-fastapi-backend/Dockerfile.sentiment
-          load: true
-          tags: smart-finance-backend:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       - name: Build market-worker image
         uses: docker/build-push-action@v6
         with:
@@ -425,12 +417,8 @@ jobs:
           tags: smart-finance-frontend:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # 冒烟验证：后端镜像内核心运行时依赖可导入（无外部 DB 时应用无法完整启动，
-      # 以依赖完整性作为最小冒烟）；前端镜像启动 nginx 并确认首页可访问。
-      - name: Smoke test backend image
-        run: |
-          docker run --rm --entrypoint python smart-finance-backend:ci \
-            -c "import fastapi, sqlalchemy, uvicorn; print('backend deps ok')"
+      # Slim path is Go-only. Python fat image is optional (image-build-python-legacy).
+      # Frontend smoke: start nginx and confirm the homepage is reachable.
       - name: Smoke test frontend image
         run: |
           docker run -d --name smoke-frontend -p 8080:8080 smart-finance-frontend:ci
@@ -457,29 +445,65 @@ jobs:
         run: |
           export MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
             INTERNAL_JOB_TOKEN=ci
-          docker compose \
-            -f docker-compose.sentiment.yml \
-            -f docker-compose.sentiment.slim.yml \
-            config >/dev/null
-          docker compose \
-            -f docker-compose.sentiment.yml \
-            -f docker-compose.sentiment.slim.yml \
-            -f docker-compose.sentiment.slim.influx-phase.yml \
-            config >/dev/null
-          docker compose \
-            -f docker-compose.sentiment.yml \
-            -f docker-compose.sentiment.slim.yml \
-            -f docker-compose.sentiment.slim.influx-steady.yml \
-            config >/dev/null
-          docker compose \
-            -f docker-compose.sentiment.yml \
-            -f docker-compose.sentiment.slim.yml \
-            -f docker-compose.sentiment.trade-python-fallback.yml \
-            config >/dev/null
-          docker compose \
-            -f docker-compose.sentiment.yml \
-            -f docker-compose.sentiment.slim.yml \
-            -f docker-compose.sentiment.quant-python-fallback.yml \
-            --profile legacy-data \
-            config >/dev/null
+          SLIM=(docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml)
+          "${SLIM[@]}" config >/dev/null
+          "${SLIM[@]}" -f docker-compose.sentiment.slim.influx-phase.yml config >/dev/null
+          "${SLIM[@]}" -f docker-compose.sentiment.slim.influx-steady.yml config >/dev/null
+          "${SLIM[@]}" -f docker-compose.sentiment.trade-python-fallback.yml \
+            --profile legacy-python config >/dev/null
+          "${SLIM[@]}" -f docker-compose.sentiment.quant-python-fallback.yml \
+            --profile legacy-python config >/dev/null
+          "${SLIM[@]}" -f docker-compose.sentiment.intel-python-fallback.yml \
+            --profile legacy-python config >/dev/null
           echo "slim compose config ok"
+      - name: Assert default slim does not start Python fat containers
+        run: |
+          export MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            INTERNAL_JOB_TOKEN=ci
+          if grep -E 'proxy_pass[[:space:]]+http://sentiment-(backend|data|trade|intel)[:/]' \
+            ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf; then
+            echo "::error::slim nginx has a Python fat upstream on a normal path"
+            exit 1
+          fi
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            config --format json | python3 -c '
+          import json, sys
+          cfg = json.load(sys.stdin)
+          fats = {
+              "sentiment-backend", "sentiment-data", "sentiment-intel",
+              "sentiment-trade", "sentiment-jobs",
+          }
+          started = []
+          for name, svc in (cfg.get("services") or {}).items():
+              if not (svc.get("profiles") or []):
+                  started.append(name)
+          bad = sorted(fats & set(started))
+          print("default slim services:", ", ".join(sorted(started)))
+          if bad:
+              print("ERROR: Python fat containers would start:", ", ".join(bad), file=sys.stderr)
+              sys.exit(1)
+          print("ok: no Python fat containers in default slim")
+          '
+
+  image-build-python-legacy:
+    name: Docker image build (legacy Python, optional)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (sentiment)
+        uses: docker/build-push-action@v6
+        with:
+          context: ruoyi-fastapi-backend
+          file: ruoyi-fastapi-backend/Dockerfile.sentiment
+          load: true
+          tags: smart-finance-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test backend image
+        run: |
+          docker run --rm --entrypoint python smart-finance-backend:ci \
+            -c "import fastapi, sqlalchemy, uvicorn; print('backend deps ok')"

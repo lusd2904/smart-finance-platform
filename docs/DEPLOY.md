@@ -1,6 +1,6 @@
 # 部署指南
 
-默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
+默认生产栈是 **MySQL + Redis + InfluxDB + Go 服务 + Vue3 Nginx**（slim 路径不启 Python fat 容器），编排文件为 `docker-compose.sentiment.yml` + slim overlay。
 
 **15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。**cursor-1 上 full-split 已弃用。** 详见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)、[MEMORY-SLIM-AND-MIGRATION.md](./MEMORY-SLIM-AND-MIGRATION.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（slim overlay 与 compose 由 **PR #64** 落地）。大内存开发机仍可用全量拆分。
 
@@ -69,15 +69,17 @@ bash scripts/deploy_and_verify_slim.sh
 # bash scripts/influx_slim_steady.sh   # 仅长期 idle 后；冷开后保留 12g headroom
 ```
 
-Slim 合并方式（**对外路径不变**）：
+Slim 合并方式（**对外路径不变，Go-only**）：
 
-- `sentiment-data`：`APP_MODULE=data`（remaining market + quant + WS）；热读走 `sentiment-market-read`
-- `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
-- `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
-- `sfp-scheduler`：Go 读 `sys_job` + cron，入 Redis DB 2；Python `sentiment-jobs` 仅 profile `python-scheduler` 回滚（见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md)）
+- `sentiment-data-api`：其余 `/market/` + `/quant/`（Go）
+- `sfp-intel`：`/sentiment/` + `/ai/` + `/open/`（除 `/open/sync/`）
+- `sentiment-trade-api`：`/trade/*`（Go）
+- `sfp-backend`：登录 / 系统 / dashboard / ws/jobs / open/sync
+- `sfp-scheduler`：Go 读 `sys_job` + cron，入 Redis DB 2
 - `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（slim ~768m RSS 合计；full ~896m）
+- Python fat（`sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`）**默认不启动**；紧急回退 `--profile legacy-python`（见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)）
 - 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
-- **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
+- **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx；登录/热度/任务需 Phase B 全栈（Go）。
 
 验收内存（Influx healthy 后空闲 5 分钟）：
 
@@ -139,8 +141,8 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sfp-scheduler` / `sentiment-market-read` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy
-- full：`sentiment-backend` / `sentiment-trade` / `sentiment-frontend` + Go workers + `jobs-quant` / `jobs-llm` 应为 healthy
+- slim：`sfp-backend` / `sentiment-trade-api` / `sentiment-data-api` / `sfp-intel` / `sfp-scheduler` / `sentiment-market-read` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy。**不应**出现 `sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`
+- full：大内存机仍可用 base compose；cursor-1 只用 slim
 - slim / full：`sentiment-market-read` 应为 healthy（行情只读 Go 服务，见 `services/market-read/README.md`）
 - 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
 - 浏览器强刷一次前端静态资源
@@ -226,16 +228,15 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 | notify worker | http://127.0.0.1:19095/health（仅本机回环） | Go 消费 llm 队列（feishu_push） |
 | MySQL / Redis / InfluxDB | 不暴露宿主端口 | 业务容器走内网访问；本机调试临时改映射 |
 
-同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
+Slim 生产进程（共享 MySQL / Redis / Influx，不分库）：
 
-- `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 热读 + 行情 WS（**full / slim nginx 均 offload**；slim 上 `sentiment-data` 仍承接 `/quant/`、其余 `/market/`，不可删）
-- slim 合并：remaining market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`；热读与行情 WS 另起 `sentiment-market-read`
-- `sfp-scheduler`：Go 调度入队；Python `sentiment-jobs` 为 `python-scheduler` 回滚
+- `sfp-backend`：登录 / 系统 / dashboard / 内部 job 路由
+- `sentiment-trade-api` / `sentiment-data-api` / `sfp-intel` / `sentiment-market-read`：板块 HTTP（Go）；热读 + 行情 WS 在 market-read
+- `sfp-scheduler`：Go 调度入队
 - `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
 - `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
 - `sfp-notify-worker`：Go 消费 **llm** 队列（full ~256m；slim 224m）
-- `sentiment-jobs-quant` / `llm`：full-split 备用 Python 消费组（**profile full-split**）
+- Python fat 与 `sentiment-jobs-quant` / `llm`：**profile `legacy-python` / `full-split`**，默认不启
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：
 
@@ -290,7 +291,7 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment
 
 ### Influx 与登录
 
-- `sentiment-backend`（登录/系统）、`trade`、`news`、`ai`、`jobs`、`jobs-llm` **不再** `depends_on` Influx healthy。
+- `sfp-backend`（登录/系统）、`sfp-intel`、`sfp-notify-worker` **不再** `depends_on` Influx healthy。
 - 前端也不再等 `market`/`quant`。Influx 未就绪时：登录页可以开，行情/量化接口可能 502 或业务码 500。
 - 旧容器的 `depends_on` 只在**创建时**生效；正在跑的栈要按上面 `--no-deps` 重建业务容器后，新依赖才算数。
 
@@ -430,4 +431,4 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 行情热读（`market-read`）与 Redis 队列消费（workers）已在 slim / full 落地。HTTP 路径、WebSocket、任务 ticket 与侧栏功能说明**保持不变**；`sentiment-trade` 下单路径始终独立。
 
-`sentiment-data` **仍不可删**（`/quant/`、其余 `/market/` 写/入队）。512m → 384m 需 cursor-1 实测。口径见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md) 与 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。
+Python `sentiment-data` **默认不启动**；`/quant/` 与其余 `/market/` 走 `sentiment-data-api`（Go）。紧急回退 `--profile legacy-python`。口径见 [SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md) 与 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。

@@ -1,9 +1,11 @@
-# Python trade HTTP rollback: re-enable sentiment-trade + TRADE_HTTP_FALLBACK_URL on trade-api.
+# Emergency Python trade HTTP rollback (not default slim).
+# Requires --profile legacy-python (or this overlay's !override) so sentiment-trade starts.
 #
 #   sudo docker compose \
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.trade-python-fallback.yml \
+#     --profile legacy-python \
 #     up -d --build sentiment-trade sentiment-trade-api sentiment-frontend
 #
 # Nginx catch-all can also be pointed at sentiment-trade via
@@ -11,7 +13,7 @@
 
 services:
   sentiment-trade:
-    profiles: !override []
+    profiles: [legacy-python]
 
   sentiment-trade-api:
     environment:

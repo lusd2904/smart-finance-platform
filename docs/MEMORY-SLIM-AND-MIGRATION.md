@@ -22,13 +22,13 @@
 
 | Slim 容器 | 合并内容 | 对外路径（不变） |
 |-----------|----------|------------------|
-| `sentiment-data` | remaining market + quant API | 其余 `/market/`、`/quant/` |
+| `sentiment-data-api` | remaining market + quant API（Go） | 其余 `/market/`、`/quant/` |
 | `sentiment-market-read` | Go 热读 + 行情 WS（320m） | kline / board / heat / index / history / `quotes/live` / `WS /ws/market/quotes` |
-| `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
-| `sentiment-trade` | **仍独立** | `/trade/` |
-| `sfp-scheduler` | 读 `sys_job` + cron，入 Redis DB 2；Python `sentiment-jobs` 仅回滚 | 任务中心「jobs 在线」 |
+| `sfp-intel` | sentiment + ai（Go） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
+| `sentiment-trade-api` | `/trade/*`（Go） | `/trade/` |
+| `sfp-scheduler` | 读 `sys_job` + cron，入 Redis DB 2 | 任务中心「jobs 在线」 |
 | `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` | Go 消费三队列（slim ~768m RSS 合计）；quant 含 #77 因子/策略 + #78 Longbridge 交易作业 | 后台任务执行 |
-| `sentiment-backend` | 登录 / 系统 / dashboard | `/prod-api/` 等 |
+| `sfp-backend` | 登录 / 系统 / dashboard | `/prod-api/` 等 |
 
 稳态 RSS 目标 **4–5 GiB**；`mem_limit` 合计约 **5.0–5.4 GiB**（见 PR #64 预算表）。`sfp-backup` 在 slim 默认关闭，用宿主机 cron + `scripts/backup_data.sh`。
 
@@ -62,8 +62,8 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sfp-scheduler`、`sentiment-market-read`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
-- **不应**再跑：`sentiment-market`、`sentiment-ai`、`jobs-market` 等 full-split 容器名（`sentiment-market-read` 是 slim 热读，不是 full-split）
+- 应有：`sfp-backend`、`sentiment-trade-api`、`sentiment-data-api`、`sfp-intel`、`sfp-scheduler`、`sentiment-market-read`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
+- **不应**再跑：Python fat（`sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`）以及 `sentiment-market`、`sentiment-ai`、`jobs-market` 等 full-split 容器名（`sentiment-market-read` 是 slim 热读，不是 full-split）
 - Influx healthy 后空闲 5 分钟，整栈 RSS **< 5.5 GiB**
 
 ### 禁止（与 DEPLOY.md 一致）
@@ -94,16 +94,16 @@ PR **#66** / **#67** 落地 full 栈 `sentiment-market-read` 与三 Go workers�
 |------|-----------|
 | Go workers（market / quant / llm） | **已启用**（`docker-compose.sentiment.slim.yml` + `deploy_and_verify_slim.sh`） |
 | `sentiment-market-read` | **已启用**；热读 + `GET /market/quotes/live` + `WS /ws/market/quotes`（`mem_limit` 320m） |
-| `sentiment-data` | **仍保留**：`/quant/`、其余 `/market/` 写/入队/AI。**不要删除。** `mem_limit` 仍 512m |
+| `sentiment-data-api` | **已启用**；其余 `/market/` + `/quant/`（Go）。Python `sentiment-data` 仅 `--profile legacy-python` |
 | `sfp-scheduler` | Go 调度入队（替代 Python `sentiment-jobs`；回滚用 `docker-compose.sentiment.scheduler-python.yml`） |
 
-HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 实测后再降。  
-清单与回退：[SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)。
+HTTP / ticket / WS 契约不变。Python fat 容器默认不启动。  
+清单与回退：[SENTIMENT-DATA-OFFLOAD.md](./SENTIMENT-DATA-OFFLOAD.md)、[SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。
 
 ### 与 slim 的关系
 
 - Slim 是当前 **16 GiB 上的进程合并**；Go workers + market-read（含行情 WS）已叠加在 slim 拓扑上。
-- `sentiment-market-read` 承接热读与行情推送；量化、剩余行情写/业务仍在 `sentiment-data`。
+- `sentiment-market-read` 承接热读与行情推送；量化、剩余行情写/业务走 `sentiment-data-api`。
 
 ---
 
@@ -113,10 +113,10 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 
 | 模块 | 指南文件 | Slim / 迁移相关要点 |
 |------|----------|---------------------|
-| 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 同进程；热读 offload 至 Go market-read |
+| 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 走 `sentiment-data-api`；热读 offload 至 Go market-read |
 | 任务中心 | `resources/guides/analysis.md` | slim：`sfp-scheduler` + 三 Go workers |
-| 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
-| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant-worker 已原生跑因子/策略/清单扫描 + 持仓止损卖出 / 自动扫描 / 次日清单开仓；门户 `/trade/*` 仍 Python |
+| 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 `sfp-intel` + `sfp-notify-worker` |
+| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | 门户 `/trade/*` 走 `sentiment-trade-api`；quant-worker 原生因子/策略/清单扫描 + 持仓止损卖出 / 自动扫描 / 次日清单开仓 |
 
 ---
 

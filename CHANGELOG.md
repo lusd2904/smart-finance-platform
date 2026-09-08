@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 🧹 Slim Go-only：默认不启 Python fat 容器
+- 默认 `docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up` **不启动** `sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`
+- 紧急回退统一 `--profile legacy-python`（旧 `legacy-data` / `intel-python-fallback` / `python-platform-fallback` / `trade-python-fallback` 名称不再用于 slim 默认）
+- slim nginx 正常路径无 Python upstream；CI 默认 Docker smoke 不再构建 `Dockerfile.sentiment`
+- 口径见 [docs/SLIM-POST-MERGE.md](./docs/SLIM-POST-MERGE.md)
+
 ### ⚡ P3 finish：剩余 /market/ + /quant/ 离开 sentiment-data
 - 新增 Go `sentiment-data-api`（`:8081`）：SQL 读、自选 CRUD、JobQueue 入队、TradingView datafeed、简报/复盘/选股等
 - slim / full nginx catch-all `/market/`、`/quant/` → `data-api`；移除 `/ws/` catch-all（仅 quotes/jobs 有路由）
