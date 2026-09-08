@@ -16,8 +16,13 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/cache"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/config"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/handlers"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/internaljobs"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/middleware"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/opensync"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/scheduler"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/store"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/transportcrypto"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/ws"
 )
 
 func main() {
@@ -40,6 +45,31 @@ func main() {
 	mw := &middleware.Middleware{Auth: authSvc}
 	srv := &handlers.Server{Auth: authSvc, DB: db}
 
+	cryptoProvider, err := transportcrypto.NewProvider(
+		cfg.TransportCryptoEnabled,
+		cfg.TransportCryptoMode,
+		cfg.TransportCryptoAlgorithm,
+		cfg.TransportCryptoKID,
+		cfg.TransportCryptoPrivateKey,
+		cfg.TransportCryptoPublicKey,
+		cfg.TransportCryptoLegacyPairs,
+	)
+	if err != nil {
+		log.Fatalf("transport crypto: %v", err)
+	}
+	cryptoMW := transportcrypto.NewMiddleware(
+		cryptoProvider,
+		transportcrypto.SplitPaths(cfg.TransportCryptoEnabledPaths),
+		transportcrypto.SplitPaths(cfg.TransportCryptoRequiredPaths),
+	)
+
+	platform := &handlers.PlatformServer{
+		Server: srv,
+		Sync:   opensync.New(cfg, db, cacheClient.Client()),
+		Jobs:   internaljobs.New(cfg.InternalJobToken, cfg.IntelJobsURL, cfg.QuantJobsURL),
+	}
+	jobsWS := &ws.JobsGateway{Auth: authSvc, Scheduler: scheduler.New(cacheClient.Client())}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.Health)
 	mux.HandleFunc("/captchaImage", srv.CaptchaImage)
@@ -47,6 +77,11 @@ func main() {
 	mux.Handle("/getInfo", mw.RequireAuth(http.HandlerFunc(srv.GetInfo)))
 	mux.Handle("/getRouters", mw.RequireAuth(http.HandlerFunc(srv.GetRouters)))
 	mux.HandleFunc("/logout", methodPOST(srv.Logout))
+
+	mux.Handle("/ws/jobs", jobsWS)
+	mux.HandleFunc("/open/sync/token", cryptoMW.Wrap("/open/sync/token", methodPOST(platform.OpenSyncToken)))
+	mux.HandleFunc("/open/sync/pull", cryptoMW.Wrap("/open/sync/pull", methodPOST(platform.OpenSyncPull)))
+	mux.HandleFunc("/internal/jobs/run", platform.InternalJobsRun)
 
 	registerSystemRoutes(mux, mw, srv)
 

@@ -26,7 +26,7 @@ func New(url, token string) *PythonClient {
 
 func (p *PythonClient) Run(ctx context.Context, jobType string, payload map[string]interface{}) (map[string]interface{}, error) {
 	if p.url == "" {
-		return nil, fmt.Errorf("PYTHON_DELEGATE_URL is not configured")
+		return nil, fmt.Errorf("INTERNAL_JOBS_URL is not configured")
 	}
 	body, err := json.Marshal(map[string]interface{}{
 		"type":    jobType,

@@ -100,7 +100,7 @@ func Load() Config {
 		MaxRetries:        envInt("JOB_MAX_RETRIES", 3),
 		WorkerPort:        envInt("WORKER_PORT", 9098),
 
-		PythonDelegateURL: env("PYTHON_DELEGATE_URL", "http://sentiment-backend:9099/internal/jobs/run"),
+		PythonDelegateURL: internalJobsURL(),
 		InternalJobToken:  env("INTERNAL_JOB_TOKEN", ""),
 		JWTSecret:         env("JWT_SECRET_KEY", env("JWT_SECRET", "")),
 		CredentialKey:     env("CREDENTIAL_ENCRYPTION_KEY", ""),
@@ -109,6 +109,16 @@ func Load() Config {
 		ConsumerPollInterval: 200 * time.Millisecond,
 		ReclaimInterval:      30 * time.Second,
 	}
+}
+
+func internalJobsURL() string {
+	if v := strings.TrimSpace(os.Getenv("INTERNAL_JOBS_URL")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("PYTHON_DELEGATE_URL")); v != "" {
+		return v
+	}
+	return "http://sfp-backend:9099/internal/jobs/run"
 }
 
 func (c Config) BucketForMarket(market string) string {

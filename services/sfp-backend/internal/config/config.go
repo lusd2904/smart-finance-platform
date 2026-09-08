@@ -27,6 +27,26 @@ type Config struct {
 	RedisPort     int
 	RedisPassword string
 	RedisDB       int
+
+	InternalJobToken string
+	IntelJobsURL     string
+	QuantJobsURL     string
+
+	InfluxURL      string
+	InfluxToken    string
+	InfluxOrg      string
+	InfluxBucketUS string
+	InfluxBucketCN string
+
+	TransportCryptoEnabled      bool
+	TransportCryptoMode         string
+	TransportCryptoAlgorithm    string
+	TransportCryptoKID          string
+	TransportCryptoPublicKey    string
+	TransportCryptoPrivateKey   string
+	TransportCryptoLegacyPairs  string
+	TransportCryptoEnabledPaths string
+	TransportCryptoRequiredPaths string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +66,26 @@ func Load() (*Config, error) {
 		RedisPort:     envInt("REDIS_PORT", 6379),
 		RedisPassword: os.Getenv("REDIS_PASSWORD"),
 		RedisDB:       envInt("REDIS_DATABASE", 2),
+
+		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"),
+		IntelJobsURL:     env("INTEL_JOBS_URL", "http://sentiment-intel:9099"),
+		QuantJobsURL:     env("QUANT_JOBS_URL", "http://sentiment-data:9099"),
+
+		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
+		InfluxToken:    os.Getenv("INFLUX_TOKEN"),
+		InfluxOrg:      env("INFLUX_ORG", "sfp"),
+		InfluxBucketUS: env("INFLUX_BUCKET_US", "market_us"),
+		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_cn"),
+
+		TransportCryptoEnabled:       envBool("TRANSPORT_CRYPTO_ENABLED", false),
+		TransportCryptoMode:          env("TRANSPORT_CRYPTO_MODE", "optional"),
+		TransportCryptoAlgorithm:     env("TRANSPORT_CRYPTO_ALGORITHM", "RSA_OAEP_AES_256_GCM"),
+		TransportCryptoKID:           env("TRANSPORT_CRYPTO_KID", "default"),
+		TransportCryptoPublicKey:     os.Getenv("TRANSPORT_CRYPTO_PUBLIC_KEY"),
+		TransportCryptoPrivateKey:    os.Getenv("TRANSPORT_CRYPTO_PRIVATE_KEY"),
+		TransportCryptoLegacyPairs:   env("TRANSPORT_CRYPTO_LEGACY_KEY_PAIRS", "[]"),
+		TransportCryptoEnabledPaths:  env("TRANSPORT_CRYPTO_ENABLED_PATHS", "/open/sync/token,/open/sync/pull"),
+		TransportCryptoRequiredPaths: env("TRANSPORT_CRYPTO_REQUIRED_PATHS", "/open/sync/token,/open/sync/pull"),
 	}
 
 	jwtMinutes := envInt("JWT_EXPIRE_MINUTES", 480)
