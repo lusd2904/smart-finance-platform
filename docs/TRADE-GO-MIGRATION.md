@@ -53,7 +53,7 @@ Portal `/trade/*` nginx 默认指向 Go **`sentiment-trade-api`**。**默认 com
 
 | 组件 | 角色 |
 |------|------|
-| `services/trade-exec` | Longbridge official SDK：trade + quote |
+| `services/trade-exec` | Longbridge official SDK：trade HTTP + **shared** quote WS |
 | `services/trade-api` | JWT/RBAC HTTP；全部 `/trade/*` 原生 |
 | `sentiment-backend` | `strategy_evaluate` internal job delegate（非 trade HTTP） |
 
@@ -69,6 +69,12 @@ Portal `/trade/*` nginx 默认指向 Go **`sentiment-trade-api`**。**默认 com
 | AI/飞书 | ai/batch*, feishu/* |
 
 `auto_trade_enabled` 默认 off；paper/sim 由 DB 长桥 token 决定（`require_paper` 语义不变）。
+
+### Quote websocket invariant
+
+Depth / trades / kline / snapshot still need Longbridge `QuoteContext` (protobuf WS). **Do not** call `quote.NewFromCfg` per HTTP request — the protocol client reconnects forever after `1006 unexpected EOF`, and `Close()` does not stop an in-flight reconnect loop.
+
+`services/trade-exec` keeps **at most one live QuoteContext per credential signature**. Concurrent callers singleflight the Dial. Failed creates back off with jitter and open a circuit after repeated EOF. Handlers must not `Close` the shared session; `CloseQuoteSessions()` runs on trade-api shutdown. Token rotate Closes the previous conn.
 
 ### Python 回滚（可选 overlay）
 

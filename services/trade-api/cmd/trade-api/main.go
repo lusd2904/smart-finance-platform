@@ -59,6 +59,7 @@ func main() {
 		AppEnv:        cfg.AppEnv,
 	}
 	broker := tradeexec.NewSDKBroker()
+	defer tradeexec.CloseQuoteSessions()
 	platformRepo := &platform.Repo{DB: db}
 
 	srv := &handlers.Server{

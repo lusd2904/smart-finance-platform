@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 🐛 trade-api：长桥 Quote WS 重连风暴 / 内存爬升
+- 根因：`services/trade-exec` 每个盘口/成交/K线/快照请求 `quote.NewFromCfg` 新开一条 Quote websocket；SDK 在 1006/EOF 后无限重连（1s、无上限、Close 不停 in-flight reconnect）
+- 进程内按凭据签名复用 **一条** QuoteContext；Dial singleflight；失败指数退避+抖动；连续失败熔断。请求路径不再 `Close` 共享连接
+- 不抬 `sentiment-trade-api` slim `mem_limit`（仍 320m）。单测见 `quote_pool_test.go`
+
 ### ⚙️ sys_job.invoke_target 迁到 Go-native key
 - 幂等 SQL：`scripts/migrate_sys_job_go_invoke_targets.sql` 与增量 `sql/sys-job-go-invoke-targets.sql` 把已知 `module_task.*` 写成 Redis 作业类型（热度/EOD 补 `job_kwargs.market`）
 - 任务目录（Python / Go）与种子 INSERT 改为 Go key；分析页与任务白名单认这些 key
