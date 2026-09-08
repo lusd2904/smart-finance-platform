@@ -69,6 +69,77 @@ func TestResolveUnknownTarget(t *testing.T) {
 	if _, err := Resolve("module_task.scheduler_test.job", "", ""); err == nil {
 		t.Fatal("expected error")
 	}
+	if _, err := Resolve("not_a_job", "", ""); err == nil {
+		t.Fatal("expected error for unknown go key")
+	}
+}
+
+func TestResolveGoNativeAliasesMatchPythonPaths(t *testing.T) {
+	cases := []struct {
+		pythonTarget string
+		goTarget     string
+		jobArgs      string
+		jobKwargs    string
+	}{
+		{"module_task.market_task.refresh_finance_briefings_job", "finance_briefings", "", ""},
+		{"module_task.quant_task.run_indicator_refresh_job", "indicator_refresh", "", ""},
+		{"module_task.trade_task.run_feishu_push_job", "feishu_push", "", ""},
+		{"module_task.market_task.sync_market_job", "market_sync", "", ""},
+		{"module_task.market_task.refresh_symbol_content_job", "symbol_content", "", ""},
+		{"module_task.market_task.collect_market_heat_us_job", "market_heat_collect", "", `{"market":"US"}`},
+		{"module_task.market_task.eod_kline_sync_cn_job", "eod_kline_sync", "", `{"market":"CN"}`},
+	}
+	for _, tc := range cases {
+		py, err := Resolve(tc.pythonTarget, tc.jobArgs, tc.jobKwargs)
+		if err != nil {
+			t.Fatalf("python %s: %v", tc.pythonTarget, err)
+		}
+		goSpec, err := Resolve(tc.goTarget, tc.jobArgs, tc.jobKwargs)
+		if err != nil {
+			t.Fatalf("go %s: %v", tc.goTarget, err)
+		}
+		if py.JobType != goSpec.JobType || py.Queue != goSpec.Queue {
+			t.Fatalf("%s vs %s: py=%#v go=%#v", tc.pythonTarget, tc.goTarget, py, goSpec)
+		}
+		if !payloadEqual(py.Payload, goSpec.Payload) {
+			t.Fatalf("%s vs %s payload py=%v go=%v", tc.pythonTarget, tc.goTarget, py.Payload, goSpec.Payload)
+		}
+	}
+}
+
+func TestResolveEnabledProductionJobsGoKeys(t *testing.T) {
+	goKeys := map[int]string{
+		101: "market_sync",
+		103: "finance_briefings",
+		104: "symbol_content",
+		107: "indicator_refresh",
+		117: "feishu_push",
+	}
+	kwargs := map[int]string{
+		113: `{"market":"CN"}`,
+		114: `{"market":"HK"}`,
+		115: `{"market":"US"}`,
+		121: `{"market":"CN"}`,
+		122: `{"market":"HK"}`,
+		123: `{"market":"US"}`,
+	}
+	for _, id := range EnabledProductionIDs {
+		target := goKeys[id]
+		if target == "" {
+			target = "market_heat_collect"
+			if id >= 121 {
+				target = "eod_kline_sync"
+			}
+		}
+		kw := kwargs[id]
+		spec, err := Resolve(target, "", kw)
+		if err != nil {
+			t.Fatalf("job %d key %s: %v", id, target, err)
+		}
+		if spec.JobType == "" {
+			t.Fatalf("job %d empty job type", id)
+		}
+	}
 }
 
 func payloadEqual(got, want map[string]any) bool {
