@@ -77,6 +77,7 @@ import CyberBackground from '@/components/layout/CyberBackground.vue'
 import { getCodeImg } from '@/api/auth'
 import { useUserStore } from '@/store/user'
 import { useTheme } from '@/composables/useTheme'
+import { safeRedirect } from '@/utils/nav'
 
 const { applyTheme } = useTheme()
 const router = useRouter()
@@ -150,7 +151,7 @@ async function handleLogin() {
       Cookies.remove('username')
     }
     ElMessage.success('登录成功')
-    router.replace(route.query.redirect || '/index')
+    router.replace(safeRedirect(route.query.redirect))
   } catch (error) {
     if (captchaEnabled.value) {
       codeUrl.value = ''
@@ -165,7 +166,7 @@ async function handleLogin() {
 function enterDemo() {
   userStore.enterDemoSession()
   ElMessage.success('已进入演示')
-  router.replace('/index')
+  router.replace(safeRedirect(route.query.redirect))
 }
 
 onMounted(() => {

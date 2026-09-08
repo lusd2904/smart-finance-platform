@@ -46,6 +46,7 @@ export const useUserStore = defineStore('user', {
       this.roles = ['ROLE_DEMO']
       this.permissions = []
       this.usingStub = true
+      setToken('demo-stub-token')
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.setItem(DEMO_SESSION_KEY, '1')
       }

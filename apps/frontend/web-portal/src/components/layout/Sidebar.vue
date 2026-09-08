@@ -262,7 +262,13 @@ onMounted(() => {
   color: var(--text-emphasis);
 }
 
-@media (max-width: 1180px) {
-  .sidebar { display: none; }
+@media (max-width: 760px) {
+  .sidebar { width: 72px; }
+  .sidebar .logo-copy,
+  .sidebar .subsystem-title,
+  .sidebar .menu-text,
+  .sidebar .subsystem-arrow,
+  .sidebar .collapse-btn span,
+  .sidebar .submenu-list { display: none; }
 }
 </style>

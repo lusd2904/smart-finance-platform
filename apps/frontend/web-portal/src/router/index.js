@@ -29,8 +29,11 @@ const router = createRouter({
     {
       path: '/',
       component: MainLayout,
-      redirect: '/index',
       children: [
+        {
+          path: '',
+          redirect: '/index'
+        },
         {
           path: 'index',
           name: 'Workbench',
