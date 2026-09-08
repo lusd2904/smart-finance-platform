@@ -24,6 +24,9 @@ services:
   sentiment-backend:
     profiles: [mysql-ready]
 
+  sfp-backend:
+    profiles: [mysql-ready]
+
   sentiment-intel:
     profiles: [mysql-ready]
 
