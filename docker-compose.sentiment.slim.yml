@@ -169,7 +169,11 @@ services:
     mem_limit: 384m
     cpus: 0.5
 
-  # Go queue consumers (PR #67): scheduler-only sentiment-jobs + three workers (~768m RSS).
+  sfp-scheduler:
+    mem_limit: 64m
+    cpus: 0.25
+
+  # Go queue consumers: sfp-scheduler + three workers.
   sfp-market-worker:
     mem_limit: 320m
     cpus: 0.5

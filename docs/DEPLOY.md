@@ -74,7 +74,7 @@ Slim 合并方式（**对外路径不变**）：
 - `sentiment-data`：`APP_MODULE=data`（remaining market + quant + WS）；热读走 `sentiment-market-read`
 - `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
-- `sentiment-jobs`：`APP_ROLE=scheduler` + `APP_JOB_GROUP=none`（仅 APScheduler；队列由 Go workers 消费）
+- `sfp-scheduler`：Go 读 `sys_job` + cron，入 Redis DB 2；Python `sentiment-jobs` 仅 profile `python-scheduler` 回滚（见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md)）
 - `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（slim ~768m RSS 合计；full ~896m）
 - 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
 - **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
@@ -123,7 +123,7 @@ git pull --ff-only origin main
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
   sentiment-backend sentiment-trade sentiment-ai sentiment-news \
   sentiment-market sentiment-market-read sentiment-quant \
-  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
@@ -139,7 +139,7 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sentiment-jobs` / `sentiment-market-read` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy
+- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sfp-scheduler` / `sentiment-market-read` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `sentiment-frontend` 应为 healthy
 - full：`sentiment-backend` / `sentiment-trade` / `sentiment-frontend` + Go workers + `jobs-quant` / `jobs-llm` 应为 healthy
 - slim / full：`sentiment-market-read` 应为 healthy（行情只读 Go 服务，见 `services/market-read/README.md`）
 - 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
@@ -219,7 +219,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 |------|------|------|
 | 前端 / 网关 | http://127.0.0.1:12580（对外仍走 sfp.luapi.top） | 容器内非特权 nginx，监听 8080 |
 | 平台 API | http://127.0.0.1:19099（仅本机回环） | OpenAPI `/docs`；云上经网关反代访问 |
-| jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | slim/full 均只跑 APScheduler |
+| jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | slim/full 默认 `sfp-scheduler` |
 | market-read | http://127.0.0.1:19094/health（仅本机回环） | Go 行情只读热路径（#66） |
 | market worker | http://127.0.0.1:19097/health（仅本机回环） | Go 消费 market 队列（~384m RSS） |
 | quant worker | http://127.0.0.1:19096/health（仅本机回环） | Go 消费 quant 队列（indicator_refresh，~256m RSS） |
@@ -231,7 +231,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
 - `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 热读 + 行情 WS（**full / slim nginx 均 offload**；slim 上 `sentiment-data` 仍承接 `/quant/`、其余 `/market/`，不可删）
 - slim 合并：remaining market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`；热读与行情 WS 另起 `sentiment-market-read`
-- `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
+- `sfp-scheduler`：Go 调度入队；Python `sentiment-jobs` 为 `python-scheduler` 回滚
 - `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
 - `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
 - `sfp-notify-worker`：Go 消费 **llm** 队列（full ~256m；slim 224m）
@@ -241,7 +241,7 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
-  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
   sfp-market-worker sfp-quant-worker sfp-notify-worker \
   sentiment-trade sentiment-market sentiment-market-read sentiment-quant sentiment-news sentiment-ai sentiment-backend sentiment-frontend
 ```
@@ -279,7 +279,7 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
   sentiment-backend sentiment-trade sentiment-ai sentiment-news \
   sentiment-market sentiment-quant \
-  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
 ```
@@ -342,7 +342,7 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 
 ### jobs worker 健康检查
 
-`sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里。**slim** 看三个 Go workers + `sentiment-jobs` scheduler。
+`sfp-scheduler` / `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里。**slim** 看三个 Go workers + `sfp-scheduler`。
 
 - **market**：`curl -sf http://127.0.0.1:19097/health`
 - **quant**：`curl -sf http://127.0.0.1:19096/health`
@@ -412,14 +412,14 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "https://sfp.luapi.top/prod-api/open/requirements?status=pending"
 ```
 
-「总结并写入清单」和群聊发送都只入 Redis `llm` 队列并立即返回 `jobId`，由 `sentiment-jobs-llm`（full）或 `sentiment-jobs`（slim）调 Grok。测完在「AI 需求清单」手动改状态。
+「总结并写入清单」和群聊发送都只入 Redis `llm` 队列并立即返回 `jobId`，由 `sfp-notify-worker`（或 full-split 备用 `sentiment-jobs-llm`）调 Grok。测完在「AI 需求清单」手动改状态。
 
 ## 8. 上线检查
 
 1. 改默认密码与 JWT。
 2. AI 模型管理填写真实模型。
 3. 长桥配置填写凭证。
-4. 确认 `sentiment-jobs` 健康（`/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
+4. 确认 `sfp-scheduler` 健康（`http://127.0.0.1:19098/health`），再在「任务中心 / 自动分析任务」启用自选小时分析、行情同步、因子日扫。长任务进 Redis 分队列，由对应消费组执行，不会打到 API 进程。
 5. 合并功能分支 PR，不要直接推 `main`。
 6. 云上日常更新按文首「云主机怎么部署」滚业务容器。过一遍 [§2.1 注意事项](#21-本次改动注意事项队列--influx--redis--客户端)：Influx 未就绪时只保证登录；Redis 重建会丢会话；研判看 ticket 不要等同步返回。
 7. Widget / 需求清单换令牌必须走传输层信封（与 `/open/sync/token` 相同）；重建 `sentiment-news` / `sentiment-ai` 后 `.env.dockersentiment` 的 `TRANSPORT_CRYPTO_REQUIRED_PATHS` 才包含新路径。

@@ -12,7 +12,7 @@ COMPOSE="docker compose -f docker-compose.sentiment.yml"
 echo "==> [1/5] 构建并滚动更新 API / jobs（先于前端，避免 nginx 打到未就绪上游）"
 $COMPOSE up -d --no-deps --build \
   sentiment-backend sentiment-market sentiment-market-read sentiment-news sentiment-quant sentiment-ai sentiment-trade \
-  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-scheduler sentiment-jobs-quant sentiment-jobs-llm \
   sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 echo "==> [2/5] 等待平台 API 健康（最长 90s），再起前端"

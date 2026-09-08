@@ -32,6 +32,7 @@ bash scripts/deploy_and_verify_slim.sh
 |------|------|
 | `docker-compose.sentiment.yml` | 基础服务定义 |
 | `docker-compose.sentiment.slim.yml` | **cursor-1 唯一 overlay**（合并 API、Go workers、Influx 12g） |
+| `docker-compose.sentiment.scheduler-python.yml` | 可选：回滚到 Python `sentiment-jobs`（见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md)） |
 
 **全栈 `up -d --build` 会起的 slim 服务**（`profiles: [full-split]` 的拆分 API **不会**起；`sentiment-market-read` **会**起）：
 
@@ -45,7 +46,7 @@ bash scripts/deploy_and_verify_slim.sh
 | `sentiment-data` | `sentiment-data` | remaining `/market/` + `/quant/`（热读与行情 WS 已 offload） |
 | `sentiment-market-read` | `sentiment-market-read` | Go 热读 + WS / live quotes，320m |
 | `sentiment-intel` | `sentiment-intel` | sentiment + ai API |
-| `sentiment-jobs` | `sentiment-jobs` | **scheduler only**（`APP_JOB_GROUP=none`） |
+| `sfp-scheduler` | `sfp-scheduler` | Go 读 `sys_job` 入队（Python `sentiment-jobs` 仅回滚） |
 | `sfp-market-worker` | `sfp-market-worker` | Go 消费 **market** 队列 |
 | `sfp-quant-worker` | `sfp-quant-worker` | Go 消费 **quant** 队列 |
 | `sfp-notify-worker` | `sfp-notify-worker` | Go 消费 **llm** 队列 |
@@ -86,10 +87,10 @@ sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.
 bash scripts/deploy_and_verify_slim.sh
 
 # 3. 健康（Influx healthy 后）
-sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | rg 'sentiment-(backend|trade|data|intel|jobs|frontend|influx|market-read)|sfp-'
+sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | rg 'sentiment-(backend|trade|data|intel|frontend|influx|market-read)|sfp-'
 
 # 4. Worker / scheduler 回环健康
-curl -sf http://127.0.0.1:19098/health && echo   # sentiment-jobs scheduler
+curl -sf http://127.0.0.1:19098/health && echo   # sfp-scheduler
 curl -sf http://127.0.0.1:19097/health && echo   # sfp-market-worker
 curl -sf http://127.0.0.1:19096/health && echo   # sfp-quant-worker
 curl -sf http://127.0.0.1:19095/health && echo   # sfp-notify-worker
