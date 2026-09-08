@@ -21,6 +21,18 @@ export function fmtPct(val) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
+/** First usable last/price/close. Nullish/''/NaN/0 (missing sentinel) → null. */
+export function pickQuoteLast(row, keys = ['last', 'price', 'close']) {
+  if (!row || typeof row !== 'object') return null
+  for (const key of keys) {
+    const raw = row[key]
+    if (raw == null || raw === '') continue
+    const n = Number(raw)
+    if (Number.isFinite(n) && n !== 0) return n
+  }
+  return null
+}
+
 /** Quote last/price. Nullish, '', or non-finite → '--'. Explicit 0 stays numeric (do not invent 0.000 from missing fields). */
 export function fmtPrice(val, digits = 2) {
   if (val == null || val === '') return '--'

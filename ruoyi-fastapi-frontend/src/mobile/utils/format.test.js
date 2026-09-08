@@ -1,6 +1,21 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { estimateNotional, fmtMoney, fmtPrice, fmtPct } from './format.js'
+import { estimateNotional, fmtMoney, fmtPrice, fmtPct, pickQuoteLast } from './format.js'
+
+describe('pickQuoteLast', () => {
+  it('skips absent fields and 0 sentinels', () => {
+    assert.equal(pickQuoteLast({}), null)
+    assert.equal(pickQuoteLast({ changePct: 1.2 }), null)
+    assert.equal(pickQuoteLast({ last: 0, price: null, close: '' }), null)
+    assert.equal(pickQuoteLast({ last: '0.000' }), null)
+  })
+
+  it('prefers last then price then close', () => {
+    assert.equal(pickQuoteLast({ last: 226.4, price: 1, close: 2 }), 226.4)
+    assert.equal(pickQuoteLast({ price: 118.2, close: 2 }), 118.2)
+    assert.equal(pickQuoteLast({ close: 241 }), 241)
+  })
+})
 
 describe('fmtPrice', () => {
   it('shows -- for missing or non-finite prices, not 0.000', () => {

@@ -97,9 +97,11 @@ func QuoteLastPrice(quote map[string]interface{}) *float64 {
 		if v, ok := quote[key]; ok && v != nil && v != "" {
 			switch n := v.(type) {
 			case float64:
-				return &n
+				if n != 0 {
+					return &n
+				}
 			case json.Number:
-				if f, err := n.Float64(); err == nil {
+				if f, err := n.Float64(); err == nil && f != 0 {
 					return &f
 				}
 			}

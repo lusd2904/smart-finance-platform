@@ -34,6 +34,7 @@ import PullRefresh from '../components/PullRefresh.vue'
 import QuoteRow from '../components/QuoteRow.vue'
 import EmptyState from '../components/EmptyState.vue'
 import Skeleton from '../components/Skeleton.vue'
+import { pickQuoteLast } from '../utils/format'
 import { unwrapData, num, str } from '../utils/payload'
 import { inferMarket } from '../utils/ticketQty'
 import { sentimentDirection } from '../utils/riskEvents'
@@ -100,7 +101,7 @@ async function load() {
       return {
         ...row,
         market: row.market || inferMarket(row.symbol, 'US'),
-        last: num(row.last ?? row.price),
+        last: pickQuoteLast(row),
         changePct: num(row.changePct),
         subtitle: parts.join(' · '),
         fullSubtitle: full.join(' · ')

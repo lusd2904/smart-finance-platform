@@ -10,15 +10,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from module_market.config.heat_config import MARKET_META
 from module_market.dao.heat_dao import MarketHeatDao
-from utils.time_format_util import now_beijing
 from module_market.service.heat_service import (
     MarketHeatService,
+    _clean_last,
     _heat_summary,
     _is_weekday,
     _normalize_market,
@@ -26,8 +25,11 @@ from module_market.service.heat_service import (
 )
 from utils.http_fetch import extract_jsonp, fetch
 from utils.log_util import logger
+from utils.time_format_util import now_beijing
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 UA = {
@@ -145,6 +147,7 @@ def _fetch_eastmoney_rank(fs: str, pages: int = 1, page_size: int = 80) -> list[
                     'market_cap': cap,
                     'turnover': turnover,
                     'change_pct': _to_float(row.get('f3')),
+                    'last': _to_float(row.get('f2')),
                 }
             )
     return out
@@ -181,6 +184,7 @@ def _fetch_sina_cn_rank(pages: int = 3) -> list[dict[str, Any]]:
                     'market_cap': cap,
                     'turnover': _to_float(row.get('amount')),
                     'change_pct': _to_float(row.get('changepercent')),
+                    'last': _to_float(row.get('trade') or row.get('price')),
                 }
             )
     return out
@@ -214,6 +218,7 @@ def _fetch_sina_hk_rank(pages: int = 3) -> list[dict[str, Any]]:
                     'market_cap': cap if cap and cap > 0 else None,
                     'turnover': _to_float(row.get('amount')),
                     'change_pct': _to_float(row.get('changepercent')),
+                    'last': _to_float(row.get('lasttrade') or row.get('price') or row.get('trade')),
                 }
             )
     return out
@@ -254,9 +259,27 @@ def _fetch_sina_us_rank(pages: int = 6, sort: str = 'volume') -> list[dict[str, 
                     'market_cap': _to_float(row.get('mktcap')),
                     'turnover': amount,
                     'change_pct': _to_float(row.get('chg')),
+                    'last': price,
                 }
             )
     return out
+
+
+def _top50_snapshot_row(market: str, session_date: str, item: dict[str, Any], as_of: datetime) -> dict[str, Any]:
+    return {
+        'market': market,
+        'trade_date': session_date,
+        'rank_no': item['rankNo'],
+        'symbol': item['symbol'],
+        'name': item['name'],
+        'market_cap': item['market_cap'],
+        'turnover': item['turnover'],
+        'change_pct': item['change_pct'],
+        'last': _clean_last(item.get('last')),
+        'currency': item['currency'],
+        'as_of_time': as_of,
+        'create_time': as_of,
+    }
 
 
 def _merge_candidates(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -271,7 +294,7 @@ def _merge_candidates(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if current is None:
                 by_symbol[key] = dict(item)
                 continue
-            for field in ('name', 'market_cap', 'turnover', 'change_pct'):
+            for field in ('name', 'market_cap', 'turnover', 'change_pct', 'last'):
                 if current.get(field) in (None, '', 0) and item.get(field) not in (None, ''):
                     current[field] = item[field]
             if item.get('turnover') and (current.get('turnover') or 0) < item['turnover']:
@@ -440,22 +463,7 @@ async def collect_market(db: AsyncSession, market: str, trade_date: str | None =
         db,
         market,
         session_date,
-        [
-            {
-                'market': market,
-                'trade_date': session_date,
-                'rank_no': item['rankNo'],
-                'symbol': item['symbol'],
-                'name': item['name'],
-                'market_cap': item['market_cap'],
-                'turnover': item['turnover'],
-                'change_pct': item['change_pct'],
-                'currency': item['currency'],
-                'as_of_time': as_of,
-                'create_time': as_of,
-            }
-            for item in top50
-        ],
+        [_top50_snapshot_row(market, session_date, item, as_of) for item in top50],
     )
     await db.commit()
     result = {
