@@ -2,6 +2,30 @@ package jobs
 
 import "testing"
 
+func TestShouldAnalyzeFromPayloadDefaultsTrue(t *testing.T) {
+	if !shouldAnalyzeFromPayload(nil) {
+		t.Fatal("nil payload should analyze")
+	}
+	if !shouldAnalyzeFromPayload(map[string]interface{}{}) {
+		t.Fatal("omitted analyze should analyze (job 100 empty job_kwargs)")
+	}
+	if !shouldAnalyzeFromPayload(map[string]interface{}{"analyze": nil}) {
+		t.Fatal("null analyze should analyze")
+	}
+	if !shouldAnalyzeFromPayload(map[string]interface{}{"analyze": true}) {
+		t.Fatal("explicit true should analyze")
+	}
+	if !shouldAnalyzeFromPayload(map[string]interface{}{"analyze": "true"}) {
+		t.Fatal("string true should analyze")
+	}
+	if shouldAnalyzeFromPayload(map[string]interface{}{"analyze": false}) {
+		t.Fatal("explicit false is collect-only")
+	}
+	if shouldAnalyzeFromPayload(map[string]interface{}{"analyze": "false"}) {
+		t.Fatal("string false is collect-only")
+	}
+}
+
 func TestShouldTryNextSentimentModel(t *testing.T) {
 	cases := []struct {
 		code int

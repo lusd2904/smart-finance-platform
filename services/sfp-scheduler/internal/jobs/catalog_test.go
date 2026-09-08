@@ -74,6 +74,30 @@ func TestResolveUnknownTarget(t *testing.T) {
 	}
 }
 
+func TestResolveSentimentCollectEmptyKwargsAnalyzes(t *testing.T) {
+	spec, err := Resolve("sentiment_collect", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Payload["analyze"] != true {
+		t.Fatalf("job 100 empty job_kwargs must analyze, payload=%v", spec.Payload)
+	}
+	spec, err = Resolve("sentiment_collect", "", "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Payload["analyze"] != true {
+		t.Fatalf("empty object kwargs must analyze, payload=%v", spec.Payload)
+	}
+	spec, err = Resolve("sentiment_collect", "", `{"analyze":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Payload["analyze"] != false {
+		t.Fatalf("explicit false must stay collect-only, payload=%v", spec.Payload)
+	}
+}
+
 func TestResolveGoNativeAliasesMatchPythonPaths(t *testing.T) {
 	cases := []struct {
 		pythonTarget string

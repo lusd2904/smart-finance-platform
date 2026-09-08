@@ -9,7 +9,7 @@ Slim production no longer runs `sentiment-intel` / `sentiment-backend` Python co
 | `feishu_push` | **Native** | `notify-worker` → MySQL `plat_feishu_subscription` |
 | `user_notice` | **Native** | `notify-worker` → `plat_notification` insert |
 | `sentiment_analyze` | **Native** | `notify-worker` → OpenAI-compatible gateway + `sentiment_analysis` |
-| `sentiment_collect` | **Native (X-monitor path)** | Counts pending `sentiment_news` from ingest; RSS scrapers not ported — use `POST /sentiment/ingest/x_monitor` |
+| `sentiment_collect` | **Native (X-monitor path)** | Counts pending `sentiment_news` from ingest; RSS scrapers not ported — use `POST /sentiment/ingest/x_monitor`. Cron **job 100** `job_kwargs` = `{"analyze":true}` (omitted analyze still analyzes when `auto_analyze=1`) |
 | `daily_review` | **Native wrapper** | Same as `sentiment_collect` with `analyze=true` (runs analyze when `auto_analyze=1`) |
 | `req_send` | **Native** | `notify-worker` → parallel bot LLM round + `ai_req_message` / `ai_req_item` |
 | `req_summarize` | **Native** | Same as `req_send` with `summarize=true` |

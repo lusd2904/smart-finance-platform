@@ -43,7 +43,9 @@ func (s *Service) RunSentimentCollect(ctx context.Context, payload map[string]in
 		"saved":   0,
 		"message": fmt.Sprintf("RSS 采集未迁移；当前依赖 X-monitor ingest。最近 %d 分钟待分析 %d 条。", analyzeWindowMinutes, pending),
 	}
-	if !boolFrom(payload["analyze"], false) {
+	// Empty cron job_kwargs (job 100) omit analyze. Default true and honor
+	// sentiment_ai_config.auto_analyze (also defaults to on).
+	if !shouldAnalyzeFromPayload(payload) {
 		return result, nil
 	}
 	autoAnalyze, err := s.sentimentAutoAnalyze(ctx)
@@ -256,6 +258,17 @@ FROM ai_models WHERE status = '0' ORDER BY model_sort, model_id`)
 
 func shouldTryNextSentimentModel(code int) bool {
 	return llm.ShouldFailover(code)
+}
+
+func shouldAnalyzeFromPayload(payload map[string]interface{}) bool {
+	if payload == nil {
+		return true
+	}
+	raw, ok := payload["analyze"]
+	if !ok || raw == nil {
+		return true
+	}
+	return boolFrom(raw, true)
 }
 
 func orderSentimentModels(models []aiModelRow) []aiModelRow {
