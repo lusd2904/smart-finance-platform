@@ -59,6 +59,8 @@ services:
         condition: service_healthy
       sentiment-market-read:
         condition: service_healthy
+      sentiment-trade-api:
+        condition: service_healthy
       # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
@@ -195,6 +197,39 @@ services:
       REDIS_HOST: ruoyi-redis
       INFLUX_URL: http://sentiment-influxdb:8086
     depends_on: *data-depends
+    mem_limit: 320m
+    cpus: 0.5
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
+  # 交易门户 HTTP（Go）：长桥 account/positions/orders/submit + Python 回退
+  sentiment-trade-api:
+    build:
+      context: .
+      dockerfile: services/trade-api/Dockerfile
+    image: sentiment-trade-api:latest
+    container_name: sentiment-trade-api
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":8080"
+      DB_HOST: ruoyi-mysql
+      REDIS_HOST: ruoyi-redis
+      TRADE_PYTHON_URL: http://sentiment-trade:9099
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-trade:
+        condition: service_healthy
     mem_limit: 320m
     cpus: 0.5
     networks:

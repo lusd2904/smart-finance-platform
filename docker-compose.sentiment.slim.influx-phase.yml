@@ -36,6 +36,9 @@ services:
   sentiment-trade:
     profiles: [mysql-ready]
 
+  sentiment-trade-api:
+    profiles: [mysql-ready]
+
   sentiment-jobs:
     profiles: [mysql-ready]
 
