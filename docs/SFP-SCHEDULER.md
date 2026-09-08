@@ -37,16 +37,7 @@ sudo docker exec sentiment-redis redis-cli -n 2 -a "$REDIS_PASSWORD" GET sfp:sch
 
 ### 回滚到 Python
 
-```bash
-sudo docker compose \
-  -f docker-compose.sentiment.yml \
-  -f docker-compose.sentiment.slim.yml \
-  -f docker-compose.sentiment.scheduler-python.yml \
-  --profile legacy-python \
-  up -d --no-deps sentiment-jobs
-sudo docker rm -f sfp-scheduler
-curl -sf http://127.0.0.1:19098/health && echo
-```
+Python `sentiment-jobs` overlay 已从仓库删除。调度只跑 `sfp-scheduler`。对照旧实现见 [PYTHON-REMOVED.md](./PYTHON-REMOVED.md)。
 
 ## 入队核对清单（sys_job → Redis）
 
@@ -106,7 +97,7 @@ Python `module_task.*` 仍解析一轮（#92 别名），方便混跑或回滚�
 ```bash
 # 部署后由 sql_migrate 自动跑，或手工：
 mysql ... < scripts/migrate_sys_job_go_invoke_targets.sql
-# 等价增量：ruoyi-fastapi-backend/sql/sys-job-go-invoke-targets.sql
+# 等价增量：sql/sys-job-go-invoke-targets.sql
 ```
 
 热度 / 收盘 K 线等按市场拆行的任务，Go key 相同，市场写在 `job_kwargs`（例如 `{"market":"CN"}`）。

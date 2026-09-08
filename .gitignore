@@ -166,10 +166,10 @@ output/
 .env
 .env.*
 !.env.example
+!.env.dockersentiment.example
 !**/.env.example
 !**/.env.*.example
-ruoyi-fastapi-backend/.env*
-!ruoyi-fastapi-backend/.env.*.example
+.env.dockersentiment
 ruoyi-fastapi-frontend/.env*
 !ruoyi-fastapi-frontend/.env.*.example
 *.log

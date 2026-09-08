@@ -29,7 +29,7 @@ go test ./...
 go run ./cmd/market-read
 ```
 
-环境变量与 `ruoyi-fastapi-backend/.env.dockersentiment` 一致（`JWT_*`、`DB_*`、`REDIS_*`、`INFLUX_*`）。
+环境变量与仓库根 `.env.dockersentiment` 一致（`JWT_*`、`DB_*`、`REDIS_*`、`INFLUX_*`）。
 
 Docker（compose 服务名 `sentiment-market-read`）：
 

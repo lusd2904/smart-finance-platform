@@ -6,7 +6,7 @@
 --
 -- Apply (either path):
 --   python3 scripts/sql_migrate.py apply
---     → ruoyi-fastapi-backend/sql/sys-job-go-invoke-targets.sql
+--     → sql/sys-job-go-invoke-targets.sql
 --   mysql ... < scripts/migrate_sys_job_go_invoke_targets.sql
 --
 -- =====================================================================

@@ -6,7 +6,7 @@
   - docker-compose.sentiment.yml 在数据卷首次挂载时通过 /docker-entrypoint-initdb.d
     执行全量基线（BASELINE_FILES，编号 01-19，跳过废弃的 08）；
   - 此前 scripts/deploy_and_verify.sh 硬编码重放 8 个增量文件且 stderr 被 2>/dev/null 吞掉。
-  本工具按文件名排序扫描 ruoyi-fastapi-backend/sql/*.sql，未登记的依序执行并登记，
+  本工具按文件名排序扫描 sql/*.sql，未登记的依序执行并登记，
   错误透传可见。
 
 用法：
@@ -40,7 +40,7 @@ from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SQL_DIR = REPO / "ruoyi-fastapi-backend" / "sql"
+SQL_DIR = REPO / "sql"
 
 # PostgreSQL 版本基线，不适用于 MySQL，永不扫描
 EXCLUDE_FILES = {"ruoyi-fastapi-pg.sql"}

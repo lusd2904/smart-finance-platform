@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 🧹 删除 Python RuoYi-FastAPI 运行时（Linguist / 死代码）
+- 从 `main` 删除 `ruoyi-fastapi-backend/`、`ruoyi-fastapi-test/`、Python compose fallback overlay、原版 `docker-compose.my.yml` / `.pg.yml`，以及依赖 `module_*` 的回填脚本
+- SQL 基线/增量迁到仓库根 `sql/`；Go `env_file` 模板迁到 `.env.dockersentiment.example`
+- 默认 compose 与 nginx 只指向 Go 服务；CI 去掉 ruff / pytest / pip-audit / `Dockerfile.sentiment` 阻塞任务
+- 保留 `scripts/sql_migrate.py` 与 `scripts/sync_from_prod.py`（不导入已删后端）
+- 回滚与删除清单见 [docs/PYTHON-REMOVED.md](./docs/PYTHON-REMOVED.md)
+
 ### 🐛 trade-api：长桥 Quote WS 重连风暴 / 内存爬升
 - 根因：`services/trade-exec` 每个盘口/成交/K线/快照请求 `quote.NewFromCfg` 新开一条 Quote websocket；SDK 在 1006/EOF 后无限重连（1s、无上限、Close 不停 in-flight reconnect）
 - 进程内按凭据签名复用 **一条** QuoteContext；Dial singleflight；失败指数退避+抖动；连续失败熔断。请求路径不再 `Close` 共享连接

@@ -14,7 +14,7 @@
 ## 本地开发注意
 
 1. 复制环境变量模板后自行填写密钥，**不要提交真实密钥**：
-   - `ruoyi-fastapi-backend/.env.dockersentiment.example` → `.env.dockersentiment`
+   - `.env.dockersentiment.example` → `.env.dockersentiment`
    - `ruoyi-fastapi-frontend/.env.docker.example` → `.env.docker`
 2. 勿提交 `node_modules/`、`dist/`、`.env*`、密钥与本地数据
 

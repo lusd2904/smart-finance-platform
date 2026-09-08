@@ -1,7 +1,7 @@
 # sentiment-data 热路径 offload（P3 finish）
 
 目标：门户 + 行情 WS 在**默认 slim 栈**上不再依赖 fat Python `sentiment-data`（典型 RSS ~424Mi）。  
-回退只改 nginx upstream / compose profile，不改前端契约。
+Python `sentiment-data` 与 `--profile legacy-python` overlay **已从 main 删除**（[PYTHON-REMOVED.md](./PYTHON-REMOVED.md)）。
 
 ---
 

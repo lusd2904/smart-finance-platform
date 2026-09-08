@@ -1,21 +1,12 @@
 # 监控栈（Prometheus/Grafana）另起：
 #   docker compose -f docker-compose.monitor.yml up -d
 #
-# 内存：16 GiB 及以下云主机用 slim 叠加层（见 docker-compose.sentiment.slim.yml）；
-# 本机大内存仍用单文件全量拆分。
+# 内存：16 GiB 及以下云主机用 slim 叠加层（见 docker-compose.sentiment.slim.yml）。
+# 生产路径为 Go-only（sfp-backend / sfp-intel / data-api / trade-api / market-read / workers / scheduler）。
+# Python RuoYi-FastAPI 后端已从 main 删除，回滚见 docs/PYTHON-REMOVED.md。
 #
 # 禁止 compose down 整栈。新增/更新服务：
 #   docker compose -f docker-compose.sentiment.yml up -d --no-deps --build <service>
-x-backend-image: &backend-image
-  build:
-    context: ./ruoyi-fastapi-backend
-    dockerfile: Dockerfile.sentiment
-  image: sentiment-backend:latest
-  volumes:
-    - ./ruoyi-fastapi-backend/.env.dockersentiment:/app/.env.dockersentiment:ro
-  networks:
-    - sentiment-network
-  restart: unless-stopped
 
 # 登录/系统/AI/交易 HTTP 只等 MySQL+Redis。Influx 冷启动可达 10 分钟，不能挡住登录。
 x-core-depends: &core-depends
@@ -34,7 +25,6 @@ x-data-depends: &data-depends
     condition: service_healthy
 
 services:
-  # 前端服务
   sentiment-frontend:
     build:
       context: ./ruoyi-fastapi-frontend
@@ -49,11 +39,7 @@ services:
     depends_on:
       sfp-backend:
         condition: service_healthy
-      sentiment-backend:
-        condition: service_healthy
-      sentiment-news:
-        condition: service_healthy
-      sentiment-ai:
+      sfp-intel:
         condition: service_healthy
       sentiment-market-read:
         condition: service_healthy
@@ -71,35 +57,7 @@ services:
     networks:
       - sentiment-network
 
-  # 平台 API：登录/系统/任务中心。nginx 将 trade/market/quant/news/ai 分片到独立进程。
-  sentiment-backend:
-    <<: *backend-image
-    container_name: sentiment-backend
-    ports:
-      - "127.0.0.1:19099:9099"
-    environment:
-      APP_ROLE: api
-      APP_MODULE: platform
-      APP_JOB_GROUP: none
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
-    depends_on: *core-depends
-    mem_limit: 1g
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 25s
-
-  # Go platform API：登录 / getInfo / getRouters / system RBAC（替代 APP_MODULE=platform HTTP）
+  # Go platform API：登录 / getInfo / getRouters / system RBAC / dashboard / ws/jobs
   sfp-backend:
     build:
       context: ./services/sfp-backend
@@ -107,7 +65,7 @@ services:
     image: sfp-backend:latest
     container_name: sfp-backend
     env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
+      - ./.env.dockersentiment
     environment:
       LISTEN_ADDR: ":9099"
       DB_HOST: sentiment-mysql
@@ -134,64 +92,34 @@ services:
       retries: 8
       start_period: 10s
 
-  # Python trade HTTP rollback only. Slim uses --profile legacy-python; this
-  # base profile is for full-stack emergency overlay.
-  sentiment-trade:
-    <<: *backend-image
-    profiles: [legacy-python, trade-python-fallback]
-    container_name: sentiment-trade
+  # Go intel API：/sentiment/ /ai/ /open/
+  sfp-intel:
+    build:
+      context: ./services/sfp-intel
+      dockerfile: Dockerfile
+    image: sfp-intel:latest
+    container_name: sfp-intel
+    env_file:
+      - ./.env.dockersentiment
     environment:
-      APP_ROLE: api
-      APP_MODULE: trade
-      APP_JOB_GROUP: none
-      APP_NAME: "Trade API"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      LISTEN_ADDR: ":8080"
+      DB_HOST: sentiment-mysql
+      REDIS_HOST: ruoyi-redis
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
     depends_on: *core-depends
-    mem_limit: 1g
-    cpus: 1.0
+    mem_limit: 320m
+    cpus: 0.5
+    networks:
+      - sentiment-network
+    restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
       interval: 15s
       timeout: 5s
       retries: 8
-      start_period: 25s
+      start_period: 10s
 
-  sentiment-market:
-    <<: *backend-image
-    container_name: sentiment-market
-    environment:
-      APP_ROLE: api
-      APP_MODULE: market
-      APP_JOB_GROUP: none
-      APP_NAME: "Market API"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # MARKET_READ_OFFLOAD=true (default via nginx) routes hot read paths to sentiment-market-read
-      MARKET_READ_OFFLOAD: ${MARKET_READ_OFFLOAD:-true}
-    depends_on: *data-depends
-    mem_limit: 1g
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 25s
-
-  # 行情只读热路径 + 行情 WS / live quotes。Go 微服务，目标 RSS 数百 MB 级。
+  # 行情只读热路径 + 行情 WS / live quotes。
   sentiment-market-read:
     build:
       context: ./services/market-read
@@ -199,7 +127,7 @@ services:
     image: sentiment-market-read:latest
     container_name: sentiment-market-read
     env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
+      - ./.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
@@ -218,7 +146,7 @@ services:
       retries: 8
       start_period: 10s
 
-  # 交易门户 HTTP（Go）：全部 /trade/* 原生；strategy_evaluate 经 sfp-backend internal jobs（需 STRATEGY_EVAL_URL 或 quant-python-fallback）
+  # 交易门户 HTTP（Go）：全部 /trade/* 原生；strategy_evaluate 经 sfp-backend internal jobs
   sentiment-trade-api:
     build:
       context: .
@@ -226,7 +154,7 @@ services:
     image: sentiment-trade-api:latest
     container_name: sentiment-trade-api
     env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
+      - ./.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
@@ -251,7 +179,7 @@ services:
       retries: 8
       start_period: 10s
 
-  # 剩余 /market/ + /quant/ HTTP（非热读）。Go 微服务，替代 fat Python sentiment-data。
+  # 剩余 /market/ + /quant/ HTTP（非热读）。
   sentiment-data-api:
     build:
       context: .
@@ -259,7 +187,7 @@ services:
     image: sentiment-data-api:latest
     container_name: sentiment-data-api
     env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
+      - ./.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8081"
       DB_HOST: sentiment-mysql
@@ -278,120 +206,7 @@ services:
       retries: 8
       start_period: 10s
 
-  sentiment-quant:
-    <<: *backend-image
-    container_name: sentiment-quant
-    environment:
-      APP_ROLE: api
-      APP_MODULE: quant
-      APP_JOB_GROUP: none
-      APP_NAME: "Quant API"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *data-depends
-    mem_limit: 1g
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 25s
-
-  sentiment-news:
-    <<: *backend-image
-    container_name: sentiment-news
-    environment:
-      APP_ROLE: api
-      APP_MODULE: sentiment
-      APP_JOB_GROUP: none
-      APP_NAME: "Sentiment API"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *core-depends
-    mem_limit: 1g
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 25s
-
-  sentiment-ai:
-    <<: *backend-image
-    container_name: sentiment-ai
-    environment:
-      APP_ROLE: api
-      APP_MODULE: ai
-      APP_JOB_GROUP: none
-      APP_NAME: "AI API"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *core-depends
-    mem_limit: 1g
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9099/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 8
-      start_period: 25s
-
-  # Python APScheduler rollback. Slim uses --profile legacy-python; this
-  # profile is for the scheduler-python overlay / full-stack emergency.
-  sentiment-jobs:
-    <<: *backend-image
-    container_name: sentiment-jobs
-    profiles: [legacy-python, python-scheduler]
-    command: ["python", "scheduler_app.py", "--env=dockersentiment"]
-    ports:
-      - "127.0.0.1:19098:9098"
-    environment:
-      APP_ROLE: scheduler
-      APP_JOB_GROUP: none
-      APP_PORT: "9098"
-      APP_NAME: "Sentiment Jobs"
-      APP_ROOT_PATH: ""
-      APP_WORKERS: "1"
-      APP_RELOAD: "false"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *core-depends
-    mem_limit: 2g
-    cpus: 2.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-
-  # Go scheduler: load sys_job + cron, enqueue Redis DB 2 payloads. Replaces sentiment-jobs.
+  # Go scheduler: load sys_job + cron, enqueue Redis DB 2 payloads.
   sfp-scheduler:
     build:
       context: ./services/sfp-scheduler
@@ -472,7 +287,7 @@ services:
       retries: 12
       start_period: 25s
 
-  # quant 队列：Go worker（#77 因子/策略/清单扫描 + #78 Longbridge 开仓/auto_trade/止损卖出）
+  # quant 队列：Go worker（因子/策略/清单扫描 + Longbridge 开仓/auto_trade/止损卖出）
   sfp-quant-worker:
     build:
       context: ./workers/quant-worker
@@ -480,7 +295,7 @@ services:
     image: sfp-quant-worker:latest
     container_name: sfp-quant-worker
     env_file:
-      - ./ruoyi-fastapi-backend/.env.dockersentiment
+      - ./.env.dockersentiment
     ports:
       - "127.0.0.1:19096:9097"
     environment:
@@ -521,7 +336,7 @@ services:
       retries: 12
       start_period: 25s
 
-  # llm 队列：Go worker（舆情分析 / 需求沟通 / 飞书推送原生；市场选股类任务暂 stub）
+  # llm 队列：Go worker（舆情分析 / 需求沟通 / 飞书推送原生）
   sfp-notify-worker:
     build:
       context: ./workers/notify-worker
@@ -561,74 +376,10 @@ services:
       retries: 12
       start_period: 25s
 
-  # 量化计算消费组（full-split 备用；Go sfp-quant-worker 为主消费方）
-  sentiment-jobs-quant:
-    <<: *backend-image
-    container_name: sentiment-jobs-quant
-    command: ["python", "scheduler_app.py", "--env=dockersentiment"]
-    environment:
-      APP_ROLE: worker
-      APP_JOB_GROUP: quant
-      APP_PORT: "9098"
-      APP_NAME: "Jobs Quant"
-      APP_ROOT_PATH: ""
-      APP_WORKERS: "1"
-      APP_RELOAD: "false"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *data-depends
-    mem_limit: 1536m
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 12
-      start_period: 25s
-
-  # 舆情与 LLM 消费组
-  sentiment-jobs-llm:
-    <<: *backend-image
-    container_name: sentiment-jobs-llm
-    command: ["python", "scheduler_app.py", "--env=dockersentiment"]
-    environment:
-      APP_ROLE: worker
-      APP_JOB_GROUP: llm
-      APP_PORT: "9098"
-      APP_NAME: "Jobs LLM"
-      APP_ROOT_PATH: ""
-      APP_WORKERS: "1"
-      APP_RELOAD: "false"
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    depends_on: *core-depends
-    mem_limit: 1536m
-    cpus: 1.0
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9098/health', timeout=3)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 12
-      start_period: 25s
-
-  # InfluxDB时序库服务（行情/量化数据）
   sentiment-influxdb:
     image: influxdb:2.7
     container_name: sentiment-influxdb
     restart: unless-stopped
-    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:18086:8086"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
@@ -636,9 +387,6 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
-      # 1044 shard 冷启动：538 shard ≈ 3GiB。18G 恢复 / ~2992 shard 需 slim overlay
-      # 18G 恢复 / ~2992 shard 需 slim overlay（≥12g + swap）— 本 full 栈 6g 不足。
-      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。
       GOMAXPROCS: "1"
       GOMEMLIMIT: "5GiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"
@@ -659,10 +407,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 20
-      # 存量分片很多时启动要扫 TSM/WAL，5s 探测会在未监听时把容器打成 unhealthy
       start_period: 10m
 
-  # MySQL服务
   sentiment-mysql:
     image: mysql:8.0
     container_name: sentiment-mysql
@@ -670,29 +416,27 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: sentiment-ai
-    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:13306:3306"
     volumes:
       - sentiment-mysql-data:/var/lib/mysql
-      - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
-      - ./ruoyi-fastapi-backend/sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
-      - ./ruoyi-fastapi-backend/sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
-      - ./ruoyi-fastapi-backend/sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
-      - ./ruoyi-fastapi-backend/sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
-      - ./ruoyi-fastapi-backend/sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
-      - ./ruoyi-fastapi-backend/sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
-      # 注：初始化脚本编号跳过08——对应历史迁移脚本已废弃删除，保留编号缺口以维持既有环境的执行顺序一致
-      - ./ruoyi-fastapi-backend/sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
-      - ./ruoyi-fastapi-backend/sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
-      - ./ruoyi-fastapi-backend/sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
-      - ./ruoyi-fastapi-backend/sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
-      - ./ruoyi-fastapi-backend/sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
-      - ./ruoyi-fastapi-backend/sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
-      - ./ruoyi-fastapi-backend/sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
-      - ./ruoyi-fastapi-backend/sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
-      - ./ruoyi-fastapi-backend/sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
-      - ./ruoyi-fastapi-backend/sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
-      - ./ruoyi-fastapi-backend/sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
-    # max-connections=300：~10 Python 进程 × (DB_POOL_SIZE 8 + DB_MAX_OVERFLOW 4) ≈ 120；旧 50+10 会到 ~600 并饿死此上限
+      - ./sql/ruoyi-fastapi.sql:/docker-entrypoint-initdb.d/01-ruoyi-fastapi.sql
+      - ./sql/sentiment-menu.sql:/docker-entrypoint-initdb.d/02-sentiment-menu.sql
+      - ./sql/market-menu.sql:/docker-entrypoint-initdb.d/03-market-menu.sql
+      - ./sql/quant-menu.sql:/docker-entrypoint-initdb.d/04-quant-menu.sql
+      - ./sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
+      - ./sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
+      - ./sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
+      # 初始化脚本编号跳过 08（历史迁移已废弃），保留缺口以维持既有环境顺序
+      - ./sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
+      - ./sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
+      - ./sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
+      - ./sql/market-watchlist.sql:/docker-entrypoint-initdb.d/12-market-watchlist.sql
+      - ./sql/web-polish.sql:/docker-entrypoint-initdb.d/13-web-polish.sql
+      - ./sql/analysis-scheduler.sql:/docker-entrypoint-initdb.d/14-analysis-scheduler.sql
+      - ./sql/quant-longbridge-user.sql:/docker-entrypoint-initdb.d/15-quant-longbridge-user.sql
+      - ./sql/ai-requirement-board.sql:/docker-entrypoint-initdb.d/16-ai-requirement-board.sql
+      - ./sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
+      - ./sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
+      - ./sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
     networks:
       - sentiment-network
@@ -702,14 +446,10 @@ services:
       timeout: 10s
       retries: 30
 
-  # Redis服务
   ruoyi-redis:
     image: redis:7-alpine
     container_name: sentiment-redis
     restart: unless-stopped
-    # 数据层不对外暴露端口；需要本机调试时改为 "127.0.0.1:16379:6379"
-    # Redis 密码可选：留空 = 允许无密码访问（与运行栈现状一致），设置则启用 requirepass。
-    # noeviction：内存满时拒绝写入。ticket/JWT 带 TTL，volatile-lru 会在压力下把它们踢掉。
     command:
       [
         "redis-server",
@@ -736,7 +476,6 @@ services:
       timeout: 10s
       retries: 30
 
-  # 日备：立刻 dump MySQL+Influx，随后每 86400s。不暴露端口、不 down 栈。
   sfp-backup:
     image: docker:27-cli
     container_name: sentiment-backup
@@ -764,7 +503,6 @@ volumes:
   sentiment-influxdb-config:
   sentiment-redis-data:
 
-# 网络配置
 networks:
   sentiment-network:
     name: sentiment-network
