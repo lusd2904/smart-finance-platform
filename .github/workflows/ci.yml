@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install ruff
-        run: pip install ruff==0.15.0
+        run: pip install -r requirements-dev.txt
       # 棘轮式检查：只对相对基线(默认上一个 push / PR base)有变更的文件执行，
       # 避免历史 500+ 存量问题阻塞；新改动必须零新增告警。
       - name: Determine changed files
