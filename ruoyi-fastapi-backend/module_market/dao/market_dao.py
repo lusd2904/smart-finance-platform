@@ -103,6 +103,34 @@ class MarketInstrumentDao:
         return counts
 
     @classmethod
+    async def get_close_on_trade_date(
+        cls, db: AsyncSession, symbols: list[str], trade_date: str
+    ) -> dict[str, float]:
+        """Close price per symbol on a specific trade date (for Top50 last backfill)."""
+        uniq = [s for s in dict.fromkeys(symbols) if s]
+        if not uniq:
+            return {}
+        rows = (
+            await db.execute(
+                select(MarketPriceHistoryDaily.symbol, MarketPriceHistoryDaily.close_price).where(
+                    MarketPriceHistoryDaily.symbol.in_(uniq),
+                    MarketPriceHistoryDaily.trade_date == str(trade_date)[:10],
+                )
+            )
+        ).all()
+        out: dict[str, float] = {}
+        for symbol, close in rows:
+            if close is None:
+                continue
+            try:
+                value = float(close)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                out[str(symbol).strip().upper()] = value
+        return out
+
+    @classmethod
     async def get_latest_daily_quotes(cls, db: AsyncSession, symbols: list[str]) -> dict[str, dict[str, Any]]:
         """当前页标的最近两根日K，用于列表最新价/涨跌幅。"""
         uniq = [s for s in dict.fromkeys(symbols) if s]

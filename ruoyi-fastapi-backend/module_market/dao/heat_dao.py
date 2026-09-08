@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, desc, select
+from sqlalchemy import delete, desc, or_, select, update
 
 from module_market.entity.do.market_do import MarketHeatDaily, MarketTop50Snapshot
 
@@ -107,3 +107,31 @@ class MarketHeatDao:
             )
         ).scalars().all()
         return list(rows)
+
+    @classmethod
+    async def list_top50_missing_last(
+        cls,
+        db: AsyncSession,
+        market: str | None,
+        start_date: str,
+        end_date: str,
+    ) -> list[MarketTop50Snapshot]:
+        """Top50 rows with null/zero last in [start_date, end_date]."""
+        query = (
+            select(MarketTop50Snapshot)
+            .where(
+                MarketTop50Snapshot.trade_date >= start_date,
+                MarketTop50Snapshot.trade_date <= end_date,
+                or_(MarketTop50Snapshot.last.is_(None), MarketTop50Snapshot.last == 0),
+            )
+            .order_by(MarketTop50Snapshot.trade_date, MarketTop50Snapshot.rank_no)
+        )
+        if market:
+            query = query.where(MarketTop50Snapshot.market == market.upper())
+        return list((await db.execute(query)).scalars().all())
+
+    @classmethod
+    async def patch_top50_last(cls, db: AsyncSession, snapshot_id: int, last: float) -> None:
+        await db.execute(
+            update(MarketTop50Snapshot).where(MarketTop50Snapshot.id == snapshot_id).values(last=last)
+        )

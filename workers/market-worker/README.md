@@ -14,6 +14,18 @@ Low-memory consumer for Redis `sfp:job:queue:market`. Replaces the Python `senti
 | `listings_sync` | **Go** | Influx symbol tags → `market_instrument` (listed) |
 | `finance_briefings` | **Go** | RSS + internal pulse/tech scan → `finance_briefing` |
 | `market_heat_collect` | **Go** | Public EOD ranks (Sina / Tencent / Eastmoney) → `market_heat_daily` + Top50 |
+
+### One-shot: backfill Top50 `last`
+
+Historical rows may lack `last` (H5 shows `--`). Fill from MySQL daily bars — see [docs/runbooks/heat-top50-last-backfill.md](../../docs/runbooks/heat-top50-last-backfill.md).
+
+```bash
+cd workers/market-worker
+go build -o bin/heat-backfill-last ./cmd/heat-backfill-last
+DB_HOST=127.0.0.1 DB_PORT=13306 DB_DATABASE=sentiment-ai ./bin/heat-backfill-last --from 2026-08-27 --to 2026-08-27
+```
+
+Or from repo root: `python3 scripts/backfill_heat_top50_last.py --from 2026-08-27 --to 2026-08-27`.
 | `symbol_content` | **Go** | Longbridge HTTP filings/news/topics (HMAC, no Python SDK) |
 
 ## Related Go workers

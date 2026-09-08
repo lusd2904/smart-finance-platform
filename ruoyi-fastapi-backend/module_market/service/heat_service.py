@@ -624,6 +624,67 @@ class MarketHeatService:
         }
 
     @classmethod
+    async def backfill_top50_last(
+        cls,
+        db: AsyncSession,
+        start_date: str,
+        end_date: str,
+        markets: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Fill missing Top50 last from MySQL daily bars (market_price_history_daily.close_price).
+        Does not wipe rows or re-fetch public EOD ranks.
+        """
+        start = str(start_date)[:10]
+        end = str(end_date)[:10]
+        if start > end:
+            raise ValueError(f'start_date {start} must be <= end_date {end}')
+
+        market_list = [m.upper() for m in (markets or list(VALID_MARKETS))]
+        summary: dict[str, Any] = {
+            'startDate': start,
+            'endDate': end,
+            'markets': market_list,
+            'dryRun': dry_run,
+            'scanned': 0,
+            'patched': 0,
+            'stillMissing': 0,
+            'byMarket': {},
+        }
+
+        for market in market_list:
+            _normalize_market(market)
+            rows = await MarketHeatDao.list_top50_missing_last(db, market, start, end)
+            market_stats = {'scanned': len(rows), 'patched': 0, 'stillMissing': 0}
+            summary['scanned'] += len(rows)
+
+            by_date: dict[str, list[Any]] = {}
+            for row in rows:
+                by_date.setdefault(str(row.trade_date)[:10], []).append(row)
+
+            for trade_date, day_rows in sorted(by_date.items()):
+                symbols = [str(r.symbol) for r in day_rows if r.symbol]
+                closes = await MarketInstrumentDao.get_close_on_trade_date(db, symbols, trade_date)
+                for row in day_rows:
+                    last = closes.get(str(row.symbol or '').strip().upper())
+                    if last is None:
+                        market_stats['stillMissing'] += 1
+                        continue
+                    market_stats['patched'] += 1
+                    if not dry_run:
+                        await MarketHeatDao.patch_top50_last(db, int(row.id), last)
+
+            summary['byMarket'][market] = market_stats
+            summary['patched'] += market_stats['patched']
+            summary['stillMissing'] += market_stats['stillMissing']
+
+        if not dry_run and summary['patched'] > 0:
+            await db.commit()
+        logger.info(f'[热度] Top50 last backfill {summary}')
+        return summary
+
+    @classmethod
     async def get_trend_services(cls, db: AsyncSession, market: str, days: int = 5) -> dict[str, Any]:
         market = _normalize_market(market)
         rows = await MarketHeatDao.list_heat_trend(db, market, limit=days)

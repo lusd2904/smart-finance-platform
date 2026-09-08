@@ -280,3 +280,33 @@ def test_write_back_top50_last() -> None:
     )
     assert stored[0].last == 191.2
     assert stored[1].last == 400.0
+
+
+@pytest.mark.asyncio
+async def test_backfill_top50_last_dry_run() -> None:
+    rows = [
+        SimpleNamespace(id=1, market='US', trade_date='2026-08-27', symbol='AAPL', last=None),
+        SimpleNamespace(id=2, market='US', trade_date='2026-08-27', symbol='MSFT', last=0),
+    ]
+    db = AsyncMock()
+    with (
+        patch(
+            'module_market.dao.heat_dao.MarketHeatDao.list_top50_missing_last',
+            new=AsyncMock(return_value=rows),
+        ),
+        patch(
+            'module_market.dao.market_dao.MarketInstrumentDao.get_close_on_trade_date',
+            new=AsyncMock(return_value={'AAPL': 191.2, 'MSFT': 400.5}),
+        ),
+        patch(
+            'module_market.dao.heat_dao.MarketHeatDao.patch_top50_last',
+            new=AsyncMock(),
+        ) as patch_last,
+    ):
+        result = await MarketHeatService.backfill_top50_last(
+            db, start_date='2026-08-27', end_date='2026-08-27', markets=['US'], dry_run=True
+        )
+    assert result['scanned'] == 2
+    assert result['patched'] == 2
+    assert result['stillMissing'] == 0
+    patch_last.assert_not_called()
