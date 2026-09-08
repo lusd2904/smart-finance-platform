@@ -71,6 +71,12 @@ func (s *Service) Authenticate(ctx context.Context, header string) (*User, error
 	return s.loadUser(ctx, userID)
 }
 
+// VerifySession matches Python utils.ws_auth.verify_ws_session (JWT + Redis session).
+func (s *Service) VerifySession(ctx context.Context, token string) error {
+	_, err := s.verifySession(ctx, token)
+	return err
+}
+
 func (s *Service) verifySession(ctx context.Context, token string) (int64, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {

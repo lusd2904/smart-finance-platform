@@ -1,8 +1,8 @@
 # sfp-backend rollout (Go platform API)
 
-Go service at `services/sfp-backend` replaces Python `sentiment-backend` (`APP_MODULE=platform`) for portal auth and RBAC HTTP.
+Go service at `services/sfp-backend` replaces Python `sentiment-backend` (`APP_MODULE=platform`) for portal auth, RBAC, job progress WS, open sync, and internal job routing.
 
-## Implemented in Go (nginx catch-all → `sfp-backend:9099`)
+## Implemented in Go (nginx → `sfp-backend:9099`)
 
 | Path | Notes |
 |------|--------|
@@ -15,53 +15,56 @@ Go service at `services/sfp-backend` replaces Python `sentiment-backend` (`APP_M
 | `/system/user/*` | List/detail/CRUD, resetPwd, changeStatus, deptTree, authRole |
 | `/system/menu/*` | List/detail/CRUD, treeselect, roleMenuTreeselect |
 | `/system/role/*` | List/detail/CRUD, changeStatus, dataScope, deptTree, authUser/* |
+| `WS /ws/jobs` | Scheduler heartbeat + queue depth (Redis `sfp:scheduler:heartbeat`) |
+| `POST /open/sync/token` | Admin sync JWT (transport crypto when enabled) |
+| `POST /open/sync/pull` | Allowlisted MySQL + Influx paging |
+| `POST /internal/jobs/run` | Routes LLM jobs → `sentiment-intel`, quant jobs → `sentiment-data` |
 
 JWT/Redis contract matches `services/market-read/internal/auth` and Python `LoginService`.
 
-## Still on Python (`sentiment-backend:9099`)
+## Slim stack: `sentiment-backend` optional
 
-Nginx **explicit** locations (not catch-all):
+Default slim compose (`docker-compose.sentiment.slim.yml`) **does not start** `sentiment-backend`.
+Workers use `INTERNAL_JOBS_URL=http://sfp-backend:9099/internal/jobs/run` (not Python platform).
 
-| Path | Owner | Reason |
-|------|--------|--------|
-| `/ws/jobs` | `sentiment-backend` | WebSocket job progress |
-| `/open/sync/*` | `sentiment-backend` | Open sync token/pull (`module_admin`) |
+Emergency Python platform fallback:
 
-Catch-all fall-through (until migrated):
+```bash
+docker compose -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  -f docker-compose.sentiment.platform-python-fallback.yml \
+  --profile python-platform-fallback up -d sentiment-backend
+```
+
+Then revert nginx `ws/jobs` + `open/sync` to `sentiment-backend:9099`.
+
+## Catch-all fall-through (still 404 until migrated)
 
 | Prefix | Module | Notes |
 |--------|--------|--------|
 | `/dashboard/*` | `module_dashboard` | Home summary widgets |
 | `/analysis/*` | `module_analysis` | Scheduler/analysis APIs |
-| `/monitor/*` | `module_admin` | Server/cache/online monitor |
-| `/system/dept/*` | `module_admin` | Dept CRUD (not in Go yet) |
+| `/system/dept/*` | `module_admin` | Dept CRUD |
 | `/system/dict/*` | `module_admin` | Dict type/data |
 | `/system/config/*` | `module_admin` | Parameter config |
-| `/system/post/*` | `module_admin` | Post CRUD |
-| `/system/notice/*` | `module_admin` | Notice board |
 | `/common/*` | `module_admin` | Upload, guide, download |
 | `/transport/crypto/*` | `module_admin` | Transport crypto handshake |
 | `/app/*` | `module_admin` | App version |
 | `/register` | `module_admin` | User registration |
-| `/internal/jobs/*` | all Python API pods | Go workers delegate here |
 
-Sibling agents own `/trade/*`, `/market/*`, `/quant/*`, `/sentiment/*`, `/ai/*`, `/open/*` (except `/open/sync`).
+Sibling services own `/trade/*`, `/market/*`, `/quant/*`, `/sentiment/*`, `/ai/*`, `/open/*` (except `/open/sync`).
 
 ## cursor-1 slim cutover (`--no-deps`)
-
-From repo root with env prepared (`SFP_DATA_ROOT`, `.env`, `.env.dockersentiment`):
 
 ```bash
 source scripts/docker_host.sh
 export SFP_DATA_ROOT=/workspace/sfp-data
 
-# Build + start Go platform only (do not recreate Influx/MySQL)
 docker compose \
   -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
   up -d --no-deps --build sfp-backend
 
-# Reload frontend nginx (already mounts nginx.dockersentiment.slim.conf)
 docker compose \
   -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
@@ -71,42 +74,19 @@ docker compose \
 Verify:
 
 ```bash
+curl -fsS http://127.0.0.1:19099/health
 curl -fsS http://127.0.0.1:12580/prod-api/captchaImage | head -c 200
-# login → getInfo → getRouters with Admin-Token
-curl -fsS http://127.0.0.1:12580/prod-api/health
 docker logs sfp-backend --tail 30
 ```
 
-## Rollback to Python platform HTTP
-
-1. In `ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf`, change catch-all:
-
-   ```nginx
-   location /docker-api/ { proxy_pass http://sentiment-backend:9099/; ... }
-   location /prod-api/   { proxy_pass http://sentiment-backend:9099/; ... }
-   ```
-
-2. Reload frontend:
-
-   ```bash
-   docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
-     up -d --no-deps sentiment-frontend
-   ```
-
-3. Optional: stop Go platform to free ~128m RSS:
-
-   ```bash
-   docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
-     stop sfp-backend
-   ```
-
-`sentiment-backend` remains in slim stack for ws/jobs, open/sync, and worker `PYTHON_DELEGATE_URL`.
-
-## Env (same as Python)
+## Env (same as Python + job routing)
 
 - `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `JWT_REDIS_EXPIRE_MINUTES`
 - `APP_SAME_TIME_LOGIN`
 - `DB_*`, `REDIS_*`, `DB_PASSWORD`, `REDIS_PASSWORD`
+- `INTERNAL_JOB_TOKEN`, `INTEL_JOBS_URL`, `QUANT_JOBS_URL`
+- `INFLUX_*` (open sync `influx.daily` dataset)
+- `TRANSPORT_CRYPTO_*` (open/sync encrypted transport)
 
 ## Tests
 
