@@ -80,8 +80,8 @@
   --control-border: color-mix(in srgb, var(--accent-strong) 13%, transparent);
   --control-border-hover: color-mix(in srgb, var(--accent-strong) 22%, transparent);
   --loading-mask: rgba(2, 6, 23, 0.45);
-  --stat-up: #ff0055;
-  --stat-down: #39ff14;
+  --stat-up: #ff0055; /* A-share 涨=红 */
+  --stat-down: #39ff14; /* A-share 跌=绿 */
   --order-buy-solid: #dc2626;
   --order-sell-solid: #16a34a;
   --chip-fill: 15%;
@@ -480,4 +480,85 @@ a {
   background: color-mix(in srgb, var(--warning) 10%, var(--surface-soft));
   color: var(--text-primary);
   font-size: 12px;
+}
+
+.sfp-page {
+  display: grid;
+  gap: 10px;
+}
+
+.page-hero,
+.sfp-page .page-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}
+
+.page-hero h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-emphasis);
+}
+
+.hero-actions,
+.stat-strip,
+.heat-ad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat-tile {
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.stat-tile span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.stat-tile strong {
+  font-size: 18px;
+  color: var(--text-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.sfp-page .el-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.news-line,
+.job-card,
+.review-latest {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 6px;
+}
+
+.news-line,
+.job-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .stat-strip {
+    grid-template-columns: 1fr 1fr;
+  }
 }

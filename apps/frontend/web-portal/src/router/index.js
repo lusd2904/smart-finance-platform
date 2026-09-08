@@ -1,7 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { placeholderMeta } from '@/config/menus'
+import { implementedPages } from './pages'
 
 const MainLayout = () => import('@/components/layout/MainLayout.vue')
+
+const implementedChildren = implementedPages.map((page) => ({
+  path: page.path,
+  name: page.path.replace(/\//g, '-'),
+  component: page.component,
+  meta: { title: page.title }
+}))
 
 const placeholderChildren = Object.keys(placeholderMeta).map((path) => ({
   path: path.replace(/^\//, ''),
@@ -41,6 +49,7 @@ const router = createRouter({
           component: () => import('@/views/Terminal.vue'),
           meta: { title: '行情交易', activeMenu: '/trade/terminal' }
         },
+        ...implementedChildren,
         ...placeholderChildren
       ]
     },

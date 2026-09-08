@@ -128,15 +128,6 @@ export const menuTree = [
 ]
 
 export const placeholderMeta = {
-  '/market/heat': { title: '三市场热度', module: '行情中心' },
-  '/market/board': { title: '行情台', module: '行情中心' },
-  '/market/watchlist': { title: '自选清单', module: '行情中心' },
-  '/market/stocks': { title: '全部股票', module: '行情中心' },
-  '/market/recommendations': { title: '智能选股', module: '行情中心' },
-  '/market/finance-news': { title: '财经资讯', module: '行情中心' },
-  '/market/flow': { title: '资金与日历', module: '行情中心' },
-  '/market/review': { title: '市场分析', module: '行情中心' },
-  '/analysis/jobs': { title: '自动分析', module: '行情中心' },
   '/trade/positions': { title: '持仓', module: '交易中心' },
   '/trade/orders': { title: '委托', module: '交易中心' },
   '/trade/risk': { title: '风控', module: '交易中心' },
