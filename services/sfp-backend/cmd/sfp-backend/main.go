@@ -83,7 +83,7 @@ func main() {
 	platform := &handlers.PlatformServer{
 		Server: srv,
 		Sync:   opensync.New(cfg, db, cacheClient.Client()),
-		Jobs:   internaljobs.New(cfg.InternalJobToken, cfg.IntelJobsURL, cfg.QuantJobsURL, enqueuer),
+		Jobs:   internaljobs.New(cfg.InternalJobToken, cfg.IntelJobsURL, cfg.StrategyEvalURL, enqueuer),
 	}
 	jobsWS := &ws.JobsGateway{Auth: authSvc, Scheduler: sched}
 

@@ -1,4 +1,4 @@
-# Python trade HTTP rollback: re-enable sentiment-trade + TRADE_PYTHON_URL on trade-api.
+# Python trade HTTP rollback: re-enable sentiment-trade + TRADE_HTTP_FALLBACK_URL on trade-api.
 #
 #   sudo docker compose \
 #     -f docker-compose.sentiment.yml \
@@ -15,7 +15,7 @@ services:
 
   sentiment-trade-api:
     environment:
-      TRADE_PYTHON_URL: http://sentiment-trade:9099
+      TRADE_HTTP_FALLBACK_URL: http://sentiment-trade:9099
     depends_on:
       sentiment-trade:
         condition: service_healthy

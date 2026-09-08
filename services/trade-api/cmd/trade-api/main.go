@@ -75,7 +75,7 @@ func main() {
 		Platform: &platform.Service{
 			Repo:          platformRepo,
 			Influx:        influx.New(cfg),
-			Delegate:      delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken),
+			Delegate:      delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken),
 			Queue:         queue.NewEnqueuer(cacheClient.Client()),
 			Broker:        broker,
 			Redis:         cacheClient.Client(),
@@ -83,7 +83,7 @@ func main() {
 			JWTSecret:     cfg.JWTSecret,
 			AppEnv:        cfg.AppEnv,
 		},
-		AutoScan: &autoscan.StrategyEvaluator{Delegate: delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken)},
+		AutoScan: &autoscan.StrategyEvaluator{Delegate: delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken)},
 		AutoKeys: autoscan.Keys{
 			CredentialKey: cfg.CredentialKey,
 			JWTSecret:     cfg.JWTSecret,
@@ -92,8 +92,8 @@ func main() {
 	}
 
 	var fallback http.Handler = http.HandlerFunc(handlers.NotImplementedFallback)
-	if cfg.PythonTradeURL != "" {
-		proxy, err := handlers.NewPythonProxy(cfg.PythonTradeURL)
+	if cfg.TradeHTTPFallbackURL != "" {
+		proxy, err := handlers.NewPythonProxy(cfg.TradeHTTPFallbackURL)
 		if err != nil {
 			log.Fatalf("proxy: %v", err)
 		}
@@ -166,8 +166,8 @@ func main() {
 	}
 
 	fallbackMode := "native-only"
-	if cfg.PythonTradeURL != "" {
-		fallbackMode = cfg.PythonTradeURL
+	if cfg.TradeHTTPFallbackURL != "" {
+		fallbackMode = cfg.TradeHTTPFallbackURL
 	}
 	go func() {
 		log.Printf("trade-api listening on %s (fallback %s)", cfg.ListenAddr, fallbackMode)

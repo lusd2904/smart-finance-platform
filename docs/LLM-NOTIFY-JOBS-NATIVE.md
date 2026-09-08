@@ -24,8 +24,8 @@ Stubbed jobs return HTTP 200 with `{"skipped": true, "reason": "<job>_deferred",
 ## Routing changes
 
 - **`sfp-backend` `/internal/jobs/run`**: all LLM jobs above are in `NativeGoWorkerTypes` → Redis `sfp:job:queue:llm`. `IntelBridgeTypes` is empty; `INTEL_JOBS_URL` default is blank.
-- **`sfp-notify-worker`**: no `INTERNAL_JOBS_URL` / `PYTHON_DELEGATE_URL`; consumes Redis directly.
-- **`sentiment-trade-api`**: still uses `PYTHON_DELEGATE_URL=http://sfp-backend:9099/internal/jobs/run` for **`strategy_evaluate` only** (quant bridge → `QUANT_JOBS_URL`).
+- **`sfp-notify-worker`**: no `INTERNAL_JOBS_URL`; consumes Redis directly.
+- **`sentiment-trade-api`**: uses `INTERNAL_JOBS_URL=http://sfp-backend:9099/internal/jobs/run` for **`strategy_evaluate` only** (optional `STRATEGY_EVAL_URL` bridge via `quant-python-fallback` profile).
 
 ## Env (notify-worker)
 
@@ -46,8 +46,7 @@ Still present (intentional):
 
 | Reference | Reason |
 |-----------|--------|
-| `PYTHON_DELEGATE_URL` on `sentiment-trade-api` | `strategy_evaluate` quant bridge |
-| `QUANT_JOBS_URL` on `sfp-backend` | `strategy_evaluate` → legacy Python data (optional profile) |
+| `STRATEGY_EVAL_URL` on `sfp-backend` | `strategy_evaluate` → legacy Python data (`quant-python-fallback` + `legacy-data` profile) |
 | `intel-python-fallback` compose profile | Rollback nginx → `sentiment-intel:9099` for HTTP only |
 | Python `job_queue.HANDLERS` | Emergency fallback when Python workers are started manually |
 

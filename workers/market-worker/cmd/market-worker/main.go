@@ -53,7 +53,7 @@ func main() {
 	}
 	defer syncStore.Close()
 
-	h := handler.New(syncStore, delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken))
+	h := handler.New(syncStore, delegate.New(cfg.InternalJobsURL, cfg.InternalJobToken))
 	consumer := queue.NewConsumer(
 		rdb,
 		h.Handle,

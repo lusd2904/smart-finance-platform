@@ -39,7 +39,7 @@ func (p *PythonProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
-// NotImplementedFallback is used when PythonTradeURL is empty and no native route matches.
+// NotImplementedFallback is used when TradeHTTPFallbackURL is empty and no native route matches.
 func NotImplementedFallback(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "route not implemented", http.StatusNotImplemented)
 }
