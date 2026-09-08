@@ -55,4 +55,4 @@ insert into sys_role_menu values ('2', '2212');
 -- ----------------------------
 -- E. 定时任务：每日收盘后运行量化策略（06:00 执行，status '1' 暂停，按需启用）
 -- ----------------------------
-insert into sys_job values(102, '量化策略每日运行', 'default', 'default', 'module_task.quant_task.run_strategy_job', NULL, NULL, '0 0 6 * * ?', '3', '1', '1', 'admin', sysdate(), '', null, '每日收盘后运行量化策略生成信号');
+insert into sys_job values(102, '量化策略每日运行', 'default', 'default', 'strategy_run', NULL, NULL, '0 0 6 * * ?', '3', '1', '1', 'admin', sysdate(), '', null, '每日收盘后运行量化策略生成信号');

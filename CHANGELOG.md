@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### ⚙️ sys_job.invoke_target 迁到 Go-native key
+- 幂等 SQL：`scripts/migrate_sys_job_go_invoke_targets.sql` 与增量 `sql/sys-job-go-invoke-targets.sql` 把已知 `module_task.*` 写成 Redis 作业类型（热度/EOD 补 `job_kwargs.market`）
+- 任务目录（Python / Go）与种子 INSERT 改为 Go key；分析页与任务白名单认这些 key
+- `sfp-scheduler` Resolve 仍保留 `module_task.*` 一轮，混跑/回滚不中断。核对见 [docs/SFP-SCHEDULER.md](./docs/SFP-SCHEDULER.md)
+
 ### 🧹 Slim Go-only：默认不启 Python fat 容器
 - 默认 `docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up` **不启动** `sentiment-backend` / `sentiment-data` / `sentiment-intel` / `sentiment-trade` / `sentiment-jobs`
 - 紧急回退统一 `--profile legacy-python`（旧 `legacy-data` / `intel-python-fallback` / `python-platform-fallback` / `trade-python-fallback` 名称不再用于 slim 默认）

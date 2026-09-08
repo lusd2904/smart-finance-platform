@@ -32,5 +32,5 @@ INSERT INTO sys_role_menu VALUES
 ('2', '2425'), ('2', '2426'), ('2', '2427'), ('2', '2428');
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 117, '飞书策略摘要推送', 'default', 'default', 'module_task.trade_task.run_feishu_push_job', NULL, NULL, '0 0/5 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '按用户时区与交易日历推送次日策略摘要；非交易日/空清单静默'
+SELECT 117, '飞书策略摘要推送', 'default', 'default', 'feishu_push', NULL, NULL, '0 0/5 * * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '按用户时区与交易日历推送次日策略摘要；非交易日/空清单静默'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 117);

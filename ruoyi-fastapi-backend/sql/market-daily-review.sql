@@ -38,5 +38,5 @@ INSERT INTO sys_menu VALUES
 INSERT INTO sys_role_menu VALUES ('2', '2137'), ('2', '2138'), ('2', '2139');
 
 INSERT INTO sys_job VALUES
-(110, '亚太收盘市场分析', 'default', 'default', 'module_task.market_task.analyze_market_review_job', 'CN,HK', NULL, '0 35 16 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股/港股 16:00 收盘后生成当日复盘'),
-(111, '美股收盘市场分析', 'default', 'default', 'module_task.market_task.analyze_market_review_job', 'US', NULL, '0 15 5 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股 16:00 ET 收盘后（北京时间约 05:15）生成当日复盘');
+(110, '亚太收盘市场分析', 'default', 'default', 'market_review', 'CN,HK', NULL, '0 35 16 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股/港股 16:00 收盘后生成当日复盘'),
+(111, '美股收盘市场分析', 'default', 'default', 'market_review', 'US', NULL, '0 15 5 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股 16:00 ET 收盘后（北京时间约 05:15）生成当日复盘');

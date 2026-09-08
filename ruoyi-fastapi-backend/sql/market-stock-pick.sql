@@ -71,19 +71,19 @@ INSERT INTO sys_menu VALUES
 INSERT IGNORE INTO sys_role_menu VALUES ('2', '2131'), ('2', '2610'), ('2', '2611');
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 119, '全市场智能选股', 'default', 'default', 'module_task.market_task.run_stock_pick_job', NULL, NULL, '0 50 7,8,21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '三市场收盘后选股（UTC 07:50/08:50/21:50=北京 15:50/16:50/05:50）；可在任务中心改 cron'
+SELECT 119, '全市场智能选股', 'default', 'default', 'stock_pick_run', NULL, NULL, '0 50 7,8,21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '三市场收盘后选股（UTC 07:50/08:50/21:50=北京 15:50/16:50/05:50）；可在任务中心改 cron'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 119);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 121, 'A股收盘拉日K与分时', 'default', 'default', 'module_task.market_task.eod_kline_sync_cn_job', NULL, NULL, '0 25 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后增量日K+分时（UTC 07:25=北京 15:25）'
+SELECT 121, 'A股收盘拉日K与分时', 'default', 'default', 'eod_kline_sync', NULL, '{"market":"CN"}', '0 25 7 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, 'A股收盘后增量日K+分时（UTC 07:25=北京 15:25）'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 121);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 122, '港股收盘拉日K与分时', 'default', 'default', 'module_task.market_task.eod_kline_sync_hk_job', NULL, NULL, '0 25 8 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '港股收盘后增量日K+分时（UTC 08:25=北京 16:25）'
+SELECT 122, '港股收盘拉日K与分时', 'default', 'default', 'eod_kline_sync', NULL, '{"market":"HK"}', '0 25 8 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '港股收盘后增量日K+分时（UTC 08:25=北京 16:25）'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 122);
 
 INSERT INTO sys_job (job_id, job_name, job_group, job_executor, invoke_target, job_args, job_kwargs, cron_expression, misfire_policy, concurrent, status, create_by, create_time, update_by, update_time, remark)
-SELECT 123, '美股收盘拉日K与分时', 'default', 'default', 'module_task.market_task.eod_kline_sync_us_job', NULL, NULL, '0 25 21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股收盘后增量日K+分时（UTC 21:25=北京 05:25）'
+SELECT 123, '美股收盘拉日K与分时', 'default', 'default', 'eod_kline_sync', NULL, '{"market":"US"}', '0 25 21 * * ?', '3', '1', '0', 'admin', sysdate(), '', NULL, '美股收盘后增量日K+分时（UTC 21:25=北京 05:25）'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE job_id = 123);
 
 -- 智能选股默认 Grok 4.6（适用范围 market）。已有行情模型不覆盖；凭据复用当前启用模型。

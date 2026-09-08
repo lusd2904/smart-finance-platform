@@ -18,15 +18,9 @@ from module_task.analysis_catalog import (
     category_label,
     humanize_cron,
 )
+from module_task.invoke_targets import category_from_invoke_target, is_analysis_invoke_target
 from utils.job_queue import JobQueue
 from utils.scheduler_runtime import SchedulerRuntime
-
-_TASK_CATEGORY = {
-    'market_task': 'market',
-    'quant_task': 'quant',
-    'sentiment_task': 'sentiment',
-    'trade_task': 'trade',
-}
 
 
 class AnalysisJobService:
@@ -139,17 +133,11 @@ class AnalysisJobService:
 
     @classmethod
     def _category_from_target(cls, invoke_target: str) -> str:
-        for module_name, category in _TASK_CATEGORY.items():
-            if f'.{module_name}.' in invoke_target:
-                return category
-        return 'market'
+        return category_from_invoke_target(invoke_target)
 
     @classmethod
     def _is_analysis_target(cls, invoke_target: str) -> bool:
-        target = str(invoke_target or '')
-        if not target.startswith('module_task.') or 'scheduler_test' in target:
-            return False
-        return any(f'.{name}.' in target for name in _TASK_CATEGORY)
+        return is_analysis_invoke_target(invoke_target)
 
     @classmethod
     async def _extra_analysis_jobs(cls, query_db: AsyncSession, known_ids: set[int]) -> list[SysJob]:

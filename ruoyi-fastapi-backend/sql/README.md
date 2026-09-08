@@ -62,3 +62,5 @@ python3 scripts/sql_migrate.py status               # 只读查看已登记/待�
    **无需**修改 compose 挂载清单或 deploy 脚本。
 
 注意：不要修改既有 `.sql` 文件内容（历史环境可能已按原样执行）；需要变更就新增增量文件。
+
+`sys-job-go-invoke-targets.sql` 把分析任务的 `invoke_target` 从 `module_task.*` 改成 Go key，可重复执行。手工版与核对 SQL 见仓库根目录 `scripts/migrate_sys_job_go_invoke_targets.sql`。
