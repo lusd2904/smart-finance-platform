@@ -47,6 +47,8 @@ services:
     volumes:
       - ./ruoyi-fastapi-frontend/bin/nginx.dockersentiment.conf:/etc/nginx/conf.d/default.conf
     depends_on:
+      sfp-backend:
+        condition: service_healthy
       sentiment-backend:
         condition: service_healthy
       sentiment-trade:
@@ -94,6 +96,34 @@ services:
       timeout: 5s
       retries: 8
       start_period: 25s
+
+  # Go platform API：登录 / getInfo / getRouters / system RBAC（替代 APP_MODULE=platform HTTP）
+  sfp-backend:
+    build:
+      context: ./services/sfp-backend
+      dockerfile: Dockerfile
+    image: sfp-backend:latest
+    container_name: sfp-backend
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":9099"
+      DB_HOST: ruoyi-mysql
+      REDIS_HOST: ruoyi-redis
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on: *core-depends
+    mem_limit: 128m
+    cpus: 0.25
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9099/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
 
   # 交易实时 API：低延迟，禁止和 LLM/采集共进程
   sentiment-trade:
