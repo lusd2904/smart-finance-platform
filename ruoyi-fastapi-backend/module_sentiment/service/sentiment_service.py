@@ -141,7 +141,7 @@ class SentimentService:
         """
         try:
             config = await cls.get_ai_config_services(query_db)
-            sources = (config.enabled_sources or 'eastmoney,sina,ths,wallstreetcn,google_news').split(',')
+            sources = (config.enabled_sources or 'eastmoney,sina,ths,wallstreetcn,google_news,x_monitor').split(',')
             news_list = await SentimentCollector.collect(sources)
         except Exception as exc:
             logger.warning(f'[舆情采集] 采集降级为空列表: {exc}')
@@ -205,7 +205,7 @@ class SentimentService:
             max_news_per_round, auto_analyze, enabled_sources = (
                 200,
                 '1',
-                'eastmoney,sina,ths,wallstreetcn,google_news',
+                'eastmoney,sina,ths,wallstreetcn,google_news,x_monitor',
             )
 
         return SentimentAiConfigModel(
