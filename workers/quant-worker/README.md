@@ -58,7 +58,7 @@ Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
 
 Optional (trade + position monitor): `LONGPORT_*`, `JWT_SECRET_KEY`, `CREDENTIAL_ENCRYPTION_KEY` (Fernet, same derivation as Python `CryptoUtil`).
 
-`INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` route `strategy_evaluate` (auto_trade signals) through `sfp-backend`; set `STRATEGY_EVAL_URL` via `quant-python-fallback` when Python sentiment-data is running.
+`INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` route `strategy_evaluate` (auto_trade signals) through `sfp-backend`; set `STRATEGY_EVAL_URL` via `quant-python-fallback` + `--profile legacy-python` only for emergency rollback. Default slim does not start Python sentiment-data.
 
 ## Host smoke (cursor-1 slim)
 

@@ -12,19 +12,19 @@
 | 热读 + 指数条 + live quotes | `sentiment-market-read:8080` | Go |
 | `WS /ws/market/quotes` | 同上 | Go |
 | 其余 `/market/` + 全部 `/quant/` | `sentiment-data-api:8081` | Go |
-| `WS /ws/jobs` | `sentiment-backend:9099` | platform |
-| `/sentiment/`、`/ai/`、`/open/` | `sfp-intel:8080` / `sentiment-intel:9099` | Go + Python intel |
-| `/trade/*` | `sentiment-trade-api:8080` | Go (#83) |
+| `WS /ws/jobs` | `sfp-backend:9099` | Go platform |
+| `/sentiment/`、`/ai/`、`/open/` | `sfp-intel:8080` | Go |
+| `/trade/*` | `sentiment-trade-api:8080` | Go |
 
-**默认不启动** `sentiment-data`。11 条原 legacy 路由已在 `sentiment-data-api` 原生实现（Go 指标 / 因子、openapi-go 长桥）。
+**默认不启动** Python fat 容器（`sentiment-data` / `sentiment-backend` / `sentiment-intel` / `sentiment-trade`）。11 条原 legacy 路由已在 `sentiment-data-api` 原生实现（Go 指标 / 因子、openapi-go 长桥）。
 
-`legacy-data` profile **仅作紧急回退**（整段 Python data 进程），不是生产路径：
+`legacy-python` profile **仅作紧急回退**，不是生产路径：
 
 ```bash
 # 紧急回退示例（不推荐常态使用）
 docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml \
-  --profile legacy-data up -d --build sentiment-data sentiment-frontend
-# 并将 nginx catch-all 改回 sentiment-data:9099
+  --profile legacy-python up -d --build sentiment-data sentiment-frontend
+# 并将 nginx catch-all 改回 sentiment-data:9099（不要提交进 slim conf）
 ```
 
 ---
@@ -56,7 +56,7 @@ MySQL compose 服务键为 **`sentiment-mysql`**（容器名同）。`DB_HOST=se
 
 | 容器 | Before（P3 前） | After（默认 slim） | 说明 |
 |------|-----------------|-------------------|------|
-| `sentiment-data` | ~424Mi / 512m | **0**（未启动） | `--profile legacy-data` 紧急回退 |
+| `sentiment-data` | ~424Mi / 512m | **0**（未启动） | `--profile legacy-python` 紧急回退 |
 | `sentiment-market-read` | ~数十–320m | ~320m | 热读 + WS |
 | `sentiment-data-api` | — | **~80–180m / 256m** | MySQL + Redis + 短 HTTP |
 | 整栈净减 | — | **~250–400Mi** | 主要来自去掉默认 data 容器 |
@@ -67,7 +67,7 @@ MySQL compose 服务键为 **`sentiment-mysql`**（容器名同）。`DB_HOST=se
 
 ### A. 全量回退 Python（紧急）
 
-1. `--profile legacy-data` 启动 `sentiment-data`。
+1. `--profile legacy-python` 启动 `sentiment-data`。
 2. 改 `nginx.dockersentiment.slim.conf`：`/market/`、`/quant/` → `http://sentiment-data:9099/...`。
 3. `docker compose ... up -d --no-deps --build sentiment-frontend`。
 
@@ -79,7 +79,7 @@ MySQL compose 服务键为 **`sentiment-mysql`**（容器名同）。`DB_HOST=se
 
 ## Influx Phase A（无 MySQL）
 
-仍可用 **`--profile influx-phase`** 临时起 Python `sentiment-data` 做 Influx-only 读（`sentiment-data-api` 在 `mysql-ready` profile 下，Phase A 不启）。
+Phase A **只起 Redis + Influx**，不再启动 Python `sentiment-data`。热度/K 线读等 Phase B（Go `market-read` / `data-api`，需 MySQL）。
 
 ---
 

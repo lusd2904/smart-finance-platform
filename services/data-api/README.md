@@ -36,7 +36,7 @@ go run ./cmd/data-api
 
 ## Native routes (production)
 
-All 11 former legacy routes are implemented in Go — see `docs/SENTIMENT-DATA-OFFLOAD.md`. Python `sentiment-data` (`--profile legacy-data`) is emergency rollback only.
+All 11 former legacy routes are implemented in Go — see `docs/SENTIMENT-DATA-OFFLOAD.md`. Python `sentiment-data` (`--profile legacy-python`) is emergency rollback only.
 
 ## Tests
 

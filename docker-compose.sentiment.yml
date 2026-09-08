@@ -134,10 +134,11 @@ services:
       retries: 8
       start_period: 10s
 
-  # Python trade HTTP rollback only (profile trade-python-fallback). Default stack uses Go sentiment-trade-api.
+  # Python trade HTTP rollback only. Slim uses --profile legacy-python; this
+  # base profile is for full-stack emergency overlay.
   sentiment-trade:
     <<: *backend-image
-    profiles: [trade-python-fallback]
+    profiles: [legacy-python, trade-python-fallback]
     container_name: sentiment-trade
     environment:
       APP_ROLE: api
@@ -355,11 +356,12 @@ services:
       retries: 8
       start_period: 25s
 
-  # Python APScheduler rollback (profile python-scheduler). Default scheduler is sfp-scheduler.
+  # Python APScheduler rollback. Slim uses --profile legacy-python; this
+  # profile is for the scheduler-python overlay / full-stack emergency.
   sentiment-jobs:
     <<: *backend-image
     container_name: sentiment-jobs
-    profiles: [python-scheduler]
+    profiles: [legacy-python, python-scheduler]
     command: ["python", "scheduler_app.py", "--env=dockersentiment"]
     ports:
       - "127.0.0.1:19098:9098"

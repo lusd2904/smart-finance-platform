@@ -1,11 +1,11 @@
-# strategy_evaluate bridge to Python sentiment-data (auto_trade signals).
-# Requires legacy-data profile so sentiment-data is running:
+# Emergency strategy_evaluate bridge to Python sentiment-data (not default slim).
+# Requires --profile legacy-python so sentiment-data is running:
 #
 #   docker compose \
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.quant-python-fallback.yml \
-#     --profile legacy-data up -d --build sfp-backend sentiment-data
+#     --profile legacy-python up -d --build sfp-backend sentiment-data
 
 services:
   sfp-backend:

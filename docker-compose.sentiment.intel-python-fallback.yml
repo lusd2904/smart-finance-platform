@@ -1,21 +1,21 @@
-# Python intel rollback: route /sentiment/ + /ai/ + /open/ back to sentiment-intel; stop Go sfp-intel.
+# Emergency Python intel rollback (not default slim).
+# Requires --profile legacy-python so sentiment-intel is created.
 #
 #   sudo docker compose \
 #     -f docker-compose.sentiment.yml \
 #     -f docker-compose.sentiment.slim.yml \
 #     -f docker-compose.sentiment.intel-python-fallback.yml \
-#     --profile intel-python-fallback \
+#     --profile legacy-python \
 #     up -d --no-deps sentiment-intel sentiment-frontend
 #   sudo docker compose … stop sfp-intel
 #
-# Requires nginx swap to nginx.dockersentiment.slim.python-intel.conf (mounted below).
+# Swaps nginx to nginx.dockersentiment.slim.python-intel.conf (mounted below).
+# Leave sfp-intel in the default project so frontend depends_on stays valid;
+# stop it manually after the nginx swap.
 
 services:
-  sfp-intel:
-    profiles: [intel-go-off]
-
   sentiment-intel:
-    profiles: [intel-python-fallback]
+    profiles: [legacy-python]
 
   sentiment-frontend:
     volumes:
