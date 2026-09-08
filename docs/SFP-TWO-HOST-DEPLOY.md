@@ -161,4 +161,4 @@ PR #64 合并后若仍要临时起拆分容器：`--profile full-split`。**不�
 ## 合并后路线
 
 1. **Slim 固定 cursor-1 生产** — 见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（PR #64 合并后；Go workers 见 PR #67）。
-2. **market-read on slim（可选）** — full 栈已启用 Go 热读（PR #66）；slim 仍 Python 读路径，见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-on-slim计划)。
+2. **market-read on slim（已落地）** — slim nginx 与 full 栈相同热读 offload；`sentiment-data` 仍保留 `/quant/` + 其余 `/market/` + WS，见 [MEMORY-SLIM-AND-MIGRATION.md § market-read on slim](./MEMORY-SLIM-AND-MIGRATION.md#market-read-on-slim已落地)。

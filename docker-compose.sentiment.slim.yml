@@ -66,13 +66,23 @@ services:
     profiles: [full-split]
   sentiment-ai:
     profiles: [full-split]
-  # Full-stack nginx offloads hot reads to Go; slim nginx still proxies /market/ → sentiment-data.
-  sentiment-market-read:
-    profiles: [full-split]
   sentiment-jobs-quant:
     profiles: [full-split]
   sentiment-jobs-llm:
     profiles: [full-split]
+
+  # Go hot-read on slim (same nginx offload as full). Keep 256m; Python
+  # sentiment-data still owns /quant/, remaining /market/, and /ws/.
+  sentiment-market-read:
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
 
   # Backup loops on docker.sock; on tight RAM hosts run scripts/backup_data.sh via cron instead.
   sfp-backup:
@@ -105,6 +115,8 @@ services:
         condition: service_healthy
       sentiment-influxdb:
         condition: service_healthy
+    # Follow-up: after market-read offload is proven on cursor-1, consider 384m.
+    # Still owns /quant/ + remaining /market/ + WS — 384 not yet measured.
     mem_limit: 512m
     cpus: 1.0
     healthcheck: *slim-api-health
@@ -248,4 +260,6 @@ services:
       sentiment-data:
         condition: service_healthy
       sentiment-intel:
+        condition: service_healthy
+      sentiment-market-read:
         condition: service_healthy

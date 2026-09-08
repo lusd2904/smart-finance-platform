@@ -45,14 +45,11 @@ services:
   sfp-notify-worker:
     profiles: [mysql-ready]
 
-  sentiment-data:
-    depends_on: !override
-      ruoyi-redis:
-        condition: service_healthy
-      sentiment-influxdb:
-        condition: service_healthy
-
+  # market-read fatals without MySQL; keep it off during Influx-only Phase A.
   sentiment-market-read:
+    profiles: [mysql-ready]
+
+  sentiment-data:
     depends_on: !override
       ruoyi-redis:
         condition: service_healthy
