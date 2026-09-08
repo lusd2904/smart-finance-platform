@@ -15,10 +15,12 @@ import (
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/delegate"
-	mwinflux "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/handler"
+	mwinflux "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
+	jobspkg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/queue"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/store"
+	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/tradeexec"
 )
 
 func main() {
@@ -46,7 +48,17 @@ func main() {
 	}
 	defer svc.Close()
 
-	h := handler.New(svc, delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken))
+	python := delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken)
+	h := handler.New(
+		svc,
+		python,
+		&jobspkg.Repo{DB: svc.DB()},
+		tradeexec.NewSDKBroker(),
+		&jobspkg.PythonStrategy{Client: python},
+		rdb,
+		reader,
+		cfg,
+	)
 	consumer := queue.NewConsumer(rdb, h.Handle, cfg.VisibilityTimeout, cfg.MaxRetries, cfg.ConsumerPollInterval, cfg.ReclaimInterval, logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

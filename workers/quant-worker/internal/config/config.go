@@ -36,6 +36,7 @@ type Config struct {
 	InternalJobToken     string
 	JWTSecret            string
 	CredentialKey        string
+	AppEnv               string
 	ConsumerPollInterval time.Duration
 	ReclaimInterval      time.Duration
 }
@@ -101,8 +102,9 @@ func Load() Config {
 
 		PythonDelegateURL: env("PYTHON_DELEGATE_URL", "http://sentiment-backend:9099/internal/jobs/run"),
 		InternalJobToken:  env("INTERNAL_JOB_TOKEN", ""),
-		JWTSecret:         env("JWT_SECRET_KEY", ""),
+		JWTSecret:         env("JWT_SECRET_KEY", env("JWT_SECRET", "")),
 		CredentialKey:     env("CREDENTIAL_ENCRYPTION_KEY", ""),
+		AppEnv:            env("APP_ENV", "dev"),
 
 		ConsumerPollInterval: 200 * time.Millisecond,
 		ReclaimInterval:      30 * time.Second,

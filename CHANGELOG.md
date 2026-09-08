@@ -5,10 +5,16 @@
 
 ## [Unreleased]
 
+### 💱 Go 交易作业（quant-worker + official Longbridge SDK）
+- `daily_list_open` / `auto_trade_scan` 改为 `sfp-quant-worker` 原生下单（官方 `openapi-go` HTTP TradeContext）
+- `position_monitor` 在 #77 只读告警之上升级：`auto_trade_enabled` 时 −8% 止损 MO sell
+- 纸/模拟语义与当前 Python 一致：无 `allow_sim` / `require_paper` / `LONGPORT_PAPERTRADING`；下单走 `quant_longbridge_config` 该账户凭据；`auto_trade_enabled` 默认关
+- `auto_trade_scan` 信号仍调 Python `strategy_evaluate`；因子 / `strategy_run` / `daily_list_scan` 保持 #77 原生。门户 `/trade/*` 不变
+- 说明与纸账户冒烟：`docs/TRADE-GO-MIGRATION.md`、`workers/quant-worker/README.md`
+
 ### ⚙️ Go quant-worker：因子 / 策略 / 次日清单 / 持仓监控不再走 Python
 - `factor_scan` / `factor_qc` / `strategy_run` / `daily_list_scan` 改为 worker 原生（Influx K 线 + 8 族打分 + Alpha 子集 + Redis 读模型）
-- `position_monitor` 只读：Longbridge HTTP 持仓 + 止损告警写入 `plat_risk_event`；**不下单**（`soldCount=0`，交 P1 / #78）
-- `daily_list_open` / `auto_trade_scan` 仍委托 Python `/internal/jobs/run`（#78 接手下单）
+- `position_monitor` 只读基线（#77）：Longbridge HTTP 持仓 + 止损告警写入 `plat_risk_event`；下单由上方 #78 升级
 - Redis 队列名与 `sys_job` 任务类型不变（DB 2）；调度仍走已落地的 `sfp-scheduler`
 - cursor-1：`up -d --no-deps --build sfp-quant-worker`
 

@@ -62,3 +62,23 @@ async def test_internal_job_runs_delegated_handler(app, monkeypatch):
     body = resp.json()
     assert body['ok'] is True
     assert body['result']['market'] == 'CN'
+
+
+@pytest.mark.asyncio
+async def test_strategy_evaluate_is_allowed_for_go_trade_jobs(app, monkeypatch):
+    async def fake_eval(payload):
+        return {'profile': payload.get('profile'), 'signals': [{'symbol': 'AAPL', 'signal': 'BUY'}]}
+
+    monkeypatch.setattr('module_task.internal_jobs._strategy_evaluate', fake_eval)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        resp = await client.post(
+            '/internal/jobs/run',
+            headers={'X-Internal-Token': 'test-internal-token'},
+            json={'type': 'strategy_evaluate', 'payload': {'profile': 'balanced', 'userId': 3}},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['ok'] is True
+    assert body['type'] == 'strategy_evaluate'
+    assert body['result']['signals'][0]['symbol'] == 'AAPL'

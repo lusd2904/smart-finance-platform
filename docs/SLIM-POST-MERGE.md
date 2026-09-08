@@ -48,7 +48,7 @@ bash scripts/deploy_and_verify_slim.sh
 | `sentiment-intel` | `sentiment-intel` | sentiment + ai API |
 | `sfp-scheduler` | `sfp-scheduler` | Go 读 `sys_job` 入队（Python `sentiment-jobs` 仅回滚） |
 | `sfp-market-worker` | `sfp-market-worker` | Go 消费 **market** 队列 |
-| `sfp-quant-worker` | `sfp-quant-worker` | Go 消费 **quant** 队列 |
+| `sfp-quant-worker` | `sfp-quant-worker` | Go 消费 **quant** 队列（含 Longbridge 交易作业，见 `docs/TRADE-GO-MIGRATION.md`） |
 | `sfp-notify-worker` | `sfp-notify-worker` | Go 消费 **llm** 队列 |
 | `sentiment-frontend` | `sentiment-frontend` | nginx（`nginx.dockersentiment.slim.conf`） |
 
@@ -127,7 +127,7 @@ sudo docker compose \
 
 ## Go quant-worker 原生任务（P2）
 
-`sfp-quant-worker` 不再把 `factor_scan` / `factor_qc` / `strategy_run` / `daily_list_scan` / `position_monitor` 打回 Python。`daily_list_open` 与 `auto_trade_scan` 仍走 `handler.delegateJobs` → `/internal/jobs/run`（#78 / P1 下单接手；本 PR 不把这两类标成 native）。
+`sfp-quant-worker` 原生跑 `factor_scan` / `factor_qc` / `strategy_run` / `daily_list_scan`（#77）以及 `daily_list_open` / `auto_trade_scan` / `position_monitor` MO sell（#78）。门户 `/trade/*` 仍走 `sentiment-trade`。
 
 cursor-1 只重建 worker（不碰 MySQL / Redis / Influx）：
 

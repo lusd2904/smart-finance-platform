@@ -27,7 +27,7 @@
 | `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
 | `sentiment-trade` | **仍独立** | `/trade/` |
 | `sfp-scheduler` | 读 `sys_job` + cron，入 Redis DB 2；Python `sentiment-jobs` 仅回滚 | 任务中心「jobs 在线」 |
-| `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` | Go 消费三队列（slim ~768m RSS 合计） | 后台任务执行 |
+| `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` | Go 消费三队列（slim ~768m RSS 合计）；quant 含 #77 因子/策略 + #78 Longbridge 交易作业 | 后台任务执行 |
 | `sentiment-backend` | 登录 / 系统 / dashboard | `/prod-api/` 等 |
 
 稳态 RSS 目标 **4–5 GiB**；`mem_limit` 合计约 **5.0–5.4 GiB**（见 PR #64 预算表）。`sfp-backup` 在 slim 默认关闭，用宿主机 cron + `scripts/backup_data.sh`。
@@ -116,7 +116,7 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | 行情中心 | `resources/guides/market.md` | slim 下 remaining market+quant 同进程；热读 offload 至 Go market-read |
 | 任务中心 | `resources/guides/analysis.md` | slim：`sfp-scheduler` + 三 Go workers |
 | 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
-| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列：因子/策略/清单扫描/持仓监控已 Go 原生；开仓与 auto_trade 仍待 P1 |
+| 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant-worker 已原生跑因子/策略/清单扫描 + 持仓止损卖出 / 自动扫描 / 次日清单开仓；门户 `/trade/*` 仍 Python |
 
 ---
 
@@ -130,4 +130,5 @@ HTTP / ticket / WS 契约不变。`sentiment-data` 512m → 384m 需 cursor-1 �
 | **#75** | Slim 启用 `sentiment-market-read` + nginx 热读 offload |
 | **#76** | 行情 WS + `/market/quotes/live` 迁 Go；指数条自拉腾讯；`sentiment-data` 仍保留 |
 | **#79** | Go `sfp-scheduler` 替换 Python `sentiment-jobs`；见 [SFP-SCHEDULER.md](./SFP-SCHEDULER.md) |
-| **本 PR (#77)** | quant-worker 因子/策略/清单扫描/持仓监控 Go 原生；`daily_list_open` / `auto_trade_scan` 仍委托，交 #78 |
+| **#77** | quant-worker 因子/策略/清单扫描/持仓监控（只读）Go 原生 |
+| **本 PR (#78)** | quant-worker 原生 Longbridge 交易作业（`daily_list_open` / `auto_trade_scan` / `position_monitor` MO sell）；见 [TRADE-GO-MIGRATION.md](./TRADE-GO-MIGRATION.md) |
