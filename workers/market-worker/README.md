@@ -1,20 +1,25 @@
 # Go Market Worker
 
-Low-memory consumer for the Redis `sfp:job:queue:market` queue. Replaces the Python `sentiment-jobs-market` process (~1.5 GiB) with a ~384 MiB Go binary.
+Low-memory consumer for Redis `sfp:job:queue:market`. Replaces the Python `sentiment-jobs-market` process (~1.5 GiB) with a ~384 MiB Go binary.
 
-## Responsibilities
+## Job routing
 
-| Job type | Handler |
-|----------|---------|
-| `eod_kline_sync` | Go: daily K + minute K → Influx |
-| `market_sync` | Go: featured/target pool sync |
-| `klines_slow` | Go: full-universe slow daily K |
-| `mysql_to_influx` | Go: MySQL → Influx migration |
-| `market_heat_collect` | Delegates to Python `/internal/jobs/run` |
-| `finance_briefings` | Delegates to Python |
-| `board_warmup` | Delegates to Python |
-| `symbol_content` | Delegates to Python |
-| `listings_sync` | Delegates to Python |
+| Job type | Runtime | Notes |
+|----------|---------|-------|
+| `eod_kline_sync` | **Go** | EOD daily K + minute K → Influx |
+| `market_sync` | **Go** | Featured/target pool sync |
+| `klines_slow` | **Go** | Full-universe slow daily K |
+| `mysql_to_influx` | **Go** | MySQL → Influx migration |
+| `board_warmup` | **Go** | Influx latest bars → Redis `sfp:cache:board:quotes` |
+| `listings_sync` | **Go** | Influx symbol tags → `market_instrument` (listed) |
+| `finance_briefings` | **Go** | RSS + internal pulse/tech scan → `finance_briefing` |
+| `market_heat_collect` | **Python delegate** | Longbridge live quotes + static info (no Go SDK) |
+| `symbol_content` | **Python delegate** | Longbridge ContentContext filings/news |
+
+## Related Go workers
+
+- `sfp-quant-worker` — `indicator_refresh` on quant queue
+- `sfp-notify-worker` — `feishu_push` on llm queue
 
 ## Influx contract (unchanged)
 
@@ -39,6 +44,6 @@ Health: `http://127.0.0.1:19097/health` (host) or `http://sfp-market-worker:9098
 
 Required env: `REDIS_*`, `DB_*`, `INFLUX_*`, `INTERNAL_JOB_TOKEN`, `PYTHON_DELEGATE_URL`.
 
-## Slim compose (P1)
+## Slim compose
 
-P1 may collapse quant/llm workers; this service stays independent so market K-line fetch does not share a Python runtime with LLM jobs. Memory budget: **384m** limit.
+P1 slim stack: `sentiment-jobs` runs **scheduler only** (`APP_JOB_GROUP=none`); Go workers consume market/quant/llm queues. Memory budget: **384m** market + **256m** quant + **256m** notify.

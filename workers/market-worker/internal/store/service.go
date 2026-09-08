@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/influx"
@@ -26,11 +27,13 @@ type Instrument struct {
 type Service struct {
 	db     *sql.DB
 	influx *influx.Writer
+	reader *influx.Reader
 	kline  *kline.Client
+	rdb    *redis.Client
 	cfg    config.Config
 }
 
-func NewService(cfg config.Config, writer *influx.Writer, klineClient *kline.Client) (*Service, error) {
+func NewService(cfg config.Config, writer *influx.Writer, reader *influx.Reader, klineClient *kline.Client, rdb *redis.Client) (*Service, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		cfg.MySQLUser, cfg.MySQLPassword, cfg.MySQLHost, cfg.MySQLPort, cfg.MySQLDatabase)
 	db, err := sql.Open("mysql", dsn)
@@ -42,7 +45,7 @@ func NewService(cfg config.Config, writer *influx.Writer, klineClient *kline.Cli
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	return &Service{db: db, influx: writer, kline: klineClient, cfg: cfg}, nil
+	return &Service{db: db, influx: writer, reader: reader, kline: klineClient, rdb: rdb, cfg: cfg}, nil
 }
 
 func (s *Service) Close() error {

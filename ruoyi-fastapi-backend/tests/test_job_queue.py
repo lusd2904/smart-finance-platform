@@ -14,6 +14,7 @@ from utils.job_queue import (
     HANDLERS,
     JOB_GROUPS,
     KNOWN_JOBS,
+    LEGACY_QUEUE_KEY,
     JobQueue,
     dead_key_for,
     group_for,
@@ -62,7 +63,7 @@ def test_handlers_cover_known_jobs() -> None:
     assert group_for('klines_slow') == 'market'
     assert JobQueue.consume_keys('none') == []
     assert 'sfp:job:queue:market' in JobQueue.consume_keys('market')
-    assert 'sfp:job:queue:quant' in JobQueue.consume_keys('all')
+    assert JobQueue.consume_keys('all') == [LEGACY_QUEUE_KEY]
 
 
 def test_new_job_types_encode_and_group() -> None:

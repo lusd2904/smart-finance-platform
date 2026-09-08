@@ -21,6 +21,8 @@ scrape_configs:
       - targets:
           - 'sentiment-jobs:9098'
           - 'sfp-market-worker:9098'
+          - 'sfp-quant-worker:9097'
+          - 'sfp-notify-worker:9096'
           - 'sentiment-jobs-quant:9098'
           - 'sentiment-jobs-llm:9098'
           - 'host.docker.internal:19098'

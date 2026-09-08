@@ -19,11 +19,29 @@ router = APIRouter(prefix='/internal/jobs', tags=['internal-jobs'])
 
 _DELEGATABLE = frozenset(
     {
+        # market queue — Longbridge SDK only in Python today
         'market_heat_collect',
-        'finance_briefings',
-        'board_warmup',
         'symbol_content',
-        'listings_sync',
+        # quant queue — heavy factor/strategy logic still Python
+        'factor_scan',
+        'factor_qc',
+        'strategy_run',
+        'position_monitor',
+        'daily_list_scan',
+        'daily_list_open',
+        'auto_trade_scan',
+        # llm queue — Grok / LLM pipelines
+        'sentiment_collect',
+        'sentiment_analyze',
+        'watchlist_analyze',
+        'daily_review',
+        'req_send',
+        'req_summarize',
+        'stock_pick_run',
+        'market_review',
+        'ai_analyze',
+        'ai_batch',
+        'user_notice',
     }
 )
 

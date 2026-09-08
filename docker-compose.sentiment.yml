@@ -288,7 +288,7 @@ services:
       retries: 12
       start_period: 20s
 
-  # 行情队列消费：Go worker（K 线写 Influx；热度等仍委托 Python）
+  # 行情队列消费：Go worker（K 线 / 简报 / 看板 / 代码表；热度与内容仍委托 Python）
   sfp-market-worker:
     build:
       context: ./workers/market-worker
@@ -330,7 +330,88 @@ services:
       retries: 12
       start_period: 25s
 
-  # 量化计算消费组
+  # quant 队列：Go worker（indicator_refresh 原生；因子/策略等委托 Python）
+  sfp-quant-worker:
+    build:
+      context: ./workers/quant-worker
+      dockerfile: Dockerfile
+    image: sfp-quant-worker:latest
+    container_name: sfp-quant-worker
+    ports:
+      - "127.0.0.1:19096:9097"
+    environment:
+      WORKER_PORT: "9097"
+      REDIS_HOST: ruoyi-redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: "2"
+      DB_HOST: ruoyi-mysql
+      DB_PORT: "3306"
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: sentiment-ai
+      INFLUX_URL: http://sentiment-influxdb:8086
+      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUX_ORG: longbridge
+      INFLUX_BUCKET_US: market_us
+      INFLUX_BUCKET_CN: market_data
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
+      PYTHON_DELEGATE_URL: http://sentiment-backend:9099/internal/jobs/run
+      JOB_VISIBILITY_TIMEOUT_S: "900"
+      JOB_MAX_RETRIES: "3"
+    depends_on: *data-depends
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:9097/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  # llm 队列：Go worker（飞书推送原生；Grok/LLM 任务委托 Python）
+  sfp-notify-worker:
+    build:
+      context: ./workers/notify-worker
+      dockerfile: Dockerfile
+    image: sfp-notify-worker:latest
+    container_name: sfp-notify-worker
+    ports:
+      - "127.0.0.1:19095:9096"
+    environment:
+      WORKER_PORT: "9096"
+      REDIS_HOST: ruoyi-redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: "2"
+      DB_HOST: ruoyi-mysql
+      DB_PORT: "3306"
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: sentiment-ai
+      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
+      PYTHON_DELEGATE_URL: http://sentiment-backend:9099/internal/jobs/run
+      JOB_VISIBILITY_TIMEOUT_S: "900"
+      JOB_MAX_RETRIES: "3"
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:9096/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  # 量化计算消费组（full-split 备用；Go sfp-quant-worker 为主消费方）
   sentiment-jobs-quant:
     <<: *backend-image
     container_name: sentiment-jobs-quant

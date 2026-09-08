@@ -9,19 +9,21 @@ import (
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/store"
 )
 
+// nativeJobs run entirely in Go without Python delegation.
 var nativeJobs = map[string]bool{
-	"market_sync":     true,
-	"eod_kline_sync":  true,
-	"klines_slow":     true,
-	"mysql_to_influx": true,
+	"market_sync":       true,
+	"eod_kline_sync":    true,
+	"klines_slow":       true,
+	"mysql_to_influx":   true,
+	"board_warmup":      true,
+	"listings_sync":     true,
+	"finance_briefings": true,
 }
 
+// delegateJobs require Longbridge Python SDK (live quotes / symbol content API).
 var delegateJobs = map[string]bool{
 	"market_heat_collect": true,
-	"finance_briefings":   true,
-	"board_warmup":        true,
 	"symbol_content":      true,
-	"listings_sync":       true,
 }
 
 type Handler struct {
@@ -81,6 +83,12 @@ func (h *Handler) handleNative(ctx context.Context, job queue.Job) (interface{},
 			market = "US"
 		}
 		return h.store.MySQLToInflux(ctx, symbol, market)
+	case "board_warmup":
+		return h.store.RefreshBoardQuotesCache(ctx)
+	case "listings_sync":
+		return h.store.SyncFromInflux(ctx)
+	case "finance_briefings":
+		return h.store.RefreshFinanceBriefings(ctx)
 	default:
 		return nil, fmt.Errorf("unhandled native job: %s", job.Type)
 	}

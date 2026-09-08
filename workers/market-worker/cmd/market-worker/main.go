@@ -33,13 +33,8 @@ func main() {
 	}
 	defer writer.Close()
 
+	reader := influx.NewReader(cfg)
 	klineClient := kline.NewClient(cfg.SourceInterval)
-	syncStore, err := store.NewService(cfg, writer, klineClient)
-	if err != nil {
-		logger.Error("mysql init failed", "err", err)
-		os.Exit(1)
-	}
-	defer syncStore.Close()
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
@@ -50,6 +45,13 @@ func main() {
 		logger.Error("redis ping failed", "err", err)
 		os.Exit(1)
 	}
+
+	syncStore, err := store.NewService(cfg, writer, reader, klineClient, rdb)
+	if err != nil {
+		logger.Error("mysql init failed", "err", err)
+		os.Exit(1)
+	}
+	defer syncStore.Close()
 
 	h := handler.New(syncStore, delegate.New(cfg.PythonDelegateURL, cfg.InternalJobToken))
 	consumer := queue.NewConsumer(

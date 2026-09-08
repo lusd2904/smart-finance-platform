@@ -29,6 +29,9 @@ for i in $(seq 1 20); do
   sleep 3
 done
 [ -n "$worker_ok" ] || echo "!! market-worker 未就绪，查看: docker logs --tail 30 sfp-market-worker"
+for port in 19096 19095; do
+  curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1 && echo "go worker ${port} healthy" || echo "!! go worker ${port} 未就绪"
+done
 
 $COMPOSE up -d --no-deps --build sentiment-frontend
 front_ok=""
