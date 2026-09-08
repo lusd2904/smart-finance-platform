@@ -471,4 +471,9 @@ jobs:
             -f docker-compose.sentiment.slim.yml \
             -f docker-compose.sentiment.slim.influx-steady.yml \
             config >/dev/null
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            -f docker-compose.sentiment.trade-python-fallback.yml \
+            config >/dev/null
           echo "slim compose config ok"

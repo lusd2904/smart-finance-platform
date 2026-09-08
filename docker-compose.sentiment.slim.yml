@@ -209,13 +209,14 @@ services:
       - "127.0.0.1:19099:9099"
 
   sentiment-trade:
+    profiles: [trade-python-fallback]
     environment:
       <<: *slim-pool-env
     mem_limit: 512m
 
   sentiment-trade-api:
-    mem_limit: 256m
-    cpus: 0.25
+    mem_limit: 320m
+    cpus: 0.35
 
   sentiment-jobs:
     environment:
@@ -315,8 +316,6 @@ services:
       - ./ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.conf:/etc/nginx/conf.d/default.conf
     depends_on: !override
       sfp-backend:
-        condition: service_healthy
-      sentiment-trade:
         condition: service_healthy
       sentiment-trade-api:
         condition: service_healthy
