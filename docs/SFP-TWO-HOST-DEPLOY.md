@@ -160,5 +160,5 @@ PR #64 合并后若仍要临时起拆分容器：`--profile full-split`。**不�
 
 ## 合并后路线
 
-1. **Slim 固定 cursor-1 生产** — 见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（PR #64 合并后）。
-2. **market-read / workers 迁 Go/Rust** — 见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-与-workers计划独立-pr)；分 PR 交付，HTTP 与任务 ticket 契约不变。
+1. **Slim 固定 cursor-1 生产** — 见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（PR #64 合并后；Go workers 见 PR #67）。
+2. **market-read on slim（可选）** — full 栈已启用 Go 热读（PR #66）；slim 仍 Python 读路径，见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-on-slim计划)。

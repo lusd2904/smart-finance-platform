@@ -75,7 +75,7 @@ Slim 合并方式（**对外路径不变**）：
 - `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
 - `sentiment-jobs`：`APP_ROLE=scheduler` + `APP_JOB_GROUP=none`（仅 APScheduler；队列由 Go workers 消费）
-- `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（~896m RSS 合计）
+- `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（slim ~768m RSS 合计；full ~896m）
 - 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
 - **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
 
@@ -229,11 +229,12 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 同一套后端镜像，按环境变量拆进程（共享 MySQL / Redis / Influx，不分库）：
 
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
-- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**slim 下 market+quant→data，sentiment+ai→intel**）
+- `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**full 栈 nginx offload**；**slim 仍走 `sentiment-data` Python 读路径，不启 market-read 容器**）
+- slim 合并：market+quant→`sentiment-data`，sentiment+ai→`sentiment-intel`
 - `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
-- `sfp-market-worker`：Go 消费 **market** 队列（~384m RSS）
-- `sfp-quant-worker`：Go 消费 **quant** 队列（indicator_refresh 原生，~256m RSS）
-- `sfp-notify-worker`：Go 消费 **llm** 队列（feishu_push 原生，~256m RSS）
+- `sfp-market-worker`：Go 消费 **market** 队列（full ~384m；slim 320m）
+- `sfp-quant-worker`：Go 消费 **quant** 队列（full ~256m；slim 224m）
+- `sfp-notify-worker`：Go 消费 **llm** 队列（full ~256m；slim 224m）
 - `sentiment-jobs-quant` / `llm`：full-split 备用 Python 消费组（**profile full-split**）
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：

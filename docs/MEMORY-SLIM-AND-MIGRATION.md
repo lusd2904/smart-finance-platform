@@ -25,7 +25,8 @@
 | `sentiment-data` | market + quant API | `/market/`、`/quant/`、`/ws/` |
 | `sentiment-intel` | sentiment + ai（含采集） | `/sentiment/`、`/ai/`、`/open/`（除 `/open/sync/`） |
 | `sentiment-trade` | **仍独立** | `/trade/` |
-| `sentiment-jobs` | `APP_JOB_GROUP=all`：APScheduler + market/quant/llm 三队列 | 任务中心「jobs 在线」 |
+| `sentiment-jobs` | `APP_JOB_GROUP=none`：仅 APScheduler；market/quant/llm 队列由 Go workers 消费 | 任务中心「jobs 在线」 |
+| `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` | Go 消费三队列（slim ~768m RSS 合计） | 后台任务执行 |
 | `sentiment-backend` | 登录 / 系统 / dashboard | `/prod-api/` 等 |
 
 稳态 RSS 目标 **4–5 GiB**；`mem_limit` 合计约 **5.0–5.4 GiB**（见 PR #64 预算表）。`sfp-backup` 在 slim 默认关闭，用宿主机 cron + `scripts/backup_data.sh`。
@@ -60,8 +61,8 @@ curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sentiment-frontend` 为 healthy
-- **不应**再跑：`sentiment-market`、`sentiment-ai`、`jobs-market` 等 full-split 容器名
+- 应有：`sentiment-backend`、`sentiment-trade`、`sentiment-data`、`sentiment-intel`、`sentiment-jobs`、`sfp-market-worker`、`sfp-quant-worker`、`sfp-notify-worker`、`sentiment-frontend` 为 healthy
+- **不应**再跑：`sentiment-market`、`sentiment-ai`、`sentiment-market-read`、`jobs-market` 等 full-split 容器名
 - Influx healthy 后空闲 5 分钟，整栈 RSS **< 5.5 GiB**
 
 ### 禁止（与 DEPLOY.md 一致）
@@ -84,38 +85,22 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 
 ---
 
-## 后续迁移：market-read 与 workers（计划，独立 PR）
+## 后续迁移：market-read on slim（计划）
 
-以下 **尚未在本仓库实现**；落地在后续 PR，**不改变**侧栏功能说明中的用户操作路径。
+PR **#66** / **#67** 已落地 full 栈 `sentiment-market-read` 与三 Go workers。**Slim 生产（cursor-1）现状**：
 
-### market-read（Go / Rust）
+| 组件 | Slim 状态 |
+|------|-----------|
+| Go workers（market / quant / llm） | **已启用**（`docker-compose.sentiment.slim.yml` + `deploy_and_verify_slim.sh`） |
+| `sentiment-market-read` | **禁用**（`profiles: [full-split]`）；slim nginx 仍走 Python `sentiment-data` |
+| `sentiment-jobs` | scheduler-only（`APP_JOB_GROUP=none`） |
 
-**目标**：把高 QPS、低延迟的 **行情读取** 从 Python `sentiment-data` 拆出为独立进程，减轻 Influx tail / 报价缓存 / 指数 WS 对 API 进程的压力。
-
-| 范围（计划） | 现 Python 职责 | 迁移后 |
-|--------------|----------------|--------|
-| K 线 tail、日 K 批量读 | `module_market` Influx 查询 | Go/Rust `market-read` 服务，同源 Influx |
-| 热度 / Top50 快照读 | Redis + Influx 聚合 | 同上，HTTP 仍经 nginx 反代 |
-| 指数报价、行情 WS 推送 | 长桥订阅 + 内存缓存 | 读路径迁出；**写路径 / 下单仍在 `sentiment-trade`** |
-
-**不变**：`/market/*`、`/quant/*` URL、JWT、Flutter/Web 轮询与 WS 协议；nginx 仅改 upstream 目标。
-
-### workers（Go / Rust）
-
-**目标**：Redis 队列消费（market / quant / llm）逐步由 **Go/Rust worker** 承担，Python `sentiment-jobs` 保留 **APScheduler 入队** 或最终也迁出。
-
-| 队列 | 典型任务 | 迁移顺序（计划） |
-|------|----------|------------------|
-| `market` | 热度采集、收盘 K、自选分析 | 第二批 |
-| `quant` | 因子日扫、自动交易扫描、次日清单 | 第三批 |
-| `llm` | Grok 研判、需求沟通、舆情分析 | 最后（依赖模型 HTTP） |
-
-**不变**：任务中心启停、立即执行、`GET /market/jobs/{jobId}` ticket 状态机、Redis 队列名与 payload 契约。
+**下一 PR（可选）**：在 `nginx.dockersentiment.slim.conf` 增加与 full 栈相同的热读 offload → 启用 `sentiment-market-read` 并去掉 slim 上的 profile。HTTP / ticket 契约不变。
 
 ### 与 slim 的关系
 
-- Slim 是当前 **16 GiB 上的进程合并**；Go/Rust 迁移是 **语言/runtime 拆分**，可叠加在 slim 拓扑上（例如 `sentiment-market-read` 容器替换 `sentiment-data` 中的读逻辑）。
-- 每个迁移 PR 应自带：compose 服务定义、回滚说明、本文件与 [DEPLOY.md](./DEPLOY.md) 的增量更新。
+- Slim 是当前 **16 GiB 上的进程合并**；Go workers 已叠加在 slim 拓扑上（scheduler + 三 worker，~768m RSS）。
+- `sentiment-market-read` 可在 slim 上叠加以替换 `sentiment-data` 中的读逻辑（需 nginx + compose 同 PR）。
 
 ---
 
@@ -125,8 +110,8 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 
 | 模块 | 指南文件 | Slim / 迁移相关要点 |
 |------|----------|---------------------|
-| 行情中心 | `resources/guides/market.md` | slim 下 market+quant 同进程；market-read 迁 Go 后路径不变 |
-| 任务中心 | `resources/guides/analysis.md` | slim 单 `sentiment-jobs`；workers 迁 Go 后仍显示 jobs 在线 |
+| 行情中心 | `resources/guides/market.md` | slim 下 market+quant 同进程；full 栈热读 offload 至 Go market-read |
+| 任务中心 | `resources/guides/analysis.md` | slim：`sentiment-jobs` scheduler + 三 Go workers |
 | 舆情 / AI | `resources/guides/sentiment.md`、`ai.md` | slim 下 intel 合并；LLM 队列后续迁 worker |
 | 量化 / 交易 | `resources/guides/quant.md`、`trade.md` | `sentiment-trade` 始终独立；quant 队列 worker 可迁 Go |
 
@@ -137,4 +122,6 @@ curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 | PR | 内容 |
 |----|------|
 | **#64** | Slim overlay、`docker-compose.sentiment.slim.yml`、`deploy_and_verify_slim.sh`、`SFP-TWO-HOST-DEPLOY.md`、`SLIM-POST-MERGE.md` |
-| **后续** | `market-read` Go/Rust 服务、队列 worker Go/Rust 消费端（分 PR 交付） |
+| **#66** | Full 栈 `sentiment-market-read`（Go 热读）；slim 仍 Python 读路径 |
+| **#67** | Go workers + slim scheduler-only `sentiment-jobs` |
+| **后续** | Slim nginx market-read offload（可选） |

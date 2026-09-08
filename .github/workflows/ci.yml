@@ -329,6 +329,8 @@ jobs:
           } > .env
       - name: Validate slim compose config
         run: |
+          export MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            INTERNAL_JOB_TOKEN=ci
           docker compose \
             -f docker-compose.sentiment.yml \
             -f docker-compose.sentiment.slim.yml \
