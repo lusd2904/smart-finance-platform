@@ -74,7 +74,8 @@ Slim 合并方式（**对外路径不变**）：
 - `sentiment-data`：`APP_MODULE=data`（market + quant），nginx 仍反代 `/market/`、`/quant/`、`/ws/`
 - `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
 - `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
-- `sentiment-jobs`：`APP_JOB_GROUP=all`，单进程跑 APScheduler + market/quant/llm 三队列
+- `sentiment-jobs`：`APP_ROLE=scheduler` + `APP_JOB_GROUP=none`（仅 APScheduler；队列由 Go workers 消费）
+- `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列（~896m RSS 合计）
 - 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
 - **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
 
@@ -220,8 +221,8 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 | 平台 API | http://127.0.0.1:19099（仅本机回环） | OpenAPI `/docs`；云上经网关反代访问 |
 | jobs 调度 | http://127.0.0.1:19098/health（仅本机回环） | slim/full 均只跑 APScheduler |
 | market-read | http://127.0.0.1:19094/health（仅本机回环） | Go 行情只读热路径（#66） |
-| market worker | http://127.0.0.1:19097/health（仅本机回环） | Go 消费 market 队列 |
-| quant worker | http://127.0.0.1:19096/health（仅本机回环） | Go 消费 quant 队列 |
+| market worker | http://127.0.0.1:19097/health（仅本机回环） | Go 消费 market 队列（~384m RSS） |
+| quant worker | http://127.0.0.1:19096/health（仅本机回环） | Go 消费 quant 队列（indicator_refresh，~256m RSS） |
 | notify worker | http://127.0.0.1:19095/health（仅本机回环） | Go 消费 llm 队列（feishu_push） |
 | MySQL / Redis / InfluxDB | 不暴露宿主端口 | 业务容器走内网访问；本机调试临时改映射 |
 
@@ -230,7 +231,9 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 - `sentiment-backend`：`APP_ROLE=api`，只提供 HTTP
 - `sentiment-trade` / `market` / `market-read` / `quant` / `news` / `ai`：板块 API；`market-read` 为 Go 只读热路径（**slim 下 market+quant→data，sentiment+ai→intel**）
 - `sentiment-jobs`：`APP_ROLE=scheduler APP_JOB_GROUP=none`，只跑 APScheduler
-- `sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker`：Go 消费 market / quant / llm 队列
+- `sfp-market-worker`：Go 消费 **market** 队列（~384m RSS）
+- `sfp-quant-worker`：Go 消费 **quant** 队列（indicator_refresh 原生，~256m RSS）
+- `sfp-notify-worker`：Go 消费 **llm** 队列（feishu_push 原生，~256m RSS）
 - `sentiment-jobs-quant` / `llm`：full-split 备用 Python 消费组（**profile full-split**）
 
 **禁止 `compose down` 整栈，禁止改 grok2api。** 只加服务：
@@ -275,7 +278,8 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
   sentiment-backend sentiment-trade sentiment-ai sentiment-news \
   sentiment-market sentiment-quant \
-  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm sfp-market-worker
+  sentiment-jobs sentiment-jobs-quant sentiment-jobs-llm \
+  sfp-market-worker sfp-quant-worker sfp-notify-worker
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
 ```
 
@@ -337,10 +341,12 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 
 ### jobs worker 健康检查
 
-`sfp-market-worker` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里，**只对重建后的容器生效**（**full-split**）。`docker ps` 里这三项没有 `(healthy)` 时，用上面的 `--no-deps` 重建对应 worker（不要 down 整栈）。**slim** 只看 `sentiment-jobs` 一个 `/health`。
+`sfp-market-worker` / `sfp-quant-worker` / `sfp-notify-worker` / `jobs-quant` / `jobs-llm` 的 `/health` 写在 compose 里。**slim** 看三个 Go workers + `sentiment-jobs` scheduler。
 
-- **market 队列**：`curl -sf http://127.0.0.1:19097/health`（Go worker，替代原 `sentiment-jobs-market`）
-- **quant / llm**：仍由 Python `scheduler_app.py` 消费，无宿主端口；看 `docker ps` 健康状态或 Prometheus。
+- **market**：`curl -sf http://127.0.0.1:19097/health`
+- **quant**：`curl -sf http://127.0.0.1:19096/health`
+- **notify (feishu)**：`curl -sf http://127.0.0.1:19095/health`
+- **Python 委托任务**（Longbridge 热度、Grok/LLM）：由 Go worker HTTP 调用 `/internal/jobs/run`
 
 ## 3. 监控（可选）
 
