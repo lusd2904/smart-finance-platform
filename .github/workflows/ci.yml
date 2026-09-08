@@ -310,6 +310,23 @@ jobs:
           go test ./...
           go build -o /tmp/sfp-scheduler ./cmd/sfp-scheduler
 
+  sfp-backend:
+    name: Go sfp-backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/sfp-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/sfp-backend/go.sum
+      - name: Test and build
+        run: |
+          go test ./...
+          go build -o /tmp/sfp-backend ./cmd/sfp-backend
+
   image-build:
     name: Docker image build & smoke
     runs-on: ubuntu-latest
