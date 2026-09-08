@@ -252,15 +252,13 @@ def test_tui_app_show_configs_uses_remembered_filter(
     assert recorded_filter_keys == [('cache-drift', 'site')]
 
 
-def test_tui_app_show_cache_and_gen_use_remembered_query(
+def test_tui_app_show_cache_uses_remembered_query(
     monkeypatch: MonkeyPatch,
     tui_modules: SimpleNamespace,
 ) -> None:
     cache_queries: list[str] = []
-    gen_queries: list[str] = []
     app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
     app.remember_browser_query('cache', 'sys')
-    app.remember_browser_query('gen', 'user')
     monkeypatch.setitem(
         tui_modules.cli_tui_app.TUI_SNAPSHOT_COLLECTOR_REGISTRY.collectors,
         'cache',
@@ -277,28 +275,10 @@ def test_tui_app_show_cache_and_gen_use_remembered_query(
             )
         ),
     )
-    monkeypatch.setitem(
-        tui_modules.cli_tui_app.TUI_SNAPSHOT_COLLECTOR_REGISTRY.collectors,
-        'gen',
-        lambda env, query='': (
-            gen_queries.append(query)
-            or tui_modules.cli_tui_app.BrowserPageSnapshot(
-                title='代码生成',
-                subtitle='subtitle',
-                records=[],
-                shared_sections=[],
-                filters=[],
-                active_filter_key=None,
-                search=None,
-            )
-        ),
-    )
     monkeypatch.setattr(app.screen_navigator, 'show', lambda screen: None)
     app.action_show_cache()
-    app.action_show_gen()
 
     assert cache_queries == ['sys']
-    assert gen_queries == ['user']
 
 
 def test_tui_app_detail_views_use_remembered_query(

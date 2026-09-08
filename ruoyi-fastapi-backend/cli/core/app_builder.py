@@ -349,7 +349,6 @@ DEFAULT_COMMAND_GROUP_REGISTRY = CliCommandGroupRegistry(
         'job': 'cli.groups.job',
         'config': 'cli.groups.config',
         'crypto': 'cli.groups.crypto',
-        'gen': 'cli.groups.gen',
         'dev': 'cli.groups.dev',
     }
 )

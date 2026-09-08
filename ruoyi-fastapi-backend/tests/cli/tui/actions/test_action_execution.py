@@ -28,7 +28,6 @@ def test_capabilities_registry_describes_supported_views() -> None:
     :return: None
     """
     cache_capabilities = capabilities_module.TUI_CAPABILITY_REGISTRY.get_browser_capabilities('cache')
-    gen_capabilities = capabilities_module.TUI_CAPABILITY_REGISTRY.get_browser_capabilities('gen')
     app_capabilities = capabilities_module.TUI_CAPABILITY_REGISTRY.get_detail_capabilities('app')
     database_capabilities = capabilities_module.TUI_CAPABILITY_REGISTRY.get_detail_capabilities('database')
     ops_capabilities = capabilities_module.TUI_CAPABILITY_REGISTRY.get_detail_capabilities('ops')
@@ -37,19 +36,6 @@ def test_capabilities_registry_describes_supported_views() -> None:
     assert [capability.slot for capability in cache_capabilities] == ['global', 'utility']
     assert [capability.kind for capability in cache_capabilities] == ['wizard_entry', 'low_risk_action']
     assert [capability.hint_label for capability in cache_capabilities] == ['清理向导', '执行缓存预热']
-    assert [capability.slot for capability in gen_capabilities] == ['primary', 'secondary', 'global', 'utility']
-    assert [capability.kind for capability in gen_capabilities] == [
-        'wizard_entry',
-        'wizard_entry',
-        'preview',
-        'low_risk_action',
-    ]
-    assert [capability.hint_label for capability in gen_capabilities] == [
-        '导出向导',
-        '导入向导',
-        '导出预演',
-        '同步表结构',
-    ]
     assert [capability.slot for capability in app_capabilities] == ['primary', 'global', 'utility']
     assert [capability.kind for capability in app_capabilities] == ['wizard_entry', 'wizard_entry', 'command_hint']
     assert [capability.hint_label for capability in app_capabilities] == ['直接启动', '打开启动向导', '安装补全']
@@ -114,9 +100,9 @@ def test_action_registry_resolves_browser_action_for_job_record() -> None:
     assert global_action.command_args == ('job', 'sync')
 
 
-def test_action_registry_resolves_browser_action_for_cache_and_gen_entries() -> None:
+def test_action_registry_resolves_browser_action_for_cache_entries() -> None:
     """
-    校验缓存页和代码生成页会解析出外部向导动作。
+    校验缓存页会解析出外部向导动作。
 
     :return: None
     """
@@ -128,15 +114,6 @@ def test_action_registry_resolves_browser_action_for_cache_and_gen_entries() -> 
         metadata_lines=[],
         detail_sections=[],
     )
-    gen_record = adapters_module.BrowserRecordSnapshot(
-        key='gen:201',
-        title='sys_user',
-        status='ok',
-        summary='生成类 SysUser · 模块 system',
-        metadata_lines=[],
-        detail_sections=[],
-    )
-
     cache_global_action = actions_module.TUI_ACTION_REGISTRY.resolve_browser_action(
         view_key='cache',
         slot='global',
@@ -147,30 +124,6 @@ def test_action_registry_resolves_browser_action_for_cache_and_gen_entries() -> 
         view_key='cache',
         slot='utility',
         record=cache_record,
-        env='dev',
-    )
-    gen_primary_action = actions_module.TUI_ACTION_REGISTRY.resolve_browser_action(
-        view_key='gen',
-        slot='primary',
-        record=gen_record,
-        env='dev',
-    )
-    gen_secondary_action = actions_module.TUI_ACTION_REGISTRY.resolve_browser_action(
-        view_key='gen',
-        slot='secondary',
-        record=gen_record,
-        env='dev',
-    )
-    gen_utility_action = actions_module.TUI_ACTION_REGISTRY.resolve_browser_action(
-        view_key='gen',
-        slot='utility',
-        record=gen_record,
-        env='dev',
-    )
-    gen_global_action = actions_module.TUI_ACTION_REGISTRY.resolve_browser_action(
-        view_key='gen',
-        slot='global',
-        record=gen_record,
         env='dev',
     )
 
@@ -187,40 +140,11 @@ def test_action_registry_resolves_browser_action_for_cache_and_gen_entries() -> 
     )
     assert cache_utility_action is not None
     assert cache_utility_action.execution_mode == 'nested_json'
-    assert gen_primary_action is not None
-    assert gen_primary_action.execution_mode == 'external'
-    assert gen_primary_action.command_args == (
-        'wizard',
-        'gen-export',
-        '--output=text',
-        '--default-env=dev',
-        '--default-table-names=sys_user',
-        '--default-mode=zip',
-        '--default-dry-run',
-    )
-    assert gen_primary_action.refresh_view is False
-    assert gen_secondary_action is not None
-    assert gen_secondary_action.execution_mode == 'external'
-    assert gen_secondary_action.command_args == (
-        'wizard',
-        'gen-import',
-        '--output=text',
-        '--default-env=dev',
-        '--default-table-names=sys_user',
-        '--default-dry-run',
-    )
-    assert gen_secondary_action.refresh_view is False
-    assert gen_global_action is not None
-    assert gen_global_action.execution_mode == 'nested_json'
-    assert gen_global_action.command_args == ('gen', 'export', 'sys_user', '--dry-run', '--mode=zip')
-    assert gen_utility_action is not None
-    assert gen_utility_action.execution_mode == 'nested_json'
-    assert gen_utility_action.command_args == ('gen', 'sync-db', 'sys_user')
 
 
-def test_action_template_factories_build_expected_job_and_gen_templates() -> None:
+def test_action_template_factories_build_expected_job_templates() -> None:
     """
-    校验领域动作模板工厂会生成符合预期的命令参数。
+    校验任务动作模板工厂会生成符合预期的命令参数。
 
     :return: None
     """
@@ -232,32 +156,14 @@ def test_action_template_factories_build_expected_job_and_gen_templates() -> Non
         metadata_lines=[],
         detail_sections=[],
     )
-    gen_record = adapters_module.BrowserRecordSnapshot(
-        key='gen:301',
-        title='sys_notice',
-        status='ok',
-        summary='生成类 SysNotice · 模块 system',
-        metadata_lines=[],
-        detail_sections=[],
-    )
 
     run_once_template = action_bootstrap_module._JOB_ACTION_TEMPLATE_FACTORY.create_run_once_template()
     toggle_template = action_bootstrap_module._JOB_ACTION_TEMPLATE_FACTORY.create_toggle_template()
-    export_template = action_bootstrap_module._GEN_ACTION_TEMPLATE_FACTORY.create_export_wizard_template()
 
     assert run_once_template.command_builder(job_record, 'dev') == ('job', 'run-once', '88')
     assert toggle_template.command_builder(job_record, 'dev') == ('job', 'pause', '88')
     assert toggle_template.label_builder is not None
     assert toggle_template.label_builder(job_record, 'dev') == '暂停任务'
-    assert export_template.command_builder(gen_record, 'dev') == (
-        'wizard',
-        'gen-export',
-        '--output=text',
-        '--default-env=dev',
-        '--default-table-names=sys_notice',
-        '--default-mode=zip',
-        '--default-dry-run',
-    )
 
 
 def test_action_registry_builder_assembles_expected_slots() -> None:
@@ -269,14 +175,12 @@ def test_action_registry_builder_assembles_expected_slots() -> None:
     registry = action_assembly_module.TuiActionRegistryBuilder(
         jobs=action_bootstrap_module._JOB_ACTION_TEMPLATE_FACTORY,
         cache=action_bootstrap_module._CACHE_ACTION_TEMPLATE_FACTORY,
-        gen=action_bootstrap_module._GEN_ACTION_TEMPLATE_FACTORY,
         static=action_bootstrap_module._STATIC_ACTION_TEMPLATE_FACTORY,
         spec_factory=action_bootstrap_module._ACTION_SPEC_FACTORY,
     ).build()
 
-    assert sorted(registry.browser_resolvers) == ['cache', 'configs', 'gen', 'jobs']
+    assert sorted(registry.browser_resolvers) == ['cache', 'configs', 'jobs']
     assert sorted(registry.detail_resolvers) == ['app', 'crypto', 'database', 'ops']
-    assert sorted(registry.browser_resolvers['gen'].slot_templates) == ['global', 'primary', 'secondary', 'utility']
     assert sorted(registry.detail_resolvers['ops'].slot_templates) == ['global', 'primary', 'secondary']
 
 
@@ -491,10 +395,6 @@ def test_action_presentation_service_build_browser_action_hint_matches_supported
     assert '[Y]' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('configs')
     assert '[W]' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('cache')
     assert '[Y] 清理向导' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('cache')
-    assert '[X] 导出向导' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('gen')
-    assert '[Z] 导入向导' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('gen')
-    assert '[Y] 导出预演' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('gen')
-    assert '[W] 同步表结构' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('gen')
     assert '失败聚合' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('jobs')
     assert '浏览键' in actions_module.TUI_ACTION_PRESENTATION_SERVICE.build_browser_action_hint('jobs')
 

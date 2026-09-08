@@ -191,7 +191,7 @@ def test_collect_dashboard_snapshot_uses_focus_hints_for_healthy_business_entry(
     assert entry_panel.status == 'ok'
     assert any('聚焦：失败聚合 / 暂停任务 / 执行轨迹' in line for line in entry_panel.lines)
     assert any('聚焦：高风险配置 / 值不一致 / 缓存漂移' in line for line in entry_panel.lines)
-    assert any('生成前校验' in line and '代码预览' in line for line in entry_panel.lines)
+    assert any('聚焦：运行校验 / 公钥身份 / 兼容版本' in line for line in entry_panel.lines)
 
 
 def test_collect_configs_page_snapshot_surfaces_failure_message(

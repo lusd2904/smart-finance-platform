@@ -117,14 +117,14 @@ async def test_browser_screen_execute_external_action_suspends_app(
     tui_modules: SimpleNamespace,
 ) -> None:
     snapshot = tui_modules.cli_tui_adapters.BrowserPageSnapshot(
-        title='代码生成',
+        title='缓存',
         subtitle='subtitle',
         records=[
             tui_modules.cli_tui_adapters.BrowserRecordSnapshot(
-                key='gen:201',
-                title='sys_user',
+                key='cache:sys_config',
+                title='sys_config',
                 status='ok',
-                summary='生成类 SysUser · 模块 system',
+                summary='系统参数缓存',
                 metadata_lines=[],
                 detail_sections=[],
             )
@@ -134,13 +134,13 @@ async def test_browser_screen_execute_external_action_suspends_app(
     screen = tui_modules.cli_tui_browser.BrowserScreen(
         snapshot,
         env='dev',
-        active_view='gen',
+        active_view='cache',
         navigation_items=tui_modules.cli_tui_app.NAVIGATION_ITEMS,
         refreshed_at='2026-04-30 10:00:00',
     )
     action = tui_modules.cli_tui_browser.TUI_ACTION_REGISTRY.resolve_browser_action(
-        view_key='gen',
-        slot='primary',
+        view_key='cache',
+        slot='global',
         record=snapshot.records[0],
         env='dev',
     )

@@ -130,7 +130,6 @@ _TUI_VIEW_SPECS: tuple[TuiViewSpec, ...] = (
     TuiViewSpec('database', include_query=True),
     TuiViewSpec('cache', include_query=True),
     TuiViewSpec('jobs', include_query=True, include_filter=True),
-    TuiViewSpec('gen', include_query=True),
     TuiViewSpec('configs', include_query=True, include_filter=True),
     TuiViewSpec('crypto', include_query=True),
 )
@@ -846,14 +845,6 @@ class RuoyiTuiApp(App[None]):
         :return: None
         """
         self.open_view('jobs')
-
-    def action_show_gen(self) -> None:
-        """
-        切换到代码生成浏览视图。
-
-        :return: None
-        """
-        self.open_view('gen')
 
     def action_show_configs(self) -> None:
         """

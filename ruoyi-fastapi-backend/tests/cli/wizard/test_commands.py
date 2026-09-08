@@ -19,6 +19,4 @@ def test_wizard_help_lists_supported_subcommands(
     assert 'app-run' in result.stdout
     assert 'db-upgrade' in result.stdout
     assert 'cache-clear' in result.stdout
-    assert 'gen-export' in result.stdout
-    assert 'gen-import' in result.stdout
     assert 'prod-check' in result.stdout

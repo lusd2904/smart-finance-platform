@@ -41,7 +41,7 @@ class TuiKeymapRegistry:
 
         :return: 快捷键提示
         """
-        ordered_keys = ['dashboard', 'app', 'ops', 'database', 'cache', 'jobs', 'gen', 'configs', 'crypto']
+        ordered_keys = ['dashboard', 'app', 'ops', 'database', 'cache', 'jobs', 'configs', 'crypto']
         shortcuts = [
             self.get_navigation_shortcut(view_key).upper()
             for view_key in ordered_keys
@@ -170,7 +170,6 @@ TUI_KEYMAP_REGISTRY = TuiKeymapRegistry(
         'database': 'b',
         'cache': 'c',
         'jobs': 't',
-        'gen': 'g',
         'configs': 'p',
         'crypto': 'e',
     }
