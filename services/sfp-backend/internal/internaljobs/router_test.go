@@ -4,8 +4,8 @@ import "testing"
 
 func TestRouterTargets(t *testing.T) {
 	r := New("secret", "http://intel:9099", "http://quant:9099", nil)
-	if r.targetURL("sentiment_collect") != "http://intel:9099/internal/jobs/run" {
-		t.Fatalf("intel route mismatch")
+	if r.targetURL("sentiment_collect") != "" {
+		t.Fatalf("llm jobs should enqueue via redis, not intel bridge")
 	}
 	if r.targetURL("strategy_evaluate") != "http://quant:9099/internal/jobs/run" {
 		t.Fatalf("quant route mismatch")
@@ -21,6 +21,9 @@ func TestRouterTargets(t *testing.T) {
 	}
 	if !r.IsKnown("sentiment_collect") {
 		t.Fatalf("sentiment_collect should be known")
+	}
+	if !r.IsKnown("req_send") {
+		t.Fatalf("req_send should be known")
 	}
 }
 

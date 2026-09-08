@@ -119,7 +119,7 @@ services:
       INFLUX_ORG: longbridge
       INFLUX_BUCKET_US: market_us
       INFLUX_BUCKET_CN: market_data
-      INTEL_JOBS_URL: http://sentiment-intel:9099
+      INTEL_JOBS_URL: ""
       QUANT_JOBS_URL: http://sentiment-data:9099
     depends_on: *core-depends
     mem_limit: 128m
@@ -521,7 +521,7 @@ services:
       retries: 12
       start_period: 25s
 
-  # llm 队列：Go worker（飞书推送原生；Grok/LLM 任务委托 Python）
+  # llm 队列：Go worker（舆情分析 / 需求沟通 / 飞书推送原生；市场选股类任务暂 stub）
   sfp-notify-worker:
     build:
       context: ./workers/notify-worker
@@ -540,8 +540,8 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
-      INTERNAL_JOBS_URL: http://sfp-backend:9099/internal/jobs/run
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
     depends_on:

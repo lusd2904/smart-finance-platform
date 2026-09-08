@@ -77,7 +77,7 @@ func Load() (*Config, error) {
 		RedisDB:       envInt("REDIS_DATABASE", 2),
 
 		InternalJobToken: os.Getenv("INTERNAL_JOB_TOKEN"),
-		IntelJobsURL:     env("INTEL_JOBS_URL", "http://sentiment-intel:9099"),
+		IntelJobsURL:     env("INTEL_JOBS_URL", ""),
 		QuantJobsURL:     env("QUANT_JOBS_URL", "http://sentiment-data:9099"),
 
 		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
