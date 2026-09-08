@@ -18,7 +18,7 @@
 #     up -d --build
 
 services:
-  ruoyi-mysql:
+  sentiment-mysql:
     profiles: [mysql-ready]
 
   sentiment-backend:

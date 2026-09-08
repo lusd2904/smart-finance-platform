@@ -12,6 +12,7 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/flow"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/jobqueue"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/store"
+	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 )
 
 type Server struct {
@@ -21,7 +22,7 @@ type Server struct {
 	DB      *store.DB
 	Queue   *jobqueue.Queue
 	Flow    *flow.Service
-	Legacy  *LegacyProxy
+	Broker  *tradeexec.SDKBroker
 }
 
 func Health(w http.ResponseWriter, _ *http.Request) {

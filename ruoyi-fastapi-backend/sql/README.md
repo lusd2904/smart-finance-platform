@@ -44,7 +44,7 @@ python3 scripts/sql_migrate.py status               # 只读查看已登记/待�
 1. 在仓库根目录 `.env` 中设置 `MYSQL_ROOT_PASSWORD`；
 2. `docker compose -f docker-compose.sentiment.yml up -d` —— MySQL 数据卷为空时
    自动执行全量基线；
-3. 等待 `ruoyi-mysql` 健康（healthcheck 通过）；
+3. 等待 `sentiment-mysql` 健康（healthcheck 通过）；
 4. `python3 scripts/sql_migrate.py apply --keep-going`
    —— 建表并预登记基线后，补齐基线之后的所有增量；
 5. 之后每次部署只需 `bash scripts/deploy_and_verify.sh`（内部已调用迁移器）。

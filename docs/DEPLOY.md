@@ -175,7 +175,7 @@ slim 默认不启 `sfp-backup`（`full-backup` profile）；cursor-1 用宿主�
 
 ### 备份（必做，Influx 卷没有副本）
 
-数据在本机 Docker 卷里：`ruoyi-mysql-data`、`sentiment-redis-data`、`sentiment-influxdb-data`。**没有定时备份就会在磁盘故障时丢掉行情历史。** 备份产物不要放进 git。不要另写 mysqldump / `influx backup` 流程，一律：
+数据在本机 Docker 卷里：`sentiment-mysql-data`、`sentiment-redis-data`、`sentiment-influxdb-data`。**没有定时备份就会在磁盘故障时丢掉行情历史。** 备份产物不要放进 git。不要另写 mysqldump / `influx backup` 流程，一律：
 
 ```bash
 bash scripts/backup_data.sh
@@ -270,7 +270,7 @@ python3 scripts/sql_migrate.py status                   # 查看已登记/待执
 ### 禁止事项
 
 - **禁止 `docker compose down` 整栈。** 命名卷 `sentiment-influxdb-data` 不能删、不能 `-v`。
-- **不要**把 `ruoyi-redis` / `sentiment-influxdb` / `ruoyi-mysql` 和业务容器绑在一次 `up --build` 里「顺便重建」。数据层单独决策。
+- **不要**把 `ruoyi-redis` / `sentiment-influxdb` / `sentiment-mysql` 和业务容器绑在一次 `up --build` 里「顺便重建」。数据层单独决策。
 - 自动交易扫描只入 `quant` 队列；是否真下单仍看该账户 `auto_trade_enabled`。平台不再做纸账户拦截，委托直接进配置的长桥账户（模拟或真实由凭据决定）。
 
 推荐滚动（先 API，再前端；脚本 `scripts/deploy_and_verify.sh` 已按这个顺序）：

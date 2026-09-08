@@ -77,7 +77,7 @@ services:
     mem_limit: 320m
     cpus: 0.5
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -94,7 +94,7 @@ services:
       - ./ruoyi-fastapi-backend/.env.dockersentiment
     environment:
       LISTEN_ADDR: ":8080"
-      DB_HOST: ruoyi-mysql
+      DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
       PYTHON_INTEL_URL: http://sentiment-intel:9099
     networks:
@@ -103,7 +103,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -120,7 +120,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -153,7 +153,7 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -186,7 +186,7 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -261,7 +261,7 @@ services:
       - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx:/var/lib/influxdb2
       - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx-config:/etc/influxdb2
 
-  ruoyi-mysql:
+  sentiment-mysql:
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_general_ci

@@ -21,6 +21,7 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/config"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/influx"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/middleware"
+	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 )
 
 func main() {
@@ -52,7 +53,7 @@ func main() {
 		DB:     db,
 		Queue:  jobqueue.New(cacheClient.Client()),
 		Flow:   flow.New(cacheClient),
-		Legacy: handlers.NewLegacyProxy(),
+		Broker: tradeexec.NewSDKBroker(),
 	}
 
 	mux := http.NewServeMux()
@@ -93,9 +94,9 @@ func main() {
 	mux.Handle("/market/ai/analyze", mw.RequirePerms("market:ai:analyze")(http.HandlerFunc(routeAIAnalyze(srv))))
 	mux.Handle("/market/review/analyze", mw.RequirePerms("market:review:analyze")(http.HandlerFunc(srv.ReviewAnalyze)))
 
-	// Legacy market
-	mux.Handle("/market/indicators", mw.RequirePerms("market:indicators:list")(http.HandlerFunc(srv.LegacyIndicators)))
-	mux.Handle("/market/ai/analyze/stream", mw.RequirePerms("market:ai:analyze")(http.HandlerFunc(srv.LegacyAIStream)))
+	// Native market/quant routes (Go; legacy-data profile is emergency rollback only)
+	mux.Handle("/market/indicators", mw.RequirePerms("market:indicators:list")(http.HandlerFunc(srv.MarketIndicators)))
+	mux.Handle("/market/ai/analyze/stream", mw.RequirePerms("market:ai:analyze")(http.HandlerFunc(srv.MarketAIAnalyzeStream)))
 
 	// Quant read
 	mux.Handle("/quant/factor/schema", mw.RequirePerms("quant:factor:list")(http.HandlerFunc(srv.FactorSchema)))
@@ -118,14 +119,14 @@ func main() {
 	mux.Handle("/quant/strategy/run", mw.RequirePerms("quant:strategy:run")(http.HandlerFunc(srv.QuantStrategyRun)))
 	mux.Handle("/quant/daily-list/scan", mw.RequirePerms("quant:dailylist:scan")(http.HandlerFunc(srv.QuantDailyListScan)))
 
-	// Legacy quant
-	mux.Handle("/quant/factor/compute", mw.RequirePerms("quant:factor:compute")(http.HandlerFunc(srv.LegacyFactorCompute)))
-	mux.Handle("/quant/scan/indicators", mw.RequirePerms("quant:factor:compute")(http.HandlerFunc(srv.LegacyScanIndicators)))
-	mux.Handle("/quant/scan/positions", mw.RequirePerms("quant:strategy:run")(http.HandlerFunc(srv.LegacyScanPositions)))
+	// Native quant routes (Longbridge via openapi-go; factor via Go math)
+	mux.Handle("/quant/factor/compute", mw.RequirePerms("quant:factor:compute")(http.HandlerFunc(srv.FactorCompute)))
+	mux.Handle("/quant/scan/indicators", mw.RequirePerms("quant:factor:compute")(http.HandlerFunc(srv.ScanIndicators)))
+	mux.Handle("/quant/scan/positions", mw.RequirePerms("quant:strategy:run")(http.HandlerFunc(srv.ScanPositions)))
 	mux.Handle("/quant/longbridge/config", mw.RequirePerms("quant:longbridge:config")(http.HandlerFunc(routeLongbridgeConfig(srv))))
-	mux.Handle("/quant/longbridge/test", mw.RequirePerms("quant:longbridge:test")(http.HandlerFunc(srv.LegacyLongbridgeTest)))
-	mux.Handle("/quant/daily-list/open", mw.RequirePerms("quant:dailylist:open")(http.HandlerFunc(srv.LegacyDailyListOpen)))
-	mux.Handle("/quant/daily-list/auto", mw.RequirePerms("quant:dailylist:auto")(http.HandlerFunc(srv.LegacyDailyListAuto)))
+	mux.Handle("/quant/longbridge/test", mw.RequirePerms("quant:longbridge:test")(http.HandlerFunc(srv.LongbridgeTest)))
+	mux.Handle("/quant/daily-list/open", mw.RequirePerms("quant:dailylist:open")(http.HandlerFunc(srv.DailyListOpen)))
+	mux.Handle("/quant/daily-list/auto", mw.RequirePerms("quant:dailylist:auto")(http.HandlerFunc(srv.DailyListAuto)))
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -200,7 +201,7 @@ func routeSymbols(srv *handlers.Server) http.HandlerFunc {
 			return
 		}
 		if r.Method == http.MethodGet && strings.HasSuffix(path, "/content") {
-			srv.LegacySymbolContent(w, r)
+			srv.SymbolContent(w, r)
 			return
 		}
 		http.NotFound(w, r)
@@ -251,9 +252,9 @@ func routeLongbridgeConfig(srv *handlers.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			srv.LegacyLongbridgeConfigGet(w, r)
+			srv.LongbridgeConfigGet(w, r)
 		case http.MethodPut:
-			srv.LegacyLongbridgeConfigPut(w, r)
+			srv.LongbridgeConfigPut(w, r)
 		default:
 			http.NotFound(w, r)
 		}

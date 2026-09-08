@@ -83,7 +83,7 @@ func Load() Config {
 		InfluxBucketUS: env("INFLUX_BUCKET_US", "market_us"),
 		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
 
-		MySQLHost:     env("DB_HOST", "ruoyi-mysql"),
+		MySQLHost:     env("DB_HOST", "sentiment-mysql"),
 		MySQLPort:     envInt("DB_PORT", 3306),
 		MySQLUser:     env("DB_USERNAME", "root"),
 		MySQLPassword: env("DB_PASSWORD", ""),

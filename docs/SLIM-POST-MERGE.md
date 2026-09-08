@@ -38,12 +38,12 @@ bash scripts/deploy_and_verify_slim.sh
 
 | 服务名 | 容器名 | 说明 |
 |--------|--------|------|
-| `ruoyi-mysql` | `sentiment-mysql` | MySQL |
+| `sentiment-mysql` | `sentiment-mysql` | MySQL |
 | `ruoyi-redis` | `sentiment-redis` | Redis DB 2 队列 |
 | `sentiment-influxdb` | `sentiment-influxdb` | 冷开 12g |
 | `sentiment-backend` | `sentiment-backend` | 登录 / 系统 |
 | `sentiment-trade` | `sentiment-trade` | 交易（独立） |
-| `sentiment-data` | `sentiment-data` | remaining `/market/` + `/quant/`（热读与行情 WS 已 offload） |
+| `sentiment-data-api` | `sentiment-data-api` | remaining `/market/` + `/quant/`（Go；热读与行情 WS 已 offload） |
 | `sentiment-market-read` | `sentiment-market-read` | Go 热读 + WS / live quotes，320m |
 | `sentiment-intel` | `sentiment-intel` | sentiment + ai API |
 | `sfp-scheduler` | `sfp-scheduler` | Go 读 `sys_job` 入队（Python `sentiment-jobs` 仅回滚） |

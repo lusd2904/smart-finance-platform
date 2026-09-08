@@ -28,7 +28,7 @@ services:
       TRANSPORT_CRYPTO_ENABLED: "false"
       TRANSPORT_CRYPTO_MODE: "off"
     depends_on:
-      ruoyi-mysql:
+      sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
@@ -36,9 +36,9 @@ services:
       - ruoyi-network-test
 
   # MySQL服务
-  ruoyi-mysql:
+  sentiment-mysql:
     image: mysql:8.0
-    container_name: ruoyi-mysql-test
+    container_name: sentiment-mysql-test
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: ruoyi-fastapi

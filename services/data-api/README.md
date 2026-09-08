@@ -8,6 +8,8 @@ Go HTTP microservice that offloads remaining `/market/` and `/quant/` routes fro
 
 Shared auth/config/response/cache/timeutil/influx are imported from `../market-read/pkg/*` (re-exports of market-read internals) via `go.mod` `replace`.
 
+Longbridge trade/content routes use `../trade-exec` (openapi-go) and `internal/longbridge` HTTP client.
+
 ## Run locally
 
 ```bash
@@ -24,16 +26,17 @@ go run ./cmd/data-api
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `LISTEN_ADDR` | `:8081` | HTTP bind address |
-| `LEGACY_DATA_URL` | _(empty)_ | e.g. `http://sentiment-data:9099` — reverse-proxy Longbridge/pandas/SSE routes |
+| `DB_HOST` | `sentiment-mysql` | MySQL compose service name |
 | _(same as market-read)_ | | `JWT_*`, `DB_*`, `REDIS_*`, `INFLUX_*` |
+| `CREDENTIAL_ENCRYPTION_KEY` | _(optional)_ | Fernet key for Longbridge creds in DB |
 
 ## Health
 
 `GET /health` — no auth.
 
-## Legacy routes
+## Native routes (production)
 
-When `LEGACY_DATA_URL` is unset, legacy handlers return the standard error envelope explaining that `--profile legacy-data` is required.
+All 11 former legacy routes are implemented in Go — see `docs/SENTIMENT-DATA-OFFLOAD.md`. Python `sentiment-data` (`--profile legacy-data`) is emergency rollback only.
 
 ## Tests
 

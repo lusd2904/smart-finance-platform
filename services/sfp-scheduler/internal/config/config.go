@@ -68,7 +68,7 @@ func Load() Config {
 		RedisPassword: env("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DATABASE", 2),
 
-		MySQLHost:     env("DB_HOST", "ruoyi-mysql"),
+		MySQLHost:     env("DB_HOST", "sentiment-mysql"),
 		MySQLPort:     envInt("DB_PORT", 3306),
 		MySQLUser:     env("DB_USERNAME", "root"),
 		MySQLPassword: env("DB_PASSWORD", ""),
