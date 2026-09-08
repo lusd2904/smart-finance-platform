@@ -1,5 +1,5 @@
 <template>
-  <PageFrame title="自动分析" :loading="loading">
+  <PageFrame title="自动分析" subtitle="调度总览 · 启停 · 立即执行" badge="「自动分析 /analysis/jobs」" :loading="loading">
     <template #actions>
       <el-tag :type="alive ? 'success' : 'info'">{{ alive ? '在线' : '离线' }}</el-tag>
       <el-radio-group v-model="category" size="small">
