@@ -59,6 +59,14 @@ export function getMarketWatchlistBacktest(query) {
   return request({ url: '/market/watchlist/backtest', method: 'get', params: query, silent: true })
 }
 
+export function analyzeMarketWatchlist(data) {
+  return request({ url: '/market/watchlist/analyze', method: 'post', data: data || {}, timeout: 30000 })
+}
+
+export function getWatchlistCorrelation(query) {
+  return request({ url: '/market/watchlist/correlation', method: 'get', params: query, timeout: 30000, silent: true })
+}
+
 export function getMarketFlowBoard(query) {
   return request({ url: '/market/flow/board', method: 'get', params: query, timeout: 20000, silent: true })
 }

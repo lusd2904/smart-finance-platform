@@ -133,10 +133,13 @@ function spark(seed) {
 
 export function stubWatchlist() {
   return [
-    { symbol: '00700', name: '腾讯控股', market: 'HK', category: '互联网', price: 412.6, change: 6.6, changeRate: 1.62, open: 407.2, high: 414.8, low: 406.4, prevClose: 406, volume: 1.8e7, turnover: 7.4e9, groups: ['核心'], sparkline: spark(1) },
-    { symbol: 'AAPL', name: '苹果', market: 'US', category: '科技', price: 228.14, change: -1.1, changeRate: -0.48, open: 229.4, high: 230.1, low: 227.6, prevClose: 229.24, volume: 4.2e7, turnover: 9.6e9, groups: ['美股'], sparkline: spark(2) },
-    { symbol: '300750', name: '宁德时代', market: 'CN', category: '新能源', price: 198.32, change: 4.16, changeRate: 2.14, open: 195.1, high: 199.8, low: 194.6, prevClose: 194.16, volume: 2.4e7, turnover: 4.7e9, groups: ['核心'], sparkline: spark(3) },
-    { symbol: '09988', name: '阿里巴巴-SW', market: 'HK', category: '互联网', price: 86.15, change: 1.05, changeRate: 1.23, open: 85.4, high: 86.7, low: 85.1, prevClose: 85.1, volume: 3.1e7, turnover: 2.6e9, groups: ['核心'], sparkline: spark(4) }
+    { symbol: 'AAPL', name: '苹果', market: 'US', category: '科技', price: 316.29, last: 316.29, change: -3.68, changeRate: -1.15, open: 318.4, high: 321.1, low: 312.55, prevClose: 319.97, volume: 4.8e7, turnover: 4.82e10, groups: ['核心持仓'], stance: 'wait', recommendation: '观望', aiVerdict: '观望', aiSummary: '近期波动收窄，量能中性；建议等待突破确认后再调仓。可一键跳转分析/回测。', sparkline: spark(2) },
+    { symbol: 'NVDA', name: '英伟达', market: 'US', category: '科技', price: 178.42, last: 178.42, change: 4.12, changeRate: 2.36, open: 175.1, high: 179.8, low: 174.2, prevClose: 174.3, volume: 3.6e7, turnover: 6.4e10, groups: ['美股'], stance: 'bull', recommendation: '看多', aiVerdict: '看多', aiSummary: '量价齐升，突破前高后回踩确认，可持有观察。', sparkline: spark(5) },
+    { symbol: 'TSLA', name: '特斯拉', market: 'US', category: '汽车', price: 246.1, last: 246.1, change: -4.5, changeRate: -1.8, open: 249.2, high: 251.0, low: 244.8, prevClose: 250.6, volume: 2.1e7, turnover: 5.2e9, groups: ['美股'], stance: 'bear', recommendation: '看空', aiVerdict: '看空', aiSummary: '高位回落，成交放大，短线规避追空。', sparkline: spark(6) },
+    { symbol: '00700', name: '腾讯控股', market: 'HK', category: '互联网', price: 412.6, last: 412.6, change: 6.6, changeRate: 1.62, open: 407.2, high: 414.8, low: 406.4, prevClose: 406, volume: 1.8e7, turnover: 7.4e9, groups: ['核心持仓'], stance: 'bull', recommendation: '看多', aiVerdict: '看多', aiSummary: '量价配合良好，舆情偏多，建议控制仓位分批。', sparkline: spark(1) },
+    { symbol: '03690', name: '美团-W', market: 'HK', category: '互联网', price: 161.75, last: 161.75, change: -6.45, changeRate: -3.84, open: 166.2, high: 167.1, low: 160.4, prevClose: 168.2, volume: 2.8e7, turnover: 4.5e9, groups: ['核心持仓'], stance: 'bear', recommendation: '看空', aiVerdict: '看空', aiSummary: '浮亏扩大，等待止跌信号。', sparkline: spark(7) },
+    { symbol: '300750', name: '宁德时代', market: 'CN', category: '新能源', price: 198.32, last: 198.32, change: 4.16, changeRate: 2.14, open: 195.1, high: 199.8, low: 194.6, prevClose: 194.16, volume: 2.4e7, turnover: 4.7e9, groups: ['核心持仓'], stance: 'bull', recommendation: '看多', aiVerdict: '看多', aiSummary: '板块回流，量能配合，回踩可加。', sparkline: spark(3) },
+    { symbol: '09988', name: '阿里巴巴-SW', market: 'HK', category: '互联网', price: 86.15, last: 86.15, change: -0.95, changeRate: -1.09, open: 86.8, high: 87.2, low: 85.6, prevClose: 87.1, volume: 3.1e7, turnover: 2.6e9, groups: ['核心持仓'], stance: 'bear', recommendation: '看空', aiVerdict: '看空', aiSummary: '反弹乏力，等待成交缩量后再议。', sparkline: spark(4) }
   ].map((s) => ({
     ...s,
     currency: currencyOf(s.market),
@@ -147,8 +150,8 @@ export function stubWatchlist() {
     amplitude: '2.1%',
     volumeRatio: 1.08,
     aiScore: 78,
-    aiVerdict: '逢低关注',
-    aiSummary: '量价配合良好，舆情偏多，建议控制仓位分批。',
+    aiVerdict: s.aiVerdict || '逢低关注',
+    aiSummary: s.aiSummary || '量价配合良好，舆情偏多，建议控制仓位分批。',
     factors: [
       { name: '动量', score: 82 },
       { name: '估值', score: 71 },
@@ -253,5 +256,33 @@ export function stubPositions() {
     { symbol: 'AAPL', symbolName: '苹果', name: '苹果', market: 'US', category: '科技', quantity: 20, costPrice: 229.24, currentPrice: 228.14, last: 228.14, pnl: -22, pnlRate: -0.48, pnlPct: -0.48, currency: 'USD' },
     { symbol: '09988', symbolName: '阿里巴巴-SW', name: '阿里巴巴-SW', market: 'HK', category: '互联网', quantity: 200, costPrice: 85.1, currentPrice: 86.15, last: 86.15, pnl: 210, pnlRate: 1.23, pnlPct: 1.23, currency: 'HKD' },
     { symbol: 'TSLA', symbolName: '特斯拉', name: '特斯拉', market: 'US', category: '汽车', quantity: 8, costPrice: 248.4, currentPrice: 246.1, last: 246.1, pnl: -18, pnlRate: -0.93, pnlPct: -0.93, currency: 'USD' }
+  ]
+}
+
+export function stubFactors() {
+  return [
+    { name: '动量 20D', category: '动量', ic: 0.042, ir: 0.86, coverage: 0.92, returns: [1.2, 0.8, -0.3, 1.5, 0.6] },
+    { name: '反转 5D', category: '反转', ic: -0.031, ir: -0.54, coverage: 0.88, returns: [-0.4, 0.2, -0.8, 0.1, -0.3] },
+    { name: '估值 EP', category: '估值', ic: 0.018, ir: 0.41, coverage: 0.95, returns: [0.3, 0.5, 0.2, 0.4, 0.1] },
+    { name: '质量 ROE', category: '质量', ic: 0.027, ir: 0.62, coverage: 0.81, returns: [0.6, 0.4, 0.7, 0.2, 0.5] },
+    { name: '波动率 20D', category: '风险', ic: -0.022, ir: -0.38, coverage: 0.97, returns: [-0.2, -0.1, 0.3, -0.4, -0.2] }
+  ]
+}
+
+export function stubStrategies() {
+  return [
+    { id: 'st-1', name: '多因子动量', status: 'running', profile: 'momentum', symbolsCount: 24, signalCount: 6, winRate: 0.58, note: '中证+港股通' },
+    { id: 'st-2', name: '均值回归', status: 'paused', profile: 'reversion', symbolsCount: 18, signalCount: 2, winRate: 0.51, note: '低波动篮子' },
+    { id: 'st-3', name: '事件驱动', status: 'running', profile: 'event', symbolsCount: 12, signalCount: 4, winRate: 0.63, note: '财报窗口' }
+  ]
+}
+
+export function stubStrategySignals() {
+  return [
+    { id: 'sg-1', symbol: 'NVDA', name: '英伟达', signal: 'BUY', strength: 0.86, score: 82, createdAt: '10:21' },
+    { id: 'sg-2', symbol: '00700', name: '腾讯控股', signal: 'BUY', strength: 0.74, score: 76, createdAt: '10:18' },
+    { id: 'sg-3', symbol: 'TSLA', name: '特斯拉', signal: 'SELL', strength: 0.69, score: 41, createdAt: '10:12' },
+    { id: 'sg-4', symbol: 'AAPL', name: '苹果', signal: 'HOLD', strength: 0.45, score: 55, createdAt: '10:05' },
+    { id: 'sg-5', symbol: '03690', name: '美团-W', signal: 'SELL', strength: 0.81, score: 38, createdAt: '09:58' }
   ]
 }
