@@ -10,6 +10,8 @@
 - 先在「量化交易 → 策略配置」点 **设为生效**，三档编码：`conservative` 保守 / `balanced` 均衡 / `aggressive` 进取。未绑定则默认均衡。权重覆盖只属于本账户。
 - 要真实委托：先在「量化交易 → 长桥配置」填本账号 App Key / Secret / Token（保存时 `****` 不覆盖原密钥），再在策略配置打开自动交易。未配 Key 时开关打不开。
 - 因子 / 回测依赖 Influx 日 K。回测入口在「交易中心 → 策略回测」，不在本目录。
+- **16 GiB 生产（cursor-1）**：量化 API 与行情同在 slim 的 `sentiment-data`；`quant` 队列由单 `sentiment-jobs` 消费。
+- **后续（计划）**：`quant` 队列（因子日扫、自动交易扫描）可迁至 Go/Rust worker；策略配置与台账页面不变。
 
 ## 操作步骤
 

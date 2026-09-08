@@ -2,11 +2,14 @@
 
 适用：**生产云主机（cursor-1，16 GiB）** 与 **大内存开发机** 共用同一仓库，编排分 **slim** / **full** 两档。
 
+运维速查（内存预算、迁移路线）：[MEMORY-SLIM-AND-MIGRATION.md](./MEMORY-SLIM-AND-MIGRATION.md)。  
+Slim overlay 与 compose 定义：**PR #64**；合并后见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)。
+
 ---
 
 ## cursor-1（生产，~15 GiB RAM）
 
-与 **grok2api** 同机。slim 栈长期稳态 RSS 目标 **4–5 GiB**（Influx 降至 3g 之后）。
+与 **grok2api** 同机。**full-split 禁止用于 cursor-1 生产。** slim 栈长期稳态 RSS 目标 **4–5 GiB**（Influx 降至 3g 之后）。
 
 ### Influx 冷打开 — cursor-1 已验证（18G / ~2992 shard）
 
@@ -85,7 +88,7 @@ slim overlay **默认**用 **服务级 bind**（非 named volume `driver_opts`�
 - 数据根：`/workspace/docker`（**vfs** storage driver — 必须用服务级 bind，见 `docker-compose.sentiment.slim.yml`）
 - Agent 沙箱内无 socket 时：`source scripts/docker_host.sh` → `DOCKER_HOST=tcp://127.0.0.1:2375`
 
-### 启动（合并本 PR 后 **仅 slim**）
+### 启动（PR #64 合并后 **仅 slim**）
 
 ```bash
 cd /path/to/smart-finance-platform
@@ -151,10 +154,11 @@ docker compose -f docker-compose.sentiment.yml up -d --build
 bash scripts/deploy_and_verify.sh
 ```
 
-合并 PR 后若仍要临时起拆分容器：`--profile full-split`。
+PR #64 合并后若仍要临时起拆分容器：`--profile full-split`。**不要在 cursor-1 上使用。**
 
 ---
 
 ## 合并后路线
 
-见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)：cursor-1 固定 slim；后续 PR 从默认 compose **删除**冗余拆分服务或让 slim 成为默认 sentiment 编排。
+1. **Slim 固定 cursor-1 生产** — 见 [SLIM-POST-MERGE.md](./SLIM-POST-MERGE.md)（PR #64 合并后）。
+2. **market-read / workers 迁 Go/Rust** — 见 [MEMORY-SLIM-AND-MIGRATION.md § 后续迁移](./MEMORY-SLIM-AND-MIGRATION.md#后续迁移market-read-与-workers计划独立-pr)；分 PR 交付，HTTP 与任务 ticket 契约不变。

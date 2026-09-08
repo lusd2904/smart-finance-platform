@@ -8,7 +8,8 @@
 
 - 「任务中心 → 自动分析任务」默认仅管理员可见。业务账号改自动交易去「量化交易 → 策略配置」。
 - 页顶须显示 **jobs 在线**。离线时不要点启用或立即执行，先让调度容器起来。
-- **16 GiB 生产机（slim 栈）**：只有一个 `sentiment-jobs` 进程（`APP_JOB_GROUP=all`），同时跑定时调度与 market/quant/llm 三队列；功能与拆分三 worker 相同，路径不变。
+- **16 GiB 生产机（slim 栈）**：只有一个 `sentiment-jobs` 进程（`APP_JOB_GROUP=all`），同时跑定时调度与 market/quant/llm 三队列；功能与拆分三 worker 相同，路径不变。详见 `docs/MEMORY-SLIM-AND-MIGRATION.md`。
+- **后续（计划）**：队列消费将逐步迁至 Go/Rust worker；本页启停、立即执行与 ticket 轮询方式不变。
 - 长任务入队后由对应消费组执行，不在登录接口进程里跑模型或采集。页面只提交、刷新、看日志。
 - 新环境要先跑增量 SQL（`python3 scripts/sql_migrate.py apply`）。只起容器不迁移时，登录可能通，热度/选股等表会缺。
 
