@@ -1,0 +1,21 @@
+# Optional fourth overlay: LOWER Influx caps for long-term steady-state only.
+#
+# ⚠️  Do NOT apply immediately after cold open. cursor-1 peak ~11.7GiB at 12g mem_limit;
+# leave headroom until full-stack retest passes and RSS has been idle for days.
+#
+# cursor-1 cold-open recipe (verified): service-level binds (vfs), mem_limit ≥12g,
+# GOMEMLIMIT 10GiB, 4G loop swap → healthy on 18G / ~2992 shards.
+#
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     -f docker-compose.sentiment.slim.influx-steady.yml \
+#     up -d --no-deps sentiment-influxdb
+#
+# Steady target: GOMEMLIMIT 2560MiB, mem_limit 3g (whole slim stack RSS ~4–5 GiB).
+
+services:
+  sentiment-influxdb:
+    environment:
+      GOMEMLIMIT: "2560MiB"
+    mem_limit: 3g

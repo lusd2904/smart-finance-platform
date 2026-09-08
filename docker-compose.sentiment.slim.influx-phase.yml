@@ -1,0 +1,44 @@
+# Optional third overlay: start market/heat/minute-kline reads before MySQL shard upload.
+#
+# Phase A (Influx 18G on disk at $SFP_DATA_ROOT/influx/, MySQL not ready):
+#   source scripts/docker_host.sh
+#   export SFP_DATA_ROOT=/workspace/sfp-data
+#   bash scripts/sfp_data_init.sh --influx-only
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     -f docker-compose.sentiment.slim.influx-phase.yml \
+#     up -d ruoyi-redis sentiment-influxdb sentiment-data
+#
+# Phase B (after mysql/ populated or empty dir ready for init):
+#   bash scripts/sfp_data_init.sh
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     up -d --build
+
+services:
+  ruoyi-mysql:
+    profiles: [mysql-ready]
+
+  sentiment-backend:
+    profiles: [mysql-ready]
+
+  sentiment-intel:
+    profiles: [mysql-ready]
+
+  sentiment-trade:
+    profiles: [mysql-ready]
+
+  sentiment-jobs:
+    profiles: [mysql-ready]
+
+  sentiment-frontend:
+    profiles: [mysql-ready]
+
+  sentiment-data:
+    depends_on: !override
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy

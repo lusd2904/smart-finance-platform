@@ -1,6 +1,9 @@
 # 监控栈（Prometheus/Grafana）另起：
 #   docker compose -f docker-compose.monitor.yml up -d
 #
+# 内存：16 GiB 及以下云主机用 slim 叠加层（见 docker-compose.sentiment.slim.yml）；
+# 本机大内存仍用单文件全量拆分。
+#
 # 禁止 compose down 整栈。新增/更新服务：
 #   docker compose -f docker-compose.sentiment.yml up -d --no-deps --build <service>
 x-backend-image: &backend-image
@@ -359,8 +362,9 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: longbridge
       DOCKER_INFLUXDB_INIT_BUCKET: market_us
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
-      # 1044 shard 冷启动：538 shard ≈ 3GiB，全量约 6GiB。3g/5g 硬顶会在中途 137。
-      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。勿降到 5g 以下。
+      # 1044 shard 冷启动：538 shard ≈ 3GiB。18G 恢复 / ~2992 shard 需 slim overlay
+      # 18G 恢复 / ~2992 shard 需 slim overlay（≥12g + swap）— 本 full 栈 6g 不足。
+      # GOMAXPROCS=1 串行打开 TSI；GOMEMLIMIT 压 Go heap。
       GOMAXPROCS: "1"
       GOMEMLIMIT: "5GiB"
       INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"

@@ -4,6 +4,8 @@
 # 说明: 只重建业务容器（API/jobs/前端），不触碰 MySQL/Redis/InfluxDB 数据层。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=/dev/null
+source "$(dirname "$0")/docker_host.sh"
 
 COMPOSE="docker compose -f docker-compose.sentiment.yml"
 

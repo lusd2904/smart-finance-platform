@@ -24,6 +24,8 @@ def test_role_helpers_isolate_api_from_scheduler() -> None:
     assert both.runs_scheduler()
     assert both.runs_job_queue_worker()
     assert AppSettings(app_module='trade').router_modules() == {'module_trade'}
+    assert AppSettings(app_module='data').router_modules() == {'module_market', 'module_quant'}
+    assert AppSettings(app_module='intel').router_modules() == {'module_sentiment', 'module_ai'}
     assert AppSettings(app_module='all').router_modules() is None
 
 

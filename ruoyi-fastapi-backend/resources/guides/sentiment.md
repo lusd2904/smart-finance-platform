@@ -24,7 +24,7 @@
 
 - 紧急停机（Halt）只拦新单，不拦撤单（与舆情采集无关）。
 - 自动交易默认纸面；A 股不参与自动交易扫描。策略档按登录账户绑定。
-- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。
+- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。16 GiB 主机用 slim 栈：`sentiment-intel` 进程承载本模块 + AI 开放接口；部署见 `docs/SFP-TWO-HOST-DEPLOY.md`。
 - 涨跌颜色：涨红跌绿。
 - 手机底栏是 **自选 / 行情 / 选股 / 持仓 / 我的**（舆情在「我的」）。
 - 舆情 `pub_time` 无时区时按北京墙钟存和展示，**不要再 +8**。长桥 / Influx 的 UTC 才会转北京时间。

@@ -28,7 +28,7 @@
 - 自动交易默认纸面（开关关闭只扫描不下单）。打开后按本账户长桥凭据下到模拟或真实账户。
 - A 股不参与自动交易扫描与下单（扫描池是美/港热度 Top50，可叠加本账户美/港自选）。
 - 策略档按登录账户绑定；扫描台账 / 策略历史 / 通知 / 风控 / 回测都只看本账户。
-- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。
+- 运维更新不要 `compose down`，不要重建 MySQL / Redis / Influx。16 GiB slim 栈：量化 API 与行情读合并为 `sentiment-data`，交易下单仍在独立 `sentiment-trade`；见 `docs/SFP-TWO-HOST-DEPLOY.md`。
 - 涨跌颜色：涨红跌绿。
 - 手机底栏是 **自选 / 行情 / 选股 / 持仓 / 我的**。
 

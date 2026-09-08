@@ -255,3 +255,23 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -qi '<!DOCTYPE html\|<html' \
             || { echo "::error::前端镜像未返回有效 HTML 首页"; docker logs smoke-frontend; exit 1; }
           docker rm -f smoke-frontend >/dev/null
+      - name: Validate slim compose config
+        run: |
+          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            docker compose \
+              -f docker-compose.sentiment.yml \
+              -f docker-compose.sentiment.slim.yml \
+              config >/dev/null
+          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            docker compose \
+              -f docker-compose.sentiment.yml \
+              -f docker-compose.sentiment.slim.yml \
+              -f docker-compose.sentiment.slim.influx-phase.yml \
+              config >/dev/null
+          MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            docker compose \
+              -f docker-compose.sentiment.yml \
+              -f docker-compose.sentiment.slim.yml \
+              -f docker-compose.sentiment.slim.influx-steady.yml \
+              config >/dev/null
+          echo "slim compose config ok"

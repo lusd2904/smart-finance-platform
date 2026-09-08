@@ -18,6 +18,10 @@ def test_op_log_stream_only_on_platform_or_monolith() -> None:
         assert _should_consume_op_logs() is False
     with patch.object(AppConfig, 'app_role', 'api'), patch.object(AppConfig, 'app_module', 'market'):
         assert _should_consume_op_logs() is False
+    with patch.object(AppConfig, 'app_role', 'api'), patch.object(AppConfig, 'app_module', 'data'):
+        assert _should_consume_op_logs() is False
+    with patch.object(AppConfig, 'app_role', 'api'), patch.object(AppConfig, 'app_module', 'intel'):
+        assert _should_consume_op_logs() is False
     with patch.object(AppConfig, 'app_role', 'api'), patch.object(AppConfig, 'app_module', 'platform'):
         assert _should_consume_op_logs() is True
     with patch.object(AppConfig, 'app_role', 'all'), patch.object(AppConfig, 'app_module', 'trade'):

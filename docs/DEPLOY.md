@@ -2,44 +2,119 @@
 
 默认生产栈是 **MySQL + Redis + InfluxDB + FastAPI + Vue3 Nginx**，编排文件为 `docker-compose.sentiment.yml`。
 
+**15–16 GiB 云主机（cursor-1 等，与 grok2api 共存、无 swap）** 必须使用 **slim 叠加层**。
+
+### Influx 冷打开（18G 恢复 / ~2992 shard）— cursor-1 已验证
+
+| 实测（cursor-1） | 结果 |
+|------------------|------|
+| `mem_limit` 6g / 8g / 10g（无 swap） | MEMCG OOM（10g 时在 72.8% shard ~10.3GiB anon RSS） |
+| **12g + `GOMEMLIMIT: 10GiB` + 4G loop swap** | **healthy**，峰值 **~11.7GiB** |
+
+**三要素（15–16GiB 主机）：**
+
+1. **vfs 服务级 bind** — `$SFP_DATA_ROOT/influx` → `/var/lib/influxdb2`（named volume `driver_opts` 在 vfs 下无效）
+2. **冷开 `mem_limit` ≥12g** + **`GOMEMLIMIT` 整数**（如 `10GiB`；`5.2GiB` 会 fatal）
+3. **4G+ loop swap** — 冷开前启用；暂停 **grok2api** 等非必需容器
+
+slim 默认 COLD_OPEN：`mem_limit: 12g` / `GOMEMLIMIT: 10GiB`。
+
+**冷开 healthy 后勿立即降至 3g** — 保留 headroom 直至全栈验收稳定；可选日后 `influx-steady`（见 [SFP-TWO-HOST-DEPLOY.md](./SFP-TWO-HOST-DEPLOY.md)）。
+
+| 模式 | 命令 | 进程数（API + jobs） | 典型 RSS |
+|------|------|-------------------|----------|
+| **Slim（16G 生产）** | 见下方「Slim 生产启动」 | 4 API + 1 scheduler/worker | 冷开 Influx **12g** + swap；长期稳态可降至 4–5 GiB |
+| **Full（大内存）** | `docker compose -f docker-compose.sentiment.yml up -d` | 6 API + 1 scheduler + 3 workers | ~8–11 GiB |
+
+### Slim 生产启动（cursor-1）
+
+**数据目录绑定（slim overlay 默认）** — 勿使用 `influx/data` 或 `influx/config`：
+
+| 宿主机路径 | 容器挂载 | 说明 |
+|------------|----------|------|
+| `$SFP_DATA_ROOT/mysql` | `/var/lib/mysql` | 可为空，首次 init 或 Mac 分片上传 |
+| `$SFP_DATA_ROOT/redis` | `/data` | |
+| `$SFP_DATA_ROOT/influx` | `/var/lib/influxdb2` | 含 `influxd.bolt`、`engine/`（约 18 GiB） |
+| `$SFP_DATA_ROOT/influx-config` | `/etc/influxdb2` | |
+
+cursor-1 **vfs** 存储驱动：不要用 named volume `driver_opts` bind（`_data` 会空）。slim overlay 在 **服务级** 写 bind，例如：
+
+```yaml
+sentiment-influxdb:
+  volumes:
+    - ${SFP_DATA_ROOT}/influx:/var/lib/influxdb2
+    - ${SFP_DATA_ROOT}/influx-config:/etc/influxdb2
+```
+
+验收 bind：`sudo docker inspect sentiment-influxdb --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'`
+
+```bash
+source scripts/docker_host.sh
+export SFP_DATA_ROOT=/workspace/sfp-data
+mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
+# 或: bash scripts/sfp_data_init.sh
+
+sudo docker compose \
+  -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  up -d --build
+
+# 日常滚动
+bash scripts/deploy_and_verify_slim.sh
+```
+
+**可选（全栈稳定数日后）** 再降 Influx 至长期稳态内存 — **勿在冷开刚 healthy 时执行**：
+
+```bash
+# bash scripts/influx_slim_steady.sh   # 仅长期 idle 后；冷开后保留 12g headroom
+```
+
+Slim 合并方式（**对外路径不变**）：
+
+- `sentiment-data`：`APP_MODULE=data`（market + quant），nginx 仍反代 `/market/`、`/quant/`、`/ws/`
+- `sentiment-intel`：`APP_MODULE=intel`（sentiment + ai），含 `/open/`（除 `/open/sync/`）
+- `sentiment-trade`：**仍独立**，不与 LLM/采集共进程
+- `sentiment-jobs`：`APP_JOB_GROUP=all`，单进程跑 APScheduler + market/quant/llm 三队列
+- 数据卷默认 bind 到 `$SFP_DATA_ROOT`（默认 `/workspace/sfp-data`）。`bash scripts/sfp_data_init.sh` 会创建目录；**空 `mysql/` 合法**（首次 init 或 Mac 分片上传后替换）。
+- **MySQL 未就绪**：`bash scripts/up_slim_influx_phase.sh` 仅起 Redis + Influx + `sentiment-data`（热度/分钟 K 线读）；登录/舆情/任务需全栈。
+
+验收内存（Influx healthy 后空闲 5 分钟）：
+
+```bash
+source scripts/docker_host.sh
+sudo docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+```
+
 完整 OpenAPI：启动后端后访问 `http://127.0.0.1:19099/docs`（Docker 反代路径为 `/docker-api/docs`）。
 
-云上日常更新看下面 **「云主机怎么部署」**。本机资源更大，和云机共用同一份 compose，**不要按云主机内存去砍容器上限**。
+云上日常更新看下面 **「云主机怎么部署」**。本机资源更大时可走 Full，**不要按云主机内存去砍 Full 栈上限**。
 
 ---
 
 ## 云主机怎么部署（日常更新）
 
-适用：**一台 Docker 云主机，里面是本平台 + grok2api**。不要改 grok2api，不要 `compose down`，不要删 Influx 命名卷。
+适用：**一台 Docker 云主机（cursor-1，16 GiB + grok2api）**。不要改 grok2api，不要 `compose down`，不要删 Influx 数据。
 
-### 这次上线会改什么
+**16 GiB 主机请用 slim**（见文首「Slim 生产启动」）。下面 Full 滚动命令仅大内存机使用。
 
-拉 `main` 并滚动**业务容器**之后生效：
+### 步骤（slim，推荐）
 
-- 下单走你配置的长桥账户（模拟就是模拟、真实就是真实）；自动交易开关打开才会委托
-- 美股盘前 / 盘后 / 夜盘下单（长桥模拟账户本身仍只撮合常规盘）
-- 操作日志只由 `sentiment-backend` 消费，其它 API 不再抢 Redis 日志流
-- K 线 / 指标 / 历史在 Influx 侧 `tail`，不再默认拉两年再截断
+```bash
+git fetch origin && git checkout main && git pull --ff-only origin main
+source scripts/docker_host.sh
+export SFP_DATA_ROOT=/workspace/sfp-data
+bash scripts/deploy_and_verify_slim.sh
+```
 
-**不要**为了「给 16G 封顶」去重建 MySQL / Influx / Redis。数据层保持不动。
+### 步骤（full，大内存机）
 
-### 步骤
-
-在云主机仓库根目录（有 `docker-compose.sentiment.yml` 的那层）：
+在云主机仓库根目录：
 
 ```bash
 git fetch origin
 git checkout main
 git pull --ff-only origin main
 ```
-
-可选：关闭容器内文件日志（Docker 已有 stdout）。编辑已挂载的 `ruoyi-fastapi-backend/.env.dockersentiment`：
-
-```ini
-LOG_FILE_ENABLED = false
-```
-
-未改过就保持原样，不影响这次功能。
 
 只重建业务容器（先 API / jobs，再前端）：
 
@@ -52,24 +127,18 @@ docker compose -f docker-compose.sentiment.yml up -d --no-deps --build \
 docker compose -f docker-compose.sentiment.yml up -d --no-deps --build sentiment-frontend
 ```
 
-或直接：
-
-```bash
-bash scripts/deploy_and_verify.sh
-```
-
-脚本同样**不碰** MySQL / Redis / Influx。
+或 `bash scripts/deploy_and_verify.sh`（同样不碰 MySQL / Redis / Influx）。
 
 ### 验收
 
 ```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}'
+sudo docker ps --format 'table {{.Names}}\t{{.Status}}'
 curl -sf http://127.0.0.1:19099/health && echo
 curl -sf http://127.0.0.1:12580/ -o /dev/null -w '%{http_code}\n'
 ```
 
-- `sentiment-backend` / `sentiment-trade` / `sentiment-frontend` 应为 healthy
-- `jobs-market` / `jobs-quant` / `jobs-llm` 重建后应出现 `(healthy)`
+- slim：`sentiment-backend` / `sentiment-trade` / `sentiment-data` / `sentiment-intel` / `sentiment-jobs` / `sentiment-frontend` 应为 healthy
+- full：`sentiment-backend` / `sentiment-trade` / `sentiment-frontend` + `jobs-market` / `jobs-quant` / `jobs-llm` 应为 healthy
 - 登录页能开；行情/量化在 Influx 未就绪时可能 502，等 `sentiment-influxdb` healthy 即可
 - 浏览器强刷一次前端静态资源
 
@@ -131,6 +200,8 @@ cp ruoyi-fastapi-frontend/.env.docker.example ruoyi-fastapi-frontend/.env.docker
 可选：长桥凭证、AI Base URL / API Key。
 
 ## 2. 启动业务栈
+
+云 Agent / 沙箱验证时先 `source scripts/docker_host.sh`（`DOCKER_HOST=tcp://127.0.0.1:2375`，连宿主机 Engine；应用容器内不要挂 `docker.sock`）。
 
 ```bash
 docker compose -f docker-compose.sentiment.yml up -d --build
