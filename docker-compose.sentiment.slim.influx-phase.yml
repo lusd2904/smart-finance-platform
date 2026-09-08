@@ -42,3 +42,10 @@ services:
         condition: service_healthy
       sentiment-influxdb:
         condition: service_healthy
+
+  sentiment-market-read:
+    depends_on: !override
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-influxdb:
+        condition: service_healthy
