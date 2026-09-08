@@ -347,7 +347,8 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 - **market**：`curl -sf http://127.0.0.1:19097/health`
 - **quant**：`curl -sf http://127.0.0.1:19096/health`
 - **notify (feishu)**：`curl -sf http://127.0.0.1:19095/health`
-- **Python 委托任务**（Longbridge 热度、Grok/LLM）：由 Go worker HTTP 调用 `/internal/jobs/run`
+- **Python 委托任务**（Grok/LLM / 因子策略）：由 Go worker HTTP 调用 `/internal/jobs/run`
+- **热度 / 标的内容**：`sfp-market-worker` 原生。热度走新浪/腾讯/东财公开 HTTP；`symbol_content` 走 Longbridge OpenAPI HTTP（`LONGPORT_*`，无需 Python SDK）
 
 ## 3. 监控（可选）
 

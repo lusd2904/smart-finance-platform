@@ -36,6 +36,12 @@ type Config struct {
 	InternalJobToken     string
 	ConsumerPollInterval time.Duration
 	ReclaimInterval      time.Duration
+
+	LongbridgeAppKey      string
+	LongbridgeAppSecret   string
+	LongbridgeAccessToken string
+	LongbridgeRegion      string
+	LongbridgeHTTPURL     string
 }
 
 func env(key, fallback string) string {
@@ -102,7 +108,29 @@ func Load() Config {
 
 		ConsumerPollInterval: 200 * time.Millisecond,
 		ReclaimInterval:      30 * time.Second,
+
+		LongbridgeAppKey:      firstEnv("LONGPORT_APP_KEY", "LONGBRIDGE_APP_KEY"),
+		LongbridgeAppSecret:   firstEnv("LONGPORT_APP_SECRET", "LONGBRIDGE_APP_SECRET"),
+		LongbridgeAccessToken: firstEnv("LONGPORT_ACCESS_TOKEN", "LONGBRIDGE_ACCESS_TOKEN"),
+		LongbridgeRegion:      envOr("cn", "LONGPORT_REGION", "LONGBRIDGE_REGION"),
+		LongbridgeHTTPURL:     firstEnv("LONGPORT_HTTP_URL", "LONGBRIDGE_HTTP_URL"),
 	}
+}
+
+func firstEnv(keys ...string) string {
+	for _, key := range keys {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func envOr(fallback string, keys ...string) string {
+	if v := firstEnv(keys...); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func (c Config) BucketForMarket(market string) string {

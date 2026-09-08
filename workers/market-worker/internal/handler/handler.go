@@ -11,20 +11,20 @@ import (
 
 // nativeJobs run entirely in Go without Python delegation.
 var nativeJobs = map[string]bool{
-	"market_sync":       true,
-	"eod_kline_sync":    true,
-	"klines_slow":       true,
-	"mysql_to_influx":   true,
-	"board_warmup":      true,
-	"listings_sync":     true,
-	"finance_briefings": true,
-}
-
-// delegateJobs require Longbridge Python SDK (live quotes / symbol content API).
-var delegateJobs = map[string]bool{
+	"market_sync":         true,
+	"eod_kline_sync":      true,
+	"klines_slow":         true,
+	"mysql_to_influx":     true,
+	"board_warmup":        true,
+	"listings_sync":       true,
+	"finance_briefings":   true,
 	"market_heat_collect": true,
 	"symbol_content":      true,
 }
+
+// delegateJobs is the leftover Python fallback list. Heat / symbol_content
+// now run natively (public HTTP + Longbridge REST). Keep the map for future jobs.
+var delegateJobs = map[string]bool{}
 
 type Handler struct {
 	store    *store.Service
@@ -89,6 +89,18 @@ func (h *Handler) handleNative(ctx context.Context, job queue.Job) (interface{},
 		return h.store.SyncFromInflux(ctx)
 	case "finance_briefings":
 		return h.store.RefreshFinanceBriefings(ctx)
+	case "market_heat_collect":
+		market := stringFrom(job.Payload["market"])
+		if market == "" {
+			market = "US"
+		}
+		tradeDate := stringFrom(job.Payload["tradeDate"])
+		if tradeDate == "" {
+			tradeDate = stringFrom(job.Payload["trade_date"])
+		}
+		return h.store.CollectMarketHeat(ctx, market, tradeDate)
+	case "symbol_content":
+		return h.store.RefreshSymbolContent(ctx)
 	default:
 		return nil, fmt.Errorf("unhandled native job: %s", job.Type)
 	}

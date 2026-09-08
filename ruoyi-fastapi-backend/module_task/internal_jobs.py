@@ -1,7 +1,7 @@
 """
 Internal job execution endpoint for Go market-worker delegation.
 
-Heat / briefings / content-cache jobs still run in Python until ported.
+Heat / content-cache are native in Go market-worker; Python handlers remain as fallback.
 Protected by INTERNAL_JOB_TOKEN (X-Internal-Token header).
 """
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix='/internal/jobs', tags=['internal-jobs'])
 
 _DELEGATABLE = frozenset(
     {
-        # market queue — Longbridge SDK only in Python today
+        # market queue — Go worker is native; keep Python handlers as fallback
         'market_heat_collect',
         'symbol_content',
         # quant queue — heavy factor/strategy logic still Python

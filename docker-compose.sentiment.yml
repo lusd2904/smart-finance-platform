@@ -288,7 +288,7 @@ services:
       retries: 12
       start_period: 20s
 
-  # 行情队列消费：Go worker（K 线 / 简报 / 看板 / 代码表；热度与内容仍委托 Python）
+  # 行情队列消费：Go worker（K 线 / 简报 / 看板 / 代码表 / 热度 / 标的内容）
   sfp-market-worker:
     build:
       context: ./workers/market-worker
@@ -314,6 +314,10 @@ services:
       INFLUX_BUCKET_CN: market_data
       INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
       PYTHON_DELEGATE_URL: http://sentiment-backend:9099/internal/jobs/run
+      LONGPORT_APP_KEY: ${LONGPORT_APP_KEY:-}
+      LONGPORT_APP_SECRET: ${LONGPORT_APP_SECRET:-}
+      LONGPORT_ACCESS_TOKEN: ${LONGPORT_ACCESS_TOKEN:-}
+      LONGPORT_REGION: ${LONGPORT_REGION:-cn}
       KLINE_SYMBOL_INTERVAL: "0.4"
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
