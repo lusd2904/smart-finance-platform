@@ -9,6 +9,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>智慧金融 · 工作台</title>
+    <script>
+      (function () {
+        var key = 'sfp-active-theme'
+        var theme = 'glass-dark'
+        try {
+          var stored = window.localStorage.getItem(key)
+          if (stored === 'glass-light' || stored === 'glass-dark') theme = stored
+        } catch (e) { /* ignore */ }
+        document.documentElement.dataset.theme = theme
+        document.documentElement.style.colorScheme = theme === 'glass-light' ? 'light' : 'dark'
+        document.documentElement.classList.toggle('dark', theme !== 'glass-light')
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

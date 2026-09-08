@@ -1,3 +1,10 @@
+/* Chrome + Element Plus mappings ported from longbridge-platform-core
+   apps/frontend/web-portal/src/App.vue (unscoped :root / control styles).
+
+   Glass-dark / glass-light color surfaces stay in experience.scss.
+   [data-theme] beats :root, so this file must NOT reassign --page-bg,
+   --panel-surface, --accent, or other experience tokens. */
+
 :root {
   --font-cjk:
     'PingFang SC',
@@ -29,58 +36,82 @@
   --sidebar-width: 248px;
   --radius-strong: 28px;
   --radius-soft: 20px;
+  --page-grid:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 48%);
   --panel-highlight: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
-  --overlay-bg: rgba(8, 16, 32, 0.55);
+  --overlay-bg: rgba(16, 25, 45, 0.45);
   --workspace-shell-bg: transparent;
-  --panel-surface: var(--panel-highlight), var(--overlay-bg);
   --chrome-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05)), var(--overlay-bg);
+  --shell-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)), var(--workspace-shell-bg);
   --panel-backdrop: blur(24px) saturate(145%);
   --chrome-backdrop: blur(28px) saturate(150%);
+  --shell-backdrop: none;
   --panel-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 8%, transparent);
   --chrome-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 9%, transparent);
+  --shell-inset: inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 5%, transparent);
   --chrome-shadow: 0 12px 30px rgba(2, 10, 24, 0.24);
   --sidebar-shadow: 0 18px 44px rgba(3, 10, 24, 0.36);
-  --button-primary-solid-bg: #164a72;
-  --button-primary-solid-bg-hover: #1b628d;
-  --button-primary-bg: linear-gradient(135deg, #164a72 0%, #0e5f83 100%);
-  --button-primary-bg-hover: linear-gradient(135deg, #1b628d 0%, #15739b 100%);
-  --button-primary-text: #f9fdff;
-  --button-primary-border: color-mix(in srgb, var(--accent) 34%, transparent);
-  --button-primary-shadow: 0 16px 36px color-mix(in srgb, var(--accent-strong) 24%, transparent);
+  --accent-ink: #06121d;
+  --button-primary-solid-bg: var(--accent);
+  --button-primary-solid-bg-hover: var(--accent-strong);
+  --button-primary-bg: var(--accent);
+  --button-primary-bg-hover: var(--accent-strong);
+  --button-primary-text: var(--accent-ink);
+  --button-primary-border: color-mix(in srgb, var(--accent) 40%, transparent);
+  --button-primary-shadow: 0 14px 32px color-mix(in srgb, var(--accent) 28%, transparent);
   --button-secondary-bg: color-mix(in srgb, var(--surface-soft) 84%, var(--surface-strong) 16%);
   --button-secondary-bg-hover: color-mix(in srgb, var(--surface-soft) 90%, var(--surface-strong) 10%);
   --button-secondary-text: var(--text-primary);
   --button-secondary-border: var(--border-soft);
   --button-link-color: color-mix(in srgb, var(--accent) 74%, var(--text-primary) 12%);
-  --table-divider: color-mix(in srgb, var(--border-soft) 46%, transparent);
-  --table-frame: color-mix(in srgb, var(--border-soft) 62%, transparent);
+  --table-divider: color-mix(in srgb, var(--accent-strong) 7%, transparent);
+  --table-frame: color-mix(in srgb, var(--accent-strong) 11%, transparent);
   --table-header-bg: color-mix(in srgb, var(--surface-soft) 88%, transparent);
   --table-row-hover: color-mix(in srgb, var(--surface-soft) 92%, transparent);
-  --stat-up: #ff4d6d;
-  --stat-down: #22c55e;
+  --surface-panel: var(--panel-surface);
   --info: color-mix(in srgb, var(--accent-strong) 72%, white 16%);
-  --glow-a: rgba(59, 130, 246, 0.45);
-  --glow-b: rgba(147, 51, 234, 0.4);
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --panel-stroke: color-mix(in srgb, var(--accent-strong) 7%, transparent);
+  --panel-edge: color-mix(in srgb, var(--accent-strong) 11%, transparent);
+  --control-border: color-mix(in srgb, var(--accent-strong) 13%, transparent);
+  --control-border-hover: color-mix(in srgb, var(--accent-strong) 22%, transparent);
   --loading-mask: rgba(2, 6, 23, 0.45);
+  --stat-up: #ff0055;
+  --stat-down: #39ff14;
 }
 
 [data-theme='glass-light'] {
-  --overlay-bg: rgba(255, 255, 255, 0.55);
-  --button-primary-solid-bg: #1d4ed8;
-  --button-primary-solid-bg-hover: #2563eb;
-  --button-primary-bg: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
-  --button-primary-bg-hover: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-  --glow-a: rgba(96, 165, 250, 0.45);
-  --glow-b: rgba(192, 132, 252, 0.4);
-  --loading-mask: rgba(248, 250, 252, 0.55);
+  --overlay-bg: rgba(255, 255, 255, 0.65);
+  --loading-mask: rgba(241, 245, 249, 0.55);
+  --accent-ink: #ffffff;
   --stat-up: #dc2626;
   --stat-down: #16a34a;
+  --chrome-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --sidebar-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='glass-dark'] {
+  --overlay-bg: rgba(16, 25, 45, 0.45);
+  --loading-mask: rgba(2, 6, 23, 0.45);
+  --accent-ink: #06121d;
+  --stat-up: #ff0055;
+  --stat-down: #39ff14;
 }
 
 :root,
 :root[data-theme] {
   --el-color-info: var(--text-secondary) !important;
-  --el-color-primary: var(--accent-strong) !important;
+  --el-color-primary: var(--accent) !important;
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 72%, white 28%) !important;
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 50%, white 50%) !important;
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 32%, white 68%) !important;
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 20%, white 80%) !important;
+  --el-color-primary-light-9: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  --el-color-primary-dark-2: var(--accent-strong) !important;
   --el-color-success: var(--success) !important;
   --el-color-warning: var(--warning) !important;
   --el-color-danger: var(--danger) !important;
@@ -89,16 +120,25 @@
   --el-text-color-secondary: var(--text-secondary) !important;
   --el-text-color-placeholder: color-mix(in srgb, var(--text-secondary) 82%, transparent) !important;
   --el-disabled-text-color: color-mix(in srgb, var(--text-secondary) 74%, transparent) !important;
-  --el-border-color: color-mix(in srgb, var(--accent-strong) 13%, transparent);
-  --el-border-color-light: color-mix(in srgb, var(--accent-strong) 11%, transparent);
+  --el-border-color: var(--control-border);
+  --el-border-color-light: var(--panel-edge);
+  --el-border-color-lighter: color-mix(in srgb, var(--panel-edge) 76%, transparent);
   --el-fill-color-blank: var(--surface-muted);
   --el-fill-color-light: var(--surface-soft);
+  --el-fill-color-lighter: var(--surface-muted);
+  --el-fill-color-dark: color-mix(in srgb, var(--surface-emphasis) 92%, transparent);
+  --el-fill-color: color-mix(in srgb, var(--surface-soft) 72%, var(--surface-muted) 28%);
   --el-bg-color: transparent;
   --el-bg-color-page: transparent;
   --el-bg-color-overlay: var(--surface-strong);
+  --el-color-white: var(--text-emphasis);
+  --el-box-shadow-light: var(--shadow-strong);
+  --el-mask-color: var(--loading-mask);
+  --el-mask-color-extra-light: color-mix(in srgb, var(--loading-mask) 68%, transparent);
+  --el-overlay-color-light: color-mix(in srgb, var(--loading-mask) 92%, transparent);
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
-  --el-mask-color: var(--loading-mask);
+  --el-border-radius-round: 999px;
 }
 
 * {
@@ -113,6 +153,11 @@ body,
   min-height: 100%;
 }
 
+html {
+  height: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -120,10 +165,17 @@ body {
   background: transparent;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-heading);
+  letter-spacing: 0;
 }
 
 a {
@@ -140,46 +192,103 @@ a {
   --el-button-text-color: var(--button-secondary-text);
   --el-button-bg-color: var(--button-secondary-bg);
   --el-button-border-color: var(--button-secondary-border);
+  --el-button-hover-text-color: var(--button-secondary-text);
+  --el-button-hover-bg-color: var(--button-secondary-bg-hover);
+  --el-button-hover-border-color: var(--control-border-hover);
   border-radius: 10px;
   font-weight: 700;
 }
 
 .el-button--primary:not(.is-link):not(.is-text) {
+  --el-button-text-color: var(--button-primary-text);
+  --el-button-bg-color: var(--button-primary-solid-bg);
+  --el-button-border-color: var(--button-primary-border);
+  --el-button-hover-text-color: var(--button-primary-text);
+  --el-button-hover-bg-color: var(--button-primary-solid-bg-hover);
   color: var(--button-primary-text) !important;
   border: 1px solid var(--button-primary-border) !important;
-  background-color: var(--button-primary-solid-bg) !important;
-  background-image: var(--button-primary-bg) !important;
+  background-color: var(--accent) !important;
+  background-image: none !important;
   box-shadow: var(--button-primary-shadow);
+}
+
+.el-button--primary:not(.is-link):not(.is-text):hover,
+.el-button--primary:not(.is-link):not(.is-text):focus-visible {
+  background-color: var(--accent-strong) !important;
+  background-image: none !important;
+}
+
+.el-button.is-text:not(.is-link),
+.el-button--default:not(.is-link):not(.is-text) {
+  color: var(--button-secondary-text) !important;
+  border-color: var(--button-secondary-border) !important;
+  background: var(--button-secondary-bg) !important;
+}
+
+.el-button--primary.is-link,
+.el-link.el-link--primary {
+  color: var(--button-link-color) !important;
+}
+
+.el-dropdown__popper.el-popper,
+.el-select__popper.el-popper,
+.el-popover.el-popper,
+.el-picker__popper.el-popper {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 12px !important;
+  border: 1px solid var(--panel-edge) !important;
+  background: var(--panel-surface) !important;
+  box-shadow: var(--shadow-strong), var(--panel-inset);
+  backdrop-filter: var(--panel-backdrop);
+  -webkit-backdrop-filter: var(--panel-backdrop);
 }
 
 .el-card,
 .el-dialog,
 .el-message-box,
-.el-dropdown-menu,
-.el-select-dropdown,
-.el-popover.el-popper,
+.el-drawer,
 .el-notification,
 .el-message {
   border-radius: 10px !important;
-  border: 1px solid color-mix(in srgb, var(--accent-strong) 11%, transparent) !important;
+  border: 1px solid var(--panel-edge) !important;
   background: var(--panel-surface) !important;
   box-shadow: var(--shadow-strong), var(--panel-inset);
   backdrop-filter: var(--panel-backdrop);
+  -webkit-backdrop-filter: var(--panel-backdrop);
   color: var(--text-primary);
+}
+
+.el-card__header,
+.el-card__body,
+.el-dialog__header,
+.el-dialog__body,
+.el-dialog__footer {
+  color: var(--text-primary);
+  border-color: var(--panel-stroke) !important;
 }
 
 .el-input__wrapper,
 .el-select__wrapper,
 .el-textarea__inner,
-.el-input-number {
+.el-input-number,
+.el-radio-button__inner {
   background: var(--surface-soft) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 13%, transparent) !important;
+  box-shadow: inset 0 0 0 1px var(--control-border) !important;
   color: var(--text-primary) !important;
 }
 
 .el-input__inner,
 .el-textarea__inner {
   color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 12px 32px color-mix(in srgb, var(--accent-strong) 18%, transparent) !important;
 }
 
 .el-table {
@@ -189,6 +298,7 @@ a {
   --el-table-header-bg-color: var(--table-header-bg);
   --el-table-row-hover-bg-color: var(--table-row-hover);
   --el-table-text-color: var(--text-primary);
+  --el-table-header-text-color: var(--text-secondary);
   color: var(--text-primary) !important;
 }
 
@@ -208,9 +318,145 @@ a {
   backdrop-filter: blur(18px);
 }
 
-.up, .bull { color: var(--stat-up) !important; }
-.down, .bear { color: var(--stat-down) !important; }
-.flat, .neutral { color: var(--text-secondary) !important; }
+.el-tag,
+.el-tag.el-tag--dark,
+.el-tag--dark {
+  border-radius: 999px !important;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+.el-tag--primary,
+.el-tag--primary.el-tag--dark {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent) !important;
+}
+
+.el-tag--success,
+.el-tag--success.el-tag--dark {
+  background: color-mix(in srgb, var(--success) 14%, transparent) !important;
+  color: var(--success) !important;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent) !important;
+}
+
+.el-tag--danger,
+.el-tag--danger.el-tag--dark {
+  background: color-mix(in srgb, var(--danger) 14%, transparent) !important;
+  color: var(--danger) !important;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent) !important;
+}
+
+.el-tag--warning,
+.el-tag--warning.el-tag--dark {
+  background: color-mix(in srgb, var(--warning) 14%, transparent) !important;
+  color: var(--warning) !important;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent) !important;
+}
+
+.el-tag--info,
+.el-tag--info.el-tag--dark {
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 22%, transparent) !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-checkbox-button.is-checked .el-checkbox-button__inner {
+  color: var(--accent-ink) !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+.el-switch.is-checked .el-switch__core {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-checkbox__input.is-indeterminate .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.el-tabs__active-bar {
+  background-color: var(--accent) !important;
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover {
+  color: var(--accent) !important;
+}
+
+.el-table,
+.el-table .cell,
+.stat-card strong,
+.quote-row,
+.price-info,
+.price-val,
+.change-pill,
+.idx-price,
+.idx-change,
+.q-right,
+.q-cell b,
+.main-price-num,
+.price-main-num,
+.cash-stat-capsule strong,
+.heat-index b,
+.score-box strong,
+.health-grid strong,
+.info-hero-price-box,
+.book-row,
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.el-divider {
+  border-color: var(--panel-stroke) !important;
+}
+
+/* Accent hairline from longbridge .content :where(.glass-panel)::before,
+   applied globally so Login (outside .content) matches. */
+.glass-panel,
+.hero-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-panel::before,
+.hero-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 42%;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 48%, transparent), transparent);
+  pointer-events: none;
+}
+
+.login-page .glass-login-box.glass-panel {
+  backdrop-filter: var(--panel-backdrop) !important;
+  -webkit-backdrop-filter: var(--panel-backdrop) !important;
+  box-shadow: var(--page-card-shadow), var(--panel-inset) !important;
+}
+
+.up,
+.bull {
+  color: var(--stat-up) !important;
+}
+
+.down,
+.bear {
+  color: var(--stat-down) !important;
+}
+
+.flat,
+.neutral {
+  color: var(--text-secondary) !important;
+}
 
 .stub-banner {
   display: flex;

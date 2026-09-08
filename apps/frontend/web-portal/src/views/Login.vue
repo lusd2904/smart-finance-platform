@@ -13,30 +13,56 @@
 
       <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" class="login-form" @keyup.enter="handleLogin">
         <el-form-item prop="username">
-          <el-input v-model="loginForm.username" placeholder="账号" size="large" :prefix-icon="User" class="cyber-input" clearable />
+          <el-input
+            v-model="loginForm.username"
+            placeholder="账号"
+            size="large"
+            :prefix-icon="User"
+            class="cyber-input"
+            autocomplete="username"
+            clearable
+          />
         </el-form-item>
         <el-form-item prop="password">
-          <el-input v-model="loginForm.password" type="password" placeholder="密码" size="large" :prefix-icon="Lock" class="cyber-input" show-password clearable />
+          <el-input
+            v-model="loginForm.password"
+            type="password"
+            placeholder="密码"
+            size="large"
+            :prefix-icon="Lock"
+            class="cyber-input"
+            autocomplete="current-password"
+            show-password
+            clearable
+          />
         </el-form-item>
         <el-form-item v-if="captchaEnabled" prop="code">
           <div class="captcha-row">
-            <el-input v-model="loginForm.code" placeholder="验证码" size="large" class="cyber-input" />
-            <img v-if="codeUrl" :src="codeUrl" class="login-code-img" alt="captcha" @click="getCode" />
-            <el-button v-else size="large" @click="getCode">刷新</el-button>
+            <el-input
+              v-model="loginForm.code"
+              placeholder="验证码"
+              size="large"
+              class="cyber-input"
+              autocomplete="off"
+            />
+            <button type="button" class="captcha-fetch" :disabled="captchaLoading" @click="getCode">
+              <img v-if="codeUrl" :src="codeUrl" class="login-code-img" alt="验证码" />
+              <span v-else>{{ captchaLoading ? '获取中…' : captchaHint }}</span>
+            </button>
           </div>
         </el-form-item>
         <div class="form-tools">
-          <el-checkbox v-model="rememberMe">记住账号</el-checkbox>
-          <button type="button" class="endpoint-toggle" @click="enterDemo">演示模式</button>
+          <el-checkbox v-model="rememberMe">记住密码</el-checkbox>
         </div>
         <el-form-item>
           <el-button type="primary" size="large" class="login-button cyber-btn" :loading="loading" @click="handleLogin">
-            系统登录
+            {{ loading ? '登 录 中...' : '登 录' }}
           </el-button>
         </el-form-item>
       </el-form>
       <div class="login-footer">
         <p>对齐长桥 web-portal 玻璃主题 · 旧前端仍保留</p>
+        <button type="button" class="demo-link" @click="enterDemo">演示预览（不走正式登录）</button>
       </div>
     </div>
   </div>
@@ -61,7 +87,9 @@ const userStore = useUserStore()
 const loginFormRef = ref(null)
 const loading = ref(false)
 const rememberMe = ref(false)
-const captchaEnabled = ref(false)
+const captchaEnabled = ref(true)
+const captchaLoading = ref(false)
+const captchaHint = ref('点击获取')
 const codeUrl = ref('')
 const loginForm = reactive({
   username: '',
@@ -72,20 +100,43 @@ const loginForm = reactive({
 
 const loginRules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  code: [
+    {
+      validator: (_rule, value, callback) => {
+        if (captchaEnabled.value && !value) {
+          callback(new Error('请输入验证码'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
+  ]
 }
 
 async function getCode() {
+  captchaLoading.value = true
+  captchaHint.value = '获取中…'
   try {
     const res = await getCodeImg()
     const enabled = res.captchaEnabled
-    captchaEnabled.value = enabled === undefined ? false : !!enabled
+    captchaEnabled.value = enabled === undefined ? true : !!enabled
     if (captchaEnabled.value) {
       codeUrl.value = res.img ? `data:image/gif;base64,${res.img}` : ''
       loginForm.uuid = res.uuid || ''
+      captchaHint.value = codeUrl.value ? '点击刷新' : '点击获取'
+    } else {
+      codeUrl.value = ''
+      loginForm.uuid = ''
+      loginForm.code = ''
     }
   } catch {
-    captchaEnabled.value = false
+    codeUrl.value = ''
+    captchaHint.value = '点击重试'
+    ElMessage.warning('验证码获取失败，请点击重试')
+  } finally {
+    captchaLoading.value = false
   }
 }
 
@@ -103,8 +154,11 @@ async function handleLogin() {
     ElMessage.success('登录成功')
     router.replace(route.query.redirect || '/index')
   } catch (error) {
-    if (captchaEnabled.value) getCode()
-    ElMessage.error(error?.message || '登录失败，可使用演示模式预览新门户')
+    if (captchaEnabled.value) {
+      codeUrl.value = ''
+      captchaHint.value = '点击获取'
+    }
+    ElMessage.error(error?.message || '登录失败，可使用页底演示预览')
   } finally {
     loading.value = false
   }
@@ -123,7 +177,6 @@ onMounted(() => {
     loginForm.username = saved
     rememberMe.value = true
   }
-  getCode()
 })
 </script>
 
@@ -150,7 +203,16 @@ onMounted(() => {
   z-index: 2;
   width: 100%;
   max-width: 440px;
-  padding: 48px 40px;
+  padding: 50px 40px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-login-box:hover {
+  transform: translateY(-5px);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+  box-shadow: 0 10px 50px color-mix(in srgb, var(--accent) 10%, transparent) !important;
 }
 
 .login-header {
@@ -178,32 +240,48 @@ onMounted(() => {
   width: 100%;
 }
 
-.login-code-img {
-  height: 40px;
-  border-radius: 8px;
+.captcha-fetch {
+  flex: 0 0 112px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.captcha-fetch:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.login-code-img {
+  height: 36px;
+  max-width: 100px;
+  border-radius: 6px;
+  display: block;
 }
 
 .form-tools {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   margin-bottom: 22px;
 }
 
-.endpoint-toggle {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
 .login-button.cyber-btn {
   width: 100%;
-  height: 48px;
-  letter-spacing: 4px;
+  height: 50px;
+  letter-spacing: 8px;
   font-weight: 700;
+  font-size: 1rem;
+  border-radius: 25px;
 }
 
 .login-footer {
@@ -211,10 +289,33 @@ onMounted(() => {
   text-align: center;
   font-size: 12px;
   color: var(--text-muted);
+  display: grid;
+  gap: 8px;
+}
+
+.demo-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.demo-link:hover {
+  color: var(--text-secondary);
 }
 
 :deep(.cyber-input .el-input__wrapper) {
   background-color: var(--surface-soft) !important;
-  border-radius: 8px;
+  box-shadow: none !important;
+  border-bottom: 2px solid var(--border-soft) !important;
+  border-radius: 6px 6px 0 0;
+}
+
+:deep(.cyber-input .el-input__wrapper.is-focus) {
+  border-bottom: 2px solid var(--accent) !important;
+  background-color: color-mix(in srgb, var(--accent) 5%, var(--surface-soft)) !important;
 }
 </style>

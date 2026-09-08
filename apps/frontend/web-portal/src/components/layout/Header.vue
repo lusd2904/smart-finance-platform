@@ -106,8 +106,10 @@ onUnmounted(() => timer && clearInterval(timer))
   align-items: center;
   padding: 12px 20px;
   border-bottom: 1px solid var(--border-soft);
-  background: var(--panel-surface);
-  backdrop-filter: blur(20px);
+  background: var(--chrome-surface);
+  backdrop-filter: var(--chrome-backdrop);
+  -webkit-backdrop-filter: var(--chrome-backdrop);
+  box-shadow: var(--chrome-shadow), var(--chrome-inset);
 }
 
 .header-right,

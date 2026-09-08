@@ -112,7 +112,7 @@
               <div class="name-line">
                 <span class="big-symbol">{{ activeStock.symbol }}</span>
                 <span class="full-name">{{ activeStock.name }}</span>
-                <el-tag size="small" type="warning" effect="dark">AI 研判 {{ activeStock.aiScore != null ? activeStock.aiScore + '分' : '--' }}</el-tag>
+                <el-tag size="small" type="warning">AI 研判 {{ activeStock.aiScore != null ? activeStock.aiScore + '分' : '--' }}</el-tag>
               </div>
               <div class="muted">市场: {{ activeStock.market }} ({{ activeStock.currency }}) · {{ activeSession }}</div>
             </div>
@@ -754,15 +754,30 @@ onBeforeUnmount(() => {
 
 .stock-code { color: var(--text-emphasis); font-weight: 700; }
 .stock-name, .muted, .full-name { color: var(--text-secondary); font-size: 12px; }
-.market-badge, .count-badge, .mkt-session-badge {
+.market-badge, .count-badge, .mkt-session-badge, .factor-score-chip {
   font-size: 10px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 999px;
-  background: var(--surface-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-muted));
+  color: var(--text-secondary);
 }
 
 .spark-svg { width: 60px; height: 22px; }
-.change-pill { font-size: 12px; font-weight: 700; }
+.change-pill {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.change-pill.up { color: var(--stat-up); }
+.change-pill.down { color: var(--stat-down); }
+.idx-price, .idx-change, .price-val, .cash-stat-capsule strong, .book-row {
+  font-variant-numeric: tabular-nums;
+}
 .sort-tab { cursor: pointer; font-size: 12px; color: var(--text-secondary); &.active { color: var(--accent); } }
 .group-select-btn { cursor: pointer; color: var(--text-emphasis); font-size: 12px; }
 

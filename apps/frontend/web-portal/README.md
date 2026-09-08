@@ -42,15 +42,59 @@ Header and login page expose **皮肤**:
 - `幻彩琉璃 (深色)` → `data-theme="glass-dark"`
 - `晨曦白玉 (浅色)` → `data-theme="glass-light"`
 
-Choice is stored in `localStorage` key `sfp-active-theme`. Tokens live in
-`src/styles/experience.scss` (copied from longbridge) plus `src/styles/theme.scss`
-(Element Plus / chrome mappings).
+Choice is stored in `localStorage` key `sfp-active-theme` and applied on first
+paint via `index.html` so the mesh does not flash the wrong theme.
+
+Tokens:
+
+- `src/styles/experience.scss` — byte-aligned with longbridge `experience.scss`
+  (`[data-theme=glass-dark|glass-light]`, `.glass-panel` blur 12px)
+- `src/styles/theme.scss` — chrome / Element Plus mappings from longbridge
+  `App.vue` (`--panel-backdrop` 24px+saturate, `--chrome-backdrop` 28px+saturate,
+  `--accent` primary buttons, glass chips, popper/card glass)
+- `src/styles/variables.scss` — longbridge SCSS layout vars (unused at runtime)
+
+### Intentional SFP-only deltas
+
+| Delta | Why |
+| --- | --- |
+| Keep `experience.scss` `body::before` mesh visible | Longbridge `App.vue` later sets `body::before { content: none }`, which kills the glass mesh. We keep the mesh because it **is** the glass-dark/light backdrop. |
+| Do not reassign `--page-bg` / `--panel-surface` / `--accent` in `theme.scss` | Lets `[data-theme]` tokens win. Early SFP `theme.scss` overwrote `--panel-surface` with a composed overlay and looked like a third skin. |
+| Shell uses `--chrome-surface` + `--chrome-backdrop` | Longbridge `Sidebar.vue` / `Header.vue` hardcode `blur(20px)` + `--panel-surface`. Tokens are the App.vue chrome language the designer asked to close. |
+| Primary buttons / EP active states use `--accent` | Designer QA: leftover Element blue and App.vue navy `#164a72` must not win. glass-dark CTA ink is `#06121d` on cyan. |
+| `--stat-up` / `--stat-down` neon on glass-dark | `#ff0055` / `#39ff14` (A-share 红涨绿跌 + longbridge neon). glass-light stays `#dc2626` / `#16a34a`. |
+| Tables / quote numbers use `tabular-nums` | Designer QA: number columns must not jitter. |
+| Pills / chips are tinted glass, not solid neon blocks | Overrides `el-tag` including `effect="dark"`. |
+| Brand copy 智慧金融 | Product name only. |
+| Stub banner | Migration aid; not a longbridge component. |
+
+## Designer QA round 1 (this PR)
+
+| Fix | What changed |
+| --- | --- |
+| Login habit | Always 账号 / 密码 / 验证码 + 「点击获取」. Does **not** auto-fetch a graphic captcha on mount. CTA is 「登 录」. 演示预览 is a muted footer link, not a peer of the primary path. |
+| Numbers + chips | `tabular-nums` on tables / quote / asset figures. Session / market / change / AI / news chips are outline + tint, never solid high-sat blocks. |
+| Accent buttons | `--el-color-primary`, primary buttons, switch, radio-button, checkbox, tabs consume `--accent`. |
+| Workbench 快捷入口 | Live SFP labels: 交易终端 / 舆情大盘 / 资讯列表 / 行情中心 / 资金与日历 / 行情台 / 财经简报 / 量化策略 / 自选清单 / 市场分析 / **自动分析**. |
+
+### Screenshot note (6 shots)
+
+Prefer capturing glass-dark + glass-light for **登录 / 工作台 / 行情交易**. 金融台大管家 may host the preview separately. Local helper:
+
+```bash
+npm run dev
+# then, with Playwright + Chrome:
+PORTAL_URL=http://127.0.0.1:5180 ARTIFACT_DIR=/opt/cursor/artifacts \
+  node scripts/verify-screens.mjs
+```
+
+Files: `qa1_login_{dark,light}.png`, `qa1_workbench_{dark,light}.png`, `qa1_terminal_{dark,light}.png`.
 
 ## Screens in this slice
 
 | Route | Page | Notes |
 | --- | --- | --- |
-| `/login` | Login | SFP `POST /login` + captcha; **演示模式** if API is down |
+| `/login` | Login | SFP `POST /login` + 验证码「点击获取」; footer **演示预览** if API is down |
 | `/index` | 工作台 | Same IA as live workbench: sessions, assets, reviews, quick nav, sentiment, heat, quotes, health |
 | `/market/terminal` and `/trade/terminal` | 行情交易 | Same component. Top tickers + 自选 / 图表 / 盘口+下单 |
 | Other SFP menus | Placeholder | Keep sidebar IA; full pages stay on the old frontend until cutover |

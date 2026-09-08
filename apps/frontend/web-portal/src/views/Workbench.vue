@@ -38,7 +38,7 @@
         <article v-for="item in marketReviews" :key="item.market" class="review-card" :class="reviewTone(item.stance)" @click="$router.push('/market/review')">
           <div class="review-head">
             <strong>{{ item.marketLabel }}</strong>
-            <el-tag size="small" :type="reviewTag(item.stance)" effect="dark">{{ item.stance || '待分析' }}</el-tag>
+            <el-tag size="small" :type="reviewTag(item.stance)">{{ item.stance || '待分析' }}</el-tag>
           </div>
           <div class="muted">{{ item.tradeDate || '--' }} · 温度 {{ item.score ?? '--' }}</div>
           <p>{{ item.summary || '暂无当日复盘' }}</p>
@@ -50,6 +50,11 @@
     </el-card>
 
     <el-card shadow="never" class="glass-panel">
+      <template #header>
+        <div class="card-header">
+          <h3>快捷入口</h3>
+        </div>
+      </template>
       <div class="quick-nav">
         <button v-for="nav in navItems" :key="nav.path" type="button" class="nav-item" @click="$router.push(nav.path)">
           <el-icon><component :is="nav.icon" /></el-icon>
@@ -225,7 +230,8 @@ const navItems = [
   { title: '财经简报', path: '/market/finance-news', icon: 'Notebook' },
   { title: '量化策略', path: '/quant/strategy', icon: 'Cpu' },
   { title: '自选清单', path: '/market/watchlist', icon: 'Star' },
-  { title: '市场分析', path: '/market/review', icon: 'Notebook' }
+  { title: '市场分析', path: '/market/review', icon: 'Notebook' },
+  { title: '自动分析', path: '/analysis/jobs', icon: 'Clock' }
 ]
 
 function reviewTag(stance) {
@@ -291,15 +297,24 @@ onMounted(() => refreshAll())
   flex-wrap: wrap;
 }
 
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  h3 { margin: 0; font-size: 15px; color: var(--text-emphasis); }
+}
+
 .session-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface-soft) 80%, transparent);
   color: var(--text-emphasis);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   .dot {
     width: 7px;
     height: 7px;
@@ -321,7 +336,7 @@ onMounted(() => refreshAll())
   gap: 6px;
   cursor: pointer;
   span { color: var(--text-secondary); font-size: 12px; }
-  strong { font-size: 18px; color: var(--text-emphasis); }
+  strong { font-size: 18px; color: var(--text-emphasis); font-variant-numeric: tabular-nums; }
 }
 
 .review-grid,
@@ -365,9 +380,22 @@ onMounted(() => refreshAll())
   padding: 8px 14px;
   border-radius: 999px;
   border: 1px solid var(--border-soft);
-  background: var(--surface-soft);
+  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
   color: var(--text-emphasis);
   cursor: pointer;
+  .el-icon { color: var(--accent); }
+  &:hover {
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--border-soft));
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
+  }
+}
+
+.heat-index b,
+.score-box strong,
+.quote-row b,
+.q-right,
+.health-grid strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .muted { color: var(--text-secondary); font-size: 12px; }

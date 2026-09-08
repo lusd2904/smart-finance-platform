@@ -136,6 +136,7 @@ export const placeholderMeta = {
   '/market/finance-news': { title: '财经资讯', module: '行情中心' },
   '/market/flow': { title: '资金与日历', module: '行情中心' },
   '/market/review': { title: '市场分析', module: '行情中心' },
+  '/analysis/jobs': { title: '自动分析', module: '行情中心' },
   '/trade/positions': { title: '持仓', module: '交易中心' },
   '/trade/orders': { title: '委托', module: '交易中心' },
   '/trade/risk': { title: '风控', module: '交易中心' },

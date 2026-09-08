@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { login as loginApi, logout as logoutApi, getInfo } from '@/api/auth'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 
+const DEMO_SESSION_KEY = 'sfp-demo-session'
+
 export const useUserStore = defineStore('user', {
   state: () => ({
     token: getToken(),
@@ -44,6 +46,15 @@ export const useUserStore = defineStore('user', {
       this.roles = ['ROLE_DEMO']
       this.permissions = []
       this.usingStub = true
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(DEMO_SESSION_KEY, '1')
+      }
+    },
+    hydrateDemoSession() {
+      if (typeof sessionStorage === 'undefined') return false
+      if (sessionStorage.getItem(DEMO_SESSION_KEY) !== '1') return false
+      this.enterDemoSession()
+      return true
     },
     async logOut() {
       try {
@@ -58,6 +69,9 @@ export const useUserStore = defineStore('user', {
       this.permissions = []
       this.usingStub = false
       removeToken()
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(DEMO_SESSION_KEY)
+      }
     }
   }
 })

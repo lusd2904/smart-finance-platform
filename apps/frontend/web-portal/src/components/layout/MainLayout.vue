@@ -34,9 +34,10 @@ import Header from './Header.vue'
   z-index: 0;
   pointer-events: none;
   background:
+    var(--page-grid),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
-  background-size: 88px 88px;
+  background-size: auto, 88px 88px, 88px 88px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 72%);
   opacity: 0.12;
 }

@@ -6,13 +6,17 @@ const whiteList = ['/login']
 export function setupPermission(router) {
   router.beforeEach(async (to) => {
     document.title = `${to.meta.title || '智慧金融'} · SFP`
-    if (getToken() || useUserStore().usingStub) {
+    const userStore = useUserStore()
+    if (!userStore.usingStub) {
+      userStore.hydrateDemoSession()
+    }
+    if (getToken() || userStore.usingStub) {
       if (to.path === '/login') return { path: '/index' }
-      if (!useUserStore().roles.length && getToken() && getToken() !== 'demo-stub-token') {
+      if (!userStore.roles.length && getToken() && getToken() !== 'demo-stub-token') {
         try {
-          await useUserStore().getInfo()
+          await userStore.getInfo()
         } catch {
-          await useUserStore().logOut()
+          await userStore.logOut()
           return { path: '/login', query: { redirect: to.fullPath } }
         }
       }

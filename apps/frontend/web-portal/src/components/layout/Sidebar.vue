@@ -145,10 +145,11 @@ onMounted(() => {
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  background: var(--panel-surface);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--chrome-surface);
+  backdrop-filter: var(--chrome-backdrop);
+  -webkit-backdrop-filter: var(--chrome-backdrop);
   border-right: 1px solid var(--border-soft);
+  box-shadow: var(--sidebar-shadow), var(--chrome-inset);
   overflow: hidden;
 }
 
