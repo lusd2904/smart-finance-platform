@@ -7,8 +7,11 @@
 # Optional later: docker-compose.sentiment.slim.influx-steady.yml → 3g / 2560MiB
 #
 # cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
+#   cd /workspace/sfp-slim-64
 #   source scripts/docker_host.sh
+#   export SFP_DATA_ROOT=/workspace/sfp-data
 #   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
+#   # daily roll: bash scripts/deploy_and_verify_slim.sh
 #
 # Data bind (default SFP_DATA_ROOT=/workspace/sfp-data). cursor-1 restored layout:
 #
@@ -63,7 +66,8 @@ services:
     profiles: [full-split]
   sentiment-ai:
     profiles: [full-split]
-  sfp-market-worker:
+  # Full-stack nginx offloads hot reads to Go; slim nginx still proxies /market/ → sentiment-data.
+  sentiment-market-read:
     profiles: [full-split]
   sentiment-jobs-quant:
     profiles: [full-split]
@@ -152,6 +156,19 @@ services:
       APP_NAME: "Sentiment Jobs (slim scheduler)"
     mem_limit: 384m
     cpus: 0.5
+
+  # Go queue consumers (PR #67): scheduler-only sentiment-jobs + three workers (~768m RSS).
+  sfp-market-worker:
+    mem_limit: 320m
+    cpus: 0.5
+
+  sfp-quant-worker:
+    mem_limit: 224m
+    cpus: 0.25
+
+  sfp-notify-worker:
+    mem_limit: 224m
+    cpus: 0.25
 
   sentiment-influxdb:
     environment:

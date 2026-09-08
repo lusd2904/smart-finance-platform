@@ -15,10 +15,11 @@ COMPOSE="docker compose"
 echo "==> [0/5] compose config（slim + SFP_DATA_ROOT=${SFP_DATA_ROOT})"
 $COMPOSE config >/dev/null
 
-echo "==> [1/5] 构建并滚动更新 slim API / jobs"
+echo "==> [1/5] 构建并滚动更新 slim API / scheduler / Go workers"
 $COMPOSE up -d --no-deps --build \
   sentiment-backend sentiment-data sentiment-intel sentiment-trade \
-  sentiment-jobs
+  sentiment-jobs \
+  sfp-market-worker sfp-quant-worker sfp-notify-worker
 
 echo "==> [2/5] 等待平台 API 健康（最长 90s），再起前端"
 ok=""
@@ -27,6 +28,15 @@ for i in $(seq 1 30); do
   sleep 3
 done
 [ -n "$ok" ] || { echo "后端未就绪，查看日志: docker logs --tail 50 sentiment-backend"; exit 1; }
+
+for port in 19097 19096 19095; do
+  wok=""
+  for i in $(seq 1 20); do
+    if curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then wok=1; echo "worker :${port} healthy"; break; fi
+    sleep 3
+  done
+  [ -n "$wok" ] || echo "!! worker :${port} 尚未 healthy（Influx 冷开时可稍后重试）"
+done
 
 $COMPOSE up -d --no-deps --build sentiment-frontend
 front_ok=""

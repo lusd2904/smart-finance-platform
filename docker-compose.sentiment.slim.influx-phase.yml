@@ -36,6 +36,15 @@ services:
   sentiment-frontend:
     profiles: [mysql-ready]
 
+  sfp-market-worker:
+    profiles: [mysql-ready]
+
+  sfp-quant-worker:
+    profiles: [mysql-ready]
+
+  sfp-notify-worker:
+    profiles: [mysql-ready]
+
   sentiment-data:
     depends_on: !override
       ruoyi-redis:
