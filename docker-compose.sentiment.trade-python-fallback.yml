@@ -1,0 +1,26 @@
+# Python trade HTTP rollback: re-enable sentiment-trade + TRADE_PYTHON_URL on trade-api.
+#
+#   sudo docker compose \
+#     -f docker-compose.sentiment.yml \
+#     -f docker-compose.sentiment.slim.yml \
+#     -f docker-compose.sentiment.trade-python-fallback.yml \
+#     up -d --build sentiment-trade sentiment-trade-api sentiment-frontend
+#
+# Nginx catch-all can also be pointed at sentiment-trade via
+# ruoyi-fastapi-frontend/bin/nginx.dockersentiment.slim.python-trade.conf (not shipped by default).
+
+services:
+  sentiment-trade:
+    profiles: !override []
+
+  sentiment-trade-api:
+    environment:
+      TRADE_PYTHON_URL: http://sentiment-trade:9099
+    depends_on:
+      sentiment-trade:
+        condition: service_healthy
+
+  sentiment-frontend:
+    depends_on:
+      sentiment-trade:
+        condition: service_healthy

@@ -16,9 +16,13 @@ type envelope struct {
 }
 
 func Success(w http.ResponseWriter, data interface{}) {
+	SuccessMsg(w, data, "操作成功")
+}
+
+func SuccessMsg(w http.ResponseWriter, data interface{}, msg string) {
 	write(w, http.StatusOK, envelope{
 		Code:    200,
-		Msg:     "操作成功",
+		Msg:     msg,
 		Success: true,
 		Time:    timeutil.NowBeijingRFC(),
 		Data:    data,

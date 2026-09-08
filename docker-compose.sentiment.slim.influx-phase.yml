@@ -33,9 +33,6 @@ services:
   sfp-intel:
     profiles: [mysql-ready]
 
-  sentiment-trade:
-    profiles: [mysql-ready]
-
   sentiment-trade-api:
     profiles: [mysql-ready]
 

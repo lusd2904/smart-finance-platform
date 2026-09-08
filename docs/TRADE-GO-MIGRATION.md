@@ -47,65 +47,42 @@ Python `/internal/jobs/run` still accepts the four trade job types as an emergen
 
 ## 2. Portal HTTP — `sentiment-trade-api`
 
-Portal `/trade/*` nginx 默认指向 Go **`sentiment-trade-api`**。`sentiment-trade`（Python）保留为进程内回退与回滚 upstream，**不删**。
+Portal `/trade/*` nginx 默认指向 Go **`sentiment-trade-api`**。**默认 compose 不再启动 `sentiment-trade`（Python trade HTTP）**。
 
-### 架构选择：独立 `services/trade-api`
+### 架构
 
-| 方案 | 结论 |
+| 组件 | 角色 |
 |------|------|
-| 扩展 `market-read` | 行情只读服务，不应混入下单/长桥 TradeContext |
-| `quant-worker` HTTP sidecar | worker 已是 Redis 消费者；混 HTTP 增加 RSS 与故障域 |
-| **新建 `services/trade-api`** | 与 `market-read` 对称；JWT/RBAC 复用同一模式；`services/trade-exec` 供 worker 与 HTTP 共享 |
+| `services/trade-exec` | Longbridge official SDK：trade + quote |
+| `services/trade-api` | JWT/RBAC HTTP；全部 `/trade/*` 原生 |
+| `sentiment-backend` | `strategy_evaluate` internal job delegate（非 trade HTTP） |
 
-### Go 原生路径（paper/sim 与实盘均由 DB 凭据决定）
+### Go 原生路径（全部 `/trade/*`）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/trade/account` | 长桥余额 |
-| GET | `/trade/positions` | 持仓 + 实时价 |
-| GET | `/trade/orders` | today / history |
-| GET | `/trade/order/{id}` | 单笔委托 |
-| POST | `/trade/order` | 手工下单（halt + 护栏后提交） |
-| POST | `/trade/order/{id}/cancel` | 撤单 |
-| GET | `/trade/quote/realtime` | 批量 lastDone |
-| GET/PUT | `/trade/halt` | Redis `sfp:trade:halt` |
-| GET | `/trade/auto/status` | 护栏快照（简化） |
-| PUT | `/trade/auto/settings` | `auto_trade_enabled` 等 |
+含 #83 热路径 + 本次补齐：
 
-未原生实现的路由由 trade-api **反向代理**到 `TRADE_PYTHON_URL`（默认 `http://sentiment-trade:9099`），前端契约不变。
-
-### 仍走 Python（nginx 或 trade-api 回退）
-
-| 路径 | 原因 |
+| 类别 | 路径 |
 |------|------|
-| `POST /trade/auto/run` | 策略扫描 + 可选下单（nginx 直连 Python，180s） |
-| `GET /trade/quote/snapshot` | Influx + static/calc 合并 |
-| `GET /trade/quote/kline` | Influx + 长桥分钟回退 |
-| `GET /trade/quote/depth` / `trades` | 盘口/逐笔（待迁 SDK HTTP） |
-| `/trade/backtest/*` | pandas 回测引擎 |
-| `/trade/risk/*` | 风控规则 + 事件工作流 |
-| `/trade/strategy-profiles*` / `strategy-bind` | 策略配置写路径 |
-| `/trade/notices*` / `notifications*` | DB 通知 |
-| `/trade/ai/*` | JobQueue → LLM worker |
-| `/trade/feishu/*` | 飞书 webhook |
-| `GET /trade/coverage` | Influx 覆盖度 |
-| `GET /trade/ai-trade-runs` / `auto/decisions` | 审计列表（复杂 join） |
+| 长桥 | account/positions/orders/submit/cancel/halt/realtime/depth/trades/kline/snapshot |
+| 自动交易 | auto/status, auto/settings, **auto/run** |
+| 平台 | backtest, risk, strategy-profiles, notices, notifications, coverage, ai-trade-runs, auto/decisions |
+| AI/飞书 | ai/batch*, feishu/* |
 
-### Nginx 回滚（Python profile）
+`auto_trade_enabled` 默认 off；paper/sim 由 DB 长桥 token 决定（`require_paper` 语义不变）。
 
-只改前端 conf，reload，**不要** `compose down -v`：
+### Python 回滚（可选 overlay）
 
-```nginx
-# 将 catch-all 改回 Python（slim / full 对称改 /docker-api/ 与 /prod-api/）
-location /prod-api/trade/ {
-    proxy_pass http://sentiment-trade:9099/trade/;
-    # … 超时头保持
-}
+```bash
+sudo docker compose \
+  -f docker-compose.sentiment.yml \
+  -f docker-compose.sentiment.slim.yml \
+  -f docker-compose.sentiment.trade-python-fallback.yml \
+  up -d --build sentiment-trade sentiment-trade-api sentiment-frontend
 ```
 
-`POST /trade/auto/run`、`/trade/ai/`、`/trade/quote/snapshot` 的专用 location 可保持不变。
+或 nginx catch-all 改回 `sentiment-trade:9099`（保留 conf 回滚位）。
 
-### Slim 部署（cursor-1 验证）
+### Slim 部署
 
 ```bash
 git fetch origin && git checkout main && git pull --ff-only origin main
@@ -114,32 +91,27 @@ export SFP_DATA_ROOT=/workspace/sfp-data
 sudo docker compose \
   -f docker-compose.sentiment.yml \
   -f docker-compose.sentiment.slim.yml \
-  up -d --build sentiment-trade-api sentiment-trade sentiment-frontend
+  up -d --build sentiment-trade-api sentiment-frontend
 ```
+
+**默认 slim 栈无 `sentiment-trade` 容器。**
 
 ### 冒烟（仅模拟账户，无实盘）
 
 1. `curl -fsS http://127.0.0.1:8080/health`（trade-api 容器内）
-2. 登录门户 → 交易终端：账户/持仓/委托列表
+2. 登录门户 → 交易终端：账户/持仓/委托/盘口/K线/快照
 3. **模拟 token** 下提交小单 → 撤单
 4. 紧急停机 PUT `/trade/halt` → 确认 POST `/trade/order` 被拦
-5. 回测 / 风控 / AI 批量页仍可打开（Python 回退）
-
-验证通过后可停止 `sentiment-trade`（保留镜像与 conf 回滚位）；`sentiment-trade-api` 依赖其作 `TRADE_PYTHON_URL` 时须保留或改 env。
+5. 回测 / 风控 / AI 批量 / 自动扫描页可打开（全 Go）
 
 ---
 
 ## Remaining Python trade surfaces
 
-These still run in FastAPI (`sentiment-trade` / `sentiment-data`), not the Go workers:
-
-- `TradeService.submit_order_services` / `cancel_order` (manual portal + H5 极速单) — **migrated to trade-api** for HTTP; Python remains fallback
-- `AutoTradeService.get_status` / `save_user_trade_settings` — **status/settings in trade-api**; `POST /trade/auto/run` stays Python
-- `DailyListService.get_latest` / `open_selected` / `set_auto` / `rebalance_auto` (HTTP)
-- Strategy engine HTTP / portal; scheduled `factor_scan` / `strategy_run` / `daily_list_scan` are Go (#77). `auto_trade_scan` still calls Python `strategy_evaluate` for signals.
-- Quote subscribe hub / live quotes used by the portal
-- Credential save/encrypt UI (`QuantService.save_longbridge_config_services`)
-- Feishu trade digest (`feishu_push` on notify-worker)
+- Portal `/trade/*` HTTP — **fully migrated to Go trade-api** (this PR). Optional `sentiment-trade` via `trade-python-fallback` overlay only.
+- `strategy_evaluate` for auto-scan signals — still Python internal job on `sentiment-backend` (same as quant-worker).
+- DailyListService HTTP on sentiment-data (unchanged).
+- Feishu trade digest scheduled push on notify-worker (unchanged).
 
 ## CI
 

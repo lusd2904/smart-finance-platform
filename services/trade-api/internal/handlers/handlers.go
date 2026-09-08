@@ -9,11 +9,17 @@ import (
 
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/auth"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/response"
+	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/autoscan"
+	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/platform"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/service"
 )
 
 type Server struct {
-	Trade *service.Trade
+	Trade    *service.Trade
+	Quotes   *service.Quotes
+	Platform *platform.Service
+	AutoScan *autoscan.StrategyEvaluator
+	AutoKeys autoscan.Keys
 }
 
 func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {
@@ -177,6 +183,32 @@ func (s *Server) AutoSettings(w http.ResponseWriter, r *http.Request) {
 		pct = 0.10
 	}
 	data, err := s.Trade.SaveAutoSettings(r.Context(), userID(r), enabled, ratio, pct)
+	if err != nil {
+		response.Error(w, err.Error())
+		return
+	}
+	response.Success(w, data)
+}
+
+func (s *Server) QuoteDepth(w http.ResponseWriter, r *http.Request) {
+	data := s.Quotes.QuoteDepth(r.Context(), userID(r), r.URL.Query().Get("symbol"), r.URL.Query().Get("market"))
+	response.Success(w, data)
+}
+
+func (s *Server) QuoteTrades(w http.ResponseWriter, r *http.Request) {
+	count, _ := strconv.Atoi(r.URL.Query().Get("count"))
+	data := s.Quotes.QuoteTrades(r.Context(), userID(r), r.URL.Query().Get("symbol"), r.URL.Query().Get("market"), count)
+	response.Success(w, data)
+}
+
+func (s *Server) QuoteSnapshot(w http.ResponseWriter, r *http.Request) {
+	data := s.Quotes.QuoteSnapshot(r.Context(), userID(r), r.URL.Query().Get("symbol"), r.URL.Query().Get("market"))
+	response.Success(w, data)
+}
+
+func (s *Server) QuoteKline(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	data, err := s.Quotes.QuoteKline(r.Context(), userID(r), r.URL.Query().Get("symbol"), r.URL.Query().Get("market"), r.URL.Query().Get("period"), limit)
 	if err != nil {
 		response.Error(w, err.Error())
 		return
