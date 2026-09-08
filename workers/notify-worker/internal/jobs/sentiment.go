@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/crypto"
@@ -58,7 +59,7 @@ func (s *Service) RunSentimentCollect(ctx context.Context, payload map[string]in
 	analyzeResult, err := s.RunSentimentAnalyze(ctx)
 	if err != nil {
 		result["analyzeError"] = err.Error()
-		return result, nil
+		return result, err
 	}
 	for k, v := range analyzeResult {
 		result[k] = v
@@ -124,11 +125,14 @@ func (s *Service) RunSentimentAnalyze(ctx context.Context) (map[string]interface
 			break
 		}
 		if aiResult.Code == 429 {
+			slog.Warn("sentiment analyze rate limited", "model", usedModel, "retryAfter", aiResult.RetryAfter)
 			break
 		}
-		if !llm.GatewayFailoverCodes[aiResult.Code] {
+		if !shouldTryNextSentimentModel(aiResult.Code) {
+			slog.Warn("sentiment analyze stopped", "model", usedModel, "code", aiResult.Code, "error", aiResult.Error)
 			break
 		}
+		slog.Warn("sentiment analyze failover", "model", usedModel, "code", aiResult.Code, "error", aiResult.Error)
 	}
 	if usedModel == "" {
 		return nil, fmt.Errorf("未找到可用的 AI 模型配置")
@@ -248,6 +252,10 @@ FROM ai_models WHERE status = '0' ORDER BY model_sort, model_id`)
 		return nil, nil
 	}
 	return orderSentimentModels(complete), nil
+}
+
+func shouldTryNextSentimentModel(code int) bool {
+	return llm.ShouldFailover(code)
 }
 
 func orderSentimentModels(models []aiModelRow) []aiModelRow {

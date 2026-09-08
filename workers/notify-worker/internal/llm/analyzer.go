@@ -12,10 +12,22 @@ import (
 	"time"
 )
 
+const DefaultMaxTokens = 4096
+
 var (
-	GatewayFailoverCodes = map[int]bool{502: true, 503: true, 524: true}
-	codeBlockRe          = regexp.MustCompile("(?s)```(?:json)?\\s*(\\{.*?\\})\\s*```")
+	// GatewayFailoverCodes are HTTP statuses that should try the next configured model.
+	// 429 is intentionally excluded so the caller can stop and surface rate-limit.
+	GatewayFailoverCodes = map[int]bool{
+		401: true, 402: true, 403: true, 408: true,
+		502: true, 503: true, 524: true, 529: true,
+	}
+	codeBlockRe = regexp.MustCompile("(?s)```(?:json)?\\s*(\\{.*?\\})\\s*```")
 )
+
+// ShouldFailover reports whether Analyze should try the next configured model.
+func ShouldFailover(code int) bool {
+	return GatewayFailoverCodes[code]
+}
 
 const systemPrompt = `你是一名资深宏观与市场策略分析师。用户会给你一批最新财经舆情快讯，请你综合分析这批舆情对全球主要股指的短期（1-3个交易日）的影响。
 
@@ -73,14 +85,10 @@ func (c *Client) Analyze(ctx context.Context, baseURL, apiKey, model string, new
 	if !strings.HasSuffix(url, "/chat/completions") {
 		url += "/chat/completions"
 	}
-	payload := map[string]interface{}{
-		"model":       model,
-		"temperature": temperature,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": buildUserPrompt(news)},
-		},
-	}
+	payload := chatPayload(model, []map[string]string{
+		{"role": "system", "content": systemPrompt},
+		{"role": "user", "content": buildUserPrompt(news)},
+	}, temperature)
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -143,9 +151,7 @@ func (c *Client) ChatCompletion(ctx context.Context, baseURL, apiKey, model stri
 		messages = append(messages, map[string]string{"role": role, "content": item["content"]})
 	}
 	messages = append(messages, map[string]string{"role": "user", "content": userText})
-	payload := map[string]interface{}{
-		"model": model, "temperature": temperature, "messages": messages,
-	}
+	payload := chatPayload(model, messages, temperature)
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -176,6 +182,15 @@ func (c *Client) ChatCompletion(ctx context.Context, baseURL, apiKey, model stri
 		return "", fmt.Errorf("empty model response")
 	}
 	return data.Choices[0].Message.Content, nil
+}
+
+func chatPayload(model string, messages []map[string]string, temperature float64) map[string]interface{} {
+	return map[string]interface{}{
+		"model":       model,
+		"temperature": temperature,
+		"max_tokens":  DefaultMaxTokens,
+		"messages":    messages,
+	}
 }
 
 func buildUserPrompt(news []NewsItem) string {
