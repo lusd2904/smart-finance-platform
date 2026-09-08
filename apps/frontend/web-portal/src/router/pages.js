@@ -11,5 +11,16 @@ export const implementedPages = [
   { path: 'trade/positions', title: '持仓', component: () => import('@/views/trade/Positions.vue') },
   { path: 'trade/orders', title: '委托', component: () => import('@/views/trade/Orders.vue') },
   { path: 'trade/risk', title: '风控', component: () => import('@/views/trade/Risk.vue') },
-  { path: 'trade/notifications', title: '通知中心', component: () => import('@/views/trade/Notifications.vue') }
+  { path: 'trade/notifications', title: '通知中心', component: () => import('@/views/trade/Notifications.vue') },
+  { path: 'quant/factor', title: '因子分析', component: () => import('@/views/quant/Factor.vue') },
+  { path: 'quant/strategy', title: '策略信号', component: () => import('@/views/quant/Strategy.vue') },
+  { path: 'quant/longbridge', title: '长桥配置', component: () => import('@/views/quant/Longbridge.vue') },
+  { path: 'sentiment/dashboard', title: '舆情大盘', component: () => import('@/views/sentiment/Dashboard.vue') },
+  { path: 'sentiment/news', title: '资讯列表', component: () => import('@/views/sentiment/News.vue') },
+  { path: 'sentiment/analysis', title: '分析历史', component: () => import('@/views/sentiment/Analysis.vue') },
+  { path: 'ai/model', title: '模型管理', component: () => import('@/views/ai/Model.vue') },
+  { path: 'ai/chat', title: '研判工作台', component: () => import('@/views/ai/Chat.vue') },
+  { path: 'system/user', title: '用户管理', component: () => import('@/views/system/User.vue') },
+  { path: 'system/role', title: '角色管理', component: () => import('@/views/system/Role.vue') },
+  { path: 'system/menu', title: '菜单管理', component: () => import('@/views/system/Menu.vue') }
 ]

@@ -127,16 +127,4 @@ export const menuTree = [
   }
 ]
 
-export const placeholderMeta = {
-  '/quant/factor': { title: '因子分析', module: '量化交易' },
-  '/quant/strategy': { title: '策略信号', module: '量化交易' },
-  '/quant/longbridge': { title: '长桥配置', module: '量化交易' },
-  '/sentiment/dashboard': { title: '舆情大盘', module: '舆情分析' },
-  '/sentiment/news': { title: '资讯列表', module: '舆情分析' },
-  '/sentiment/analysis': { title: '分析历史', module: '舆情分析' },
-  '/ai/model': { title: '模型管理', module: 'AI 研判' },
-  '/ai/chat': { title: '研判工作台', module: 'AI 研判' },
-  '/system/user': { title: '用户管理', module: '系统管理' },
-  '/system/role': { title: '角色管理', module: '系统管理' },
-  '/system/menu': { title: '菜单管理', module: '系统管理' }
-}
+export const placeholderMeta = {}
