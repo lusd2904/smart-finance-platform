@@ -84,6 +84,38 @@ services:
       sentiment-influxdb:
         condition: service_healthy
 
+  sfp-intel:
+    build:
+      context: ./services/sfp-intel
+      dockerfile: Dockerfile
+    image: sfp-intel:latest
+    container_name: sfp-intel
+    env_file:
+      - ./ruoyi-fastapi-backend/.env.dockersentiment
+    environment:
+      LISTEN_ADDR: ":8080"
+      DB_HOST: ruoyi-mysql
+      REDIS_HOST: ruoyi-redis
+      PYTHON_INTEL_URL: http://sentiment-intel:9099
+    networks:
+      - sentiment-network
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      ruoyi-mysql:
+        condition: service_healthy
+      ruoyi-redis:
+        condition: service_healthy
+      sentiment-intel:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
   # Backup loops on docker.sock; on tight RAM hosts run scripts/backup_data.sh via cron instead.
   sfp-backup:
     profiles: [full-backup]
@@ -264,6 +296,8 @@ services:
       sentiment-data:
         condition: service_healthy
       sentiment-intel:
+        condition: service_healthy
+      sfp-intel:
         condition: service_healthy
       sentiment-market-read:
         condition: service_healthy
