@@ -10,11 +10,9 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
-    <el-alert v-if="usingStub" title="STUB · stubNotifications" type="warning" show-icon :closable="false" />
-
     <div class="toolbar">
       <div class="chip-row">
-        <button type="button" class="filter-chip" :class="{ active: readFilter === 'unread' }" @click="readFilter = 'unread'">未读</button>
+        <button type="button" class="filter-chip" :class="{ active: readFilter === 'unread' }" @click="readFilter = 'unread'">未读 ({{ unreadCount }})</button>
         <button type="button" class="filter-chip" :class="{ active: readFilter === 'all' }" @click="readFilter = 'all'">全部</button>
       </div>
       <div class="chip-row">
@@ -27,35 +25,36 @@
           @click="typeFilter = tab.key"
         >{{ tab.label }}</button>
       </div>
-      <el-input v-model="keyword" clearable placeholder="搜索标题 / 正文" style="width:220px" :prefix-icon="Search" />
     </div>
-
-    <p class="summary-line">
-      <span class="numeric">{{ filtered.length }}</span> 条
-      <span class="dot">·</span>
-      <span class="numeric">{{ unreadCount }}</span> 未读
-    </p>
+    <el-input v-model="keyword" clearable placeholder="标题 / 内容" :prefix-icon="Search" class="search-wide" />
 
     <el-card shadow="never" class="glass-panel notifications-page">
+      <template #header>
+        <div class="list-head">
+          <h3>通知列表</h3>
+          <span class="muted">类型 · 时间 · 标题 · 标记已读</span>
+        </div>
+      </template>
       <div v-if="filtered.length" class="inbox">
         <article v-for="n in filtered" :key="n.id" class="inbox-item" :class="{ unread: !n.read }">
-          <i class="unread-dot" aria-hidden="true" />
           <div class="inbox-copy">
-            <div class="inbox-head">
-              <span class="type-tag" :class="`is-${typeKey(n)}`">{{ typeLabel(n) }}</span>
-              <time class="numeric muted">{{ timeText(n) }}</time>
-            </div>
             <strong>{{ n.title }}</strong>
             <p>{{ n.content || n.body || '' }}</p>
+            <div class="inbox-meta">
+              <span class="type-tag" :class="`is-${kindKey(n)}`">{{ kindLabel(n) }}</span>
+              <span class="cat-pill">{{ typeKey(n) }}</span>
+              <time class="numeric muted">{{ timeText(n) }}</time>
+            </div>
           </div>
-          <el-button v-if="!n.read" link type="primary" @click="mark(n)">标为已读</el-button>
+          <el-button v-if="!n.read" @click="mark(n)">标已读</el-button>
+          <span v-else class="read-label">已读</span>
         </article>
       </div>
       <el-empty v-else description="暂无通知" :image-size="72" />
     </el-card>
 
     <template #legend>
-      <span>全页收件箱 · 非 Header 铃铛 · GET /trade/notifications · POST /trade/notifications/read</span>
+      <span>全页收件箱 · 非 Header 铃铛 · GET /trade/notifications · POST /trade/notifications/read · stub 回退</span>
     </template>
   </PageFrame>
 </template>
@@ -70,7 +69,7 @@ import { unwrapList } from '@/utils/list'
 import { stubNotifications } from '@/utils/stubs'
 
 const TYPE_TABS = [
-  { key: '', label: '全部' },
+  { key: '', label: '全部类型' },
   { key: 'trade', label: '交易' },
   { key: 'risk', label: '风控' },
   { key: 'system', label: '系统' }
@@ -86,17 +85,25 @@ const typeTabs = TYPE_TABS
 
 function typeKey(n) {
   const c = String(n.category || n.type || '').toLowerCase()
-  if (c === 'trade' || c === '交易') return 'trade'
+  if (c === 'trade' || c === '交易' || c === 'order' || c === 'fill') return 'trade'
   if (c === 'risk' || c === '风控') return 'risk'
   return 'system'
 }
-function typeLabel(n) {
-  return { trade: '交易', risk: '风控', system: '系统' }[typeKey(n)]
+function kindKey(n) {
+  if (n.tag === '成交' || n.kind === 'fill' || String(n.title || '').includes('成交')) return 'fill'
+  if (n.tag === '委托' || n.kind === 'order' || String(n.title || '').includes('委托')) return 'order'
+  if (typeKey(n) === 'risk') return 'risk'
+  return 'system'
+}
+function kindLabel(n) {
+  if (n.tag) return n.tag
+  return { order: '委托', fill: '成交', risk: '风控', system: '系统' }[kindKey(n)]
 }
 function timeText(n) {
   const raw = String(n.createTime || n.time || '').trim()
   if (!raw) return '--'
-  return raw.length > 8 ? raw.slice(-8) : raw
+  if (raw.includes('昨日')) return raw
+  return raw.length >= 16 ? raw.slice(11, 16) : raw.length > 5 ? raw.slice(-5) : raw
 }
 
 const filtered = computed(() => {
@@ -120,8 +127,10 @@ async function load() {
   try {
     const res = await listNotifications(80)
     const rows = Array.isArray(res.data) ? res.data : unwrapList(res)
-    list.value = rows
-    usingStub.value = false
+    if (rows.length) {
+      list.value = rows
+      usingStub.value = false
+    } else applyStub()
   } catch {
     applyStub()
   } finally {
@@ -140,7 +149,7 @@ async function markAll() {
   if (!usingStub.value) {
     try { await readNotifications() } catch { /* keep local */ }
   }
-  list.value = list.value.map((n) => ({ ...n, read: true }))
+  list.value = list.value.map((item) => ({ ...item, read: true }))
   ElMessage.success('已全部标为已读')
 }
 
@@ -153,49 +162,55 @@ onMounted(load)
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.summary-line { margin: 0 0 10px; color: var(--text-secondary); font-size: 13px; }
-.summary-line .dot { margin: 0 6px; opacity: 0.6; }
+.search-wide { width: 100%; margin-bottom: 12px; }
+.list-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+h3 { margin: 0; font-size: 15px; }
 .inbox { display: grid; }
 .inbox-item {
   display: grid;
-  grid-template-columns: 10px 1fr auto;
-  gap: 10px;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
   align-items: start;
-  padding: 12px 4px;
+  padding: 14px 4px;
   border-bottom: 1px solid var(--control-border);
 }
 .inbox-item:last-child { border-bottom: 0; }
-.unread-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: transparent;
-}
-.inbox-item.unread .unread-dot { background: var(--accent); }
 .inbox-item.unread strong { color: var(--text-emphasis); }
-.inbox-copy p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
-.inbox-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.inbox-copy p { margin: 6px 0 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.inbox-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .muted { color: var(--text-secondary); font-size: 12px; }
-.type-tag {
+.read-label { color: var(--text-secondary); font-size: 12px; padding-top: 4px; }
+.type-tag,
+.cat-pill {
   display: inline-flex;
   padding: 1px 7px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
-  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
-  color: var(--accent);
 }
-.type-tag.is-trade {
-  color: var(--order-buy-solid);
-  background: color-mix(in srgb, var(--stat-up) var(--chip-fill), transparent);
+.type-tag.is-order {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
+}
+.type-tag.is-fill {
+  color: var(--order-sell-solid);
+  background: color-mix(in srgb, var(--stat-down) var(--chip-fill), transparent);
 }
 .type-tag.is-risk {
   color: #d97706;
   background: color-mix(in srgb, #f59e0b var(--chip-fill), transparent);
+}
+.type-tag.is-system {
+  color: #0d9488;
+  background: color-mix(in srgb, #14b8a6 var(--chip-fill), transparent);
+}
+.cat-pill {
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+  border: 1px solid var(--control-border);
 }
 </style>

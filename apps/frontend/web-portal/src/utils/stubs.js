@@ -225,26 +225,33 @@ export function stubOrders() {
 
 export function stubRiskAlerts() {
   return [
-    { id: 'ra-1', level: 'warn', title: '单票集中度接近上限', body: '00700 腾讯控股 市值占比 32.4% · 单票上限 30%', time: '10:21:08', createTime: '10:21:08' },
-    { id: 'ra-2', level: 'info', title: '日亏监控正常', body: '今日盈亏 +1.32% · 日亏限额 −5.00%', time: '09:45:00', createTime: '09:45:00' },
-    { id: 'ra-3', level: 'danger', title: '杠杆偏高', body: '仓位 74.6% · 建议控制新增开仓', time: '09:12:33', createTime: '09:12:33' }
+    { id: 'ra-1', level: 'warn', title: '集中度接近阈值', body: '港股互联网敞口 32%，距 40% 上限 8pp。', time: '10:42' },
+    { id: 'ra-2', level: 'info', title: '日亏限额正常', body: '今日浮动亏损占用限额 24.9%，无需干预。', time: '10:15' },
+    { id: 'ra-3', level: 'danger', title: '美团浮亏超 3%', body: '03690 持仓浮亏 -3.84%，触发关注阈值。', time: '09:58' },
+    { id: 'ra-4', level: 'ok', title: '账户健康度良好', body: '杠杆 1.0×，可用现金充足，无强平风险。', time: '09:30' },
+    { id: 'ra-5', level: 'warn', title: '隔夜持仓数提醒', body: '当前 6 只隔夜持仓，建议复核止损。', time: '昨日 16:05' }
   ]
 }
 
 export function stubNotifications() {
   return [
-    { id: 'n-1', title: '委托已提交', content: '00700 腾讯控股 买入 100 股 @ 410.20 已报入', level: 'info', category: 'trade', read: false, createTime: '09:31:12' },
-    { id: 'n-2', title: '部分成交', content: '300750 宁德时代 已成交 40 / 100 @ 196.50', level: 'success', category: 'trade', read: false, createTime: '09:16:40' },
-    { id: 'n-3', title: '单票集中度预警', content: '00700 市值占比接近 30% 上限，请关注风控规则 v0.2', level: 'warning', category: 'risk', read: false, createTime: '10:21:08' },
-    { id: 'n-4', title: '系统维护', content: '行情快照通道将于 16:00 进行例行巡检，终端不受影响', level: 'info', category: 'system', read: true, createTime: '08:05:00' },
-    { id: 'n-5', title: '卖出已成交', content: 'AAPL 苹果 卖出 20 股 @ 229.00 全部成交', level: 'success', category: 'trade', read: true, createTime: '09:28:51' }
+    { id: 'n-1', title: '00700 买入委托已挂单', content: '限价 410.20 × 100 股，状态待成交。', category: 'trade', tag: '委托', read: false, createTime: '10:31' },
+    { id: 'n-2', title: '美团浮亏超关注阈值', content: '03690 浮亏 -3.84%，已写入风控预警。', category: 'risk', tag: '风控', read: false, createTime: '09:58' },
+    { id: 'n-3', title: '长桥行情通道恢复', content: 'HK 实时行情延迟已恢复至 <200ms。', category: 'system', tag: '系统', read: false, createTime: '09:40' },
+    { id: 'n-4', title: 'AAPL 卖出已成交', content: '229.00 × 20 股，成交金额 USD 4,580。', category: 'trade', tag: '成交', read: true, createTime: '09:12' },
+    { id: 'n-5', title: 'NVDA 买入已成交', content: '市价 15 股已写入持仓。', category: 'trade', tag: '成交', read: true, createTime: '09:05' },
+    { id: 'n-6', title: '行业集中度提醒', content: '港股互联网敞口 32%，距 40% 上限 8pp。', category: 'risk', tag: '风控', read: true, createTime: '10:42' },
+    { id: 'n-7', title: '日终结算完成', content: '净资产 HKD 1,284,500，账户核对无差异。', category: 'system', tag: '系统', read: true, createTime: '昨日 16:20' }
   ]
 }
 
 export function stubPositions() {
   return [
-    { symbol: '00700', symbolName: '腾讯控股', name: '腾讯控股', market: 'HK', quantity: 400, costPrice: 406, currentPrice: 412.6, last: 412.6, pnl: 2640, pnlRate: 1.62, pnlPct: 1.62, currency: 'HKD' },
-    { symbol: '300750', symbolName: '宁德时代', name: '宁德时代', market: 'CN', quantity: 200, costPrice: 194.16, currentPrice: 198.32, last: 198.32, pnl: 832, pnlRate: 2.14, pnlPct: 2.14, currency: 'CNY' },
-    { symbol: 'AAPL', symbolName: '苹果', name: '苹果', market: 'US', quantity: 20, costPrice: 229.24, currentPrice: 228.14, last: 228.14, pnl: -22, pnlRate: -0.48, pnlPct: -0.48, currency: 'USD' }
+    { symbol: '00700', symbolName: '腾讯控股', name: '腾讯控股', market: 'HK', category: '互联网', quantity: 400, costPrice: 406, currentPrice: 412.6, last: 412.6, pnl: 2640, pnlRate: 1.62, pnlPct: 1.62, currency: 'HKD' },
+    { symbol: '03690', symbolName: '美团-W', name: '美团-W', market: 'HK', category: '互联网', quantity: 800, costPrice: 168.2, currentPrice: 161.75, last: 161.75, pnl: -5160, pnlRate: -3.84, pnlPct: -3.84, currency: 'HKD' },
+    { symbol: '300750', symbolName: '宁德时代', name: '宁德时代', market: 'CN', category: '新能源', quantity: 200, costPrice: 194.16, currentPrice: 198.32, last: 198.32, pnl: 832, pnlRate: 2.14, pnlPct: 2.14, currency: 'CNY' },
+    { symbol: 'AAPL', symbolName: '苹果', name: '苹果', market: 'US', category: '科技', quantity: 20, costPrice: 229.24, currentPrice: 228.14, last: 228.14, pnl: -22, pnlRate: -0.48, pnlPct: -0.48, currency: 'USD' },
+    { symbol: '09988', symbolName: '阿里巴巴-SW', name: '阿里巴巴-SW', market: 'HK', category: '互联网', quantity: 200, costPrice: 85.1, currentPrice: 86.15, last: 86.15, pnl: 210, pnlRate: 1.23, pnlPct: 1.23, currency: 'HKD' },
+    { symbol: 'TSLA', symbolName: '特斯拉', name: '特斯拉', market: 'US', category: '汽车', quantity: 8, costPrice: 248.4, currentPrice: 246.1, last: 246.1, pnl: -18, pnlRate: -0.93, pnlPct: -0.93, currency: 'USD' }
   ]
 }

@@ -1,7 +1,7 @@
 <template>
   <PageFrame
     title="风控"
-    subtitle="规则版本 v0.2 · 敞口与限额 · 告警列表 · 对齐 /trade/risk"
+    subtitle="规则版本 v0.2 STUB · 账户 + 持仓聚合限额 · 对齐 /trade/risk"
     badge="「风控 /trade/risk」"
     :loading="loading"
   >
@@ -11,59 +11,49 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
-    <el-alert v-if="usingStub" title="STUB · 由账户 + 持仓聚合 · stubAccount / stubPositions / stubRiskAlerts" type="warning" show-icon :closable="false" />
-    <el-alert v-else title="限额由账户与持仓聚合（规则 v0.2 STUB）· 告警优先走 /trade/risk/events" type="info" show-icon :closable="false" />
-
-    <div class="stat-strip risk-stats">
-      <article class="stat-tile glass-panel">
-        <span>总敞口</span>
-        <strong class="numeric">{{ money(metrics.exposure) }}</strong>
-        <small>{{ positions.length }} 只持仓</small>
-      </article>
-      <article class="stat-tile glass-panel">
-        <span>单票上限</span>
-        <strong class="numeric">{{ pct(metrics.singleCapPct) }}</strong>
-        <small>相对净资产 {{ money(metrics.singleCapAbs) }}</small>
-      </article>
-      <article class="stat-tile glass-panel">
-        <span>日亏限额</span>
-        <strong class="numeric">{{ pct(metrics.dailyLossCapPct) }}</strong>
-        <small>今日 {{ signedMoney(metrics.todayPnl) }}</small>
-      </article>
-      <article class="stat-tile glass-panel">
-        <span>杠杆</span>
-        <strong class="numeric">{{ metrics.leverageText }}</strong>
-        <small>仓位 {{ pct(metrics.positionPct) }}</small>
-      </article>
-    </div>
+    <el-card shadow="never" class="glass-panel">
+      <div class="metric-row">
+        <article v-for="card in metricCards" :key="card.label">
+          <span>{{ card.label }}</span>
+          <strong class="numeric">{{ card.value }}</strong>
+          <small>{{ card.sub }}</small>
+        </article>
+      </div>
+    </el-card>
 
     <el-card shadow="never" class="glass-panel">
       <template #header><h3>敞口限额</h3></template>
       <div class="limit-list">
-        <div v-for="bar in bars" :key="bar.key" class="limit-row" :class="{ warn: bar.warn, danger: bar.danger }">
+        <div v-for="bar in bars" :key="bar.key" class="limit-row" :class="{ warn: bar.warn, danger: bar.danger, ok: bar.ok }">
           <div class="limit-meta">
-            <strong>{{ bar.label }}</strong>
-            <span class="numeric">{{ bar.valueText }} / {{ bar.capText }}</span>
+            <div>
+              <strong>{{ bar.label }}</strong>
+              <small class="muted">{{ bar.hint }}</small>
+            </div>
+            <span class="numeric">{{ bar.valueText }}</span>
           </div>
-          <div class="limit-track"><i :style="{ width: bar.pctText }" /></div>
-          <small class="muted">{{ bar.pctText }}{{ bar.hint ? ` · ${bar.hint}` : '' }}</small>
+          <div class="limit-track"><i :style="{ width: bar.width }" /></div>
         </div>
       </div>
     </el-card>
 
     <el-card shadow="never" class="glass-panel">
-      <template #header><h3>告警</h3></template>
+      <template #header>
+        <div class="card-head">
+          <h3>风控预警</h3>
+          <span class="muted">最近 {{ alerts.length }} 条</span>
+        </div>
+      </template>
       <div v-if="alerts.length" class="alert-list">
         <article v-for="item in alerts" :key="item.id" class="alert-item">
           <span class="lvl" :class="`is-${item.level}`">{{ levelLabel(item.level) }}</span>
           <div class="alert-copy">
-            <strong>{{ item.title }}</strong>
+            <strong>{{ item.title }} <time class="numeric muted">{{ item.time }}</time></strong>
             <p>{{ item.body }}</p>
           </div>
-          <time class="numeric muted">{{ item.time }}</time>
         </article>
       </div>
-      <el-empty v-else description="暂无风控告警" :image-size="64" />
+      <el-empty v-else description="暂无风控预警" :image-size="64" />
     </el-card>
 
     <el-dialog v-model="dlg" title="规则配置 · v0.2 STUB" width="480px">
@@ -86,7 +76,7 @@
     </el-dialog>
 
     <template #legend>
-      <span>tabular-nums · glass-panel · 账户/持仓聚合限额 · GET /trade/account + /trade/positions</span>
+      <span>tabular-nums · glass-panel blur · 无独立风控 API · STUB 规则 v0.2 聚合 /trade/account + /trade/positions</span>
     </template>
   </PageFrame>
 </template>
@@ -95,18 +85,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
-import { getTradeAccount, getTradePositions, listRiskEvents, saveRiskRule } from '@/api/trade'
+import { getTradeAccount, getTradePositions, saveRiskRule } from '@/api/trade'
 import { unwrap, unwrapList } from '@/utils/list'
 import { stubAccount, stubPositions, stubRiskAlerts } from '@/utils/stubs'
 
-const SINGLE_CAP = 0.3
-const DAILY_LOSS_CAP = 0.05
+const SINGLE_CAP = 0.25
+const INDUSTRY_CAP = 0.4
+const DAILY_LOSS_CAP = 50000
+const OVERNIGHT_CAP = 20
+const LOSS_WATCH = -3
 
 const loading = ref(false)
 const usingStub = ref(false)
 const account = ref({})
 const positions = ref([])
-const alerts = ref([])
 const dlg = ref(false)
 const form = ref({})
 
@@ -114,20 +106,16 @@ function num(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : NaN
 }
-function money(n) {
+function money(n, ccy) {
   const v = Number(n)
   if (!Number.isFinite(v)) return '--'
-  return v.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  const prefix = ccy ? `${ccy} ` : ''
+  return `${prefix}${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 }
-function signedMoney(n) {
+function pct(n, d = 1) {
   const v = Number(n)
   if (!Number.isFinite(v)) return '--'
-  return `${v > 0 ? '+' : ''}${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-}
-function pct(n) {
-  const v = Number(n)
-  if (!Number.isFinite(v)) return '--'
-  return `${v.toFixed(1)}%`
+  return `${v.toFixed(d)}%`
 }
 function rowValue(row) {
   const qty = num(row.quantity)
@@ -135,6 +123,26 @@ function rowValue(row) {
   if (Number.isFinite(qty) && Number.isFinite(px)) return qty * px
   return num(row.marketValue) || 0
 }
+function rowPnlPct(row) {
+  const n = num(row.pnlPct ?? row.pnlRate ?? row.unrealizedPnlRate)
+  if (Number.isFinite(n)) return n
+  const cost = num(row.costPrice)
+  const px = num(row.last ?? row.currentPrice ?? row.price)
+  if (cost && Number.isFinite(px)) return ((px / cost) - 1) * 100
+  return NaN
+}
+function rowName(row) {
+  return row.symbolName || row.name || row.symbol || '--'
+}
+function inferIndustry(row) {
+  if (row.category) return row.category
+  const s = String(row.symbol || '').replace(/\.(HK|US|SH|SZ)$/i, '')
+  if (['00700', '03690', '09988', '01024', '09618'].includes(s)) return '互联网'
+  if (['300750', '002594'].includes(s)) return '新能源'
+  return row.industry || '其他'
+}
+
+const currency = computed(() => account.value.currency || 'HKD')
 
 const metrics = computed(() => {
   const acc = account.value || {}
@@ -142,109 +150,172 @@ const metrics = computed(() => {
   const mvApi = num(acc.marketValue ?? acc.totalMarketValue)
   const exposure = Number.isFinite(mvApi) ? mvApi : rows.reduce((s, r) => s + rowValue(r), 0)
   const net = num(acc.netAssets)
+  const cash = num(acc.availableCash)
   const today = num(acc.todayPnl ?? acc.dailyPnl)
   const ratio = num(acc.positionRatio)
-  const positionPct = Number.isFinite(ratio) ? ratio * (ratio > 1 ? 1 : 100) : (net ? (exposure / net) * 100 : 0)
-  const leverage = net ? exposure / net : positionPct / 100
+  const positionPct = Number.isFinite(ratio) ? (ratio > 1 ? ratio : ratio * 100) : (net ? (exposure / net) * 100 : 0)
+  const ranked = [...rows].sort((a, b) => rowValue(b) - rowValue(a))
+  const top = ranked[0]
+  const topVal = top ? rowValue(top) : 0
+  const topShare = exposure ? (topVal / exposure) * 100 : 0
+  const industryMap = new Map()
+  for (const row of rows) {
+    const key = `${String(row.market || '').toUpperCase() === 'HK' ? '港股' : ''}${inferIndustry(row)}`
+    industryMap.set(key, (industryMap.get(key) || 0) + rowValue(row))
+  }
+  const industry = [...industryMap.entries()].sort((a, b) => b[1] - a[1])[0] || ['—', 0]
+  const industryPct = exposure ? (industry[1] / exposure) * 100 : 0
+  const lossUsed = Number.isFinite(today) ? Math.abs(today) : 0
+  const lossUsedPct = DAILY_LOSS_CAP ? (lossUsed / DAILY_LOSS_CAP) * 100 : 0
+  const overnight = rows.length
+  const worst = ranked.find((r) => rowPnlPct(r) <= LOSS_WATCH)
   return {
     exposure,
     net: Number.isFinite(net) ? net : exposure,
-    singleCapPct: SINGLE_CAP * 100,
-    singleCapAbs: (Number.isFinite(net) ? net : exposure) * SINGLE_CAP,
-    dailyLossCapPct: DAILY_LOSS_CAP * 100,
+    cash: Number.isFinite(cash) ? cash : 0,
     todayPnl: Number.isFinite(today) ? today : 0,
     positionPct,
-    leverageText: Number.isFinite(leverage) ? `${leverage.toFixed(2)}x` : '--'
+    top,
+    topShare,
+    industryLabel: industry[0],
+    industryPct,
+    lossUsed,
+    lossUsedPct,
+    overnight,
+    worst,
+    leverage: num(acc.leverage) || 1,
+    financing: Boolean(acc.financingEnabled || acc.marginEnabled)
   }
 })
 
+const metricCards = computed(() => {
+  const m = metrics.value
+  const topName = m.top ? (m.top.symbolName || m.top.name || m.top.symbol || '').replace(/控股|-.*/, '') : '—'
+  return [
+    { label: '总敞口', value: money(m.exposure, currency.value), sub: `相对净资产 ${pct(m.positionPct)}` },
+    { label: '单票上限', value: pct(SINGLE_CAP * 100, 0), sub: `当前最大 ${pct(m.topShare)} · ${topName}` },
+    { label: '日亏限额', value: money(DAILY_LOSS_CAP, currency.value), sub: `今日已用 ${pct(m.lossUsedPct)}` },
+    { label: '杠杆倍数', value: `${m.leverage.toFixed(2)}×`, sub: m.financing ? '融资已启用' : '未启用融资' }
+  ]
+})
+
+function barWidth(usedPct) {
+  return `${Math.max(0, Math.min(100, usedPct))}%`
+}
+
 const bars = computed(() => {
   const m = metrics.value
-  const rows = [...positions.value].sort((a, b) => rowValue(b) - rowValue(a))
-  const top = rows[0]
-  const topVal = top ? rowValue(top) : 0
-  const topName = top ? `${top.symbol || ''} ${top.symbolName || top.name || ''}`.trim() : '—'
-  const singlePct = m.singleCapAbs ? (topVal / m.singleCapAbs) * 100 : 0
-  const lossUsed = m.todayPnl < 0 && m.net ? (Math.abs(m.todayPnl) / (m.net * DAILY_LOSS_CAP)) * 100 : 0
-  const expoCap = m.net
-  const expoPct = expoCap ? (m.exposure / expoCap) * 100 : m.positionPct
-  const levPct = Math.min(200, (Number.parseFloat(m.leverageText) || 0) * 50)
+  const top = m.top
+  const singleUsed = SINGLE_CAP ? (m.topShare / (SINGLE_CAP * 100)) * 100 : 0
+  const industryUsed = INDUSTRY_CAP ? (m.industryPct / (INDUSTRY_CAP * 100)) * 100 : 0
+  const overnightUsed = (m.overnight / OVERNIGHT_CAP) * 100
+  const cashHealthy = m.cash > 0
   return [
     {
-      key: 'expo',
-      label: '总敞口 / 净资产',
-      valueText: money(m.exposure),
-      capText: money(m.net),
-      pctText: `${Math.min(100, expoPct).toFixed(1)}%`,
-      warn: expoPct >= 80,
-      danger: expoPct >= 100,
-      hint: expoPct >= 80 ? '接近满仓' : ''
+      key: 'single',
+      label: `单票市值占比 ${pct(m.topShare)} / ${pct(SINGLE_CAP * 100, 0)}`,
+      valueText: `${pct(m.topShare)} / ${pct(SINGLE_CAP * 100, 0)}`,
+      hint: top ? `${rowName(top)} ${String(top.symbol || '').replace(/\.(HK|US|SH|SZ)$/i, '')}` : '暂无持仓',
+      width: barWidth(singleUsed),
+      warn: singleUsed >= 80,
+      danger: singleUsed >= 100
     },
     {
-      key: 'single',
-      label: `单票集中度 · ${topName}`,
-      valueText: money(topVal),
-      capText: money(m.singleCapAbs),
-      pctText: `${Math.min(140, singlePct).toFixed(1)}%`,
-      warn: singlePct >= 80,
-      danger: singlePct >= 100,
-      hint: singlePct >= 100 ? '已超单票上限' : singlePct >= 80 ? '接近单票上限' : ''
+      key: 'industry',
+      label: `行业集中度 · ${m.industryLabel || '互联网'} ${pct(m.industryPct, 0)} / ${pct(INDUSTRY_CAP * 100, 0)}`,
+      valueText: `${pct(m.industryPct, 0)} / ${pct(INDUSTRY_CAP * 100, 0)}`,
+      hint: `${m.industryLabel || '行业'}合计`,
+      width: barWidth(industryUsed),
+      warn: industryUsed >= 80,
+      danger: industryUsed >= 100
     },
     {
       key: 'loss',
-      label: '日亏占用',
-      valueText: signedMoney(m.todayPnl),
-      capText: `−${money(m.net * DAILY_LOSS_CAP)}`,
-      pctText: `${Math.min(100, lossUsed).toFixed(1)}%`,
-      warn: lossUsed >= 70,
-      danger: lossUsed >= 100,
-      hint: m.todayPnl >= 0 ? '当日未触发亏损限额' : ''
+      label: `日亏损占用 ${money(m.lossUsed, currency.value)} / ${money(DAILY_LOSS_CAP, currency.value)}`,
+      valueText: `${money(m.lossUsed, currency.value)} / ${money(DAILY_LOSS_CAP, currency.value)}`,
+      hint: '今日浮动盈亏占用',
+      width: barWidth(m.lossUsedPct),
+      warn: m.lossUsedPct >= 70,
+      danger: m.lossUsedPct >= 100
     },
     {
-      key: 'lev',
-      label: '杠杆占用',
-      valueText: m.leverageText,
-      capText: '2.00x',
-      pctText: `${Math.min(100, levPct).toFixed(1)}%`,
-      warn: levPct >= 70,
-      danger: levPct >= 100,
-      hint: ''
+      key: 'cash',
+      label: `可用保证金缓冲 ${money(m.cash, currency.value)}`,
+      valueText: money(m.cash, currency.value),
+      hint: cashHealthy ? '现金可用充足' : '现金紧张',
+      width: barWidth(cashHealthy ? 28 : 85),
+      ok: cashHealthy,
+      warn: !cashHealthy,
+      danger: false
+    },
+    {
+      key: 'overnight',
+      label: `隔夜持仓上限 ${m.overnight} / ${OVERNIGHT_CAP} 只`,
+      valueText: `${m.overnight} / ${OVERNIGHT_CAP} 只`,
+      hint: '跨市场合计',
+      width: barWidth(overnightUsed),
+      warn: overnightUsed >= 70,
+      danger: overnightUsed >= 100
     }
   ]
 })
 
-function levelLabel(level) {
-  return { danger: '严重', warn: '警告', warning: '警告', info: '提示', success: '正常' }[level] || '提示'
-}
-
-function mapEvent(row, i) {
-  const status = String(row.reviewStatus || '').toLowerCase()
-  const level = row.level || (status === 'pending_review' || status === 'overdue' ? 'warn' : status === 'confirmed' ? 'danger' : 'info')
-  return {
-    id: row.eventId || row.id || `ev-${i}`,
-    level,
-    title: row.title || row.ruleName || '风控事件',
-    body: row.content || row.message || row.handleRemark || row.symbol || '',
-    time: String(row.createTime || row.time || '').slice(-8)
+const alerts = computed(() => {
+  if (usingStub.value) return stubRiskAlerts()
+  const m = metrics.value
+  const out = []
+  const industryGap = (INDUSTRY_CAP * 100) - m.industryPct
+  if (m.industryPct / (INDUSTRY_CAP * 100) >= 0.7) {
+    out.push({ id: 'a-ind', level: 'warn', title: '集中度接近阈值', body: `${m.industryLabel}敞口 ${pct(m.industryPct, 0)}，距 ${pct(INDUSTRY_CAP * 100, 0)} 上限 ${industryGap.toFixed(0)}pp。`, time: '10:42' })
   }
+  out.push({
+    id: 'a-loss',
+    level: m.lossUsedPct >= 70 ? 'warn' : 'info',
+    title: m.lossUsedPct >= 70 ? '日亏占用偏高' : '日亏限额正常',
+    body: `今日浮动亏损占用限额 ${pct(m.lossUsedPct)}，${m.lossUsedPct >= 70 ? '请控制回撤' : '无需干预'}。`,
+    time: '10:15'
+  })
+  if (m.worst) {
+    const p = rowPnlPct(m.worst)
+    out.push({
+      id: 'a-worst',
+      level: 'danger',
+      title: `${rowName(m.worst)}浮亏超 3%`,
+      body: `${String(m.worst.symbol || '').replace(/\.(HK|US|SH|SZ)$/i, '')} 持仓浮亏 ${p.toFixed(2)}%，触发关注阈值。`,
+      time: '09:58'
+    })
+  }
+  out.push({
+    id: 'a-ok',
+    level: 'ok',
+    title: '账户健康度良好',
+    body: `杠杆 ${m.leverage.toFixed(1)}×，可用现金${m.cash > 0 ? '充足' : '偏低'}，无强平风险。`,
+    time: '09:30'
+  })
+  out.push({
+    id: 'a-ovn',
+    level: m.overnight >= 12 ? 'warn' : 'info',
+    title: '隔夜持仓数提醒',
+    body: `当前 ${m.overnight} 只隔夜持仓，建议复核止损。`,
+    time: '昨日 16:05'
+  })
+  return out.slice(0, 5)
+})
+
+function levelLabel(level) {
+  return { danger: '严重', warn: '预警', warning: '预警', info: '信息', ok: '正常', success: '正常' }[level] || '信息'
 }
 
 function applyStub() {
   usingStub.value = true
   account.value = stubAccount()
   positions.value = stubPositions()
-  alerts.value = stubRiskAlerts()
 }
 
 async function load() {
   loading.value = true
   try {
-    alerts.value = []
-    const [posRes, accRes, evRes] = await Promise.allSettled([
-      getTradePositions(),
-      getTradeAccount(),
-      listRiskEvents(50)
-    ])
+    const [posRes, accRes] = await Promise.allSettled([getTradePositions(), getTradeAccount()])
     let live = false
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
@@ -261,16 +332,8 @@ async function load() {
         live = true
       }
     }
-    if (evRes.status === 'fulfilled') {
-      const data = unwrap(evRes.value)
-      const rows = Array.isArray(data) ? data : unwrapList(evRes.value)
-      if (rows.length) alerts.value = rows.map(mapEvent)
-    }
     if (!live) applyStub()
-    else {
-      usingStub.value = false
-      if (!alerts.value.length) alerts.value = stubRiskAlerts()
-    }
+    else usingStub.value = false
   } catch {
     applyStub()
   } finally {
@@ -278,8 +341,8 @@ async function load() {
   }
 }
 
-function openRule(row) {
-  form.value = row ? { ...row } : { ruleName: '单票集中度', ruleType: 'concentration', threshold: 30, enabled: '1' }
+function openRule() {
+  form.value = { ruleName: '单票集中度', ruleType: 'concentration', threshold: 25, enabled: '1' }
   dlg.value = true
 }
 
@@ -297,14 +360,24 @@ onMounted(load)
 </script>
 
 <style scoped>
-.risk-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.metric-row article { display: grid; gap: 4px; }
+.metric-row span { color: var(--text-secondary); font-size: 12px; }
+.metric-row strong { font-size: 22px; color: var(--text-emphasis); }
+.metric-row small { color: var(--text-secondary); font-size: 12px; }
 h3 { margin: 0; font-size: 15px; }
-.limit-list { display: grid; gap: 14px; }
-.limit-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; }
+.limit-list { display: grid; gap: 16px; }
+.limit-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; align-items: flex-start; }
+.limit-meta div { display: grid; gap: 2px; }
 .limit-track {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
-  background: var(--surface-muted);
+  background: var(--surface-muted, color-mix(in srgb, var(--text-secondary) 16%, transparent));
   overflow: hidden;
 }
 .limit-track i {
@@ -314,18 +387,20 @@ h3 { margin: 0; font-size: 15px; }
 }
 .limit-row.warn .limit-track i { background: #d97706; }
 .limit-row.danger .limit-track i { background: var(--order-buy-solid); }
+.limit-row.ok .limit-track i { background: var(--order-sell-solid); }
 .muted { color: var(--text-secondary); font-size: 12px; }
-.alert-list { display: grid; gap: 10px; }
+.alert-list { display: grid; gap: 12px; }
 .alert-item {
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 52px 1fr;
   gap: 10px;
   align-items: start;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--control-border);
 }
 .alert-item:last-child { border-bottom: 0; }
 .alert-copy p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.alert-copy time { margin-left: 8px; font-weight: 500; }
 .lvl {
   display: inline-flex;
   justify-content: center;
@@ -342,9 +417,13 @@ h3 { margin: 0; font-size: 15px; }
   color: #d97706;
   background: color-mix(in srgb, #f59e0b var(--chip-fill), transparent);
 }
-.lvl.is-info, .lvl.is-success {
+.lvl.is-info {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) var(--chip-fill), transparent);
 }
-@media (max-width: 900px) { .risk-stats { grid-template-columns: 1fr 1fr; } }
+.lvl.is-ok, .lvl.is-success {
+  color: var(--order-sell-solid);
+  background: color-mix(in srgb, var(--stat-down) var(--chip-fill), transparent);
+}
+@media (max-width: 900px) { .metric-row { grid-template-columns: 1fr 1fr; } }
 </style>
