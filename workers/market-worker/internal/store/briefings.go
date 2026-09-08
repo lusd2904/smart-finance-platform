@@ -324,13 +324,14 @@ LIMIT 40`)
 	return items, nil
 }
 
-func (s *Service) insertBriefings(ctx context.Context, rows []briefingRow) error {
-	stmt := `
+const insertBriefingsSQL = `
 INSERT INTO finance_briefing
-(market, briefing_type, headline, summary, source_name, source_link, payload_json, generated_at, expires_at, create_time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`
+(market, briefing_type, headline, summary, source_name, source_link, payload_json, generated_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+func (s *Service) insertBriefings(ctx context.Context, rows []briefingRow) error {
 	for _, row := range rows {
-		_, err := s.db.ExecContext(ctx, stmt,
+		_, err := s.db.ExecContext(ctx, insertBriefingsSQL,
 			row.Market, row.BriefingType, truncate(row.Headline, 255), row.Summary,
 			row.SourceName, row.SourceLink, row.PayloadJSON, row.GeneratedAt, row.ExpiresAt)
 		if err != nil {
