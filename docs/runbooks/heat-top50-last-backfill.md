@@ -1,6 +1,6 @@
 # Heat Top50 `last` backfill runbook
 
-Heat H5/Flutter reads `top50[].last`. Rows collected before the `last` column or before public EOD rank sources included price fields show `--` in the Top card.
+Heat H5 / Web portal reads `top50[].last`. Rows collected before the `last` column or before public EOD rank sources included price fields show `--` in the Top card.
 
 This runbook fills **only** missing `market_top50_snapshot.last` from stored daily bars (`market_price_history_daily.close_price` on that `trade_date`, or the nearest prior bar within 7 days). HK/CN/US aliases are expanded (`00700` ↔ `0700.HK`, `600519` ↔ `600519.SH`). It does **not** wipe Influx/MySQL or re-run public rank collection.
 

@@ -6,7 +6,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
 本仓库 2026-07-23 首次公开，默认分支 `main`。贡献走功能分支 + Pull Request，禁止直接推 `main`。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-**Web 门户（新）**：`apps/frontend/web-portal` 是对齐 longbridge `glass-dark` / `glass-light` 的 Vue3 重建件，当前实现登录 / 工作台 / 行情交易。生产仍用 `ruoyi-fastapi-frontend`，验证通过前不要删旧前端。运行说明见 [apps/frontend/web-portal/README.md](./apps/frontend/web-portal/README.md)。
+**Web 门户（新）**：`apps/frontend/web-portal` 是对齐 longbridge `glass-dark` / `glass-light` 的 Vue3 重建件，当前实现登录 / 工作台 / 行情交易。生产仍用 `ruoyi-fastapi-frontend`，验证通过前不要删旧前端。运行说明见 [apps/frontend/web-portal/README.md](./apps/frontend/web-portal/README.md)。桌面 Electron / Flutter 四端 / uni-app 客户端已从仓库删除；请用浏览器访问 Web。
 
 ## 🌟 核心功能一览
 
@@ -18,8 +18,6 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 - 🔐 **长桥按登录账户**：每人一行 App Key / Secret / Token；交易与实时报价用当前用户；jobs 无登录上下文时回退 admin。
 - 🤖 **AI 研判**：单标的研判、批量扫描、需求沟通群（Grok 入 `llm` 队列，不堵 API）、模型管理。智能选股默认 Grok 4.6。
 - 🧵 **任务拆分**：调度为 Go `sfp-scheduler`（入队）+ market/quant/llm 三消费组。**16 GiB 云主机用 slim overlay**，见 [docs/SFP-TWO-HOST-DEPLOY.md](./docs/SFP-TWO-HOST-DEPLOY.md) 与 [docs/SFP-SCHEDULER.md](./docs/SFP-SCHEDULER.md)。
-- 🖥️ **桌面端**：以 `flutter_client/` 为准；`desktop/` Electron 壳已归档，不再构建。
-- 📱 **Flutter 客户端**：`lib/` 四端共用。宽屏桌面登录后 WebView 打开网关 Web 控制台（与 Docker Web 同一份前端）；手机走原生五栏（舆情 / 选股 / 热度 / 持仓 / 我的）。Debug 默认本机 Docker（`127.0.0.1:12580`，Android 模拟器 `10.0.2.2:12580`）；Release 默认线上 `https://sfp.luapi.top`。
 - 📡 **监控（可选）**：Prometheus + Grafana，后端 `/metrics`。
 
 ## 🚀 0829 迭代更新日志（策略按账户绑定、实时价、账号隔离）
@@ -102,7 +100,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 ## 🚀 0824 V8 迭代更新日志（四端 Flutter 客户端、墨蓝设计系统、全量优化）
 
 ### 1. 📱 Flutter 四端工程地基（M0）与行情域（M1 先行）
-- **单工程四平台**：`flutter_client/` 覆盖 iOS / Android / macOS / Windows；规划基线见 `docs/四端客户端规划.md`。Electron `desktop/` 过渡期继续服务，Flutter 桌面对齐后下线。
+- **单工程四平台**：`flutter_client/` 覆盖 iOS / Android / macOS / Windows；规划基线见 [`docs/archive/四端客户端规划.md`](./docs/archive/四端客户端规划.md)（已归档）。Electron `desktop/` 过渡期继续服务，Flutter 桌面对齐后下线。
 - **首启网关探测**：复刻桌面端语义——未配置网关强制进入配置页，探测健康接口通过才落盘并放行登录。填前端地址（本机默认 `http://127.0.0.1:12580`），业务 API 走 `{网关}/docker-api`；后端端口不能当网关。HTTPS 失败可手动改 http，绝不自动降级。
 - **登录 / 注册 / 会话**：JWT 安全存储；macOS 钥匙串补齐 entitlements，修复 `errSecMissingEntitlement`。根 `.gitignore` 误吞的 Dart 源码树已补齐入库。
 - **CI 矩阵**：`.github/workflows/flutter.yml` 分析 + 单测 + 四平台产物（apk / ipa / macos / windows）。
@@ -287,17 +285,7 @@ Smart Finance Platform 是一套面向二级市场研究与交易辅助的本地
 
   已有库增量 SQL 见 [docs/DEPLOY.md](./docs/DEPLOY.md)。全市场代码 / 日 K 回填走 Go `sfp-market-worker` 任务（旧 Python `sync_*.py` 已随 FastAPI 树删除）。
 
-- **方案 2：桌面端**用 `flutter_client/`（见方案 3）。`desktop/` Electron 已归档，不要再构建。
-
-- **方案 3：Flutter 四端客户端**
-  ```bash
-  cd flutter_client
-  flutter pub get
-  flutter run -d macos     # 或 windows / ios / android
-  ```
-  首启默认连线上网关 `https://sfp.luapi.top`。本机 Docker 在网关页改 `http://127.0.0.1:12580`（Android 模拟器 `http://10.0.2.2:12580`）。详细说明见 `flutter_client/README.md`。
-
-- **方案 4：检查与监控（可选）**
+- **方案 2：检查与监控（可选）**
   ```bash
   # Go 服务单测示例
   (cd services/sfp-backend && go test ./...)
@@ -318,16 +306,12 @@ smart-finance-platform/
 ├── sql/                                # MySQL 基线 + 增量
 ├── services/  workers/                 # Go API / workers / scheduler
 ├── ruoyi-fastapi-frontend/             # 现行 Vue3 管理端（生产仍用这份，勿删）
-├── apps/frontend/web-portal/           # 新门户（longbridge 玻璃主题，验证后可替换）
-├── ruoyi-fastapi-app/                  # 移动端 H5 / 小程序基线（双轨保留）
-├── flutter_client/                     # 四端 Flutter（iOS / Android / macOS / Windows）
-└── desktop/                            # Electron 壳（已归档，勿构建）
+└── apps/frontend/web-portal/           # 新门户（longbridge 玻璃主题，验证后可替换）
 ```
 
 - **Web 前端**：Vue 3 · Element Plus · Vite · ECharts · Pinia
 - **后端**：Go（sfp-backend / sfp-intel / trade-api / data-api / market-read / scheduler / workers）
 - **数据**：MySQL 8（业务）· Redis（会话 / 队列 / 缓存）· InfluxDB 2.x（K 线）
-- **客户端**：Flutter 3.13+（Riverpod · Dio · go_router · flutter_secure_storage）
 - **券商**：Longbridge OpenAPI（可选）
 
 ## 🛡️ 隐私与数据安全说明

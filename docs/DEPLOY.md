@@ -321,8 +321,6 @@ compose 现为 `redis:7-alpine`，AOF、`maxmemory 512mb`、`maxmemory-policy no
 
 - Web：后台标签页会停报价轮询；需求沟通只在有 `jobId` 时轮询。自选 overview 有约 10s Redis 缓存，刚分析完若列表未变，等一轮或手动刷新。
 - nginx `/docker-api/trade/ai/` 读超时 180s（必须写在通用 `/trade/` 30s 之前）。批量研判已入队，一般秒回。
-- Flutter **Debug**：默认 `http://127.0.0.1:12580`，Android 模拟器 `http://10.0.2.2:12580`，已存的模拟器地址**保留**。真机 Debug 请在网关页改成局域网 IP，不要用 `10.0.2.2`。
-- Flutter **Release**：默认 `https://sfp.luapi.top`；若还存着 `10.0.2.2`/`10.0.3.2` 会改回线上（避免调试残留带到生产包）。
 - 指数 WS 默认间隔 15s（对齐指数 30s 缓存）。客户端传 `interval=5` 仍允许，但会反复打同一份缓存。
 
 ### 美股盘前 / 盘后 / 夜盘
@@ -366,18 +364,7 @@ docker compose -f docker-compose.monitor.yml up -d
 
 历史 `docker-compose.pg.yml` 与 Python PG 后端已随 FastAPI 树删除。`sql/ruoyi-fastapi-pg.sql` 仅作基线参考，**不会**被 MySQL 迁移器扫描。生产继续用 MySQL。
 
-## 5. 桌面端
-
-```bash
-cd desktop
-npm install
-npm start          # 开发：每次先配网关
-npm run dist:mac   # 安装包同样先配网关
-```
-
-网关填前端入口（本机 Docker 为 `http://127.0.0.1:12580`），不要填后端 `19099`。
-
-## 6. 回归
+## 5. 回归
 
 ```bash
 npm install
@@ -387,7 +374,7 @@ npm run e2e:web
 
 Go 后端单测：`cd services/<svc> && go test ./...`（CI 默认路径）。Python FastAPI 单测已随该树删除。
 
-## 7. 需求清单对外接口
+## 6. 需求清单对外接口
 
 登录后（Web 会话 JWT）：
 
