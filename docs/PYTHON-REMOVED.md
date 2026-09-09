@@ -18,7 +18,7 @@ GitHub Linguist 按**字节**统计语言，不按运行时。旧树 `ruoyi-fast
 | `scripts/sync_klines_slow.py` | 依赖已删后端 |
 | `scripts/sync_market_listings.py` | 依赖已删后端 |
 
-**未删：** `ruoyi-fastapi-frontend/`（Vue）、`ruoyi-fastapi-app/`（uni-app H5）、`flutter_client/`、`services/`、`workers/`。
+**未删：** `ruoyi-fastapi-frontend/`（Vue 管理端）、`apps/frontend/web-portal/`（新门户）、`services/`、`workers/`。桌面 / 移动客户端（`desktop/`、`flutter_client/`、`ruoyi-fastapi-app/`）已另 PR 从仓库删除。
 
 ## 迁到仓库根、仍给 Go 用
 

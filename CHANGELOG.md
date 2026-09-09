@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 🧹 删除桌面 / 移动客户端
+- 从仓库删除 `desktop/`（Electron 网关壳）、`flutter_client/`（Flutter 四端）、`ruoyi-fastapi-app/`（uni-app H5 / 小程序 / App）
+- 删除 `.github/workflows/flutter.yml` 与 CI `desktop-gateway` job；剩余 CI 不再需要 Flutter SDK 或桌面打包
+- 删除 `scripts/verify_desktop.mjs`；`.gitignore` 去掉 Flutter / Electron 产物例外
+- README / DEPLOY / PYTHON-REMOVED 改为 Web + Go 口径；`docs/四端客户端规划.md` 迁到 `docs/archive/`
+- **保留** `ruoyi-fastapi-frontend/`（含响应式 `src/mobile/`）、`apps/frontend/web-portal/`、全部 `services/` / `workers/`
+
 ### 📈 热度 Top50 增补行情列
 - `market_top50_snapshot` 增量列：`change_amount` / `turnover_rate` / `volume_ratio` / `amplitude` / `pe` / `main_net_inflow`（可空，历史行保持 NULL）
 - `market_heat_collect` 从东财 / 新浪公开源写入能拿到的字段；缺失保持 NULL，不编造
