@@ -11,6 +11,7 @@ import (
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/llm"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/newscollect"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/timeutil"
 )
 
@@ -19,6 +20,7 @@ type Service struct {
 	cfg    mwcfg.Config
 	llm    *llm.Client
 	influx *influx.Reader
+	rss    *newscollect.Client
 }
 
 func NewService(cfg mwcfg.Config) (*Service, error) {

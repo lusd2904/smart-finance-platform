@@ -9,6 +9,7 @@ import (
 
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/crypto"
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/llm"
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/newscollect"
 )
 
 const (
@@ -34,14 +35,25 @@ type aiModelRow struct {
 }
 
 func (s *Service) RunSentimentCollect(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	sources, err := s.sentimentEnabledSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, reports := newscollect.Collect(ctx, s.newsClient(), sources)
+	saved, err := s.insertSentimentNews(ctx, items)
+	if err != nil {
+		return nil, err
+	}
 	pending, err := s.countPendingSentimentNews(ctx, analyzeWindowMinutes)
 	if err != nil {
 		return nil, err
 	}
 	result := map[string]interface{}{
-		"fetched": pending,
-		"saved":   0,
-		"message": fmt.Sprintf("RSS 采集未迁移；当前依赖 X-monitor ingest。最近 %d 分钟待分析 %d 条。", analyzeWindowMinutes, pending),
+		"fetched": len(items),
+		"saved":   saved,
+		"pending": pending,
+		"sources": sourceReports(reports),
+		"message": newscollect.Summarize(len(items), saved, pending, analyzeWindowMinutes, reports),
 	}
 	// Empty cron job_kwargs (job 100) omit analyze. Default true and honor
 	// sentiment_ai_config.auto_analyze (also defaults to on).
@@ -75,6 +87,116 @@ func (s *Service) countPendingSentimentNews(ctx context.Context, windowMinutes i
 SELECT COUNT(*) FROM sentiment_news
 WHERE analyzed = '0' AND pub_time >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`, windowMinutes).Scan(&count)
 	return count, err
+}
+
+func (s *Service) newsClient() *newscollect.Client {
+	if s != nil && s.rss != nil {
+		return s.rss
+	}
+	return newscollect.NewClient()
+}
+
+func (s *Service) sentimentEnabledSources(ctx context.Context) ([]string, error) {
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+SELECT enabled_sources FROM sentiment_ai_config ORDER BY config_id LIMIT 1`).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return newscollect.SplitSources(""), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return newscollect.SplitSources(raw.String), nil
+}
+
+func (s *Service) insertSentimentNews(ctx context.Context, items []newscollect.Item) (int, error) {
+	if len(items) == 0 {
+		return 0, nil
+	}
+	hashes := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.UniqHash != "" {
+			hashes = append(hashes, item.UniqHash)
+		}
+	}
+	existing, err := s.existingSentimentHashes(ctx, hashes)
+	if err != nil {
+		return 0, err
+	}
+	fresh := newscollect.FilterFresh(items, existing)
+	if len(fresh) == 0 {
+		return 0, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+INSERT INTO sentiment_news (source, title, content, url, pub_time, uniq_hash, analyzed, create_time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+	now := nowBeijing()
+	inserted := 0
+	for _, item := range fresh {
+		var url any
+		if strings.TrimSpace(item.URL) != "" {
+			url = item.URL
+		}
+		if _, err := stmt.ExecContext(ctx, item.Source, item.Title, item.Content, url, item.PubTime, item.UniqHash, "0", now); err != nil {
+			_ = tx.Rollback()
+			return inserted, err
+		}
+		inserted++
+	}
+	if err := tx.Commit(); err != nil {
+		return inserted, err
+	}
+	return inserted, nil
+}
+
+func (s *Service) existingSentimentHashes(ctx context.Context, hashes []string) (map[string]bool, error) {
+	out := make(map[string]bool)
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?,", len(hashes))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]interface{}, len(hashes))
+	for i, h := range hashes {
+		args[i] = h
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT uniq_hash FROM sentiment_news WHERE uniq_hash IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out[h] = true
+	}
+	return out, rows.Err()
+}
+
+func sourceReports(reports []newscollect.SourceResult) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(reports))
+	for _, r := range reports {
+		m := map[string]interface{}{"source": r.Source, "fetched": r.Fetched}
+		if r.Error != "" {
+			m["error"] = r.Error
+		}
+		if r.Skipped != "" {
+			m["skipped"] = r.Skipped
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 func (s *Service) RunSentimentAnalyze(ctx context.Context) (map[string]interface{}, error) {

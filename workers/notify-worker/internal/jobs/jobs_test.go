@@ -1,6 +1,27 @@
 package jobs
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/newscollect"
+)
+
+func TestSourceReportsPreserveSkipAndError(t *testing.T) {
+	out := sourceReports([]newscollect.SourceResult{
+		{Source: "eastmoney", Fetched: 2},
+		{Source: "x_monitor", Skipped: "ingest-only"},
+		{Source: "ths", Error: "http 503"},
+	})
+	if len(out) != 3 {
+		t.Fatalf("len=%d", len(out))
+	}
+	if out[1]["skipped"] != "ingest-only" {
+		t.Fatalf("x_monitor skip lost: %v", out[1])
+	}
+	if out[2]["error"] != "http 503" {
+		t.Fatalf("ths error lost: %v", out[2])
+	}
+}
 
 func TestShouldAnalyzeFromPayloadDefaultsTrue(t *testing.T) {
 	if !shouldAnalyzeFromPayload(nil) {

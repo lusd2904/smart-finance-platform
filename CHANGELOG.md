@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 📰 Go `sentiment_collect` 公开源采集
+- `sfp-notify-worker` 按 `sentiment_ai_config.enabled_sources` 拉取东财 / 新浪 / 同花顺 / 华尔街见闻 / Google News RSS / 金十，写入 `sentiment_news`（`analyzed='0'`）
+- `x_monitor` 仍只走 ingest，不由采集器伪造行；job 100 默认 `analyze=true` + `auto_analyze` 行为不变
+- 单源失败不中断整轮；去重 hash 与旧 Python 采集器一致（`md5(source:title|id)`）
+
 ### 🧹 删除桌面 / 移动客户端
 - 从仓库删除 `desktop/`（Electron 网关壳）、`flutter_client/`（Flutter 四端）、`ruoyi-fastapi-app/`（uni-app H5 / 小程序 / App）
 - 删除 `.github/workflows/flutter.yml` 与 CI `desktop-gateway` job；剩余 CI 不再需要 Flutter SDK 或桌面打包
