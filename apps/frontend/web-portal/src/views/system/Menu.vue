@@ -6,7 +6,7 @@
     :loading="loading"
   >
     <template #actions>
-      <el-input v-model="keyword" clearable placeholder="菜单 / 路径" style="width:200px" :prefix-icon="Search" />
+      <el-input v-model="keyword" clearable placeholder="搜索菜单 / 路径" style="width:200px" :prefix-icon="Search" />
       <el-button @click="expandAll">展开全部</el-button>
       <el-button type="primary" @click="openAdd()">+ 新建菜单</el-button>
     </template>
@@ -34,9 +34,9 @@
           <template #default="{ row }"><span class="numeric">{{ row.orderNum ?? row.sort ?? '--' }}</span></template>
         </el-table-column>
         <el-table-column label="可见" width="72">
-          <template #default="{ row }">{{ isVisible(row) ? '是' : '否' }}</template>
+          <template #default="{ row }">{{ isVisible(row) ? '可见' : '隐藏' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column label="操作" width="148">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="openAdd(row)">子项</el-button>
@@ -72,7 +72,8 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
-import { addMenu, listMenu, updateMenu } from '@/api/system'
+import { addMenu, getMenu, listMenu, updateMenu } from '@/api/system'
+import { unwrap } from '@/utils/list'
 import { menuTree } from '@/config/menus'
 import { unwrapList } from '@/utils/list'
 
@@ -108,16 +109,29 @@ function fromMenuTree() {
     const parentId = id++
     const children = []
     for (const group of sub.groups || []) {
-      for (const item of group.items || []) {
+      const leaves = (group.items || []).map((item, j) => ({
+        menuId: id++,
+        parentId,
+        menuName: item.title,
+        path: item.path,
+        icon: item.icon,
+        orderNum: j + 1,
+        visible: '0'
+      }))
+      if ((sub.groups || []).length > 1 && group.title) {
+        const gid = id++
         children.push({
-          menuId: id++,
+          menuId: gid,
           parentId,
-          menuName: item.title,
-          path: item.path,
-          icon: item.icon,
+          menuName: group.title,
+          path: '',
+          icon: '',
           orderNum: children.length + 1,
-          visible: '0'
+          visible: '0',
+          children: leaves.map((leaf) => ({ ...leaf, parentId: gid }))
         })
+      } else {
+        children.push(...leaves)
       }
     }
     return {
@@ -199,7 +213,7 @@ function openAdd(parent) {
   dlg.value = true
 }
 
-function openEdit(row) {
+async function openEdit(row) {
   Object.assign(form, {
     menuId: row.menuId,
     parentId: row.parentId,
@@ -210,6 +224,23 @@ function openEdit(row) {
     visible: isVisible(row) ? '0' : '1'
   })
   dlg.value = true
+  if (usingStub.value || !row.menuId) return
+  try {
+    const data = unwrap(await getMenu(row.menuId))
+    if (data?.menuName || data?.path) {
+      Object.assign(form, {
+        menuId: data.menuId ?? form.menuId,
+        parentId: data.parentId ?? form.parentId,
+        menuName: data.menuName || form.menuName,
+        path: data.path || form.path,
+        icon: data.icon || form.icon,
+        orderNum: Number(data.orderNum ?? form.orderNum),
+        visible: isVisible(data) ? '0' : '1'
+      })
+    }
+  } catch {
+    /* keep row snapshot */
+  }
 }
 
 async function save() {

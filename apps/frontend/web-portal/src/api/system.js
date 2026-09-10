@@ -44,6 +44,10 @@ export function listMenu(query) {
   return request({ url: '/system/menu/list', method: 'get', params: query, silent: true })
 }
 
+export function getMenu(menuId) {
+  return request({ url: `/system/menu/${menuId}`, method: 'get', silent: true })
+}
+
 export function addMenu(data) {
   return request({ url: '/system/menu', method: 'post', data })
 }
