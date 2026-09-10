@@ -26,6 +26,9 @@ service.interceptors.response.use(
       return Promise.reject(brokerAuthError(payload, code || 401))
     }
     if (code === 401) {
+      if (isDemoSession()) {
+        return Promise.reject(new Error(sanitizePublicText(payload?.msg, 'Unauthorized')))
+      }
       if (!isRelogin.show) {
         isRelogin.show = true
         removeToken()
@@ -60,6 +63,15 @@ service.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+function isDemoSession() {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('sfp-demo-session') === '1') return true
+  } catch {
+    /* ignore */
+  }
+  return getToken() === 'demo-stub-token'
+}
 
 function configSilent(config) {
   return Boolean(config && (config.silent || config.headers?.silent))
