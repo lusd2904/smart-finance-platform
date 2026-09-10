@@ -10,6 +10,8 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
+    <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" />
+
     <div class="toolbar">
       <div class="chip-row">
         <button type="button" class="filter-chip" :class="{ active: readFilter === 'unread' }" @click="readFilter = 'unread'">未读 ({{ unreadCount }})</button>
@@ -64,9 +66,11 @@ import { computed, onMounted, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
+import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
 import { listNotifications, readNotifications } from '@/api/trade'
 import { unwrapList } from '@/utils/list'
 import { stubNotifications } from '@/utils/stubs'
+import { brokerAuthCode, isBrokerAuthError } from '@/utils/tradeAuth'
 
 const TYPE_TABS = [
   { key: '', label: '全部类型' },
@@ -77,6 +81,8 @@ const TYPE_TABS = [
 
 const loading = ref(false)
 const usingStub = ref(false)
+const brokerAuth = ref(false)
+const brokerCode = ref('')
 const list = ref([])
 const readFilter = ref('unread')
 const typeFilter = ref('')
@@ -124,6 +130,7 @@ function applyStub() {
 
 async function load() {
   loading.value = true
+  brokerAuth.value = false
   try {
     const res = await listNotifications(80)
     const rows = Array.isArray(res.data) ? res.data : unwrapList(res)
@@ -131,8 +138,13 @@ async function load() {
       list.value = rows
       usingStub.value = false
     } else applyStub()
-  } catch {
-    applyStub()
+  } catch (e) {
+    if (isBrokerAuthError(e)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(e)
+      usingStub.value = false
+      list.value = []
+    } else applyStub()
   } finally {
     loading.value = false
   }

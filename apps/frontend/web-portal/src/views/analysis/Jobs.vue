@@ -1,62 +1,118 @@
 <template>
-  <PageFrame title="自动分析" subtitle="调度总览 · 启停 · 立即执行" badge="「自动分析 /analysis/jobs」" :loading="loading">
+  <PageFrame
+    title="任务中心"
+    subtitle="Cron · 上次运行 · 重试 · 手动触发"
+    badge="「任务中心 /analysis/jobs」"
+    :loading="loading"
+  >
     <template #actions>
-      <el-tag :type="alive ? 'success' : 'info'">{{ alive ? '在线' : '离线' }}</el-tag>
-      <el-radio-group v-model="category" size="small">
+      <el-input v-model="keyword" clearable placeholder="搜索任务" style="width:180px" :prefix-icon="Search" />
+      <el-radio-group v-model="filter">
         <el-radio-button value="all">全部</el-radio-button>
-        <el-radio-button value="market">行情</el-radio-button>
-        <el-radio-button value="quant">量化</el-radio-button>
-        <el-radio-button value="sentiment">舆情</el-radio-button>
-        <el-radio-button value="trade">交易</el-radio-button>
+        <el-radio-button value="running">运行中</el-radio-button>
+        <el-radio-button value="failed">失败</el-radio-button>
+        <el-radio-button value="idle">空闲</el-radio-button>
       </el-radio-group>
-      <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="load">刷新</el-button>
+      <el-button type="primary" @click="ElMessage.info('新建任务待后端字段对齐')">+ 新建任务</el-button>
     </template>
 
+    <el-alert v-if="usingStub" title="STUB · GET /analysis/scheduler/overview · 侧栏 menus.js 已挂" type="warning" show-icon :closable="false" />
+
     <div class="stat-strip">
-      <article class="stat-tile glass-panel"><span>任务</span><strong>{{ jobs.length }}</strong></article>
-      <article class="stat-tile glass-panel"><span>启用</span><strong>{{ jobs.filter((j) => j.status === '0').length }}</strong></article>
-      <article class="stat-tile glass-panel"><span>队列</span><strong>{{ overview.queueDepth ?? 0 }}</strong></article>
-      <article class="stat-tile glass-panel"><span>Worker</span><strong>{{ overview.workerId || '--' }}</strong></article>
+      <article class="stat-tile glass-panel"><span>任务总数</span><strong class="numeric">{{ kpis.total }}</strong></article>
+      <article class="stat-tile glass-panel"><span>运行中</span><strong class="numeric">{{ kpis.running }}</strong></article>
+      <article class="stat-tile glass-panel"><span>今日成功</span><strong class="numeric">{{ kpis.success }}</strong></article>
+      <article class="stat-tile glass-panel"><span>待重试</span><strong class="numeric">{{ kpis.retry }}</strong></article>
     </div>
 
     <el-card shadow="never" class="glass-panel">
       <el-table :data="filtered" stripe empty-text="暂无任务">
-        <el-table-column prop="title" label="任务" min-width="180" />
-        <el-table-column prop="categoryLabel" label="分类" width="90">
-          <template #default="{ row }">{{ row.categoryLabel || row.category }}</template>
+        <el-table-column type="index" label="#" width="52" />
+        <el-table-column label="名称" min-width="180">
+          <template #default="{ row }">{{ row.title || row.name || row.jobName }}</template>
         </el-table-column>
-        <el-table-column prop="cron" label="Cron" min-width="120" />
-        <el-table-column label="状态" width="90">
+        <el-table-column label="启用" width="80">
           <template #default="{ row }">
-            <el-switch :model-value="row.status === '0'" @change="(on) => toggle(row, on)" />
+            <el-switch :model-value="isOn(row)" @change="(on) => toggle(row, on)" />
           </template>
         </el-table-column>
-        <el-table-column width="88">
+        <el-table-column prop="cron" label="Cron" min-width="120" />
+        <el-table-column label="上次运行" width="170">
+          <template #default="{ row }"><span class="numeric">{{ row.lastRunAt || row.lastRun || row.updateTime || '--' }}</span></template>
+        </el-table-column>
+        <el-table-column label="重试" width="72" align="right">
+          <template #default="{ row }"><span class="numeric">{{ row.retryCount ?? row.retry ?? 0 }}</span></template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
           <template #default="{ row }">
-            <el-button link type="primary" @click="run(row)">执行</el-button>
+            <el-button link type="primary" @click="run(row)">触发</el-button>
+            <el-button link type="primary" @click="openLogs(row)">日志</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-drawer v-model="logOpen" :title="logTitle" size="420px">
+      <el-empty v-if="!logs.length" description="日志抽屉占位 · 待任务字段对齐" :image-size="64" />
+      <article v-for="(line, i) in logs" :key="i" class="job-card">
+        <strong class="numeric">{{ line.time || line.createdAt || '' }}</strong>
+        <p>{{ line.message || line.msg || line }}</p>
+      </article>
+    </el-drawer>
+
+    <template #legend>
+      <span>薄壳 · 启用开关 · 手动触发 · 日志抽屉占位 · path /analysis/jobs 稳定</span>
+    </template>
   </PageFrame>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
-import { changeAnalysisJobStatus, getAnalysisOverview, runAnalysisJob } from '@/api/analysis'
+import { changeAnalysisJobStatus, getAnalysisOverview, listAnalysisJobLogs, runAnalysisJob } from '@/api/analysis'
 import { unwrap, unwrapList } from '@/utils/list'
+import { stubJobs } from '@/utils/stubs'
 
 const loading = ref(false)
-const category = ref('all')
+const usingStub = ref(false)
+const keyword = ref('')
+const filter = ref('all')
 const overview = ref({})
 const jobs = ref([])
-const alive = computed(() => Boolean(overview.value.alive ?? overview.value.online ?? overview.value.workerId))
+const logOpen = ref(false)
+const logTitle = ref('日志')
+const logs = ref([])
+
+function isOn(row) {
+  return row.status === '0' || row.enabled === true || row.running === true
+}
+function runState(row) {
+  const raw = String(row.runState || row.state || row.lastStatus || '').toLowerCase()
+  if (row.running === true || raw === 'running' || raw === '运行中') return 'running'
+  if (raw.includes('fail') || raw.includes('失败') || row.lastError) return 'failed'
+  return 'idle'
+}
+
+const kpis = computed(() => {
+  const list = jobs.value
+  return {
+    total: list.length,
+    running: list.filter((j) => runState(j) === 'running').length,
+    success: overview.value.todaySuccess ?? overview.value.success24h ?? list.filter((j) => j.lastOk).length,
+    retry: overview.value.retryPending ?? list.filter((j) => Number(j.retryCount || j.retry) > 0 || runState(j) === 'failed').length
+  }
+})
 
 const filtered = computed(() => {
-  if (category.value === 'all') return jobs.value
-  return jobs.value.filter((j) => j.category === category.value)
+  const kw = keyword.value.trim().toLowerCase()
+  return jobs.value.filter((j) => {
+    const stateOk = filter.value === 'all' || runState(j) === filter.value
+    const text = `${j.title || ''} ${j.name || ''} ${j.jobName || ''} ${j.cron || ''}`.toLowerCase()
+    return stateOk && (!kw || text.includes(kw))
+  })
 })
 
 async function load() {
@@ -65,13 +121,22 @@ async function load() {
     const res = await getAnalysisOverview()
     const data = unwrap(res)
     overview.value = data
-    jobs.value = data.jobs || unwrapList(res)
+    const rows = data.jobs || unwrapList(res)
+    if (rows.length) {
+      jobs.value = rows
+      usingStub.value = false
+    } else applyStub()
   } catch {
-    overview.value = {}
-    jobs.value = []
+    applyStub()
   } finally {
     loading.value = false
   }
+}
+
+function applyStub() {
+  usingStub.value = true
+  overview.value = { todaySuccess: 46, retryPending: 1 }
+  jobs.value = stubJobs()
 }
 
 async function toggle(row, on) {
@@ -79,16 +144,32 @@ async function toggle(row, on) {
     await changeAnalysisJobStatus(row.jobId || row.id, on ? '0' : '1')
     await load()
   } catch (e) {
-    ElMessage.error(e?.message || '更新失败')
+    if (usingStub.value) {
+      row.status = on ? '0' : '1'
+      ElMessage.success('已更新（STUB）')
+    } else ElMessage.error(e?.message || '更新失败')
   }
 }
 
 async function run(row) {
   try {
     await runAnalysisJob(row.jobId || row.id)
-    ElMessage.success('已执行')
+    ElMessage.success('已触发')
+    load()
   } catch (e) {
-    ElMessage.error(e?.message || '执行失败')
+    ElMessage[usingStub.value ? 'success' : 'error'](usingStub.value ? '已触发（STUB）' : (e?.message || '执行失败'))
+  }
+}
+
+async function openLogs(row) {
+  logTitle.value = `${row.title || row.name || '任务'} · 日志`
+  logOpen.value = true
+  logs.value = []
+  try {
+    const res = await listAnalysisJobLogs(row.jobId || row.id, { limit: 30 })
+    logs.value = unwrapList(res) || unwrap(res).logs || []
+  } catch {
+    logs.value = row.lastError ? [{ time: row.lastRunAt, message: row.lastError }] : []
   }
 }
 

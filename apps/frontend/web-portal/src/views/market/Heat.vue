@@ -91,7 +91,7 @@
           </div>
         </div>
       </template>
-      <el-table :data="sortedTop" stripe max-height="360" empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
+      <el-table :data="sortedTop" stripe max-height="280" empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
         <el-table-column prop="rankNo" label="#" width="52" />
         <el-table-column prop="symbol" label="代码" width="120" />
         <el-table-column prop="name" label="名称" min-width="130" show-overflow-tooltip />
@@ -123,6 +123,13 @@
     </el-card>
 
     <button v-if="!showCompare" type="button" class="compare-link" @click="showCompare = true">三列对照（次要）</button>
+    <template #legend>
+      <span class="legend-dots">
+        <span><i class="dot-up" /> 涨红</span>
+        <span><i class="dot-down" /> 跌绿</span>
+      </span>
+      <span>单市场深潜默认 · Top50 · 三列对照为次要 · 「市场热度 /market/heat」</span>
+    </template>
     <section v-if="showCompare" class="heat-cols">
       <article v-for="card in compareCards" :key="card.market" class="heat-card glass-panel">
         <header class="heat-card-head">

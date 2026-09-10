@@ -62,7 +62,7 @@ Tokens:
 | Do not reassign `--page-bg` / `--panel-surface` / `--accent` in `theme.scss` | Lets `[data-theme]` tokens win. Early SFP `theme.scss` overwrote `--panel-surface` with a composed overlay and looked like a third skin. |
 | Shell uses `--chrome-surface` + `--chrome-backdrop` | Longbridge `Sidebar.vue` / `Header.vue` hardcode `blur(20px)` + `--panel-surface`. Tokens are the App.vue chrome language the designer asked to close. |
 | Primary buttons / EP active states use `--accent` | Designer QA: leftover Element blue and App.vue navy `#164a72` must not win. glass-dark CTA ink is `#06121d` on cyan. |
-| `--stat-up` / `--stat-down` neon on glass-dark | `#ff0055` / `#39ff14` (A-share 红涨绿跌 + longbridge neon). glass-light stays `#dc2626` / `#16a34a`. |
+| `--stat-up` / `--stat-down` A-share 涨红跌绿 | glass-dark `#f87171` / `#34d399` · glass-light `#dc2626` / `#059669`. Zero is neutral. |
 | Tables / quote numbers use `tabular-nums` | Designer QA: number columns must not jitter. |
 | Pills / chips are tinted glass, not solid neon blocks | Overrides `el-tag` including `effect="dark"`. glass-dark chips use ~15% fill + mixed ink (not solid neon). |
 | Brand copy 智慧金融 | Product name only. |
@@ -118,7 +118,7 @@ QA1 login habit / accent / tabular-nums / glass chips / 快捷入口 copy must n
 | `/market/finance-news` | 财经资讯 | Finance briefings |
 | `/market/flow` | 资金与日历 | Flow board + calendar |
 | `/market/review` | 市场分析 | Latest + history + analyze |
-| `/analysis/jobs` | 自动分析 | Scheduler overview |
+| `/analysis/jobs` | 任务中心 | Scheduler overview (sidebar under 行情中心) |
 | `/trade/positions` | 持仓 | Longbridge positions |
 | `/trade/orders` | 委托 | Today / history + cancel |
 | `/trade/risk` | 风控 | Tearsheet, rules, events |

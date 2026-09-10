@@ -1,7 +1,7 @@
 <template>
   <PageFrame
     title="自选清单"
-    subtitle="按登录账号隔离 · 三栏 list / K / detail · 对齐 /market/watchlist"
+    subtitle="左列表 / 中K线 / 右详情"
     badge="「自选清单 /market/watchlist」"
     :loading="loading"
   >

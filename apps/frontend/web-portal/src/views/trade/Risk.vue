@@ -11,6 +11,8 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
+    <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" :cached="usingCache" />
+
     <el-card shadow="never" class="glass-panel">
       <div class="metric-row">
         <article v-for="card in metricCards" :key="card.label">
@@ -85,9 +87,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
+import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
 import { getTradeAccount, getTradePositions, saveRiskRule } from '@/api/trade'
 import { unwrap, unwrapList } from '@/utils/list'
 import { stubAccount, stubPositions, stubRiskAlerts } from '@/utils/stubs'
+import { brokerAuthCode, cacheTradeAccount, cacheTradePositions, isBrokerAuthError, readCachedAccount, readCachedPositions } from '@/utils/tradeAuth'
 
 const SINGLE_CAP = 0.25
 const INDUSTRY_CAP = 0.4
@@ -97,6 +101,9 @@ const LOSS_WATCH = -3
 
 const loading = ref(false)
 const usingStub = ref(false)
+const brokerAuth = ref(false)
+const brokerCode = ref('')
+const usingCache = ref(false)
 const account = ref({})
 const positions = ref([])
 const dlg = ref(false)
@@ -308,20 +315,42 @@ function levelLabel(level) {
 
 function applyStub() {
   usingStub.value = true
+  usingCache.value = false
   account.value = stubAccount()
   positions.value = stubPositions()
 }
 
 async function load() {
   loading.value = true
+  brokerAuth.value = false
+  usingCache.value = false
   try {
     const [posRes, accRes] = await Promise.allSettled([getTradePositions(), getTradeAccount()])
+    const brokerErr = [posRes, accRes].find((r) => r.status === 'rejected' && isBrokerAuthError(r.reason))
+    if (brokerErr) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(brokerErr.reason)
+      const cachedRows = readCachedPositions()
+      const cachedAcc = readCachedAccount()
+      if (cachedRows.length || cachedAcc) {
+        if (cachedRows.length) positions.value = cachedRows
+        if (cachedAcc) account.value = cachedAcc
+        usingCache.value = true
+        usingStub.value = false
+      } else {
+        positions.value = []
+        account.value = {}
+        usingStub.value = false
+      }
+      return
+    }
     let live = false
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
       const rows = d.positions || unwrapList(posRes.value)
       if (rows.length || d.configured) {
         positions.value = rows
+        cacheTradePositions(rows)
         live = true
       }
     }
@@ -329,13 +358,18 @@ async function load() {
       const acc = unwrap(accRes.value)
       if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency)) {
         account.value = acc
+        cacheTradeAccount(acc)
         live = true
       }
     }
     if (!live) applyStub()
     else usingStub.value = false
-  } catch {
-    applyStub()
+  } catch (e) {
+    if (isBrokerAuthError(e)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(e)
+      usingStub.value = false
+    } else applyStub()
   } finally {
     loading.value = false
   }

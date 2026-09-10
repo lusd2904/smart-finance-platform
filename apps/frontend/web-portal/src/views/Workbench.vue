@@ -233,7 +233,7 @@ const navItems = [
   { title: '量化策略', path: '/quant/strategy', icon: 'Cpu' },
   { title: '自选清单', path: '/market/watchlist', icon: 'Star' },
   { title: '市场分析', path: '/market/review', icon: 'Notebook' },
-  { title: '自动分析', path: '/analysis/jobs', icon: 'Clock' }
+  { title: '任务中心', path: '/analysis/jobs', icon: 'Clock' }
 ]
 
 function reviewTag(stance) {

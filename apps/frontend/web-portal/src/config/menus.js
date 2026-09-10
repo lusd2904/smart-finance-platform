@@ -34,7 +34,8 @@ export const menuTree = [
           { title: '智能选股', path: '/market/recommendations', icon: 'MagicStick' },
           { title: '财经资讯', path: '/market/finance-news', icon: 'Notebook' },
           { title: '资金与日历', path: '/market/flow', icon: 'Money' },
-          { title: '市场分析', path: '/market/review', icon: 'Document' }
+          { title: '市场分析', path: '/market/review', icon: 'Document' },
+          { title: '任务中心', path: '/analysis/jobs', icon: 'Clock' }
         ]
       }
     ]

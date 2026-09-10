@@ -80,8 +80,8 @@
   --control-border: color-mix(in srgb, var(--accent-strong) 13%, transparent);
   --control-border-hover: color-mix(in srgb, var(--accent-strong) 22%, transparent);
   --loading-mask: rgba(2, 6, 23, 0.45);
-  --stat-up: #ff0055; /* A-share 涨=红 */
-  --stat-down: #39ff14; /* A-share 跌=绿 */
+  --stat-up: #f87171; /* A-share 涨=红 */
+  --stat-down: #34d399; /* A-share 跌=绿 */
   --order-buy-solid: #dc2626;
   --order-sell-solid: #16a34a;
   --chip-fill: 15%;
@@ -95,7 +95,7 @@
   --loading-mask: rgba(241, 245, 249, 0.55);
   --accent-ink: #ffffff;
   --stat-up: #dc2626;
-  --stat-down: #16a34a;
+  --stat-down: #059669;
   --chip-fill: 12%;
   --chip-ink: 78%;
   --chip-line: 22%;
@@ -107,8 +107,8 @@
   --overlay-bg: rgba(16, 25, 45, 0.45);
   --loading-mask: rgba(2, 6, 23, 0.45);
   --accent-ink: #06121d;
-  --stat-up: #ff0055;
-  --stat-down: #39ff14;
+  --stat-up: #f87171;
+  --stat-down: #34d399;
   --chip-fill: 15%;
   --chip-ink: 62%;
   --chip-line: 16%;

@@ -8,7 +8,11 @@
         <el-table-column prop="createdAt" label="时间" width="170" />
         <el-table-column prop="title" label="标题" min-width="180" />
         <el-table-column prop="direction" label="方向" width="90" />
-        <el-table-column prop="score" label="分数" width="80" align="right" />
+        <el-table-column label="分数 0–100" width="110" align="right">
+          <template #default="{ row }">
+            <span class="numeric" :class="scoreClass(row.score)">{{ scoreText(row.score) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="summary" label="摘要" min-width="200" show-overflow-tooltip />
       </el-table>
       <div class="pager">
@@ -22,7 +26,13 @@
 import { onMounted, ref } from 'vue'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { listAnalysis } from '@/api/sentiment'
+import { score100, scoreClass } from '@/utils/format'
 import { unwrapList, unwrapTotal } from '@/utils/list'
+
+function scoreText(v) {
+  const n = score100(v)
+  return n == null ? '--' : String(n)
+}
 
 const loading = ref(false)
 const list = ref([])
