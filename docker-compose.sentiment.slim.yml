@@ -104,6 +104,12 @@ services:
   sfp-notify-worker:
     mem_limit: 224m
     cpus: 0.25
+    environment:
+      INFLUX_URL: http://sentiment-influxdb:8086
+      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUX_ORG: longbridge
+      INFLUX_BUCKET_US: market_us
+      INFLUX_BUCKET_CN: market_data
 
   sentiment-influxdb:
     environment:
