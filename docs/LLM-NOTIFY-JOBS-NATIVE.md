@@ -9,7 +9,7 @@ Slim production no longer runs `sentiment-intel` / `sentiment-backend` Python co
 | `feishu_push` | **Native** | `notify-worker` → MySQL `plat_feishu_subscription` |
 | `user_notice` | **Native** | `notify-worker` → `plat_notification` insert |
 | `sentiment_analyze` | **Native** | `notify-worker` → OpenAI-compatible gateway + `sentiment_analysis` |
-| `sentiment_collect` | **Native (X-monitor path)** | Counts pending `sentiment_news` from ingest; RSS scrapers not ported — use `POST /sentiment/ingest/x_monitor`. Cron **job 100** `job_kwargs` = `{"analyze":true}` (omitted analyze still analyzes when `auto_analyze=1`) |
+| `sentiment_collect` | **Native** | Fetches public sources in `sentiment_ai_config.enabled_sources` (eastmoney / sina / ths / wallstreetcn / google_news / jin10) into `sentiment_news` with `analyzed='0'`. `x_monitor` stays ingest-only (`POST /sentiment/ingest/x_monitor`). Cron **job 100** `job_kwargs` = `{"analyze":true}` (omitted analyze still analyzes when `auto_analyze=1`) |
 | `daily_review` | **Native wrapper** | Same as `sentiment_collect` with `analyze=true` (runs analyze when `auto_analyze=1`) |
 | `req_send` | **Native** | `notify-worker` → parallel bot LLM round + `ai_req_message` / `ai_req_item` |
 | `req_summarize` | **Native** | Same as `req_send` with `summarize=true` |
@@ -20,6 +20,25 @@ Slim production no longer runs `sentiment-intel` / `sentiment-backend` Python co
 | `ai_batch` | **Native** | Batch `ai_analyze` + `plat_ai_batch_run` / `plat_ai_batch_item` |
 
 All LLM jobs return real handler results (no `skipped: true` stubs).
+
+### `sentiment_collect` sources
+
+Reads `sentiment_ai_config.enabled_sources` (default `eastmoney,sina,ths,wallstreetcn,google_news`). Each enabled key is fetched independently; one source failing does not abort the job.
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| `eastmoney` | **Native** | 东财 7x24 `np-listapi` |
+| `sina` | **Native** | 新浪 7x24 `zhibo` feed |
+| `ths` | **Native** | 同花顺 `news.10jqka.com.cn` |
+| `wallstreetcn` | **Native** | 华尔街见闻 lives API |
+| `google_news` | **Native** | Google News RSS（中文财经关键词） |
+| `jin10` | **Native** | 金十快讯；空正文的 VIP 条跳过 |
+| `cls` | Alias | 回退 `ths`（无签名财联社接口） |
+| `x_monitor` | **Ingest only** | `POST /sentiment/ingest/x_monitor`；采集器不拉、不写 |
+
+New rows use `analyzed='0'` and the same `md5(source:title\|id)` hashes as the old Python collector. Analyze still runs for **all** pending rows in the 10-minute window (RSS + X ingest) when `analyze` is omitted/true and `auto_analyze=1`.
+
+Follow-ups: unique index on `sentiment_news.uniq_hash` if missing; news-list filter for `x_monitor` (frontend, out of scope here); watch Google News geo/rate limits.
 
 ## Routing changes
 
