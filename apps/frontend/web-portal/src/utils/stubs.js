@@ -286,3 +286,81 @@ export function stubStrategySignals() {
     { id: 'sg-5', symbol: '03690', name: '美团-W', signal: 'SELL', strength: 0.81, score: 38, createdAt: '09:58' }
   ]
 }
+
+export function stubModels() {
+  return [
+    { modelId: 'stub-1', modelName: 'Grok-4 Fast', modelCode: 'grok-4-fast', provider: 'xAI', scope: 'chat', status: '0', isDefault: true, latencyMs: 420, quotaPct: 82, health: 'ok' },
+    { modelId: 'stub-2', modelName: 'GPT-4.1 Mini', modelCode: 'gpt-4.1-mini', provider: 'OpenAI', scope: 'chat', status: '0', latencyMs: 680, quotaPct: 61, health: 'ok' },
+    { modelId: 'stub-3', modelName: 'DeepSeek-V3', modelCode: 'deepseek-v3', provider: 'DeepSeek', scope: 'chat', status: '0', latencyMs: 510, quotaPct: 74, health: 'ok' },
+    { modelId: 'stub-4', modelName: 'Claude Sonnet', modelCode: 'claude-sonnet-5', provider: 'Anthropic', scope: 'global', status: '0', latencyMs: 560, quotaPct: 48, health: 'ok' },
+    { modelId: 'stub-5', modelName: 'Qwen Plus', modelCode: 'qwen-plus', provider: 'DashScope', scope: 'market', status: '1', latencyMs: 0, quotaPct: 12, health: 'down' },
+    { modelId: 'stub-6', modelName: 'Local Echo', modelCode: 'echo', provider: 'local', scope: 'quant', status: '1', latencyMs: 0, quotaPct: 0, health: 'down' }
+  ]
+}
+
+export function stubChatSessions() {
+  return [
+    { sessionId: 'stub-s1', sessionTitle: 'NVDA 全景研判', title: 'NVDA 全景研判', modelName: 'Grok-4 Fast', createdAt: '今天 09:38', updatedAt: '今天 09:38' },
+    { sessionId: 'stub-s2', sessionTitle: '港股互联网提问', title: '港股互联网提问', modelName: 'Grok-4 Fast', createdAt: '今天 09:05', updatedAt: '今天 09:05' },
+    { sessionId: 'stub-s3', sessionTitle: '美债收益率情景', title: '美债收益率情景', modelName: 'Grok-4 Fast', createdAt: '昨天 21:14', updatedAt: '昨天 21:14' }
+  ]
+}
+
+export function stubChatMessages(symbol = 'NVDA') {
+  return [
+    {
+      role: 'user',
+      content: `请对 ${symbol} 做一次全景研判，结合技术与最新舆情，给出备多/偏空立场与关键关注点。`
+    },
+    {
+      role: 'assistant',
+      content: '这是标注示意稿，不是实盘结论。工具引用仅作版式对照：日线量能中性，舆情分数待接入。请用「一键研判」走真实 oneshot。',
+      stance: '观望',
+      tools: ['chat', '日线', '舆情'],
+      stub: true
+    }
+  ]
+}
+
+export function stubUsers() {
+  return [
+    { userId: 1, userName: 'admin', nickName: '超级管理员', roleName: '超级管理员', status: '0', loginDate: '2026-09-10 09:12', lockFlag: '0' },
+    { userId: 2, userName: 'analyst_wangang', nickName: '分析岗', roleName: '分析', status: '0', loginDate: '2026-09-09 18:40', lockFlag: '0' },
+    { userId: 3, userName: 'quant_zhao', nickName: '量化研究员', roleName: '量化', status: '0', loginDate: '2026-09-08 14:22', lockFlag: '0' },
+    { userId: 4, userName: 'trader_chen', nickName: '交易员', roleName: '交易', status: '0', loginDate: '2026-09-10 08:55', lockFlag: '0' },
+    { userId: 5, userName: 'guest_demo', nickName: '演示', roleName: '只读', status: '1', loginDate: '2026-07-15 10:00', lockFlag: '0' },
+    { userId: 6, userName: 'locked_xu', nickName: '风控见习', roleName: '风控', status: '0', loginDate: '2026-08-28 16:33', lockFlag: '1' }
+  ]
+}
+
+export function stubJobs() {
+  return [
+    { jobId: 'j-1', title: '自选批量分析', cron: '0 5 16 * * ?', status: '0', runState: 'idle', lastRunAt: '2026-09-10 16:00', retryCount: 0, lastOk: true },
+    { jobId: 'j-2', title: '市场热度快照', cron: '0 10 16 * * ?', status: '0', runState: 'idle', lastRunAt: '2026-09-10 16:15', retryCount: 0, lastOk: true },
+    { jobId: 'j-3', title: '舆情聚合', cron: '0 0/30 * * * ?', status: '0', runState: 'running', lastRunAt: '2026-09-10 08:30', retryCount: 0 },
+    { jobId: 'j-4', title: '长桥行情同步', cron: '0 0/5 * * * ?', status: '0', runState: 'idle', lastRunAt: '2026-09-10 09:00', retryCount: 2 },
+    { jobId: 'j-5', title: '日终推送', cron: '0 0 17 * * ?', status: '0', runState: 'failed', lastRunAt: '2026-09-10 15:55', retryCount: 1, lastError: 'notify worker timeout' },
+    { jobId: 'j-6', title: '因子回测', cron: '0 55 21 * * ?', status: '1', runState: 'idle', lastRunAt: '2026-09-09 18:00', retryCount: 3 },
+    { jobId: 'j-7', title: 'watchlist_analyze', cron: '0 20 16 * * ?', status: '0', runState: 'idle', lastRunAt: '2026-09-10 02:00', retryCount: 0, lastOk: true },
+    { jobId: 'j-8', title: '手动补数', cron: '-', status: '1', runState: 'idle', lastRunAt: '2026-09-10 14:22', retryCount: 0 }
+  ]
+}
+
+export function stubRoles() {
+  return [
+    { roleId: 1, roleName: '超级管理员', roleKey: 'admin', userCount: 2, remark: '全部', menus: ['用户', '角色', '菜单', '看板', '自选', '任务中心', '持仓', '委托', '风控', '模型', '研判', '因子'] },
+    { roleId: 2, roleName: '交易员', roleKey: 'trader', userCount: 12, remark: '交易台', menus: ['看板', '自选', '持仓', '委托', '风控'] },
+    { roleId: 3, roleName: '分析师', roleKey: 'analyst', userCount: 8, remark: '行情复盘', menus: ['看板', '自选', '任务中心', '研判'] },
+    { roleId: 4, roleName: '量化研究员', roleKey: 'quant', userCount: 10, remark: '因子策略', menus: ['看板', '因子', '模型', '研判'] },
+    { roleId: 5, roleName: '风控', roleKey: 'risk', userCount: 6, remark: '限额', menus: ['持仓', '委托', '风控'] },
+    { roleId: 6, roleName: '只读', roleKey: 'viewer', userCount: 9, remark: '只看', menus: ['看板'] }
+  ]
+}
+
+export function stubRecentVerdicts() {
+  return [
+    { symbol: 'NVDA', market: 'US', stance: '偏多', score: 72, note: '示意 · 非实盘' },
+    { symbol: '00700', market: 'HK', stance: '中性', score: 54, note: '示意 · 非实盘' },
+    { symbol: 'AAPL', market: 'US', stance: '观望', score: 49, note: '示意 · 非实盘' }
+  ]
+}

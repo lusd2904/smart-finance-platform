@@ -102,6 +102,22 @@ export function currencyOf(market) {
   return 'CNY'
 }
 
+/** Normalize a score to 0–100. Values in (0, 1] are treated as ratios. */
+export function score100(val) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return null
+  const raw = n > 0 && n <= 1 && !Number.isInteger(n) ? n * 100 : n
+  return Math.max(0, Math.min(100, Math.round(raw)))
+}
+
+export function scoreClass(val) {
+  const n = score100(val)
+  if (n == null) return 'flat'
+  if (n >= 60) return 'up'
+  if (n <= 40) return 'down'
+  return 'flat'
+}
+
 export function renderSparklinePath(arr) {
   const values = (arr || []).map(Number).filter(Number.isFinite)
   if (values.length < 2) return ''

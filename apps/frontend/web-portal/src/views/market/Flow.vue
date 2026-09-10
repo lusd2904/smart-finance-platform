@@ -148,7 +148,11 @@ function renderTree() {
     value: Math.abs(Number(r.netInflow ?? r.net) || 0),
     changePct: r.changePct,
     netInflow: r.netInflow ?? r.net,
-    itemStyle: { color: Number(r.netInflow ?? r.net) >= 0 ? 'rgba(255,0,85,0.72)' : 'rgba(57,255,20,0.55)' }
+    itemStyle: {
+      color: Number(r.netInflow ?? r.net) >= 0
+        ? getComputedStyle(document.documentElement).getPropertyValue('--stat-up').trim() || '#f87171'
+        : getComputedStyle(document.documentElement).getPropertyValue('--stat-down').trim() || '#34d399'
+    }
   }))
   chart.setOption({
     tooltip: {

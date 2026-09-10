@@ -1,7 +1,7 @@
 <template>
   <PageFrame
     title="市场分析"
-    subtitle="美股、港股、A股收盘复盘。亚太 16:35、美股北京时间约 05:15 自动生成，也可立即分析。"
+    subtitle="三市场收盘复盘 · 立即分析"
     badge="「市场分析 /market/review」"
     :loading="loading"
   >

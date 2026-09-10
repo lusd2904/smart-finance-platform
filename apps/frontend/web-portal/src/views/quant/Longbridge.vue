@@ -14,7 +14,7 @@
     <el-card shadow="never" class="glass-panel">
       <el-form :model="form" label-width="120px" style="max-width:560px">
         <el-form-item label="App Key">
-          <el-input v-model="form.appKey" autocomplete="off" placeholder="**** 脱敏回显" />
+          <el-input v-model="form.appKey" type="password" show-password autocomplete="off" placeholder="**** 脱敏回显" />
         </el-form-item>
         <el-form-item label="App Secret">
           <el-input v-model="form.appSecret" type="password" show-password autocomplete="new-password" placeholder="**** 不覆盖原值" />
@@ -49,13 +49,13 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { getLongbridgeConfig, testLongbridge, updateLongbridgeConfig } from '@/api/quant'
 import { unwrap } from '@/utils/list'
+import { isMaskedSecret, maskSecret, sanitizePublicText } from '@/utils/secret'
 
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const connected = ref(false)
 const testMsg = ref('')
-const rawKey = ref('')
 const form = reactive({
   appKey: '',
   appSecret: '',
@@ -64,27 +64,19 @@ const form = reactive({
   autoTradeEnabled: false
 })
 
-function mask(value) {
-  const text = String(value || '')
-  if (!text) return ''
-  if (text.startsWith('****')) return text
-  return text.length > 4 ? `****${text.slice(-4)}` : '****'
-}
-function isMasked(value) {
-  return Boolean(value) && String(value).startsWith('****')
-}
-
 async function load() {
   loading.value = true
   try {
     const data = unwrap(await getLongbridgeConfig())
-    rawKey.value = data.appKey || data.app_key || ''
-    form.appKey = mask(rawKey.value)
-    form.appSecret = data.appSecret || data.app_secret || ''
-    form.accessToken = data.accessToken || data.access_token || ''
+    const key = data.appKey || data.app_key || ''
+    const secret = data.appSecret || data.app_secret || ''
+    const token = data.accessToken || data.access_token || ''
+    form.appKey = maskSecret(key)
+    form.appSecret = secret ? maskSecret(secret) : ''
+    form.accessToken = token ? maskSecret(token) : ''
     form.region = data.region || 'cn'
     form.autoTradeEnabled = Boolean(data.autoTradeEnabled)
-    connected.value = Boolean(rawKey.value)
+    connected.value = Boolean(key)
   } catch {
     form.autoTradeEnabled = false
   } finally {
@@ -92,20 +84,25 @@ async function load() {
   }
 }
 
+function payload() {
+  const data = {
+    region: form.region,
+    autoTradeEnabled: form.autoTradeEnabled
+  }
+  if (!isMaskedSecret(form.appKey)) data.appKey = form.appKey
+  if (!isMaskedSecret(form.appSecret)) data.appSecret = form.appSecret
+  if (!isMaskedSecret(form.accessToken)) data.accessToken = form.accessToken
+  return data
+}
+
 async function save() {
   saving.value = true
   try {
-    await updateLongbridgeConfig({
-      appKey: isMasked(form.appKey) ? rawKey.value : form.appKey,
-      appSecret: form.appSecret,
-      accessToken: form.accessToken,
-      region: form.region,
-      autoTradeEnabled: form.autoTradeEnabled
-    })
+    await updateLongbridgeConfig(payload())
     ElMessage.success('已保存')
     load()
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(sanitizePublicText(e?.message, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -116,11 +113,11 @@ async function test() {
   try {
     const data = unwrap(await testLongbridge())
     connected.value = Boolean(data.connected || data.configured)
-    testMsg.value = data.message || (connected.value ? '连接正常' : '未连接')
+    testMsg.value = sanitizePublicText(data.message, connected.value ? '连接正常' : '未连接')
     ElMessage[connected.value ? 'success' : 'warning'](testMsg.value)
   } catch (e) {
     connected.value = false
-    testMsg.value = e?.message || '连接失败'
+    testMsg.value = sanitizePublicText(e?.message, '连接失败')
     ElMessage.error(testMsg.value)
   } finally {
     testing.value = false

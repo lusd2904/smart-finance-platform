@@ -20,8 +20,9 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
-    <el-alert v-if="usingStub" title="STUB · stubAccount / stubPositions" type="warning" show-icon :closable="false" />
-    <el-alert v-else-if="msg" :title="msg" type="info" show-icon :closable="false" />
+    <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" :cached="usingCache" />
+    <el-alert v-if="usingStub && !brokerAuth" title="STUB · stubAccount / stubPositions" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="msg && !brokerAuth" :title="msg" type="info" show-icon :closable="false" />
 
     <div class="stat-strip pos-stats">
       <article class="stat-tile glass-panel">
@@ -115,14 +116,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import PageFrame from '@/components/page/PageFrame.vue'
+import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
 import { getTradeAccount, getTradePositions } from '@/api/trade'
 import { changeClass, fmtChange, fmtNum } from '@/utils/format'
 import { marketLabel, unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
 import { stubAccount, stubPositions } from '@/utils/stubs'
+import { brokerAuthCode, cacheTradeAccount, cacheTradePositions, isBrokerAuthError, readCachedAccount, readCachedPositions } from '@/utils/tradeAuth'
 
 const loading = ref(false)
 const usingStub = ref(false)
+const brokerAuth = ref(false)
+const brokerCode = ref('')
+const usingCache = ref(false)
 const list = ref([])
 const account = ref({})
 const accounts = ref([])
@@ -230,20 +236,47 @@ function weightPct(row) {
 
 function applyStub() {
   usingStub.value = true
+  usingCache.value = false
   account.value = stubAccount()
   list.value = stubPositions()
 }
 
+function applyBrokerAuth(err) {
+  brokerAuth.value = true
+  brokerCode.value = brokerAuthCode(err)
+  const cachedRows = readCachedPositions()
+  const cachedAcc = readCachedAccount()
+  if (cachedRows.length || cachedAcc) {
+    if (cachedRows.length) list.value = cachedRows
+    if (cachedAcc) account.value = cachedAcc
+    usingCache.value = true
+    usingStub.value = false
+    return
+  }
+  usingCache.value = false
+  usingStub.value = false
+  list.value = []
+  msg.value = '长桥凭证不可用，未使用演示持仓以免误判空仓'
+}
+
 async function load() {
   loading.value = true
+  brokerAuth.value = false
+  usingCache.value = false
   try {
     const [posRes, accRes] = await Promise.allSettled([getTradePositions(), getTradeAccount()])
+    const brokerErr = [posRes, accRes].find((r) => r.status === 'rejected' && isBrokerAuthError(r.reason))
+    if (brokerErr) {
+      applyBrokerAuth(brokerErr.reason)
+      return
+    }
     let live = false
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
       const rows = d.positions || unwrapList(posRes.value)
       if (rows.length || d.configured) {
         list.value = rows
+        cacheTradePositions(rows)
         msg.value = d.message || (d.configured === false ? '未配置长桥凭证' : '')
         live = true
       }
@@ -252,6 +285,7 @@ async function load() {
       const acc = unwrap(accRes.value)
       if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency)) {
         account.value = acc
+        cacheTradeAccount(acc)
         const listAcc = acc.accounts || acc.items || []
         accounts.value = listAcc.map((a, i) => ({ id: a.id || a.accountId || String(i), label: a.name || a.accountName || `${a.currency || 'HKD'} 主账户` }))
         if (!accountId.value && accounts.value[0]) accountId.value = accounts.value[0].id
@@ -260,8 +294,9 @@ async function load() {
     }
     if (!live) applyStub()
     else usingStub.value = false
-  } catch {
-    applyStub()
+  } catch (e) {
+    if (isBrokerAuthError(e)) applyBrokerAuth(e)
+    else applyStub()
   } finally {
     loading.value = false
   }

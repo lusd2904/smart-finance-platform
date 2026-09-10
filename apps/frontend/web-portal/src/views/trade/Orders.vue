@@ -14,8 +14,9 @@
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
-    <el-alert v-if="usingStub" title="STUB · stubOrders" type="warning" show-icon :closable="false" />
-    <el-alert v-else-if="msg" :title="msg" type="info" show-icon :closable="false" />
+    <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" />
+    <el-alert v-if="usingStub && !brokerAuth" title="STUB · stubOrders" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="msg && !brokerAuth" :title="msg" type="info" show-icon :closable="false" />
 
     <div class="toolbar">
       <div class="chip-row">
@@ -111,10 +112,12 @@ import { computed, onMounted, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
+import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
 import { cancelTradeOrder, getTradeOrders } from '@/api/trade'
 import { fmtNum } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
+import { brokerAuthCode, isBrokerAuthError } from '@/utils/tradeAuth'
 import { stubOrders } from '@/utils/stubs'
 
 const OPEN_STATUS = new Set(['submitted', 'new', 'wait_to_new', 'waittonew', 'partial_filled', 'partialfilled', 'wait_to_cancel', 'waittocancel', 'pending', 'partial', 'open', 'not_reported', 'notreported'])
@@ -130,6 +133,8 @@ const STATUS_TABS = [
 
 const loading = ref(false)
 const usingStub = ref(false)
+const brokerAuth = ref(false)
+const brokerCode = ref('')
 const scope = ref('today')
 const status = ref('')
 const keyword = ref('')
@@ -298,6 +303,7 @@ function applyStub() {
 
 async function load() {
   loading.value = true
+  brokerAuth.value = false
   try {
     if (scope.value === 'today') {
       const res = await getTradeOrders('today')
@@ -334,8 +340,14 @@ async function load() {
       msg.value = message
       usingStub.value = false
     }
-  } catch {
-    applyStub()
+  } catch (e) {
+    if (isBrokerAuthError(e)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(e)
+      usingStub.value = false
+      list.value = []
+      msg.value = ''
+    } else applyStub()
   } finally {
     loading.value = false
   }
