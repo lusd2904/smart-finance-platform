@@ -1,25 +1,108 @@
 <template>
-  <PageFrame title="舆情大盘" subtitle="采集 · 分析 · 最近研判" badge="「舆情大盘 /sentiment/dashboard」" :loading="loading">
+  <PageFrame
+    title="舆情大盘"
+    subtitle="采集 · 分析 · 美/港/A 研判"
+    badge="「舆情大盘 /sentiment/dashboard」"
+    :loading="loading"
+  >
     <template #actions>
-      <el-button type="primary" :loading="collecting" @click="collect">采集</el-button>
-      <el-button :loading="analyzing" @click="analyze">分析</el-button>
+      <span v-if="latestTime" class="hero-meta numeric">最新分析 {{ latestTime }}</span>
+      <el-button type="primary" :loading="collecting" @click="collect">立即采集</el-button>
+      <el-button :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
+        {{ rateLimitedUntil ? `请稍后 (${retryLeft}s)` : '立即分析' }}
+      </el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
     </template>
+
+    <el-alert v-if="rateLimitMessage" type="warning" show-icon :closable="false" :title="rateLimitMessage" />
+
     <div class="stat-strip">
-      <article class="stat-tile glass-panel"><span>资讯</span><strong>{{ stats.total ?? stats.newsCount ?? 0 }}</strong></article>
-      <article class="stat-tile glass-panel"><span>今日</span><strong>{{ stats.today ?? stats.todayCount ?? 0 }}</strong></article>
-      <article class="stat-tile glass-panel"><span>分析</span><strong>{{ stats.analysisCount ?? history.length }}</strong></article>
-      <article class="stat-tile glass-panel"><span>最新</span><strong>{{ latestTime || '--' }}</strong></article>
+      <article class="stat-tile glass-panel">
+        <span>总资讯</span>
+        <strong class="numeric">{{ stats.total ?? 0 }}</strong>
+      </article>
+      <article class="stat-tile glass-panel">
+        <span>今日新增</span>
+        <strong class="numeric">{{ stats.today ?? 0 }}</strong>
+      </article>
+      <article class="stat-tile glass-panel">
+        <span>待分析</span>
+        <strong class="numeric">{{ stats.unanalyzed ?? 0 }}</strong>
+      </article>
+      <article class="stat-tile glass-panel">
+        <span>最新分析</span>
+        <strong class="numeric kpi-time">{{ latestTime || '--' }}</strong>
+      </article>
     </div>
+
+    <div class="market-strip">
+      <article v-for="m in markets" :key="m.key" class="market-card glass-panel" :class="directionClass(m.direction)">
+        <div class="market-head">
+          <span>{{ m.name }}</span>
+          <el-tag v-if="m.direction" size="small" effect="dark" :color="directionColor(m.direction)" class="dir-tag">
+            {{ directionLabel(m.direction) }}
+          </el-tag>
+          <el-tag v-else size="small" type="info">暂无</el-tag>
+        </div>
+        <strong class="numeric score" :style="{ color: directionColor(m.direction) }">
+          {{ scoreText(m.score) }}<small>分</small>
+        </strong>
+        <p class="reason">{{ m.reason || '暂无分析理由' }}</p>
+      </article>
+    </div>
+
     <el-card shadow="never" class="glass-panel">
-      <template #header><h3>最近分析</h3></template>
-      <el-table :data="history" stripe empty-text="暂无分析">
-        <el-table-column prop="createdAt" label="时间" width="170" />
-        <el-table-column prop="title" label="标题" min-width="180" />
-        <el-table-column prop="direction" label="方向" width="90" />
-        <el-table-column label="分数 0–100" width="110" align="right">
+      <template #header>
+        <div class="card-header">
+          <h3>市场情绪分数趋势</h3>
+          <span class="muted">最近 24 次分析</span>
+        </div>
+      </template>
+      <div v-show="trend.length" ref="trendRef" class="trend-chart" />
+      <el-empty v-if="!trend.length && !loading" description="暂无趋势数据" :image-size="48" />
+    </el-card>
+
+    <el-row :gutter="10">
+      <el-col :xs="24" :md="14">
+        <el-card shadow="never" class="glass-panel">
+          <template #header><div class="card-header"><h3>最新分析摘要</h3></div></template>
+          <p v-if="latest.summary" class="summary-text">{{ latest.summary }}</p>
+          <el-empty v-else description="暂无分析数据" :image-size="48" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :md="10">
+        <el-card shadow="never" class="glass-panel">
+          <template #header><div class="card-header"><h3>风险事件</h3></div></template>
+          <div v-if="riskEvents.length" class="risk-list">
+            <div v-for="(item, i) in riskEvents" :key="i" class="risk-item">{{ item }}</div>
+          </div>
+          <el-empty v-else description="暂无风险事件" :image-size="48" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-card shadow="never" class="glass-panel">
+      <template #header><div class="card-header"><h3>最近分析</h3></div></template>
+      <el-table :data="history" size="small" stripe empty-text="暂无分析">
+        <el-table-column label="时间" width="170">
           <template #default="{ row }">
-            <span class="numeric" :class="scoreClass(row.score)">{{ scoreText(row.score) }}</span>
+            <span class="numeric">{{ formatTime(row.createTime) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
+        <el-table-column label="美股" width="120" align="center">
+          <template #default="{ row }">
+            <span class="numeric" :class="scoreClass(row.usScore)">{{ marketCell(row.usDirection, row.usScore) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="港股" width="120" align="center">
+          <template #default="{ row }">
+            <span class="numeric" :class="scoreClass(row.hkScore)">{{ marketCell(row.hkDirection, row.hkScore) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="A股" width="120" align="center">
+          <template #default="{ row }">
+            <span class="numeric" :class="scoreClass(row.aScore)">{{ marketCell(row.aDirection, row.aScore) }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -28,45 +111,189 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 import PageFrame from '@/components/page/PageFrame.vue'
-import { collectNews, getStats, listAnalysis, runAnalysis } from '@/api/sentiment'
+import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/api/sentiment'
 import { score100, scoreClass } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
+
+const loading = ref(false)
+const collecting = ref(false)
+const analyzing = ref(false)
+const stats = ref({})
+const latest = ref({})
+const history = ref([])
+const trend = ref([])
+const trendRef = ref(null)
+const rateLimitedUntil = ref(0)
+const retryLeft = ref(0)
+const rateLimitMessage = ref('')
+let retryTimer = null
+let chart
+let onResize
 
 function scoreText(v) {
   const n = score100(v)
   return n == null ? '--' : String(n)
 }
 
-const loading = ref(false)
-const collecting = ref(false)
-const analyzing = ref(false)
-const stats = ref({})
-const history = ref([])
-const latestTime = ref('')
+function formatTime(v) {
+  const s = String(v || '').replace('T', ' ').trim()
+  return s ? s.slice(0, 19) : ''
+}
+
+function marketCell(direction, score) {
+  const n = scoreText(score)
+  if (!direction && n === '--') return '--'
+  return `${directionLabel(direction)} ${n}`
+}
+
+function normalizeDirection(direction) {
+  if (!direction) return ''
+  const d = String(direction).toLowerCase()
+  if (d.includes('多') || d.includes('bull') || d.includes('up') || d.includes('涨') || d.includes('positive')) return 'up'
+  if (d.includes('空') || d.includes('bear') || d.includes('down') || d.includes('跌') || d.includes('negative')) return 'down'
+  return 'flat'
+}
+
+function directionColor(direction) {
+  const d = normalizeDirection(direction)
+  if (d === 'up') return '#f56c6c'
+  if (d === 'down') return '#67c23a'
+  return '#909399'
+}
+
+function directionLabel(direction) {
+  const d = normalizeDirection(direction)
+  if (d === 'up') return '利多'
+  if (d === 'down') return '利空'
+  return direction ? '中性' : ''
+}
+
+function directionClass(direction) {
+  const d = normalizeDirection(direction)
+  if (d === 'up') return 'market-up'
+  if (d === 'down') return 'market-down'
+  return 'market-flat'
+}
+
+function parseRisk(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
+  } catch {
+    /* split plain text */
+  }
+  return String(raw)
+    .split(/[\n;；]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+const latestTime = computed(() => {
+  const la = stats.value?.latestAnalysis
+  const fromStats = la && typeof la === 'object' ? la.createTime : typeof la === 'string' ? la : ''
+  return formatTime(latest.value.createTime || fromStats || history.value[0]?.createTime)
+})
+
+const markets = computed(() => [
+  { key: 'us', name: '美股三大指数', direction: latest.value.usDirection, score: latest.value.usScore, reason: latest.value.usReason },
+  { key: 'hk', name: '港股指数', direction: latest.value.hkDirection, score: latest.value.hkScore, reason: latest.value.hkReason },
+  { key: 'a', name: 'A股指数', direction: latest.value.aDirection, score: latest.value.aScore, reason: latest.value.aReason }
+])
+
+const riskEvents = computed(() => parseRisk(latest.value.riskEvents))
+
+function renderTrend(list) {
+  if (!trendRef.value) return
+  if (!list.length) {
+    if (chart) chart.clear()
+    return
+  }
+  if (!chart) chart = echarts.init(trendRef.value)
+  const isLight = document.documentElement.dataset.theme === 'glass-light'
+  const ink = isLight ? '#334155' : '#e2e8f0'
+  chart.setOption(
+    {
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['美股', '港股', 'A股'], top: 0, textStyle: { color: ink, fontSize: 12 } },
+      grid: { left: 40, right: 16, top: 32, bottom: 24 },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: list.map((item) => formatTime(item.createTime)),
+        axisLabel: { formatter: (v) => (v ? String(v).slice(5, 16) : v), color: ink }
+      },
+      yAxis: { type: 'value', name: '分数', splitLine: { lineStyle: { opacity: 0.12 } } },
+      series: [
+        { name: '美股', type: 'line', smooth: true, data: list.map((item) => item.usScore), itemStyle: { color: '#409eff' }, areaStyle: { opacity: 0.08 } },
+        { name: '港股', type: 'line', smooth: true, data: list.map((item) => item.hkScore), itemStyle: { color: '#e6a23c' }, areaStyle: { opacity: 0.08 } },
+        { name: 'A股', type: 'line', smooth: true, data: list.map((item) => item.aScore), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } }
+      ]
+    },
+    true
+  )
+}
 
 async function load() {
   loading.value = true
   try {
-    const [s, a] = await Promise.allSettled([getStats(), listAnalysis({ pageNum: 1, pageSize: 20 })])
-    if (s.status === 'fulfilled') stats.value = unwrap(s.value)
+    const [s, a, t] = await Promise.allSettled([getStats(), listAnalysis({ pageNum: 1, pageSize: 20, status: '0' }), getTrend(24)])
+    if (s.status === 'fulfilled') {
+      const data = unwrap(s.value)
+      stats.value = data
+      if (data.latestAnalysis && typeof data.latestAnalysis === 'object') {
+        latest.value = { ...latest.value, ...data.latestAnalysis }
+      }
+    }
     if (a.status === 'fulfilled') {
       history.value = unwrapList(a.value)
-      latestTime.value = history.value[0]?.createdAt || history.value[0]?.analyzeTime || ''
+      if (history.value[0]) latest.value = { ...latest.value, ...history.value[0] }
+    } else {
+      history.value = []
     }
+    if (t.status === 'fulfilled') {
+      const raw = unwrap(t.value)
+      trend.value = Array.isArray(raw) ? raw : unwrapList(t.value)
+    } else {
+      trend.value = []
+    }
+    await nextTick()
+    renderTrend(trend.value)
   } finally {
     loading.value = false
   }
 }
 
+function startRateLimitCooldown(seconds, message) {
+  const wait = Math.max(15, Math.min(Number(seconds) || 60, 300))
+  rateLimitedUntil.value = Date.now() + wait * 1000
+  rateLimitMessage.value = message || 'AI 分析触发限流，请稍后再试，不要连续点击'
+  retryLeft.value = wait
+  if (retryTimer) clearInterval(retryTimer)
+  retryTimer = setInterval(() => {
+    const left = Math.ceil((rateLimitedUntil.value - Date.now()) / 1000)
+    retryLeft.value = Math.max(0, left)
+    if (left <= 0) {
+      clearInterval(retryTimer)
+      retryTimer = null
+      rateLimitedUntil.value = 0
+      rateLimitMessage.value = ''
+    }
+  }, 1000)
+}
+
 async function collect() {
   collecting.value = true
   try {
-    await collectNews()
-    ElMessage.success('已采集')
-    load()
+    const res = await collectNews()
+    const d = unwrap(res)
+    ElMessage.success(res?.msg || (d.accepted ? '已加入后台队列' : '采集任务已触发'))
+    if (!d.accepted) load()
   } catch (e) {
     ElMessage.error(e?.message || '采集失败')
   } finally {
@@ -75,21 +302,165 @@ async function collect() {
 }
 
 async function analyze() {
+  if (rateLimitedUntil.value && Date.now() < rateLimitedUntil.value) return
   analyzing.value = true
   try {
-    await runAnalysis()
-    ElMessage.success('已分析')
-    load()
+    const res = await runAnalysis()
+    const data = unwrap(res)
+    if (data.rateLimited || data.code === 429) {
+      startRateLimitCooldown(data.retryAfter, data.message)
+      return
+    }
+    const msg = data.message || res?.msg || ''
+    if (msg.includes('限流') || msg.includes('过于频繁')) {
+      startRateLimitCooldown(60, msg)
+      return
+    }
+    ElMessage.success(msg || (data.accepted ? '已加入后台队列' : 'AI分析任务已触发'))
+    if (!data.accepted) load()
   } catch (e) {
-    ElMessage.error(e?.message || '分析失败')
+    const text = String(e?.message || e || '')
+    if (text.includes('429') || text.includes('限流') || text.includes('过于频繁')) {
+      startRateLimitCooldown(60, 'AI 分析触发限流，请稍后再试，不要连续点击')
+      return
+    }
+    ElMessage.error(text || '分析失败')
   } finally {
     analyzing.value = false
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  onResize = () => chart && chart.resize()
+  window.addEventListener('resize', onResize)
+})
+
+onBeforeUnmount(() => {
+  if (retryTimer) clearInterval(retryTimer)
+  if (onResize) window.removeEventListener('resize', onResize)
+  if (chart) chart.dispose()
+})
 </script>
 
 <style scoped>
-h3 { margin: 0; font-size: 15px; }
+.hero-meta {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.stat-tile {
+  padding: 8px 10px !important;
+}
+.stat-tile strong {
+  font-size: 15px !important;
+  line-height: 1.2 !important;
+}
+.kpi-time {
+  font-size: 13px !important;
+  font-weight: 600;
+}
+.market-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.market-card {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px !important;
+}
+.market-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-emphasis);
+}
+.dir-tag {
+  border: none;
+  color: #fff;
+}
+.score {
+  font-size: 16px !important;
+  line-height: 1.2;
+}
+.score small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.reason {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.market-up {
+  border-top: 3px solid #f56c6c;
+}
+.market-down {
+  border-top: 3px solid #67c23a;
+}
+.market-flat {
+  border-top: 3px solid #909399;
+}
+.card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.muted {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.trend-chart {
+  width: 100%;
+  height: 220px;
+}
+.summary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--text-emphasis);
+}
+.risk-list {
+  display: grid;
+  gap: 6px;
+}
+.risk-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.5;
+}
+:deep(.el-empty) {
+  padding: 8px 0;
+}
+:deep(.el-table) {
+  font-size: 13px;
+}
+:deep(.el-table th.el-table__cell),
+:deep(.el-table td.el-table__cell) {
+  padding: 4px 0;
+}
+@media (max-width: 900px) {
+  .market-strip {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
