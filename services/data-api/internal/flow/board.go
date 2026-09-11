@@ -21,6 +21,11 @@ var emHeaders = map[string]string{
 	"Accept":     "application/json, text/plain, */*",
 }
 
+var (
+	eastmoneyPush2Base = "https://push2.eastmoney.com"
+	eastmoneyDelayBase = "https://push2delay.eastmoney.com"
+)
+
 var sectorFS = map[string]string{
 	"industry": "m:90+t:2",
 	"concept":  "m:90+t:3",
@@ -55,18 +60,18 @@ func (s *Service) GetBoard(ctx context.Context, sectorKind string, limit int) ma
 	}
 	sectors := s.fetchSectors(kind, limit)
 	payload := map[string]interface{}{
-		"asOf":          timeutil.NowBeijing().Format("2006-01-02 15:04:05"),
-		"tradeDate":     time.Now().Format("2006-01-02"),
-		"sectorKind":    kind,
-		"sectors":       sectors,
-		"industry":      sectors,
-		"concept":       []interface{}{},
-		"limitUp":       []interface{}{},
-		"limitUpCount":  0,
-		"lhb":           []interface{}{},
-		"calendar":      map[string]interface{}{"date": time.Now().Format("2006-01-02"), "macro": []interface{}{}, "earnings": []interface{}{}},
-		"sources":       map[string]interface{}{"sectors": "eastmoney", "limitUp": "eastmoney", "lhb": "eastmoney", "calendar": "nasdaq"},
-		"stale":         len(sectors) == 0,
+		"asOf":         timeutil.NowBeijing().Format("2006-01-02 15:04:05"),
+		"tradeDate":    time.Now().Format("2006-01-02"),
+		"sectorKind":   kind,
+		"sectors":      sectors,
+		"industry":     sectors,
+		"concept":      []interface{}{},
+		"limitUp":      []interface{}{},
+		"limitUpCount": 0,
+		"lhb":          []interface{}{},
+		"calendar":     map[string]interface{}{"date": time.Now().Format("2006-01-02"), "macro": []interface{}{}, "earnings": []interface{}{}},
+		"sources":      map[string]interface{}{"sectors": "eastmoney", "limitUp": "eastmoney", "lhb": "eastmoney", "calendar": "nasdaq"},
+		"stale":        len(sectors) == 0,
 	}
 	if kind == "concept" {
 		payload["sectors"] = sectors
@@ -80,9 +85,17 @@ func (s *Service) fetchSectors(kind string, limit int) []map[string]interface{} 
 	if !ok {
 		fs = sectorFS["industry"]
 	}
+	items := s.fetchSectorsFrom(eastmoneyPush2Base, fs, limit)
+	if len(items) == 0 {
+		items = s.fetchSectorsFrom(eastmoneyDelayBase, fs, limit)
+	}
+	return items
+}
+
+func (s *Service) fetchSectorsFrom(base, fs string, limit int) []map[string]interface{} {
 	url := fmt.Sprintf(
-		"https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=%d&po=1&np=1&fltt=2&invt=2&fid=f62&fs=%s&fields=f12,f14,f2,f3,f62,f184,f204,f205",
-		limit, fs)
+		"%s/api/qt/clist/get?pn=1&pz=%d&po=1&np=1&fltt=2&invt=2&fid=f62&fs=%s&fields=f12,f14,f2,f3,f62,f184,f204,f205",
+		base, limit, fs)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil
@@ -95,6 +108,9 @@ func (s *Service) fetchSectors(kind string, limit int) []map[string]interface{} 
 		return nil
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil
@@ -120,14 +136,14 @@ func parseSectorPayload(payload map[string]interface{}, limit int) []map[string]
 			continue
 		}
 		items = append(items, map[string]interface{}{
-			"code":           fmt.Sprint(m["f12"]),
-			"name":           name,
-			"last":           m["f2"],
-			"changePct":      m["f3"],
-			"netInflow":      m["f62"],
-			"netInflowPct":   m["f184"],
-			"leaderName":     strings.ReplaceAll(fmt.Sprint(m["f204"]), " ", ""),
-			"leaderCode":     fmt.Sprint(m["f205"]),
+			"code":         fmt.Sprint(m["f12"]),
+			"name":         name,
+			"last":         m["f2"],
+			"changePct":    m["f3"],
+			"netInflow":    m["f62"],
+			"netInflowPct": m["f184"],
+			"leaderName":   strings.ReplaceAll(fmt.Sprint(m["f204"]), " ", ""),
+			"leaderCode":   fmt.Sprint(m["f205"]),
 		})
 		if len(items) >= limit {
 			break

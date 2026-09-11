@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ func (s *Service) RefreshBoardQuotesCache(ctx context.Context) (map[string]inter
 	for mkt, symbols := range byMarket {
 		grouped, err := s.reader.QueryLatestKlines(ctx, mkt, symbols, 2, "-60d")
 		if err != nil {
+			slog.Error("board_warmup: QueryLatestKlines failed", "market", mkt, "symbols", len(symbols), "err", err)
 			continue
 		}
 		for sym, bars := range grouped {
