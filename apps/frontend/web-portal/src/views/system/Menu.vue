@@ -74,7 +74,7 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { addMenu, getMenu, listMenu, updateMenu } from '@/api/system'
 import { unwrap } from '@/utils/list'
-import { menuTree } from '@/config/menus'
+import { informationArchitecture } from '@/config/menus'
 import { unwrapList } from '@/utils/list'
 
 const loading = ref(false)
@@ -105,7 +105,7 @@ function isVisible(row) {
 
 function fromMenuTree() {
   let id = 1
-  return menuTree.map((sub, i) => {
+  return informationArchitecture.map((sub, i) => {
     const parentId = id++
     const children = []
     for (const group of sub.groups || []) {

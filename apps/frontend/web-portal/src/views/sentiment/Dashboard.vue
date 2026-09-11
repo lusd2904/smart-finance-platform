@@ -7,24 +7,17 @@
     :loading="loading"
   >
     <template #actions>
-      <el-button type="primary" :loading="collecting" @click="collect">立即采集</el-button>
-      <el-button :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
+      <el-button v-if="canCollect" type="primary" :loading="collecting" @click="collect">立即采集</el-button>
+      <el-button v-if="canAnalyze" :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
         {{ rateLimitedUntil ? `请稍后重试 (${retryLeft}s)` : '立即分析' }}
       </el-button>
-      <el-button :loading="loading" @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="refreshAll">刷新</el-button>
     </template>
 
     <el-alert v-if="usingStub && showStubBanner()" class="stub-alert" title="演示·stub · 非实盘舆情" type="warning" show-icon :closable="false" />
     <el-alert v-if="rateLimitMessage" type="warning" show-icon :closable="false" :title="rateLimitMessage" />
 
-    <div v-if="indexCards.length" class="index-cards">
-      <article v-for="q in indexCards" :key="q.symbol || q.name" class="index-card glass-panel">
-        <span class="mkt-tag">{{ shortMarket(q.market) }}</span>
-        <span class="idx-name">{{ q.name }}</span>
-        <strong class="numeric">{{ fmtPx(q.last ?? q.price) }}</strong>
-        <em :class="changeClass(q.changePct ?? q.changeRate)">{{ fmtChange(q.changePct ?? q.changeRate) }}</em>
-      </article>
-    </div>
+    <MarketIndexStrip ref="indexStripRef" :seed="indices" />
 
     <div class="kpi-row">
       <article class="kpi-card kpi-blue">
@@ -44,7 +37,7 @@
       <article class="kpi-card kpi-orange">
         <div class="kpi-icon"><el-icon><Clock /></el-icon></div>
         <div>
-          <span>待分析</span>
+          <span>待分析数</span>
           <strong class="numeric">{{ kpiText(stats.unanalyzed) }}</strong>
         </div>
       </article>
@@ -149,10 +142,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import PageFrame from '@/components/page/PageFrame.vue'
-import { getMarketIndexQuotes } from '@/api/market'
+import MarketIndexStrip from '@/components/MarketIndexStrip/index.vue'
 import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/api/sentiment'
 import { useUserStore } from '@/store/user'
-import { changeClass, fmtChange, fmtPx } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
 import { showStubBanner, stubSentimentDashboard, useStubs } from '@/utils/stubs'
 
@@ -167,11 +159,13 @@ const history = ref([])
 const indices = ref([])
 const trend = ref([])
 const trendRef = ref(null)
+const indexStripRef = ref(null)
 const rateLimitedUntil = ref(0)
 const retryLeft = ref(0)
 const rateLimitMessage = ref('')
+const canCollect = computed(() => userStore.hasPermi('sentiment:news:collect'))
+const canAnalyze = computed(() => userStore.hasPermi('sentiment:analysis:run'))
 let retryTimer = null
-let quoteTimer = null
 let chart
 let onResize
 
@@ -225,13 +219,6 @@ function directionClass(direction) {
   return 'market-flat'
 }
 
-function shortMarket(m) {
-  if (m === 'US') return '美'
-  if (m === 'HK') return '港'
-  if (m === 'CN' || m === 'A') return 'A'
-  return m || '--'
-}
-
 function parseRisk(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) return raw.map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
@@ -260,15 +247,6 @@ const markets = computed(() => [
 ])
 
 const riskEvents = computed(() => parseRisk(latest.value.riskEvents))
-
-const indexCards = computed(() => {
-  const byM = { US: null, HK: null, CN: null }
-  for (const q of indices.value) {
-    const m = q.market === 'A' ? 'CN' : q.market
-    if (byM[m] == null) byM[m] = q
-  }
-  return ['US', 'HK', 'CN'].map((m) => byM[m]).filter(Boolean)
-})
 
 function applyStub() {
   const stub = stubSentimentDashboard()
@@ -331,11 +309,11 @@ async function load() {
   trend.value = []
   indices.value = []
   try {
-    const [s, a, t, idx] = await Promise.allSettled([
+    const [s, latestRes, histRes, t] = await Promise.allSettled([
       getStats(),
+      listAnalysis({ pageNum: 1, pageSize: 1, status: '0' }),
       listAnalysis({ pageNum: 1, pageSize: 20, status: '0' }),
-      getTrend(24),
-      getMarketIndexQuotes()
+      getTrend(24)
     ])
     if (s.status === 'fulfilled') {
       const data = unwrap(s.value)
@@ -344,19 +322,17 @@ async function load() {
         latest.value = { ...latest.value, ...stats.value.latestAnalysis }
       }
     }
-    if (a.status === 'fulfilled') {
-      const rows = unwrapList(a.value)
-      history.value = rows
+    if (latestRes.status === 'fulfilled') {
+      const rows = unwrapList(latestRes.value)
       if (rows[0]) latest.value = { ...latest.value, ...rows[0] }
+    }
+    if (histRes.status === 'fulfilled') {
+      history.value = unwrapList(histRes.value)
+      if (!latest.value.summary && history.value[0]) latest.value = { ...latest.value, ...history.value[0] }
     }
     if (t.status === 'fulfilled') {
       const raw = unwrap(t.value)
       trend.value = Array.isArray(raw) ? raw : unwrapList(t.value)
-    }
-    if (idx.status === 'fulfilled') {
-      const raw = unwrap(idx.value)
-      const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(idx.value))
-      indices.value = Array.isArray(items) ? items : []
     }
     if (!hasLivePayload() && demoMode()) applyStub()
   } catch {
@@ -392,7 +368,7 @@ async function collect() {
     const res = await collectNews()
     const d = unwrap(res)
     ElMessage.success(res?.msg || (d.accepted ? '已加入后台队列' : '采集任务已触发'))
-    if (!d.accepted) load()
+    if (!d.accepted) refreshAll()
   } catch (e) {
     if (usingStub.value) ElMessage.success('已采集（演示·stub）')
     else ElMessage.error(e?.message || '采集失败')
@@ -417,7 +393,7 @@ async function analyze() {
       return
     }
     ElMessage.success(msg || (data.accepted ? '已加入后台队列' : 'AI分析任务已触发'))
-    if (!data.accepted) load()
+    if (!data.accepted) refreshAll()
   } catch (e) {
     const text = String(e?.message || e || '')
     if (text.includes('429') || text.includes('限流') || text.includes('过于频繁')) {
@@ -431,27 +407,19 @@ async function analyze() {
   }
 }
 
-async function loadQuotes() {
-  try {
-    const res = await getMarketIndexQuotes()
-    const raw = unwrap(res)
-    const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(res))
-    if (Array.isArray(items) && items.length) indices.value = items
-  } catch {
-    /* keep current strip */
-  }
+function refreshAll() {
+  load()
+  indexStripRef.value && indexStripRef.value.loadQuotes()
 }
 
 onMounted(() => {
-  load()
+  refreshAll()
   onResize = () => chart && chart.resize()
   window.addEventListener('resize', onResize)
-  quoteTimer = window.setInterval(loadQuotes, 15000)
 })
 
 onBeforeUnmount(() => {
   if (retryTimer) clearInterval(retryTimer)
-  if (quoteTimer) clearInterval(quoteTimer)
   if (onResize) window.removeEventListener('resize', onResize)
   if (chart) chart.dispose()
 })
@@ -467,26 +435,6 @@ onBeforeUnmount(() => {
 }
 .stub-alert {
   margin: 0;
-}
-.index-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.index-card {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 10px !important;
-  font-size: 13px;
-}
-.index-card em {
-  margin-left: auto;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-.idx-name {
-  color: var(--text-secondary);
 }
 .kpi-row {
   display: grid;
@@ -634,7 +582,6 @@ h3 {
   height: 34px;
 }
 @media (max-width: 900px) {
-  .index-cards,
   .kpi-row,
   .market-strip {
     grid-template-columns: 1fr;

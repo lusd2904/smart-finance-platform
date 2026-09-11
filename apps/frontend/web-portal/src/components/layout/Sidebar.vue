@@ -11,7 +11,7 @@
       </button>
 
       <nav class="menu">
-        <div v-if="!tree.length" class="menu-empty">菜单加载中</div>
+        <div v-if="!tree.length" class="menu-empty">{{ permissionStore.ready ? '暂无菜单' : '菜单加载中' }}</div>
         <div v-for="subsystem in tree" :key="subsystem.code" class="subsystem-block">
           <button
             type="button"
@@ -75,13 +75,20 @@ const isCollapsed = ref(false)
 const expandedSubsystems = ref([])
 const tree = computed(() => permissionStore.sidebarTree || [])
 
+const norm = (path) => {
+  const p = `/${String(path || '').replace(/^\/+/, '')}`.replace(/\/+/g, '/')
+  return p === '/' ? '/' : p.replace(/\/+$/, '')
+}
+
 const isRouteActive = (path) => {
-  const active = route.meta.activeMenu || route.path
-  return active === path || route.path === path
+  const active = norm(route.meta.activeMenu || route.path)
+  const target = norm(path)
+  return active === target || norm(route.path) === target
 }
 
 const isSubsystemActive = (subsystem) => {
   if (subsystem.path && isRouteActive(subsystem.path)) return true
+  if (subsystem.code === 'sentiment' && norm(route.path).startsWith('/sentiment')) return true
   return subsystem.groups.some((g) => g.items.some((item) => isRouteActive(item.path)))
 }
 
@@ -117,7 +124,7 @@ watch(
   [() => route.fullPath, tree],
   () => {
     const active = tree.value.filter((item) => isSubsystemActive(item)).map((item) => item.code)
-    if (route.path.startsWith('/sentiment') && !active.includes('sentiment')) active.push('sentiment')
+    if (norm(route.path).startsWith('/sentiment') && !active.includes('sentiment')) active.push('sentiment')
     expandedSubsystems.value = Array.from(new Set([...expandedSubsystems.value, ...active]))
   },
   { immediate: true }

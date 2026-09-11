@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { getRouters } from '@/api/menu'
-import { menuTree } from '@/config/menus'
+import { sentimentRouters } from '@/config/menus'
 import router from '@/router'
 import { implementedPages, loadView } from '@/router/pages'
 import { unwrap, unwrapList } from '@/utils/list'
@@ -60,7 +60,7 @@ function joinPath(base, child) {
   return normalizePath(`${b}/${c}`)
 }
 
-function normalizePath(path) {
+export function normalizePath(path) {
   const p = `/${String(path || '').replace(/^\/+/, '')}`.replace(/\/+/g, '/')
   return p === '/' ? '/' : p.replace(/\/+$/, '')
 }
@@ -70,6 +70,12 @@ function componentToPath(component) {
   const key = String(component).replace(/^\//, '').replace(/\/index$/, '')
   if (loadView(component) || implementedPages.some((p) => p.path === key)) return `/${key}`
   return `/${key}`
+}
+
+function isImplemented(component, path) {
+  if (loadView(component)) return true
+  const key = normalizePath(path).replace(/^\//, '')
+  return implementedPages.some((p) => p.path === key)
 }
 
 function titleOf(route) {
@@ -86,6 +92,7 @@ function flattenChildren(route, parentPath) {
       out.push(...flattenChildren(child, path))
       continue
     }
+    if (!isImplemented(child.component, path) && !nested.length) continue
     out.push({
       title: titleOf(child),
       path,
@@ -105,16 +112,17 @@ export function mapRoutersToSidebar(routers) {
       const code = String(parentPath || r.name || titleOf(r))
         .replace(/^\//, '')
         .split('/')[0] || 'menu'
-      const leaf = !r.alwaysShow && items.length <= 1
+      const alwaysShow = Boolean(r.alwaysShow)
+      const leaf = !alwaysShow && items.length <= 1
       return {
         code,
         title: titleOf(r) || items[0]?.title || code,
         icon: mapIcon(r.meta?.icon || items[0]?.icon),
-        path: leaf ? items[0]?.path || normalizePath(parentPath) : items[0]?.path || normalizePath(parentPath),
+        path: items[0]?.path || normalizePath(parentPath),
         groups: leaf || !items.length ? [] : [{ code: 'children', title: '', items }]
       }
     })
-    .filter((s) => s.title)
+    .filter((s) => s.title && (s.groups.some((g) => g.items.length) || s.path))
 }
 
 function registerRoutes(routers, parentPath = '') {
@@ -142,6 +150,14 @@ function parseRouterPayload(res) {
   return unwrapList(res)
 }
 
+function applyRouters(store, routers, source) {
+  store.routers = routers
+  store.sidebarTree = mapRoutersToSidebar(routers)
+  registerRoutes(routers)
+  store.source = source
+  store.ready = true
+}
+
 export const usePermissionStore = defineStore('permission', {
   state: () => ({
     ready: false,
@@ -157,11 +173,7 @@ export const usePermissionStore = defineStore('permission', {
         const res = await getRouters()
         const routers = parseRouterPayload(res)
         if (!routers.length) throw new Error('empty routers')
-        this.routers = routers
-        this.sidebarTree = mapRoutersToSidebar(routers)
-        registerRoutes(routers)
-        this.source = 'getRouters'
-        this.ready = true
+        applyRouters(this, routers, 'getRouters')
         return this.sidebarTree
       } catch (e) {
         if (live) {
@@ -171,10 +183,7 @@ export const usePermissionStore = defineStore('permission', {
           this.ready = true
           throw e
         }
-        this.routers = []
-        this.sidebarTree = menuTree
-        this.source = 'menus.js'
-        this.ready = true
+        applyRouters(this, sentimentRouters, 'getRouters-fallback')
         return this.sidebarTree
       }
     },

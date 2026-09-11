@@ -29,7 +29,7 @@ export function setupPermission(router) {
         try {
           await permissionStore.generateRoutes()
         } catch {
-          /* live: empty sidebar, no handmade market tree; demo already fell back */
+          /* live: empty sidebar, no handmade market tree; demo already used getRouters-shaped fallback */
         }
       }
       return true
