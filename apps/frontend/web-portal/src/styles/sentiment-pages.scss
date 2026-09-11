@@ -1,0 +1,145 @@
+/* Sentiment pilot density + light contrast. Scoped to .sentiment-page only. */
+
+.sentiment-page.sfp-page {
+  gap: 8px;
+}
+
+.sentiment-page :deep(.page-hero) {
+  padding: 12px 14px !important;
+}
+
+.sentiment-page :deep(.hero-copy h2) {
+  font-size: 17px !important;
+  line-height: 1.2 !important;
+}
+
+.sentiment-page :deep(.page-subtitle) {
+  font-size: 12px;
+}
+
+.sentiment-page :deep(.el-card__body) {
+  padding: 10px 12px !important;
+}
+
+.sentiment-page :deep(.el-card__header) {
+  padding: 8px 12px !important;
+}
+
+.sentiment-page :deep(.filter-card .el-card__body) {
+  padding: 8px 10px !important;
+}
+
+.sentiment-page :deep(.compact-form .el-form-item) {
+  margin-bottom: 6px !important;
+  margin-right: 8px;
+}
+
+.sentiment-page :deep(.el-table) {
+  font-size: 12px;
+}
+
+.sentiment-page :deep(.el-table th.el-table__cell),
+.sentiment-page :deep(.el-table td.el-table__cell) {
+  padding: 4px 0 !important;
+  height: 34px !important;
+}
+
+.sentiment-page :deep(.el-table .cell) {
+  line-height: 22px;
+}
+
+.sentiment-page :deep(.el-table__empty-block) {
+  min-height: 80px !important;
+  max-height: 140px;
+}
+
+.sentiment-page :deep(.el-empty) {
+  padding: 8px 0;
+  min-height: 0;
+  max-height: 140px;
+}
+
+.sentiment-page :deep(.el-empty__image) {
+  width: 48px;
+  max-width: 56px;
+}
+
+.sentiment-page :deep(.el-empty__description) {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.sentiment-page .dir-tag {
+  border: none;
+  color: #fff;
+  font-size: 11px !important;
+  height: 20px;
+  line-height: 18px;
+  padding: 0 6px;
+}
+
+.sentiment-page .summary-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sentiment-page .title-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-emphasis) !important;
+}
+
+.sentiment-page .title-link:hover {
+  color: var(--accent) !important;
+}
+
+.sentiment-page .preview {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.sentiment-page .source-tag {
+  border-color: color-mix(in srgb, var(--text-secondary) 28%, transparent);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-emphasis) 70%, transparent);
+}
+
+.sentiment-page .analyzed-tag.is-yes {
+  --el-tag-text-color: #166534;
+  --el-tag-bg-color: color-mix(in srgb, #16a34a 16%, var(--surface-strong));
+  --el-tag-border-color: color-mix(in srgb, #16a34a 38%, transparent);
+}
+
+.sentiment-page .analyzed-tag.is-no {
+  --el-tag-text-color: #475569;
+  --el-tag-bg-color: color-mix(in srgb, var(--surface-emphasis) 88%, transparent);
+  --el-tag-border-color: color-mix(in srgb, var(--text-secondary) 28%, transparent);
+}
+
+[data-theme='glass-light'] .sentiment-page .source-tag {
+  color: #334155;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+[data-theme='glass-light'] .sentiment-page .analyzed-tag.is-yes {
+  --el-tag-text-color: #166534;
+  --el-tag-bg-color: #dcfce7;
+  --el-tag-border-color: #86efac;
+}
+
+[data-theme='glass-light'] .sentiment-page .analyzed-tag.is-no {
+  --el-tag-text-color: #475569;
+  --el-tag-bg-color: #f1f5f9;
+  --el-tag-border-color: #cbd5e1;
+}
+
+[data-theme='glass-light'] .sentiment-page :deep(.el-table) {
+  --el-table-border-color: rgba(15, 23, 42, 0.1);
+  --el-table-header-text-color: #475569;
+  --el-table-text-color: #0f172a;
+}

@@ -118,33 +118,33 @@ defineExpose({ loadQuotes })
 .index-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 .index-item {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 6px 10px !important;
-  font-size: 13px;
+  gap: 6px;
+  padding: 4px 8px !important;
+  font-size: 12px;
   border: 0;
   text-align: left;
   cursor: pointer;
   color: inherit;
-  min-width: 196px;
+  min-width: 168px;
 }
 .idx-market {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--accent, #6366f1);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 1px 4px;
 }
 .idx-name {
   color: var(--text-secondary);
 }
 .idx-last {
-  font-size: 14px;
+  font-size: 13px;
 }
 .idx-chg {
   margin-left: auto;
