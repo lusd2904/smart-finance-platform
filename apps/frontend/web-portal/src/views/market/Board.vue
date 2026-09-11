@@ -5,7 +5,7 @@
     :loading="loading"
   >
     <template #actions>
-      <el-select v-model="market" placeholder="市场" style="width:110px" @change="load">
+      <el-select v-model="market" placeholder="市场" style="width:110px" @change="onMarketChange">
         <el-option label="全部" value="" />
         <el-option label="美股" value="US" />
         <el-option label="港股" value="HK" />
@@ -33,14 +33,30 @@
       </button>
     </div>
 
+    <div v-if="featured.length" class="index-strip glass-panel">
+      <span class="muted featured-label">精选 / 自选</span>
+      <button
+        v-for="q in featured"
+        :key="`f-${q.symbol || q.name}`"
+        type="button"
+        class="index-item"
+        @click="goTerminal($router, q, { tab: 'kline' })"
+      >
+        <span class="mkt-tag">{{ q.market }}</span>
+        <span>{{ q.name || q.symbol }}</span>
+        <strong class="numeric">{{ fmtPx(q.price ?? q.last) }}</strong>
+        <em :class="changeClass(q.changeRate ?? q.changePct ?? q.change)">{{ fmtChange(q.changeRate ?? q.changePct ?? q.change) }}</em>
+      </button>
+    </div>
+
     <el-card shadow="never" class="glass-panel">
       <template #header>
         <div class="card-header">
           <h3>批量报价</h3>
-          <span class="muted">实时最新价 · 60s REST 刷新</span>
+          <span class="muted">{{ rangeText }} · 60s REST 刷新</span>
         </div>
       </template>
-      <el-table :data="filtered" stripe empty-text="暂无数据">
+      <el-table :data="paged.rows" stripe max-height="480" empty-text="暂无报价">
         <el-table-column prop="market" label="市场" width="80">
           <template #default="{ row }">
             <span class="mkt-tag" :class="`is-${String(row.market || '').toLowerCase()}`">{{ row.market }}</span>
@@ -66,6 +82,16 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pager">
+        <span class="muted">{{ rangeText }}</span>
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :total="paged.filteredTotal"
+          :page-sizes="[50, 100]"
+          layout="total, prev, pager, next, sizes"
+        />
+      </div>
     </el-card>
 
     <template #legend>
@@ -73,35 +99,52 @@
         <span><i class="dot-up" /> 涨红</span>
         <span><i class="dot-down" /> 跌绿</span>
       </span>
-      <span>{{ themeMeta.id }} · tabular-nums · glass-panel blur 12px · 60s REST · 对齐现网 /market/board</span>
+      <span>指数条 + 分页报价 · 单页最多 {{ pageSize }} 行</span>
     </template>
   </PageFrame>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Monitor, Refresh, Search } from '@element-plus/icons-vue'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { getBoardQuotes } from '@/api/market'
-import { useTheme } from '@/composables/useTheme'
+import { pageBoardRows, pickBoardLists } from '@/utils/boardQuotes'
 import { changeClass, fmtChange, fmtPx } from '@/utils/format'
-import { goAiChat, goTerminal, unwrap, unwrapList } from '@/utils/list'
+import { goAiChat, goTerminal, unwrap } from '@/utils/list'
 import { errorText } from '@/utils/stubs'
 
-const { themeMeta } = useTheme()
 const loading = ref(false)
 const loadError = ref('')
 const market = ref('')
 const keyword = ref('')
-const rows = ref([])
-const indices = ref([])
+const page = ref(1)
+const pageSize = ref(50)
+const rows = shallowRef([])
+const indices = shallowRef([])
+const featured = shallowRef([])
 let timer = null
 
-const filtered = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return rows.value
-  return rows.value.filter((r) => `${r.symbol} ${r.name}`.toLowerCase().includes(kw))
+const paged = computed(() => pageBoardRows(rows.value, {
+  keyword: keyword.value,
+  page: page.value,
+  pageSize: pageSize.value
+}))
+
+const rangeText = computed(() => {
+  const { filteredTotal, showingFrom, showingTo } = paged.value
+  if (!filteredTotal) return '暂无报价'
+  return `显示 ${showingFrom}–${showingTo} / 共 ${filteredTotal} 只`
 })
+
+watch(keyword, () => {
+  page.value = 1
+})
+
+function onMarketChange() {
+  page.value = 1
+  load()
+}
 
 async function load(silent = false) {
   if (!silent) loading.value = true
@@ -109,14 +152,16 @@ async function load(silent = false) {
   try {
     const boardRes = await getBoardQuotes({ market: market.value || undefined })
     const data = unwrap(boardRes)
-    const indexRows = Array.isArray(data.indices) ? data.indices : []
-    const list = data.rows || data.quotes || unwrapList(boardRes)
-    const quoteRows = Array.isArray(list) ? list : []
-    indices.value = indexRows
-    rows.value = quoteRows
-    if (!silent && data.message && !indices.value.length && !rows.value.length) loadError.value = String(data.message)
+    const picked = pickBoardLists(data)
+    indices.value = picked.indices
+    featured.value = picked.featured
+    rows.value = picked.rows
+    if (!silent && data.message && !picked.indices.length && !picked.rows.length && !picked.featured.length) {
+      loadError.value = String(data.message)
+    }
   } catch (e) {
     indices.value = []
+    featured.value = []
     rows.value = []
     loadError.value = errorText(e, '行情台加载失败')
   } finally {
@@ -143,7 +188,9 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
+  align-items: center;
 }
+.featured-label { margin-right: 4px; }
 .index-item {
   display: inline-flex;
   align-items: baseline;
@@ -156,4 +203,5 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .index-item em { font-style: normal; font-variant-numeric: tabular-nums; }
+.pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 10px; flex-wrap: wrap; }
 </style>
