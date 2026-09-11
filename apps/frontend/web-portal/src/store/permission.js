@@ -125,14 +125,19 @@ export function mapRoutersToSidebar(routers) {
     .filter((s) => s.title && (s.groups.some((g) => g.items.length) || s.path))
 }
 
+function routePathTaken(path) {
+  const target = normalizePath(path)
+  return router.getRoutes().some((r) => normalizePath(r.path) === target)
+}
+
 function registerRoutes(routers, parentPath = '') {
   for (const r of routers || []) {
     if (r.hidden) continue
     const path = joinPath(parentPath, r.path)
     const comp = loadView(r.component)
     const name = r.name || path.replace(/\//g, '-') || `r-${Math.random().toString(36).slice(2, 7)}`
-    if (comp && path && path !== '/' && !router.hasRoute(name)) {
-      router.addRoute('/', {
+    if (comp && path && path !== '/' && !router.hasRoute(name) && !routePathTaken(path)) {
+      router.addRoute('Root', {
         path: path.replace(/^\//, ''),
         name,
         component: comp,
