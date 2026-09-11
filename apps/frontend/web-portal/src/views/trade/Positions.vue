@@ -21,6 +21,7 @@
 
     <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" :cached="usingCache" />
     <el-alert v-if="usingStub && !brokerAuth" title="STUB · stubAccount / stubPositions" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError && !brokerAuth" :title="loadError" type="error" show-icon :closable="false" />
     <el-alert v-else-if="msg && !brokerAuth" :title="msg" type="info" show-icon :closable="false" />
 
     <div class="stat-strip pos-stats">
@@ -120,8 +121,14 @@ import { getTradeAccount, getTradePositions } from '@/api/trade'
 import { changeClass, fmtChange, fmtNum } from '@/utils/format'
 import { marketLabel, unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
-import { stubAccount, stubPositions } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubAccount, stubPositions } from '@/utils/stubs'
 import { brokerAuthCode, cacheTradeAccount, cacheTradePositions, isBrokerAuthError, readCachedAccount, readCachedPositions } from '@/utils/tradeAuth'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const usingStub = ref(false)
@@ -135,6 +142,7 @@ const accountId = ref('')
 const market = ref('')
 const keyword = ref('')
 const msg = ref('')
+const loadError = ref('')
 const currency = computed(() => account.value.currency || 'HKD')
 
 function posPair(row) {
@@ -234,8 +242,10 @@ function weightPct(row) {
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
   usingCache.value = false
+  loadError.value = ''
   account.value = stubAccount()
   list.value = stubPositions()
 }
@@ -259,9 +269,16 @@ function applyBrokerAuth(err) {
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
   brokerAuth.value = false
   usingCache.value = false
+  usingStub.value = false
+  loadError.value = ''
+  msg.value = ''
   try {
     const [posRes, accRes] = await Promise.allSettled([getTradePositions(), getTradeAccount()])
     const brokerErr = [posRes, accRes].find((r) => r.status === 'rejected' && isBrokerAuthError(r.reason))
@@ -269,33 +286,36 @@ async function load() {
       applyBrokerAuth(brokerErr.reason)
       return
     }
-    let live = false
+    const errors = []
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
       const rows = d.positions || unwrapList(posRes.value)
-      if (rows.length || d.configured) {
-        list.value = rows
-        cacheTradePositions(rows)
-        msg.value = d.message || (d.configured === false ? '未配置长桥凭证' : '')
-        live = true
-      }
+      list.value = rows
+      cacheTradePositions(rows)
+      msg.value = d.message || (d.configured === false ? '未配置长桥凭证' : '')
+    } else {
+      list.value = []
+      errors.push(errorText(posRes.reason, '持仓加载失败'))
     }
     if (accRes.status === 'fulfilled') {
       const acc = unwrap(accRes.value)
-      if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency)) {
-        account.value = acc
-        cacheTradeAccount(acc)
-        const listAcc = acc.accounts || acc.items || []
-        accounts.value = listAcc.map((a, i) => ({ id: a.id || a.accountId || String(i), label: a.name || a.accountName || `${a.currency || 'HKD'} 主账户` }))
-        if (!accountId.value && accounts.value[0]) accountId.value = accounts.value[0].id
-        live = true
-      }
+      account.value = acc && typeof acc === 'object' ? acc : {}
+      if (account.value.netAssets != null || account.value.availableCash != null) cacheTradeAccount(account.value)
+      const listAcc = account.value.accounts || account.value.items || []
+      accounts.value = listAcc.map((a, i) => ({ id: a.id || a.accountId || String(i), label: a.name || a.accountName || `${a.currency || 'HKD'} 主账户` }))
+      if (!accountId.value && accounts.value[0]) accountId.value = accounts.value[0].id
+    } else {
+      account.value = {}
+      errors.push(errorText(accRes.reason, '账户加载失败'))
     }
-    if (!live) applyStub()
-    else usingStub.value = false
+    if (errors.length) loadError.value = errors.join('；')
   } catch (e) {
     if (isBrokerAuthError(e)) applyBrokerAuth(e)
-    else applyStub()
+    else {
+      list.value = []
+      account.value = {}
+      loadError.value = errorText(e, '持仓加载失败')
+    }
   } finally {
     loading.value = false
   }

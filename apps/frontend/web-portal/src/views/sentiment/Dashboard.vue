@@ -152,7 +152,7 @@ import MarketIndexStrip from '@/components/MarketIndexStrip/index.vue'
 import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/api/sentiment'
 import { useUserStore } from '@/store/user'
 import { unwrap, unwrapList } from '@/utils/list'
-import { showStubBanner, stubSentimentDashboard, useStubs } from '@/utils/stubs'
+import { isDemoSession, showStubBanner, stubSentimentDashboard } from '@/utils/stubs'
 import '@/styles/sentiment-pages.scss'
 
 const userStore = useUserStore()
@@ -175,7 +175,7 @@ let chart
 let onResize
 
 function demoMode() {
-  return useStubs() || userStore.usingStub
+  return isDemoSession(userStore)
 }
 
 function kpiText(v) {

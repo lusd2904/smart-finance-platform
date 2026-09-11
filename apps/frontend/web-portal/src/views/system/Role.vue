@@ -11,6 +11,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · GET /system/role/list" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <el-card shadow="never" class="glass-panel">
       <el-table :data="filtered" stripe highlight-current-row empty-text="暂无角色" @row-click="select">
@@ -74,7 +75,13 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { addRole, listRole, updateRole } from '@/api/system'
 import { unwrapList } from '@/utils/list'
-import { stubRoles } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubRoles } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const GROUPS = [
   { title: '系统管理', items: ['用户', '角色', '菜单'] },
@@ -86,6 +93,7 @@ const GROUPS = [
 const loading = ref(false)
 const saving = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const list = ref([])
 const current = ref(null)
@@ -137,23 +145,30 @@ function openEdit(row) {
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const rows = unwrapList(await listRole({ pageNum: 1, pageSize: 50, roleName: keyword.value || undefined }))
-    if (rows.length) {
-      list.value = rows
-      usingStub.value = false
-      current.value = rows[0]
-    } else applyStub()
-  } catch {
-    applyStub()
+    list.value = rows
+    current.value = rows[0] || null
+  } catch (e) {
+    list.value = []
+    current.value = null
+    loadError.value = errorText(e, '角色加载失败')
   } finally {
     loading.value = false
   }
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   list.value = stubRoles()
   current.value = list.value[0]
 }

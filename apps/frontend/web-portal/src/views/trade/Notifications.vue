@@ -10,6 +10,8 @@
     </template>
 
     <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" />
+    <el-alert v-if="usingStub" title="STUB · stubNotifications" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError && !brokerAuth" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="toolbar">
       <div class="chip-row">
@@ -55,7 +57,7 @@
     </el-card>
 
     <template #legend>
-      <span>全页收件箱 · 非 Header 铃铛 · GET /trade/notifications · POST /trade/notifications/read · stub 回退</span>
+      <span>全页收件箱 · 非 Header 铃铛 · GET /trade/notifications · POST /trade/notifications/read</span>
     </template>
   </PageFrame>
 </template>
@@ -68,8 +70,14 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
 import { listNotifications, readNotifications } from '@/api/trade'
 import { unwrapList } from '@/utils/list'
-import { stubNotifications } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubNotifications } from '@/utils/stubs'
 import { brokerAuthCode, isBrokerAuthError } from '@/utils/tradeAuth'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const TYPE_TABS = [
   { key: '', label: '全部类型' },
@@ -86,6 +94,7 @@ const list = ref([])
 const readFilter = ref('unread')
 const typeFilter = ref('')
 const keyword = ref('')
+const loadError = ref('')
 const typeTabs = TYPE_TABS
 
 function typeKey(n) {
@@ -123,27 +132,33 @@ const filtered = computed(() => {
 const unreadCount = computed(() => list.value.filter((n) => !n.read).length)
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   list.value = stubNotifications()
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
   brokerAuth.value = false
+  usingStub.value = false
+  loadError.value = ''
   try {
     const res = await listNotifications(80)
-    const rows = Array.isArray(res.data) ? res.data : unwrapList(res)
-    if (rows.length) {
-      list.value = rows
-      usingStub.value = false
-    } else applyStub()
+    list.value = Array.isArray(res.data) ? res.data : unwrapList(res)
   } catch (e) {
     if (isBrokerAuthError(e)) {
       brokerAuth.value = true
       brokerCode.value = brokerAuthCode(e)
-      usingStub.value = false
       list.value = []
-    } else applyStub()
+    } else {
+      list.value = []
+      loadError.value = errorText(e, '通知加载失败')
+    }
   } finally {
     loading.value = false
   }

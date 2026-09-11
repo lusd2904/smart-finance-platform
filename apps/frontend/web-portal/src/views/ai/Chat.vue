@@ -12,6 +12,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · 示意会话，不是实盘结论" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="chat-shell">
       <aside class="pane glass-panel">
@@ -123,12 +124,19 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { analyzeOneshot, getChatSession, listChatSession, listModelAll } from '@/api/ai'
 import { score100, scoreClass } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubChatMessages, stubChatSessions, stubModels, stubRecentVerdicts } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubChatMessages, stubChatSessions, stubModels, stubRecentVerdicts } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const route = useRoute()
 const loading = ref(false)
 const sending = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const sessions = ref([])
 const messages = ref([])
 const models = ref([])
@@ -192,31 +200,40 @@ async function loadModels() {
       modelId.value = chat.modelId || chat.modelCode
       return
     }
-  } catch { /* stub */ }
-  models.value = stubModels()
-  modelId.value = models.value[0].modelId
+  } catch { /* keep empty on live */ }
+  if (demoMode()) {
+    models.value = stubModels()
+    modelId.value = models.value[0].modelId
+  } else {
+    models.value = []
+    modelId.value = ''
+  }
 }
 
 async function loadSessions() {
+  if (demoMode()) {
+    applyStubSessions()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const list = unwrapList(await listChatSession())
-    if (list.length) {
-      sessions.value = list
-      usingStub.value = false
-      if (!currentId.value) await openSession(list[0])
-      return
-    }
-    applyStubSessions()
-  } catch {
-    applyStubSessions()
+    sessions.value = list
+    if (list.length && !currentId.value) await openSession(list[0])
+  } catch (e) {
+    sessions.value = []
+    loadError.value = errorText(e, '会话加载失败')
   } finally {
     loading.value = false
   }
 }
 
 function applyStubSessions() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   sessions.value = stubChatSessions()
   recents.value = stubRecentVerdicts()
   currentId.value = sessions.value[0].sessionId

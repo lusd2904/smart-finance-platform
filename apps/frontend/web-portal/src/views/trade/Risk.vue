@@ -1,28 +1,36 @@
 <template>
   <PageFrame
     title="风控"
-    subtitle="规则版本 v0.2 STUB · 账户 + 持仓聚合限额 · 对齐 /trade/risk"
+    subtitle="组合指标 · 规则 · 事件审批 · GET /trade/risk"
     :loading="loading"
   >
     <template #actions>
-      <el-tag effect="plain" size="small">规则版本 v0.2 STUB</el-tag>
-      <el-button @click="openRule()">规则配置</el-button>
+      <el-tag v-if="usingStub" effect="plain" size="small">演示·stub</el-tag>
+      <el-button type="warning" :loading="scanning" @click="scan">执行扫描</el-button>
+      <el-button @click="openRule()">新增规则</el-button>
       <el-button type="primary" :loading="loading" @click="load">刷新</el-button>
     </template>
 
     <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" :cached="usingCache" />
+    <el-alert v-if="loadError && !usingStub" :title="loadError" type="error" show-icon :closable="false" />
 
-    <el-card shadow="never" class="glass-panel">
-      <div class="metric-row">
-        <article v-for="card in metricCards" :key="card.label">
+    <el-card shadow="never" class="glass-panel" v-loading="sheetLoading">
+      <template #header>
+        <div class="card-head">
+          <h3>组合收益指标</h3>
+          <span class="muted">{{ sheet.message || '持仓加权 · Sharpe / 回撤 / VaR' }}</span>
+        </div>
+      </template>
+      <div v-if="sheetCards.length" class="metric-row">
+        <article v-for="card in sheetCards" :key="card.label">
           <span>{{ card.label }}</span>
           <strong class="numeric">{{ card.value }}</strong>
-          <small>{{ card.sub }}</small>
         </article>
       </div>
+      <el-empty v-else :description="sheet.message || '暂无持仓或日K不足'" :image-size="56" />
     </el-card>
 
-    <el-card shadow="never" class="glass-panel">
+    <el-card v-if="hasLiveExposure" shadow="never" class="glass-panel">
       <template #header><h3>敞口限额</h3></template>
       <div class="limit-list">
         <div v-for="bar in bars" :key="bar.key" class="limit-row" :class="{ warn: bar.warn, danger: bar.danger, ok: bar.ok }">
@@ -38,26 +46,58 @@
       </div>
     </el-card>
 
-    <el-card shadow="never" class="glass-panel">
-      <template #header>
-        <div class="card-head">
-          <h3>风控预警</h3>
-          <span class="muted">最近 {{ alerts.length }} 条</span>
-        </div>
-      </template>
-      <div v-if="alerts.length" class="alert-list">
-        <article v-for="item in alerts" :key="item.id" class="alert-item">
-          <span class="lvl" :class="`is-${item.level}`">{{ levelLabel(item.level) }}</span>
-          <div class="alert-copy">
-            <strong>{{ item.title }} <time class="numeric muted">{{ item.time }}</time></strong>
-            <p>{{ item.body }}</p>
+    <el-row :gutter="12">
+      <el-col :md="10" :xs="24">
+        <el-card shadow="never" class="glass-panel">
+          <template #header>
+            <div class="card-head">
+              <h3>风控规则</h3>
+              <span class="muted">{{ rules.length }} 条</span>
+            </div>
+          </template>
+          <el-table :data="rules" stripe empty-text="暂无规则">
+            <el-table-column prop="ruleName" label="名称" min-width="120" />
+            <el-table-column prop="ruleType" label="类型" width="100" />
+            <el-table-column prop="threshold" label="阈值" width="72" align="right">
+              <template #default="{ row }"><span class="numeric">{{ row.threshold ?? '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="启用" width="72">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.enabled === '1' ? 'success' : 'info'">{{ row.enabled === '1' ? '是' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="88">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openRule(row)">编辑</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :md="14" :xs="24">
+        <el-card shadow="never" class="glass-panel">
+          <template #header>
+            <div class="card-head">
+              <h3>风险事件</h3>
+              <span class="muted">最近 {{ events.length }} 条</span>
+            </div>
+          </template>
+          <div v-if="events.length" class="alert-list">
+            <article v-for="item in events" :key="item.eventId || item.id" class="alert-item">
+              <span class="lvl" :class="`is-${eventLevel(item)}`">{{ levelLabel(eventLevel(item)) }}</span>
+              <div class="alert-copy">
+                <strong>{{ item.title }} <time class="numeric muted">{{ item.createTime || item.time || '—' }}</time></strong>
+                <p>{{ item.content || item.body || item.handleRemark || '—' }}</p>
+                <span class="muted">{{ item.reviewStatusLabel || item.reviewStatus || '' }} {{ item.symbol || '' }}</span>
+              </div>
+            </article>
           </div>
-        </article>
-      </div>
-      <el-empty v-else description="暂无风控预警" :image-size="64" />
-    </el-card>
+          <el-empty v-else :description="emptyEvents" :image-size="64" />
+        </el-card>
+      </el-col>
+    </el-row>
 
-    <el-dialog v-model="dlg" title="规则配置 · v0.2 STUB" width="480px">
+    <el-dialog v-model="dlg" title="风控规则" width="480px">
       <el-form label-width="88px">
         <el-form-item label="名称"><el-input v-model="form.ruleName" /></el-form-item>
         <el-form-item label="类型">
@@ -77,7 +117,7 @@
     </el-dialog>
 
     <template #legend>
-      <span>tabular-nums · glass-panel blur · 无独立风控 API · STUB 规则 v0.2 聚合 /trade/account + /trade/positions</span>
+      <span>tabular-nums · glass-panel · GET /trade/risk/tearsheet · /rules · /events · POST /evaluate</span>
     </template>
   </PageFrame>
 </template>
@@ -87,10 +127,16 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import TradeAuthBanner from '@/components/page/TradeAuthBanner.vue'
-import { getTradeAccount, getTradePositions, saveRiskRule } from '@/api/trade'
+import { evaluateRisk, getRiskTearsheet, getTradeAccount, getTradePositions, listRiskEvents, listRiskRules, saveRiskRule } from '@/api/trade'
+import { useUserStore } from '@/store/user'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubAccount, stubPositions, stubRiskAlerts } from '@/utils/stubs'
+import { errorText, isDemoSession, stubAccount, stubPositions, stubRiskAlerts } from '@/utils/stubs'
 import { brokerAuthCode, cacheTradeAccount, cacheTradePositions, isBrokerAuthError, readCachedAccount, readCachedPositions } from '@/utils/tradeAuth'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const SINGLE_CAP = 0.25
 const INDUSTRY_CAP = 0.4
@@ -99,12 +145,18 @@ const OVERNIGHT_CAP = 20
 const LOSS_WATCH = -3
 
 const loading = ref(false)
+const scanning = ref(false)
+const sheetLoading = ref(false)
 const usingStub = ref(false)
 const brokerAuth = ref(false)
 const brokerCode = ref('')
 const usingCache = ref(false)
+const loadError = ref('')
 const account = ref({})
 const positions = ref([])
+const rules = ref([])
+const events = ref([])
+const sheet = ref({})
 const dlg = ref(false)
 const form = ref({})
 
@@ -149,6 +201,37 @@ function inferIndustry(row) {
 }
 
 const currency = computed(() => account.value.currency || 'HKD')
+const hasLiveExposure = computed(() => !usingStub.value && (positions.value.length > 0 || account.value.netAssets != null || account.value.availableCash != null))
+
+function fmtSheetPct(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${(n * 100).toFixed(2)}%`
+}
+function fmtSheetNum(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return n.toFixed(2)
+}
+const sheetCards = computed(() => {
+  const s = sheet.value || {}
+  if (!s.days && s.sharpe == null && s.maxDrawdown == null && s.totalReturn == null) return []
+  return [
+    { label: 'Sharpe', value: fmtSheetNum(s.sharpe) },
+    { label: 'Sortino', value: fmtSheetNum(s.sortino) },
+    { label: '最大回撤', value: fmtSheetPct(s.maxDrawdown) },
+    { label: '年化波动', value: fmtSheetPct(s.volatility) },
+    { label: 'VaR 95', value: fmtSheetPct(s.var95) },
+    { label: '累计收益', value: fmtSheetPct(s.totalReturn) }
+  ]
+})
+const emptyEvents = computed(() => {
+  if (loadError.value && !events.value.length) return '风控事件加载失败，请稍后重试'
+  return '暂无风控事件（规则探测器未命中），可点击「执行扫描」复检'
+})
+function eventLevel(item) {
+  return item.eventLevel || item.level || 'info'
+}
 
 const metrics = computed(() => {
   const acc = account.value || {}
@@ -192,17 +275,6 @@ const metrics = computed(() => {
     leverage: num(acc.leverage) || 1,
     financing: Boolean(acc.financingEnabled || acc.marginEnabled)
   }
-})
-
-const metricCards = computed(() => {
-  const m = metrics.value
-  const topName = m.top ? (m.top.symbolName || m.top.name || m.top.symbol || '').replace(/控股|-.*/, '') : '—'
-  return [
-    { label: '总敞口', value: money(m.exposure, currency.value), sub: `相对净资产 ${pct(m.positionPct)}` },
-    { label: '单票上限', value: pct(SINGLE_CAP * 100, 0), sub: `当前最大 ${pct(m.topShare)} · ${topName}` },
-    { label: '日亏限额', value: money(DAILY_LOSS_CAP, currency.value), sub: `今日已用 ${pct(m.lossUsedPct)}` },
-    { label: '杠杆倍数', value: `${m.leverage.toFixed(2)}×`, sub: m.financing ? '融资已启用' : '未启用融资' }
-  ]
 })
 
 function barWidth(usedPct) {
@@ -266,63 +338,47 @@ const bars = computed(() => {
   ]
 })
 
-const alerts = computed(() => {
-  if (usingStub.value) return stubRiskAlerts()
-  const m = metrics.value
-  const out = []
-  const industryGap = (INDUSTRY_CAP * 100) - m.industryPct
-  if (m.industryPct / (INDUSTRY_CAP * 100) >= 0.7) {
-    out.push({ id: 'a-ind', level: 'warn', title: '集中度接近阈值', body: `${m.industryLabel}敞口 ${pct(m.industryPct, 0)}，距 ${pct(INDUSTRY_CAP * 100, 0)} 上限 ${industryGap.toFixed(0)}pp。`, time: '10:42' })
-  }
-  out.push({
-    id: 'a-loss',
-    level: m.lossUsedPct >= 70 ? 'warn' : 'info',
-    title: m.lossUsedPct >= 70 ? '日亏占用偏高' : '日亏限额正常',
-    body: `今日浮动亏损占用限额 ${pct(m.lossUsedPct)}，${m.lossUsedPct >= 70 ? '请控制回撤' : '无需干预'}。`,
-    time: '10:15'
-  })
-  if (m.worst) {
-    const p = rowPnlPct(m.worst)
-    out.push({
-      id: 'a-worst',
-      level: 'danger',
-      title: `${rowName(m.worst)}浮亏超 3%`,
-      body: `${String(m.worst.symbol || '').replace(/\.(HK|US|SH|SZ)$/i, '')} 持仓浮亏 ${p.toFixed(2)}%，触发关注阈值。`,
-      time: '09:58'
-    })
-  }
-  out.push({
-    id: 'a-ok',
-    level: 'ok',
-    title: '账户健康度良好',
-    body: `杠杆 ${m.leverage.toFixed(1)}×，可用现金${m.cash > 0 ? '充足' : '偏低'}，无强平风险。`,
-    time: '09:30'
-  })
-  out.push({
-    id: 'a-ovn',
-    level: m.overnight >= 12 ? 'warn' : 'info',
-    title: '隔夜持仓数提醒',
-    body: `当前 ${m.overnight} 只隔夜持仓，建议复核止损。`,
-    time: '昨日 16:05'
-  })
-  return out.slice(0, 5)
-})
-
 function levelLabel(level) {
   return { danger: '严重', warn: '预警', warning: '预警', info: '信息', ok: '正常', success: '正常' }[level] || '信息'
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
   usingCache.value = false
+  loadError.value = ''
   account.value = stubAccount()
   positions.value = stubPositions()
+  events.value = stubRiskAlerts().map((a, i) => ({
+    eventId: a.id || i,
+    title: a.title,
+    content: a.body,
+    eventLevel: a.level,
+    createTime: a.time
+  }))
+  rules.value = [
+    { ruleId: 'stub-1', ruleName: '单票集中度', ruleType: 'concentration', threshold: 25, enabled: '1' }
+  ]
+  sheet.value = { sharpe: 1.12, sortino: 1.34, maxDrawdown: -0.08, volatility: 0.16, var95: -0.021, totalReturn: 0.094, days: 120 }
 }
 
-async function load() {
-  loading.value = true
-  brokerAuth.value = false
-  usingCache.value = false
+async function loadSheet() {
+  sheetLoading.value = true
+  try {
+    const res = await getRiskTearsheet({ days: 120 })
+    sheet.value = unwrap(res) || {}
+  } catch (e) {
+    sheet.value = { message: isBrokerAuthError(e) ? '长桥凭证不可用，组合指标暂不可用' : errorText(e, '组合指标暂不可用') }
+    if (isBrokerAuthError(e)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(e)
+    }
+  } finally {
+    sheetLoading.value = false
+  }
+}
+
+async function loadExposure() {
   try {
     const [posRes, accRes] = await Promise.allSettled([getTradePositions(), getTradeAccount()])
     const brokerErr = [posRes, accRes].find((r) => r.status === 'rejected' && isBrokerAuthError(r.reason))
@@ -331,62 +387,114 @@ async function load() {
       brokerCode.value = brokerAuthCode(brokerErr.reason)
       const cachedRows = readCachedPositions()
       const cachedAcc = readCachedAccount()
-      if (cachedRows.length || cachedAcc) {
-        if (cachedRows.length) positions.value = cachedRows
-        if (cachedAcc) account.value = cachedAcc
-        usingCache.value = true
-        usingStub.value = false
-      } else {
-        positions.value = []
-        account.value = {}
-        usingStub.value = false
-      }
+      if (cachedRows.length) positions.value = cachedRows
+      if (cachedAcc) account.value = cachedAcc
+      usingCache.value = Boolean(cachedRows.length || cachedAcc)
+      if (!cachedRows.length) positions.value = []
+      if (!cachedAcc) account.value = {}
       return
     }
-    let live = false
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
       const rows = d.positions || unwrapList(posRes.value)
-      if (rows.length || d.configured) {
-        positions.value = rows
-        cacheTradePositions(rows)
-        live = true
-      }
-    }
+      positions.value = rows
+      cacheTradePositions(rows)
+    } else positions.value = []
     if (accRes.status === 'fulfilled') {
       const acc = unwrap(accRes.value)
-      if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency)) {
-        account.value = acc
-        cacheTradeAccount(acc)
-        live = true
-      }
-    }
-    if (!live) applyStub()
-    else usingStub.value = false
+      account.value = acc && typeof acc === 'object' ? acc : {}
+      if (account.value.netAssets != null || account.value.availableCash != null) cacheTradeAccount(account.value)
+    } else account.value = {}
   } catch (e) {
     if (isBrokerAuthError(e)) {
       brokerAuth.value = true
       brokerCode.value = brokerAuthCode(e)
-      usingStub.value = false
-    } else applyStub()
+    }
+    positions.value = []
+    account.value = {}
+  }
+}
+
+async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
+  loading.value = true
+  brokerAuth.value = false
+  usingCache.value = false
+  usingStub.value = false
+  loadError.value = ''
+  const errors = []
+  loadSheet()
+  loadExposure()
+  try {
+    const [ruleRes, eventRes] = await Promise.allSettled([listRiskRules(), listRiskEvents(200)])
+    if (ruleRes.status === 'fulfilled') rules.value = unwrapList(ruleRes.value)
+    else {
+      rules.value = []
+      errors.push(errorText(ruleRes.reason, '规则加载失败'))
+    }
+    if (eventRes.status === 'fulfilled') events.value = unwrapList(eventRes.value)
+    else {
+      events.value = []
+      if (isBrokerAuthError(eventRes.reason)) {
+        brokerAuth.value = true
+        brokerCode.value = brokerAuthCode(eventRes.reason)
+      } else errors.push(errorText(eventRes.reason, '事件加载失败'))
+    }
+    if (errors.length) loadError.value = errors.join('；')
+  } catch (e) {
+    rules.value = []
+    events.value = []
+    loadError.value = errorText(e, '风控加载失败')
   } finally {
     loading.value = false
   }
 }
 
-function openRule() {
-  form.value = { ruleName: '单票集中度', ruleType: 'concentration', threshold: 25, enabled: '1' }
+async function scan() {
+  if (demoMode()) {
+    ElMessage.success('已扫描（演示·stub）')
+    return
+  }
+  scanning.value = true
+  try {
+    const res = await evaluateRisk()
+    ElMessage.success(res.msg || unwrap(res).message || '扫描完成')
+    await load()
+  } catch (e) {
+    if (isBrokerAuthError(e)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(e)
+    }
+    ElMessage.error(errorText(e, '扫描失败'))
+  } finally {
+    scanning.value = false
+  }
+}
+
+function openRule(row) {
+  form.value = row
+    ? { ...row }
+    : { ruleName: '', ruleType: 'concentration', threshold: 25, enabled: '1' }
   dlg.value = true
 }
 
 async function save() {
+  if (demoMode()) {
+    ElMessage.success('已保存（演示·stub）')
+    dlg.value = false
+    return
+  }
   try {
     await saveRiskRule(form.value)
     ElMessage.success('已保存')
-  } catch {
-    ElMessage.success('已保存（STUB）')
+    dlg.value = false
+    load()
+  } catch (e) {
+    ElMessage.error(errorText(e, '保存失败'))
   }
-  dlg.value = false
 }
 
 onMounted(load)
@@ -459,4 +567,5 @@ h3 { margin: 0; font-size: 15px; }
   background: color-mix(in srgb, var(--stat-down) var(--chip-fill), transparent);
 }
 @media (max-width: 900px) { .metric-row { grid-template-columns: 1fr 1fr; } }
+.el-col { margin-bottom: 12px; }
 </style>

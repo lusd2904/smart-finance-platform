@@ -11,6 +11,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · 对齐 menus.js · GET /system/menu/list" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <el-card shadow="never" class="glass-panel">
       <el-table
@@ -75,10 +76,18 @@ import { addMenu, getMenu, listMenu, updateMenu } from '@/api/system'
 import { unwrap } from '@/utils/list'
 import { informationArchitecture } from '@/config/menus'
 import { unwrapList } from '@/utils/list'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const saving = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const expanded = ref(true)
 const tree = ref([])
@@ -188,19 +197,23 @@ function expandAll() {
 }
 
 async function load() {
-  loading.value = true
-  try {
-    const rows = unwrapList(await listMenu({}))
-    if (rows.length) {
-      tree.value = rows.some((r) => r.children?.length) ? rows : toTree(rows)
-      usingStub.value = false
-    } else {
-      tree.value = fromMenuTree()
-      usingStub.value = true
-    }
-  } catch {
+  if (demoMode()) {
     tree.value = fromMenuTree()
     usingStub.value = true
+    loadError.value = ''
+    loading.value = false
+    nextTick(expandAll)
+    return
+  }
+  loading.value = true
+  usingStub.value = false
+  loadError.value = ''
+  try {
+    const rows = unwrapList(await listMenu({}))
+    tree.value = rows.length ? (rows.some((r) => r.children?.length) ? rows : toTree(rows)) : []
+  } catch (e) {
+    tree.value = []
+    loadError.value = errorText(e, '菜单加载失败')
   } finally {
     loading.value = false
     nextTick(expandAll)

@@ -10,6 +10,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · 演示模型卡，字段缺失时的回退" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="stat-strip kpi-5">
       <article class="stat-tile glass-panel">
@@ -113,13 +114,20 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { addModel, getModel, listModel, listModelAll, updateModel } from '@/api/ai'
 import { isMaskedSecret, maskSecret, sanitizePublicText } from '@/utils/secret'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubModels } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubModels } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const SCOPE = { global: 'global', sentiment: 'sentiment', chat: 'chat', market: 'market', quant: 'quant' }
 
 const loading = ref(false)
 const saving = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const rows = ref([])
 const dlg = ref(false)
 const probing = ref('')
@@ -208,26 +216,37 @@ function nowStamp() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function applyStub() {
+  if (!demoMode()) return
+  usingStub.value = true
+  loadError.value = ''
+  rows.value = stubModels()
+}
+
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const [listRes, allRes] = await Promise.allSettled([
       listModel({ pageNum: 1, pageSize: 50 }),
       listModelAll()
     ])
     let list = []
+    const errors = []
     if (listRes.status === 'fulfilled') list = unwrapList(listRes.value)
+    else errors.push(errorText(listRes.reason, '模型列表加载失败'))
     if (!list.length && allRes.status === 'fulfilled') list = unwrapList(allRes.value)
-    if (list.length) {
-      rows.value = normalize(list)
-      usingStub.value = false
-    } else {
-      rows.value = stubModels()
-      usingStub.value = true
-    }
-  } catch {
-    rows.value = stubModels()
-    usingStub.value = true
+    else if (allRes.status === 'rejected') errors.push(errorText(allRes.reason, '全部模型加载失败'))
+    rows.value = normalize(list)
+    if (!list.length && errors.length) loadError.value = errors.join('；')
+  } catch (e) {
+    rows.value = []
+    loadError.value = errorText(e, '模型加载失败')
   } finally {
     loading.value = false
   }

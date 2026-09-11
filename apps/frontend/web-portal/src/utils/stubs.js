@@ -1,6 +1,33 @@
+import { getToken } from './auth'
 import { currencyOf } from './format'
 
 export const useStubs = () => String(import.meta.env.VITE_USE_STUBS || '').toLowerCase() === 'true'
+
+const DEMO_TOKEN = 'demo-stub-token'
+
+/** Demo / VITE_USE_STUBS / demo-stub-token. Live login must never treat empty APIs as stub-ok. */
+export function isDemoSession(userStore) {
+  if (useStubs()) return true
+  if (userStore?.usingStub) return true
+  const token = userStore?.token || getToken()
+  if (token === DEMO_TOKEN) return true
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('sfp-demo-session') === '1') return true
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
+/** Token present, not demo-stub-token, not demo mode. */
+export function isLiveSession(userStore) {
+  const token = userStore?.token || getToken()
+  return Boolean(token && token !== DEMO_TOKEN && !isDemoSession(userStore))
+}
+
+export function errorText(err, fallback = '加载失败') {
+  return err?.message || err?.msg || fallback
+}
 
 function envBool(name) {
   const raw = import.meta.env[name]

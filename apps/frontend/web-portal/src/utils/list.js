@@ -5,7 +5,16 @@ export function unwrap(res) {
 export function unwrapList(res) {
   const d = unwrap(res)
   if (Array.isArray(d)) return d
-  return d.items || d.rows || d.list || d.records || d.jobs || []
+  return d.items || d.rows || d.list || d.records || d.jobs || d.signals || []
+}
+
+/** Dashboard section: `data` may already be an array, or `{ items }`. */
+export function unwrapSectionList(section) {
+  if (!section) return []
+  const raw = section.data !== undefined ? section.data : section
+  if (Array.isArray(raw)) return raw
+  if (!raw || typeof raw !== 'object') return []
+  return raw.items || raw.list || raw.rows || raw.records || []
 }
 
 export function unwrapTotal(res, fallback = 0) {

@@ -11,6 +11,8 @@
       <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </template>
 
+    <el-alert v-if="loadError && !usingStub" :title="loadError" type="error" show-icon :closable="false" />
+
     <div class="stat-strip kpi-row">
       <article class="stat-tile glass-panel kpi-count">
         <span>自选数量</span>
@@ -147,6 +149,11 @@
               <el-button link type="primary" @click="loadBacktest">建议回测</el-button>
             </div>
           </div>
+          <div class="hist-box">
+            <h4>分析历史</h4>
+            <div v-if="historySeries.length" ref="histRef" class="hist-chart" />
+            <p v-else class="muted">{{ histLoading ? '加载中…' : '暂无该标的分析历史' }}</p>
+          </div>
         </template>
         <el-empty v-else description="选择左侧一只自选股查看详情" :image-size="56" />
       </aside>
@@ -220,22 +227,29 @@ import {
   analyzeMarketWatchlist,
   delMarketWatchlist,
   getKline,
+  getLiveQuotes,
+  getMarketWatchlistAnalysis,
   getMarketWatchlistBacktest,
   getMarketWatchlistOverview,
   getWatchlistCorrelation,
   listMarketWatchlist
 } from '@/api/market'
+import { useUserStore } from '@/store/user'
 import { changeClass, fmtAmount, fmtChange, fmtPx } from '@/utils/format'
 import { goAiChat, marketLabel, unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
-import { stubKline, stubWatchlist } from '@/utils/stubs'
+import { errorText, isDemoSession, stubKline, stubWatchlist } from '@/utils/stubs'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const saving = ref(false)
 const analyzeAllLoading = ref(false)
 const analyzing = ref(false)
 const backtestLoading = ref(false)
 const chartLoading = ref(false)
+const histLoading = ref(false)
+const usingStub = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const group = ref('')
 const items = ref([])
@@ -246,11 +260,18 @@ const open = ref(false)
 const showScan = ref(false)
 const backtest = ref({})
 const corr = ref({ symbols: [] })
+const historySeries = ref([])
 const form = reactive({ market: 'US', symbol: '', group: '' })
 const chartRef = ref(null)
 const corrRef = ref(null)
+const histRef = ref(null)
 let chart
 let corrChart
+let histChart
+
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 function rowGroups(row) {
   return row.groups || row.groupNames || (row.group ? [row.group] : [])
@@ -347,12 +368,118 @@ async function loadChart() {
     const raw = unwrap(res)
     const rows = raw.klines || raw.rows || raw.items || raw.list || []
     await nextTick()
-    renderChart(rows.length ? rows : stubKline(current.value.last ?? current.value.price))
-  } catch {
+    if (rows.length) renderChart(rows)
+    else if (demoMode()) renderChart(stubKline(current.value.last ?? current.value.price))
+    else if (chart) chart.clear()
+  } catch (e) {
     await nextTick()
-    renderChart(stubKline(current.value.last ?? current.value.price))
+    if (demoMode()) renderChart(stubKline(current.value.last ?? current.value.price))
+    else {
+      if (chart) chart.clear()
+      if (!loadError.value) loadError.value = errorText(e, 'K线加载失败')
+    }
   } finally {
     chartLoading.value = false
+  }
+}
+
+function firstNum(...vals) {
+  for (const v of vals) {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return undefined
+}
+
+function rowKey(row) {
+  return `${String(row?.market || '').toUpperCase()}|${String(row?.symbol || '').toUpperCase()}`
+}
+
+function mergeWatchRow(listRow, ovRow = {}) {
+  const analysis = ovRow.analysis || listRow.analysis || {}
+  const last = firstNum(listRow.last, listRow.price, ovRow.last, ovRow.price, analysis.price, analysis.last)
+  const change = firstNum(
+    listRow.changeRate, listRow.changePct, listRow.changePercent,
+    ovRow.changeRate, ovRow.changePct, ovRow.changePercent,
+    analysis.changePercent, analysis.changeRate, analysis.changePct
+  )
+  return {
+    ...ovRow,
+    ...listRow,
+    name: listRow.name || ovRow.name,
+    last,
+    price: last,
+    changeRate: change,
+    changePct: change,
+    recommendation: listRow.recommendation || ovRow.recommendation || analysis.recommendation,
+    stance: listRow.stance || ovRow.stance || analysis.stance,
+    summary: listRow.summary || ovRow.summary || analysis.summary,
+    confidence: listRow.confidence ?? ovRow.confidence ?? analysis.confidence,
+    analysisTime: listRow.analysisTime || ovRow.analysisTime || analysis.analysisTime,
+    open: firstNum(listRow.open, ovRow.open, analysis.open),
+    high: firstNum(listRow.high, ovRow.high, analysis.high),
+    low: firstNum(listRow.low, ovRow.low, analysis.low),
+    turnover: firstNum(listRow.turnover, ovRow.turnover, analysis.turnover)
+  }
+}
+
+function mergeWatchRows(listRows, ovItems) {
+  const ovMap = new Map((ovItems || []).map((r) => [rowKey(r), r]))
+  if (!listRows.length) return (ovItems || []).map((r) => mergeWatchRow(r, r))
+  return listRows.map((row) => mergeWatchRow(row, ovMap.get(rowKey(row)) || {}))
+}
+
+async function fillLiveQuotes(rows) {
+  const missing = rows.filter((r) => !Number.isFinite(Number(r.last ?? r.price)) && r.symbol)
+  if (!missing.length) return rows
+  try {
+    const res = await getLiveQuotes(missing.map((r) => `${r.symbol}.${r.market || 'US'}`))
+    const quotes = unwrapList(res)
+    const qMap = new Map(quotes.map((q) => [rowKey(q), q]))
+    return rows.map((row) => {
+      const q = qMap.get(rowKey(row))
+      if (!q) return row
+      const last = firstNum(row.last, row.price, q.last, q.price)
+      const change = firstNum(row.changeRate, row.changePct, q.changePct, q.changeRate)
+      return { ...row, last, price: last, changeRate: change, changePct: change, open: firstNum(row.open, q.open), high: firstNum(row.high, q.high), low: firstNum(row.low, q.low) }
+    })
+  } catch {
+    return rows
+  }
+}
+
+function renderHistory() {
+  if (!histRef.value || !historySeries.value.length) return
+  if (!histChart) histChart = echarts.init(histRef.value)
+  const series = historySeries.value
+  histChart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 36, right: 12, top: 12, bottom: 24 },
+    xAxis: { type: 'category', data: series.map((s) => String(s.analysisTime || s.time || '').slice(5, 16)), axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', min: 0, max: 100, splitNumber: 4 },
+    series: [{ type: 'line', data: series.map((s) => s.confidence), smooth: true, symbol: 'circle', areaStyle: { opacity: 0.12 } }]
+  }, true)
+}
+
+async function loadHistory(row) {
+  if (!row?.symbol || demoMode()) {
+    historySeries.value = []
+    return
+  }
+  histLoading.value = true
+  try {
+    const res = await getMarketWatchlistAnalysis({ symbol: row.symbol, market: row.market || 'US', limit: 24 })
+    const data = unwrap(res)
+    historySeries.value = Array.isArray(data) ? data : (data.series || unwrapList(res))
+    await nextTick()
+    if (historySeries.value.length) renderHistory()
+    else if (histChart) histChart.clear()
+  } catch (e) {
+    historySeries.value = []
+    if (histChart) histChart.clear()
+    if (!loadError.value) loadError.value = errorText(e, '分析历史加载失败')
+  } finally {
+    histLoading.value = false
   }
 }
 
@@ -382,10 +509,16 @@ function renderCorr() {
 
 function selectRow(row) {
   current.value = row
-  nextTick(loadChart)
+  nextTick(() => {
+    loadChart()
+    loadHistory(row)
+  })
 }
 
 function applyStub() {
+  if (!demoMode()) return
+  usingStub.value = true
+  loadError.value = ''
   items.value = stubWatchlist()
   overview.value = {}
   current.value = items.value[0] || null
@@ -393,27 +526,49 @@ function applyStub() {
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
+  const errors = []
   try {
     const [listRes, ovRes] = await Promise.allSettled([listMarketWatchlist(), getMarketWatchlistOverview()])
     let rows = []
+    let ovItems = []
     if (listRes.status === 'fulfilled') rows = unwrapList(listRes.value)
+    else errors.push(errorText(listRes.reason, '自选列表加载失败'))
     if (ovRes.status === 'fulfilled') {
       const ov = unwrap(ovRes.value)
       overview.value = ov
-      if (!rows.length) rows = ov.items || ov.watchlist || []
+      ovItems = ov.items || ov.watchlist || []
+    } else {
+      overview.value = {}
+      errors.push(errorText(ovRes.reason, '自选总览加载失败'))
     }
-    if (!rows.length) {
-      applyStub()
-      return
-    }
+    rows = mergeWatchRows(rows, ovItems)
+    rows = await fillLiveQuotes(rows)
     items.value = rows
+    if (!rows.length && errors.length) loadError.value = errors.join('；')
+    else if (errors.length && rows.length) loadError.value = errors.join('；')
     const keep = current.value && rows.find((r) => isCurrent(r))
-    current.value = keep || rows[0]
-    nextTick(loadChart)
+    current.value = keep || rows[0] || null
+    if (current.value) {
+      nextTick(() => {
+        loadChart()
+        loadHistory(current.value)
+      })
+    } else {
+      historySeries.value = []
+    }
     loadCorrelation()
-  } catch {
-    applyStub()
+  } catch (e) {
+    items.value = []
+    overview.value = {}
+    current.value = null
+    loadError.value = errorText(e, '自选加载失败')
   } finally {
     loading.value = false
   }
@@ -515,6 +670,7 @@ onMounted(load)
 onUnmounted(() => {
   chart?.dispose()
   corrChart?.dispose()
+  histChart?.dispose()
 })
 </script>
 
@@ -577,6 +733,8 @@ h3, h4 { margin: 0; font-size: 15px; }
 }
 .ai-box p { margin: 8px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .ai-acts { display: flex; gap: 8px; margin-top: 6px; }
+.hist-box { margin-top: 8px; }
+.hist-chart { height: 140px; }
 .muted { color: var(--text-secondary); font-size: 12px; }
 .compare-link {
   margin-top: 8px;

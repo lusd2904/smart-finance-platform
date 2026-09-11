@@ -17,6 +17,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · GET /analysis/scheduler/overview · 侧栏 menus.js 已挂" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="stat-strip">
       <article class="stat-tile glass-panel">
@@ -91,10 +92,17 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { changeAnalysisJobStatus, getAnalysisOverview, listAnalysisJobLogs, runAnalysisJob } from '@/api/analysis'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubJobs } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubJobs } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const filter = ref('all')
 const overview = ref({})
@@ -147,25 +155,31 @@ const filtered = computed(() => {
 })
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const res = await getAnalysisOverview()
     const data = unwrap(res)
     overview.value = data
-    const rows = data.jobs || unwrapList(res)
-    if (rows.length) {
-      jobs.value = rows
-      usingStub.value = false
-    } else applyStub()
-  } catch {
-    applyStub()
+    jobs.value = data.jobs || unwrapList(res)
+  } catch (e) {
+    overview.value = {}
+    jobs.value = []
+    loadError.value = errorText(e, '任务加载失败')
   } finally {
     loading.value = false
   }
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   overview.value = { todaySuccess: 46, todayFail: 2, retryPending: 1 }
   jobs.value = stubJobs()
 }

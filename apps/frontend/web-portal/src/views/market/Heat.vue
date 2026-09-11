@@ -137,7 +137,7 @@
           <strong>{{ card.label }}</strong>
           <span class="muted">{{ card.data.tradeDate || '--' }}</span>
         </header>
-        <div class="idx-name">{{ card.data.indexName || '指数' }}</div>
+          <div class="idx-name">{{ card.data.indexName || '—' }}</div>
         <b class="idx-chg" :class="changeClass(card.data.indexChangePct)">{{ fmtChange(card.data.indexChangePct) }}</b>
         <div class="muted">热度 {{ card.data.heatScore ?? '--' }} · 涨 {{ card.data.advanceCount ?? '--' }} / 跌 {{ card.data.declineCount ?? '--' }}</div>
       </article>
@@ -156,7 +156,7 @@ import { getDashboardSummary } from '@/api/dashboard'
 import { addMarketWatchlist, getMarketHeatDaily, getMarketHeatDates, getMarketHeatTrend, getMarketIndexQuotes } from '@/api/market'
 import { changeClass, fmtAmount, fmtChange, fmtPx } from '@/utils/format'
 import { goTerminal, marketLabel, unwrap, unwrapList } from '@/utils/list'
-import { stubDashboard } from '@/utils/stubs'
+import { errorText } from '@/utils/stubs'
 
 const route = useRoute()
 const router = useRouter()
@@ -213,12 +213,11 @@ const sortedTop = computed(() => {
 })
 
 const compareCards = computed(() => {
-  const data = dashHeat.value
-  const stub = stubDashboard().heat.data
+  const data = dashHeat.value || {}
   return ['US', 'HK', 'CN'].map((m) => ({
     market: m,
     label: marketLabel(m),
-    data: { ...stub[m], ...(data[m] || {}) }
+    data: data[m] || {}
   }))
 })
 
@@ -325,8 +324,11 @@ async function loadCompare() {
   try {
     const res = await getDashboardSummary()
     dashHeat.value = unwrap(res).heat?.data || {}
-  } catch {
-    dashHeat.value = stubDashboard().heat.data
+  } catch (e) {
+    dashHeat.value = {}
+    if (!heat.value.heatSummary && !top50.value.length) {
+      ElMessage.error(errorText(e, '三列对照加载失败'))
+    }
   }
 }
 

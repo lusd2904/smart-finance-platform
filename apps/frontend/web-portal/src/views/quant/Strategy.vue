@@ -11,6 +11,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · stubStrategies / stubStrategySignals" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="chip-row">
       <button type="button" class="filter-chip" :class="{ active: status === '' }" @click="status = ''">全部</button>
@@ -91,11 +92,18 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { listStrategyHistory, runStrategy } from '@/api/quant'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubStrategies, stubStrategySignals } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubStrategies, stubStrategySignals } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const running = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const status = ref('')
 const strategies = ref([])
 const signals = ref([])
@@ -123,35 +131,42 @@ function sideClass(signal) {
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   strategies.value = stubStrategies()
   signals.value = stubStrategySignals()
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const res = await listStrategyHistory({ pageNum: 1, pageSize: 50 })
     const data = unwrap(res)
     const list = data.signals || unwrapList(res)
+    signals.value = list
     if (data.strategies?.length) strategies.value = data.strategies
-    if (list.length) {
-      signals.value = list
-      if (!data.strategies?.length) {
-        strategies.value = [{
-          id: 'live',
-          name: data.profile || '默认策略',
-          status: 'running',
-          profile: data.profile,
-          symbolsCount: data.symbolsCount,
-          signalCount: data.signalCount || list.length,
-          winRate: data.winRate
-        }]
-      }
-      usingStub.value = false
-    } else applyStub()
-  } catch {
-    applyStub()
+    else if (list.length) {
+      strategies.value = [{
+        id: 'live',
+        name: data.profile || '默认策略',
+        status: 'running',
+        profile: data.profile,
+        symbolsCount: data.symbolsCount,
+        signalCount: data.signalCount || list.length,
+        winRate: data.winRate
+      }]
+    } else strategies.value = []
+  } catch (e) {
+    strategies.value = []
+    signals.value = []
+    loadError.value = errorText(e, '策略加载失败')
   } finally {
     loading.value = false
   }
