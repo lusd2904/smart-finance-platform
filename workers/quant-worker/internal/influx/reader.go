@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	symbolPattern = regexp.MustCompile(`^[A-Za-z0-9.^_-]{1,32}$`)
+	symbolPattern  = regexp.MustCompile(`^[A-Za-z0-9.^_-]{1,32}$`)
 	relTimePattern = regexp.MustCompile(`^-\d{1,4}(s|m|h|d|w|mo|y)$`)
 )
 
@@ -244,10 +244,10 @@ func parseFluxCSV(raw []byte) ([]map[string]string, error) {
 	}
 	headerIdx := -1
 	for i, row := range rows {
-		if len(row) > 0 && row[0] == "#datatype" {
+		if fluxAnnotationRow(row) {
 			continue
 		}
-		if len(row) > 0 && row[0] == "result" {
+		if fluxHeaderHasResult(row) {
 			headerIdx = i
 			break
 		}
@@ -258,13 +258,13 @@ func parseFluxCSV(raw []byte) ([]map[string]string, error) {
 	header := rows[headerIdx]
 	var out []map[string]string
 	for _, row := range rows[headerIdx+1:] {
-		if len(row) == 0 || row[0] == "" {
+		if len(row) == 0 || fluxAnnotationRow(row) {
 			continue
 		}
 		rec := map[string]string{}
 		for i, col := range header {
-			if i >= len(row) {
-				break
+			if col == "" || i >= len(row) {
+				continue
 			}
 			rec[col] = row[i]
 		}
@@ -278,6 +278,29 @@ func parseFluxCSV(raw []byte) ([]map[string]string, error) {
 		out = append(out, rec)
 	}
 	return out, nil
+}
+
+// fluxAnnotationRow reports Flux annotated-CSV metadata rows (#datatype, #group, #default),
+// including when a leading empty annotation column precedes the # token.
+func fluxAnnotationRow(row []string) bool {
+	for _, col := range row {
+		if col == "" {
+			continue
+		}
+		return strings.HasPrefix(col, "#")
+	}
+	return false
+}
+
+// fluxHeaderHasResult reports a header row that names a result column anywhere,
+// not only at index 0 (annotated CSV is typically ",result,table,...").
+func fluxHeaderHasResult(row []string) bool {
+	for _, col := range row {
+		if col == "result" {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeSymbol(symbol string) string {
