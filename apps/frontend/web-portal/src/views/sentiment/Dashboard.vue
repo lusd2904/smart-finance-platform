@@ -67,7 +67,7 @@
         </div>
       </template>
       <div v-show="trend.length" ref="trendRef" class="trend-chart" />
-      <el-empty v-if="!trend.length && !loading" description="暂无趋势数据" :image-size="48" />
+      <p v-if="!trend.length && !loading" class="trend-empty">暂无趋势数据</p>
     </el-card>
 
     <el-row :gutter="10">
@@ -549,6 +549,16 @@ h3 {
 .trend-chart {
   width: 100%;
   height: 220px;
+}
+.trend-empty {
+  margin: 0;
+  height: 64px;
+  max-height: 80px;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .summary-text {
   margin: 0;

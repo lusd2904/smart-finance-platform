@@ -1,7 +1,7 @@
 <template>
-  <div v-if="quotes.length" class="index-strip">
+  <div class="index-strip" aria-label="大盘指数">
     <button
-      v-for="q in quotes"
+      v-for="q in cards"
       :key="q.symbol || q.name"
       type="button"
       class="index-item glass-panel"
@@ -27,16 +27,54 @@ const props = defineProps({
   seed: { type: Array, default: () => [] }
 })
 
+/** Same universe as market-read indexSpecs / old live strip. Always rendered. */
+const INDEX_SPECS = [
+  { symbol: 'usINX', name: '标普500', market: 'US' },
+  { symbol: 'usIXIC', name: '纳斯达克', market: 'US' },
+  { symbol: 'usDJI', name: '道琼斯', market: 'US' },
+  { symbol: 'r_hkHSI', name: '恒生指数', market: 'HK' },
+  { symbol: 'r_hkHSTECH', name: '恒生科技', market: 'HK' },
+  { symbol: 'r_hkHSCEI', name: '恒生国企', market: 'HK' },
+  { symbol: 'sh000001', name: '上证指数', market: 'CN' },
+  { symbol: 'sz399006', name: '创业板指数', market: 'CN' },
+  { symbol: 'sh000688', name: '科创板指数', market: 'CN' }
+]
+
 const live = ref([])
 
-const quotes = computed(() => {
-  const byM = { US: null, HK: null, CN: null }
-  const source = live.value.length ? live.value : props.seed
-  for (const q of source || []) {
-    const m = q.market === 'A' ? 'CN' : q.market
-    if (byM[m] == null) byM[m] = q
+function normSym(v) {
+  return String(v || '')
+    .toUpperCase()
+    .replace(/^(US|HK|SH|SZ)/, '')
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+function matchSpec(spec, q) {
+  if (!q) return false
+  if (q.name && q.name === spec.name) return true
+  const a = normSym(spec.symbol)
+  const b = normSym(q.symbol)
+  if (a && b && (a === b || a.endsWith(b) || b.endsWith(a))) return true
+  return false
+}
+
+const cards = computed(() => {
+  const source = [...(props.seed || []), ...(live.value || [])]
+  const used = new Set()
+  const out = INDEX_SPECS.map((spec) => {
+    const hit = source.find((q) => matchSpec(spec, q))
+    if (hit) {
+      used.add(hit)
+      return { ...spec, ...hit, name: spec.name, market: spec.market, symbol: spec.symbol }
+    }
+    return { ...spec }
+  })
+  for (const q of live.value || []) {
+    if (used.has(q)) continue
+    if (INDEX_SPECS.some((spec) => matchSpec(spec, q))) continue
+    if (q.name || q.symbol) out.push(q)
   }
-  return ['US', 'HK', 'CN'].map((m) => byM[m]).filter(Boolean)
+  return out
 })
 
 function marketLabel(market) {
@@ -78,26 +116,21 @@ defineExpose({ loadQuotes })
 
 <style scoped>
 .index-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .index-item {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 8px 10px !important;
+  padding: 6px 10px !important;
   font-size: 13px;
   border: 0;
-  width: 100%;
   text-align: left;
   cursor: pointer;
   color: inherit;
-}
-.index-item em {
-  margin-left: auto;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
+  min-width: 196px;
 }
 .idx-market {
   font-size: 11px;
@@ -113,9 +146,9 @@ defineExpose({ loadQuotes })
 .idx-last {
   font-size: 14px;
 }
-@media (max-width: 900px) {
-  .index-strip {
-    grid-template-columns: 1fr;
-  }
+.idx-chg {
+  margin-left: auto;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
 }
 </style>
