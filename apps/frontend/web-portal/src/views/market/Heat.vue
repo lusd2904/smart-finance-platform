@@ -20,6 +20,7 @@
         <el-button type="primary" :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
       </div>
     </section>
+    <el-alert v-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div v-if="indices.length" class="index-strip glass-panel">
       <button
@@ -161,6 +162,7 @@ import { errorText } from '@/utils/stubs'
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
+const loadError = ref('')
 const datesLoading = ref(false)
 const market = ref(normalizeMarket(route.query.market) || 'CN')
 const tradeDate = ref('')
@@ -295,6 +297,7 @@ async function loadTrend() {
 
 async function loadDaily() {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await getMarketHeatDaily({ market: market.value, tradeDate: tradeDate.value || undefined })
     const payload = unwrap(res)
@@ -303,9 +306,10 @@ async function loadDaily() {
     top50.value = (payload.top50 || payload.items || []).map((r) => ({ ...r, market: r.market || market.value }))
     if (payload.tradeDate) tradeDate.value = payload.tradeDate
     await loadTrend()
-  } catch {
+  } catch (e) {
     heat.value = {}
     top50.value = []
+    loadError.value = errorText(e, '热度快照加载失败')
   } finally {
     loading.value = false
   }
@@ -326,9 +330,7 @@ async function loadCompare() {
     dashHeat.value = unwrap(res).heat?.data || {}
   } catch (e) {
     dashHeat.value = {}
-    if (!heat.value.heatSummary && !top50.value.length) {
-      ElMessage.error(errorText(e, '三列对照加载失败'))
-    }
+    if (!loadError.value) loadError.value = errorText(e, '三列对照加载失败')
   }
 }
 
