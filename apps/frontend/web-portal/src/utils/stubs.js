@@ -364,3 +364,68 @@ export function stubRecentVerdicts() {
     { symbol: 'AAPL', market: 'US', stance: '观望', score: 49, note: '示意 · 非实盘' }
   ]
 }
+
+/** Filled sentiment dashboard modules — demo only. Never mask a live empty. */
+export function stubSentimentDashboard() {
+  const latest = {
+    analysisId: 128,
+    createTime: '2026-09-11 09:12:00',
+    newsCount: 36,
+    summary: '港股科技偏强，美股隔夜震荡，A 股情绪中性偏多。注意外盘波动对开盘溢价的传导。',
+    usDirection: '中性',
+    usScore: 52,
+    usReason: '美股三大指数隔夜分化，纳指回吐部分涨幅，整体中性。',
+    hkDirection: '利多',
+    hkScore: 68,
+    hkReason: '南向资金延续流入，互联网权重带动恒指偏强。',
+    aDirection: '利多',
+    aScore: 61,
+    aReason: '成交额回升，成长与周期轮动，情绪修复中。',
+    riskEvents: '美债收益率上行可能压制成长股估值。\n外围波动或放大开盘溢价。',
+    modelName: 'Grok 4.6',
+    status: '0'
+  }
+  return {
+    stats: { total: 1286, today: 42, unanalyzed: 17, latestAnalysis: latest },
+    latest,
+    history: [
+      latest,
+      {
+        analysisId: 127,
+        createTime: '2026-09-11 08:40:00',
+        newsCount: 28,
+        summary: '隔夜美股期货高开回落，港股科技仍有承接。',
+        usDirection: '利空',
+        usScore: 41,
+        hkDirection: '利多',
+        hkScore: 64,
+        aDirection: '中性',
+        aScore: 50,
+        modelName: 'Grok 4.6',
+        status: '0'
+      },
+      {
+        analysisId: 126,
+        createTime: '2026-09-10 16:05:00',
+        newsCount: 31,
+        summary: 'A 股量能改善，北向净买，外盘隔夜偏谨慎。',
+        usDirection: '中性',
+        usScore: 48,
+        hkDirection: '利多',
+        hkScore: 62,
+        aDirection: '利多',
+        aScore: 66,
+        modelName: 'Grok 4.6',
+        status: '0'
+      }
+    ],
+    trend: [
+      { createTime: '2026-09-10 10:00:00', usScore: 47, hkScore: 58, aScore: 54 },
+      { createTime: '2026-09-10 14:00:00', usScore: 49, hkScore: 60, aScore: 57 },
+      { createTime: '2026-09-10 16:05:00', usScore: 48, hkScore: 62, aScore: 66 },
+      { createTime: '2026-09-11 08:40:00', usScore: 41, hkScore: 64, aScore: 50 },
+      { createTime: '2026-09-11 09:12:00', usScore: 52, hkScore: 68, aScore: 61 }
+    ],
+    indices: stubIndices()
+  }
+}

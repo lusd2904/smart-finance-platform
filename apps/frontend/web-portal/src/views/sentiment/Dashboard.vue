@@ -1,47 +1,52 @@
 <template>
   <PageFrame
     class="sentiment-page"
-    title="舆情大盘"
-    subtitle="采集 · 分析 · 美/港/A 研判"
+    title="舆情AI分析大盘"
+    :subtitle="latestTime ? `最新分析时间：${latestTime}` : ''"
     badge="「舆情大盘 /sentiment/dashboard」"
     :loading="loading"
   >
     <template #actions>
-      <span v-if="latestTime" class="hero-meta numeric">最新分析 {{ latestTime }}</span>
       <el-button type="primary" :loading="collecting" @click="collect">立即采集</el-button>
       <el-button :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
-        {{ rateLimitedUntil ? `请稍后 (${retryLeft}s)` : '立即分析' }}
+        {{ rateLimitedUntil ? `请稍后重试 (${retryLeft}s)` : '立即分析' }}
       </el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
     </template>
 
+    <el-alert v-if="usingStub && showStubBanner()" class="stub-alert" title="演示·stub · 非实盘舆情" type="warning" show-icon :closable="false" />
     <el-alert v-if="rateLimitMessage" type="warning" show-icon :closable="false" :title="rateLimitMessage" />
 
-    <div v-if="indices.length" class="index-strip glass-panel">
-      <div v-for="q in indices" :key="q.symbol || q.name" class="index-item">
+    <div v-if="indexCards.length" class="index-cards">
+      <article v-for="q in indexCards" :key="q.symbol || q.name" class="index-card glass-panel">
         <span class="mkt-tag">{{ shortMarket(q.market) }}</span>
-        <span>{{ q.name }}</span>
+        <span class="idx-name">{{ q.name }}</span>
         <strong class="numeric">{{ fmtPx(q.last ?? q.price) }}</strong>
         <em :class="changeClass(q.changePct ?? q.changeRate)">{{ fmtChange(q.changePct ?? q.changeRate) }}</em>
-      </div>
+      </article>
     </div>
 
-    <div class="stat-strip">
-      <article class="stat-tile glass-panel">
-        <span>总资讯</span>
-        <strong class="numeric">{{ stats.total ?? 0 }}</strong>
+    <div class="kpi-row">
+      <article class="kpi-card kpi-blue">
+        <div class="kpi-icon"><el-icon><Document /></el-icon></div>
+        <div>
+          <span>总资讯数</span>
+          <strong class="numeric">{{ kpiText(stats.total) }}</strong>
+        </div>
       </article>
-      <article class="stat-tile glass-panel">
-        <span>今日新增</span>
-        <strong class="numeric">{{ stats.today ?? 0 }}</strong>
+      <article class="kpi-card kpi-purple">
+        <div class="kpi-icon"><el-icon><TrendCharts /></el-icon></div>
+        <div>
+          <span>今日新增</span>
+          <strong class="numeric">{{ kpiText(stats.today) }}</strong>
+        </div>
       </article>
-      <article class="stat-tile glass-panel">
-        <span>待分析</span>
-        <strong class="numeric">{{ stats.unanalyzed ?? 0 }}</strong>
-      </article>
-      <article class="stat-tile glass-panel">
-        <span>最新分析</span>
-        <strong class="numeric kpi-time">{{ latestTime || '--' }}</strong>
+      <article class="kpi-card kpi-orange">
+        <div class="kpi-icon"><el-icon><Clock /></el-icon></div>
+        <div>
+          <span>待分析</span>
+          <strong class="numeric">{{ kpiText(stats.unanalyzed) }}</strong>
+        </div>
       </article>
     </div>
 
@@ -55,7 +60,7 @@
           <el-tag v-else size="small" type="info">暂无</el-tag>
         </div>
         <strong class="numeric score" :style="{ color: directionColor(m.direction) }">
-          {{ scoreText(m.score) }}<small>分</small>
+          {{ rawScore(m.score) }}<small>分</small>
         </strong>
         <p class="reason">{{ m.reason || '暂无分析理由' }}</p>
       </article>
@@ -92,27 +97,46 @@
     </el-row>
 
     <el-card shadow="never" class="glass-panel">
-      <template #header><div class="card-header"><h3>最近分析</h3></div></template>
+      <template #header><div class="card-header"><h3>分析历史</h3></div></template>
       <el-table :data="history" size="small" stripe empty-text="暂无分析">
-        <el-table-column label="时间" width="170">
+        <el-table-column prop="analysisId" label="编号" width="72" />
+        <el-table-column label="分析时间" width="170">
           <template #default="{ row }">
             <span class="numeric">{{ formatTime(row.createTime) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="newsCount" label="资讯条数" width="88" align="center" />
         <el-table-column label="美股" width="120" align="center">
           <template #default="{ row }">
-            <span class="numeric" :class="scoreClass(row.usScore)">{{ marketCell(row.usDirection, row.usScore) }}</span>
+            <el-tag v-if="row.usDirection" size="small" effect="dark" :color="directionColor(row.usDirection)" class="dir-tag">
+              {{ directionLabel(row.usDirection) }} {{ rawScore(row.usScore) }}
+            </el-tag>
+            <span v-else>--</span>
           </template>
         </el-table-column>
         <el-table-column label="港股" width="120" align="center">
           <template #default="{ row }">
-            <span class="numeric" :class="scoreClass(row.hkScore)">{{ marketCell(row.hkDirection, row.hkScore) }}</span>
+            <el-tag v-if="row.hkDirection" size="small" effect="dark" :color="directionColor(row.hkDirection)" class="dir-tag">
+              {{ directionLabel(row.hkDirection) }} {{ rawScore(row.hkScore) }}
+            </el-tag>
+            <span v-else>--</span>
           </template>
         </el-table-column>
         <el-table-column label="A股" width="120" align="center">
           <template #default="{ row }">
-            <span class="numeric" :class="scoreClass(row.aScore)">{{ marketCell(row.aDirection, row.aScore) }}</span>
+            <el-tag v-if="row.aDirection" size="small" effect="dark" :color="directionColor(row.aDirection)" class="dir-tag">
+              {{ directionLabel(row.aDirection) }} {{ rawScore(row.aScore) }}
+            </el-tag>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="summary" label="摘要" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="modelName" label="模型" width="130" show-overflow-tooltip />
+        <el-table-column label="状态" width="72" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="String(row.status) === '0' ? 'success' : 'danger'">
+              {{ String(row.status) === '0' ? '成功' : '失败' }}
+            </el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -127,12 +151,16 @@ import * as echarts from 'echarts'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { getMarketIndexQuotes } from '@/api/market'
 import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/api/sentiment'
-import { changeClass, fmtChange, fmtPx, score100, scoreClass } from '@/utils/format'
+import { useUserStore } from '@/store/user'
+import { changeClass, fmtChange, fmtPx } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
+import { showStubBanner, stubSentimentDashboard, useStubs } from '@/utils/stubs'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const collecting = ref(false)
 const analyzing = ref(false)
+const usingStub = ref(false)
 const stats = ref({})
 const latest = ref({})
 const history = ref([])
@@ -146,20 +174,25 @@ let retryTimer = null
 let chart
 let onResize
 
-function scoreText(v) {
-  const n = score100(v)
-  return n == null ? '--' : String(n)
+function demoMode() {
+  return useStubs() || userStore.usingStub
+}
+
+function kpiText(v) {
+  if (v === 0 || v === '0') return 0
+  if (v == null || v === '') return '--'
+  return v
+}
+
+function rawScore(v) {
+  if (v === 0 || v === '0') return 0
+  if (v == null || v === '') return '--'
+  return v
 }
 
 function formatTime(v) {
   const s = String(v || '').replace('T', ' ').trim()
   return s ? s.slice(0, 19) : ''
-}
-
-function marketCell(direction, score) {
-  const n = scoreText(score)
-  if (!direction && n === '--') return '--'
-  return `${directionLabel(direction)} ${n}`
 }
 
 function normalizeDirection(direction) {
@@ -172,9 +205,9 @@ function normalizeDirection(direction) {
 
 function directionColor(direction) {
   const d = normalizeDirection(direction)
-  if (d === 'up') return '#f56c6c'
-  if (d === 'down') return '#67c23a'
-  return '#909399'
+  if (d === 'up') return 'var(--stat-up, #f56c6c)'
+  if (d === 'down') return 'var(--stat-down, #67c23a)'
+  return 'var(--text-secondary, #909399)'
 }
 
 function directionLabel(direction) {
@@ -227,6 +260,36 @@ const markets = computed(() => [
 
 const riskEvents = computed(() => parseRisk(latest.value.riskEvents))
 
+const indexCards = computed(() => {
+  const byM = { US: null, HK: null, CN: null }
+  for (const q of indices.value) {
+    const m = q.market === 'A' ? 'CN' : q.market
+    if (byM[m] == null) byM[m] = q
+  }
+  return ['US', 'HK', 'CN'].map((m) => byM[m]).filter(Boolean)
+})
+
+function applyStub() {
+  const stub = stubSentimentDashboard()
+  usingStub.value = true
+  stats.value = stub.stats
+  latest.value = stub.latest
+  history.value = stub.history
+  trend.value = stub.trend
+  indices.value = stub.indices
+}
+
+function hasLivePayload() {
+  return (
+    stats.value.total != null ||
+    stats.value.today != null ||
+    stats.value.unanalyzed != null ||
+    Boolean(latest.value.summary) ||
+    history.value.length > 0 ||
+    trend.value.length > 0
+  )
+}
+
 function renderTrend(list) {
   if (!trendRef.value) return
   if (!list.length) {
@@ -260,6 +323,12 @@ function renderTrend(list) {
 
 async function load() {
   loading.value = true
+  usingStub.value = false
+  stats.value = {}
+  latest.value = {}
+  history.value = []
+  trend.value = []
+  indices.value = []
   try {
     const [s, a, t, idx] = await Promise.allSettled([
       getStats(),
@@ -269,34 +338,32 @@ async function load() {
     ])
     if (s.status === 'fulfilled') {
       const data = unwrap(s.value)
-      stats.value = data
-      if (data.latestAnalysis && typeof data.latestAnalysis === 'object') {
-        latest.value = { ...latest.value, ...data.latestAnalysis }
+      stats.value = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+      if (stats.value.latestAnalysis && typeof stats.value.latestAnalysis === 'object') {
+        latest.value = { ...latest.value, ...stats.value.latestAnalysis }
       }
     }
     if (a.status === 'fulfilled') {
-      history.value = unwrapList(a.value)
-      if (history.value[0]) latest.value = { ...latest.value, ...history.value[0] }
-    } else {
-      history.value = []
+      const rows = unwrapList(a.value)
+      history.value = rows
+      if (rows[0]) latest.value = { ...latest.value, ...rows[0] }
     }
     if (t.status === 'fulfilled') {
       const raw = unwrap(t.value)
       trend.value = Array.isArray(raw) ? raw : unwrapList(t.value)
-    } else {
-      trend.value = []
     }
     if (idx.status === 'fulfilled') {
       const raw = unwrap(idx.value)
       const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(idx.value))
       indices.value = Array.isArray(items) ? items : []
-    } else {
-      indices.value = []
     }
-    await nextTick()
-    renderTrend(trend.value)
+    if (!hasLivePayload() && demoMode()) applyStub()
+  } catch {
+    if (demoMode()) applyStub()
   } finally {
     loading.value = false
+    await nextTick()
+    renderTrend(trend.value)
   }
 }
 
@@ -326,7 +393,8 @@ async function collect() {
     ElMessage.success(res?.msg || (d.accepted ? '已加入后台队列' : '采集任务已触发'))
     if (!d.accepted) load()
   } catch (e) {
-    ElMessage.error(e?.message || '采集失败')
+    if (usingStub.value) ElMessage.success('已采集（演示·stub）')
+    else ElMessage.error(e?.message || '采集失败')
   } finally {
     collecting.value = false
   }
@@ -355,7 +423,8 @@ async function analyze() {
       startRateLimitCooldown(60, 'AI 分析触发限流，请稍后再试，不要连续点击')
       return
     }
-    ElMessage.error(text || '分析失败')
+    if (usingStub.value) ElMessage.success('已分析（演示·stub）')
+    else ElMessage.error(text || '分析失败')
   } finally {
     analyzing.value = false
   }
@@ -378,39 +447,73 @@ onBeforeUnmount(() => {
 .sentiment-page :deep(.page-hero) {
   padding: 12px 14px !important;
 }
-.hero-meta {
-  color: var(--text-secondary);
-  font-size: 13px;
+.sentiment-page :deep(.page-title h2),
+.sentiment-page :deep(.hero-copy h2) {
+  font-size: 18px !important;
 }
-.index-strip {
-  display: flex;
-  flex-wrap: wrap;
+.stub-alert {
+  margin: 0;
+}
+.index-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  padding: 8px 10px !important;
 }
-.index-item {
-  display: inline-flex;
+.index-card {
+  display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--surface-muted);
+  padding: 8px 10px !important;
   font-size: 13px;
 }
-.index-item em {
+.index-card em {
+  margin-left: auto;
   font-style: normal;
   font-variant-numeric: tabular-nums;
 }
-.stat-tile {
-  padding: 8px 10px !important;
+.idx-name {
+  color: var(--text-secondary);
 }
-.stat-tile strong {
-  font-size: 16px !important;
-  line-height: 1.2 !important;
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
-.kpi-time {
-  font-size: 13px !important;
-  font-weight: 600;
+.kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #fff;
+}
+.kpi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 18px;
+}
+.kpi-card span {
+  display: block;
+  font-size: 13px;
+  opacity: 0.92;
+}
+.kpi-card strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.kpi-blue {
+  background: linear-gradient(135deg, #409eff 0%, #2d6cdf 100%);
+}
+.kpi-purple {
+  background: linear-gradient(135deg, #9254de 0%, #6a3fd0 100%);
+}
+.kpi-orange {
+  background: linear-gradient(135deg, #f0a020 0%, #e0701a 100%);
 }
 .market-strip {
   display: grid;
@@ -456,10 +559,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 .market-up {
-  border-top: 3px solid #f56c6c;
+  border-top: 3px solid var(--stat-up, #f56c6c);
 }
 .market-down {
-  border-top: 3px solid #67c23a;
+  border-top: 3px solid var(--stat-down, #67c23a);
 }
 .market-flat {
   border-top: 3px solid #909399;
@@ -517,6 +620,8 @@ h3 {
   height: 34px;
 }
 @media (max-width: 900px) {
+  .index-cards,
+  .kpi-row,
   .market-strip {
     grid-template-columns: 1fr;
   }

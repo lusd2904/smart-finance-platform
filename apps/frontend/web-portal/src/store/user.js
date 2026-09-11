@@ -73,6 +73,12 @@ export const useUserStore = defineStore('user', {
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem(DEMO_SESSION_KEY)
       }
+      try {
+        const { usePermissionStore } = await import('./permission')
+        usePermissionStore().reset()
+      } catch {
+        /* store may not be ready */
+      }
     }
   }
 })
