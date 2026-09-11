@@ -2,7 +2,6 @@
   <PageFrame
     title="通知中心"
     subtitle="全页收件箱 · 未读 / 类型筛选 · 全部标已读 · 对齐 /trade/notifications"
-    badge="「通知中心 /trade/notifications」"
     :loading="loading"
   >
     <template #actions>

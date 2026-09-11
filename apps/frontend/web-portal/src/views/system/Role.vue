@@ -2,7 +2,6 @@
   <PageFrame
     title="角色管理"
     subtitle="角色列表 · 权限摘要"
-    badge="「角色管理 /system/role」"
     :loading="loading"
   >
     <template #actions>

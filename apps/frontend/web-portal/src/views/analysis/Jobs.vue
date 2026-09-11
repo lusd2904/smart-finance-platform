@@ -2,7 +2,6 @@
   <PageFrame
     title="任务中心"
     subtitle="Cron · 上次运行 · 重试 · 手动触发"
-    badge="「任务中心 /analysis/jobs」"
     :loading="loading"
   >
     <template #actions>

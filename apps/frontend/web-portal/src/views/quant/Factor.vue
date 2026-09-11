@@ -2,7 +2,6 @@
   <PageFrame
     title="因子分析"
     subtitle="因子库 · IC / IR / 覆盖率 · 对齐 /quant/factor"
-    badge="「因子分析 /quant/factor」"
     :loading="loading"
   >
     <template #actions>

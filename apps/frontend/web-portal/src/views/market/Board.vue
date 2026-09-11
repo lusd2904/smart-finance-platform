@@ -2,7 +2,6 @@
   <PageFrame
     title="行情台"
     subtitle="只读报价 · 点入 K线 / 详情"
-    badge="「行情台 /market/board」"
     :loading="loading"
   >
     <template #actions>

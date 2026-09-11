@@ -2,7 +2,6 @@
   <PageFrame
     title="风控"
     subtitle="规则版本 v0.2 STUB · 账户 + 持仓聚合限额 · 对齐 /trade/risk"
-    badge="「风控 /trade/risk」"
     :loading="loading"
   >
     <template #actions>

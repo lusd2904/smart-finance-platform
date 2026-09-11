@@ -2,7 +2,6 @@
   <PageFrame
     title="自选清单"
     subtitle="左列表 / 中K线 / 右详情"
-    badge="「自选清单 /market/watchlist」"
     :loading="loading"
   >
     <template #actions>

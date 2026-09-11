@@ -2,7 +2,6 @@
   <PageFrame
     title="用户管理"
     subtitle="筛选 · KPI · 用户表"
-    badge="「用户管理 /system/user」"
     :loading="loading"
   >
     <template #actions>

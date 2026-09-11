@@ -2,7 +2,6 @@
   <PageFrame
     title="研判工作台"
     subtitle="会话 · transcript · 工具引用 · 标的上下文"
-    badge="「研判工作台 /ai/chat」"
     :loading="loading"
   >
     <template #actions>

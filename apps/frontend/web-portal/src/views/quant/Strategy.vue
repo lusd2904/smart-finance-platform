@@ -2,7 +2,6 @@
   <PageFrame
     title="策略信号"
     subtitle="策略卡片 · 信号流 · 对齐 /quant/strategy"
-    badge="「策略信号 /quant/strategy」"
     :loading="loading"
   >
     <template #actions>

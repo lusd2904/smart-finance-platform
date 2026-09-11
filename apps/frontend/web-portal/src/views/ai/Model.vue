@@ -2,7 +2,6 @@
   <PageFrame
     title="模型管理"
     subtitle="延迟 · 配额 · 默认模型 · 健康探测"
-    badge="「模型管理 /ai/model」"
     :loading="loading"
   >
     <template #actions>

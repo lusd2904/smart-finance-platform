@@ -2,7 +2,6 @@
   <PageFrame
     title="长桥配置"
     subtitle="凭据脱敏 · 账户绑定 · 自动交易默认关闭 · 对齐 /quant/longbridge"
-    badge="「长桥配置 /quant/longbridge」"
     :loading="loading"
   >
     <template #actions>

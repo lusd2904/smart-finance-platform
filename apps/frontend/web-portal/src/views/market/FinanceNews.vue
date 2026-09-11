@@ -2,7 +2,6 @@
   <PageFrame
     title="财经资讯"
     subtitle="市场动态 · 技术扫描 · 外部资讯 · 简报刷新"
-    badge="「财经资讯 /market/finance-news」"
     :loading="loading"
   >
     <template #actions>

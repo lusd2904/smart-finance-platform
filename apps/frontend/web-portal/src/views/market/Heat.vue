@@ -1,5 +1,5 @@
 <template>
-    <PageFrame title="市场热度" badge="「市场热度 /market/heat」" :loading="loading" hide-hero>
+    <PageFrame title="市场热度" :loading="loading" hide-hero>
     <section class="heat-hero">
       <div>
         <h2>行情中心</h2>

@@ -2,7 +2,6 @@
   <PageFrame
     title="市场分析"
     subtitle="三市场收盘复盘 · 立即分析"
-    badge="「市场分析 /market/review」"
     :loading="loading"
   >
     <template #actions>

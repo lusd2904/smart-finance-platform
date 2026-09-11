@@ -2,7 +2,6 @@
   <PageFrame
     title="委托"
     :subtitle="scopeHint"
-    badge="「委托 /trade/orders」"
     :loading="loading"
   >
     <template #actions>

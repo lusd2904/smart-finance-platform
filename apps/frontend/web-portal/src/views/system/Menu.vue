@@ -2,7 +2,6 @@
   <PageFrame
     title="菜单管理"
     subtitle="工具栏 · 排序 · 可见"
-    badge="「菜单管理 /system/menu」"
     :loading="loading"
   >
     <template #actions>

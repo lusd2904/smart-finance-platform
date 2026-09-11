@@ -2,7 +2,6 @@
   <PageFrame
     title="持仓"
     subtitle="账户汇总 · 实时持仓表 · 涨红跌绿 · 对齐 Terminal /trade API"
-    badge="「持仓 /trade/positions」"
     :loading="loading"
   >
     <template #actions>
