@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { getRouters } from '@/api/menu'
 import { menuTree } from '@/config/menus'
+import router from '@/router'
 import { implementedPages, loadView } from '@/router/pages'
 import { unwrap, unwrapList } from '@/utils/list'
 import { useUserStore } from '@/store/user'
@@ -116,6 +117,24 @@ export function mapRoutersToSidebar(routers) {
     .filter((s) => s.title)
 }
 
+function registerRoutes(routers, parentPath = '') {
+  for (const r of routers || []) {
+    if (r.hidden) continue
+    const path = joinPath(parentPath, r.path)
+    const comp = loadView(r.component)
+    const name = r.name || path.replace(/\//g, '-') || `r-${Math.random().toString(36).slice(2, 7)}`
+    if (comp && path && path !== '/' && !router.hasRoute(name)) {
+      router.addRoute('/', {
+        path: path.replace(/^\//, ''),
+        name,
+        component: comp,
+        meta: { title: r.meta?.title || name }
+      })
+    }
+    if (r.children?.length) registerRoutes(r.children, path === '/' ? '' : path)
+  }
+}
+
 function parseRouterPayload(res) {
   const raw = unwrap(res)
   if (Array.isArray(raw)) return raw
@@ -140,6 +159,7 @@ export const usePermissionStore = defineStore('permission', {
         if (!routers.length) throw new Error('empty routers')
         this.routers = routers
         this.sidebarTree = mapRoutersToSidebar(routers)
+        registerRoutes(routers)
         this.source = 'getRouters'
         this.ready = true
         return this.sidebarTree

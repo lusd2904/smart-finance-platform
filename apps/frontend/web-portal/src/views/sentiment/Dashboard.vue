@@ -171,6 +171,7 @@ const rateLimitedUntil = ref(0)
 const retryLeft = ref(0)
 const rateLimitMessage = ref('')
 let retryTimer = null
+let quoteTimer = null
 let chart
 let onResize
 
@@ -430,14 +431,27 @@ async function analyze() {
   }
 }
 
+async function loadQuotes() {
+  try {
+    const res = await getMarketIndexQuotes()
+    const raw = unwrap(res)
+    const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(res))
+    if (Array.isArray(items) && items.length) indices.value = items
+  } catch {
+    /* keep current strip */
+  }
+}
+
 onMounted(() => {
   load()
   onResize = () => chart && chart.resize()
   window.addEventListener('resize', onResize)
+  quoteTimer = window.setInterval(loadQuotes, 15000)
 })
 
 onBeforeUnmount(() => {
   if (retryTimer) clearInterval(retryTimer)
+  if (quoteTimer) clearInterval(quoteTimer)
   if (onResize) window.removeEventListener('resize', onResize)
   if (chart) chart.dispose()
 })
