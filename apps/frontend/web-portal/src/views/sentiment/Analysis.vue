@@ -1,5 +1,5 @@
 <template>
-  <PageFrame class="sentiment-page" title="分析历史" badge="「分析历史 /sentiment/analysis」" :loading="loading">
+  <PageFrame class="sentiment-page" title="分析历史" :loading="loading">
     <template #actions>
       <el-button type="primary" :loading="analyzing" @click="analyze">手动分析</el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
@@ -8,7 +8,7 @@
     <el-card shadow="never" class="glass-panel filter-card">
       <el-form :inline="true" class="compact-form" @submit.prevent="search">
         <el-form-item label="状态">
-          <el-select v-model="query.status" clearable placeholder="分析状态" style="width: 120px">
+          <el-select v-model="query.status" size="small" clearable placeholder="分析状态" style="width: 112px">
             <el-option label="成功" value="0" />
             <el-option label="失败" value="1" />
           </el-select>
@@ -16,17 +16,18 @@
         <el-form-item label="分析时间">
           <el-date-picker
             v-model="dateRange"
+            size="small"
             type="daterange"
             value-format="YYYY-MM-DD"
             range-separator="-"
             start-placeholder="开始日期"
             end-placeholder="结束日期"
-            style="width: 240px"
+            style="width: 228px"
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="search">搜索</el-button>
-          <el-button @click="reset">重置</el-button>
+          <el-button type="primary" size="small" @click="search">搜索</el-button>
+          <el-button size="small" @click="reset">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -64,7 +65,11 @@
             <span v-else>--</span>
           </template>
         </el-table-column>
-        <el-table-column prop="summary" label="摘要" min-width="200" show-overflow-tooltip />
+        <el-table-column label="摘要" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="summary-ellipsis">{{ row.summary || '--' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="modelName" label="模型" width="140" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
@@ -140,6 +145,7 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { getAnalysis, listAnalysis, runAnalysis } from '@/api/sentiment'
 import { score100 } from '@/utils/format'
 import { unwrap, unwrapList, unwrapTotal } from '@/utils/list'
+import '@/styles/sentiment-pages.scss'
 
 const loading = ref(false)
 const analyzing = ref(false)
@@ -275,24 +281,10 @@ onMounted(load)
 </script>
 
 <style scoped>
-.sentiment-page :deep(.page-hero) {
-  padding: 12px 14px !important;
-}
-.filter-card {
-  padding: 8px 10px !important;
-}
 .compact-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-}
-.compact-form :deep(.el-form-item) {
-  margin-bottom: 0 !important;
-  margin-right: 8px;
-}
-.dir-tag {
-  border: none;
-  color: #fff;
 }
 .pager {
   display: flex;
@@ -355,20 +347,5 @@ onMounted(load)
   color: var(--warning);
   font-size: 13px;
   line-height: 1.5;
-}
-:deep(.el-empty) {
-  padding: 8px 0;
-  min-height: 0;
-}
-:deep(.el-empty__image) {
-  width: 48px;
-}
-:deep(.el-table) {
-  font-size: 13px;
-}
-:deep(.el-table th.el-table__cell),
-:deep(.el-table td.el-table__cell) {
-  padding: 6px 0;
-  height: 34px;
 }
 </style>

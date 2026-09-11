@@ -3,7 +3,6 @@
     class="sentiment-page"
     title="舆情AI分析大盘"
     :subtitle="latestTime ? `最新分析时间：${latestTime}` : ''"
-    badge="「舆情大盘 /sentiment/dashboard」"
     :loading="loading"
   >
     <template #actions>
@@ -126,7 +125,11 @@
             <span v-else>--</span>
           </template>
         </el-table-column>
-        <el-table-column prop="summary" label="摘要" min-width="200" show-overflow-tooltip />
+        <el-table-column label="摘要" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="summary-ellipsis">{{ row.summary || '--' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="modelName" label="模型" width="130" show-overflow-tooltip />
         <el-table-column label="状态" width="72" align="center">
           <template #default="{ row }">
@@ -150,6 +153,7 @@ import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/ap
 import { useUserStore } from '@/store/user'
 import { unwrap, unwrapList } from '@/utils/list'
 import { showStubBanner, stubSentimentDashboard, useStubs } from '@/utils/stubs'
+import '@/styles/sentiment-pages.scss'
 
 const userStore = useUserStore()
 const loading = ref(false)
@@ -429,13 +433,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.sentiment-page :deep(.page-hero) {
-  padding: 12px 14px !important;
-}
-.sentiment-page :deep(.page-title h2),
-.sentiment-page :deep(.hero-copy h2) {
-  font-size: 18px !important;
-}
 .stub-alert {
   margin: 0;
 }
@@ -448,7 +445,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 8px;
   color: #fff;
 }
@@ -548,7 +545,7 @@ h3 {
 }
 .trend-chart {
   width: 100%;
-  height: 220px;
+  height: 180px;
 }
 .trend-empty {
   margin: 0;
@@ -585,21 +582,6 @@ h3 {
 .risk-icon {
   margin-top: 2px;
   flex-shrink: 0;
-}
-:deep(.el-empty) {
-  padding: 8px 0;
-  min-height: 0;
-}
-:deep(.el-empty__image) {
-  width: 48px;
-}
-:deep(.el-table) {
-  font-size: 13px;
-}
-:deep(.el-table th.el-table__cell),
-:deep(.el-table td.el-table__cell) {
-  padding: 6px 0;
-  height: 34px;
 }
 @media (max-width: 900px) {
   .kpi-row,

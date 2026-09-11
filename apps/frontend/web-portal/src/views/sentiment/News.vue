@@ -1,5 +1,5 @@
 <template>
-  <PageFrame class="sentiment-page" title="资讯列表" badge="「资讯列表 /sentiment/news」" :loading="loading">
+  <PageFrame class="sentiment-page" title="资讯列表" :loading="loading">
     <template #actions>
       <el-button type="primary" :loading="collecting" @click="collect">手动采集</el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
@@ -8,7 +8,7 @@
     <el-card shadow="never" class="glass-panel filter-card">
       <el-form :inline="true" class="compact-form" @submit.prevent="search">
         <el-form-item label="来源">
-          <el-select v-model="query.source" clearable placeholder="资讯来源" style="width: 140px">
+          <el-select v-model="query.source" size="small" clearable placeholder="资讯来源" style="width: 128px">
             <el-option label="东方财富" value="eastmoney" />
             <el-option label="新浪财经" value="sina" />
             <el-option label="同花顺" value="ths" />
@@ -18,10 +18,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="标题">
-          <el-input v-model="query.title" clearable placeholder="请输入标题" style="width: 180px" @keyup.enter="search" />
+          <el-input v-model="query.title" size="small" clearable placeholder="请输入标题" style="width: 168px" @keyup.enter="search" />
         </el-form-item>
         <el-form-item label="是否已分析">
-          <el-select v-model="query.analyzed" clearable placeholder="是否已分析" style="width: 120px">
+          <el-select v-model="query.analyzed" size="small" clearable placeholder="是否已分析" style="width: 112px">
             <el-option label="已分析" value="1" />
             <el-option label="未分析" value="0" />
           </el-select>
@@ -29,17 +29,18 @@
         <el-form-item label="发布时间">
           <el-date-picker
             v-model="dateRange"
+            size="small"
             type="daterange"
             value-format="YYYY-MM-DD"
             range-separator="-"
             start-placeholder="开始日期"
             end-placeholder="结束日期"
-            style="width: 240px"
+            style="width: 228px"
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="search">搜索</el-button>
-          <el-button @click="reset">重置</el-button>
+          <el-button type="primary" size="small" @click="search">搜索</el-button>
+          <el-button size="small" @click="reset">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -49,12 +50,12 @@
         <el-table-column prop="newsId" label="编号" width="72" />
         <el-table-column label="来源" width="110">
           <template #default="{ row }">
-            <el-tag effect="plain" size="small">{{ sourceLabel(row.source) }}</el-tag>
+            <el-tag effect="plain" size="small" class="source-tag">{{ sourceLabel(row.source) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="标题" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-button link type="primary" @click="openContent(row)">{{ row.title }}</el-button>
+            <el-button class="title-link" link @click="openContent(row)">{{ row.title }}</el-button>
           </template>
         </el-table-column>
         <el-table-column label="正文摘要" min-width="200" show-overflow-tooltip>
@@ -69,7 +70,7 @@
         </el-table-column>
         <el-table-column label="是否已分析" width="100" align="center">
           <template #default="{ row }">
-            <el-tag size="small" :type="isAnalyzed(row) ? 'success' : 'info'">
+            <el-tag size="small" class="analyzed-tag" :class="isAnalyzed(row) ? 'is-yes' : 'is-no'">
               {{ isAnalyzed(row) ? '已分析' : '未分析' }}
             </el-tag>
           </template>
@@ -93,8 +94,8 @@
     <el-drawer v-model="drawer" :title="current.title || '资讯详情'" size="480px" direction="rtl" destroy-on-close>
       <div class="news-drawer">
         <div class="meta-row">
-          <el-tag effect="plain" size="small">{{ sourceLabel(current.source) }}</el-tag>
-          <el-tag size="small" :type="isAnalyzed(current) ? 'success' : 'info'">
+          <el-tag effect="plain" size="small" class="source-tag">{{ sourceLabel(current.source) }}</el-tag>
+          <el-tag size="small" class="analyzed-tag" :class="isAnalyzed(current) ? 'is-yes' : 'is-no'">
             {{ isAnalyzed(current) ? '已分析' : '未分析' }}
           </el-tag>
           <span class="meta-time numeric">{{ formatTime(current.pubTime || current.createTime) || '--' }}</span>
@@ -103,7 +104,7 @@
         <div v-if="paragraphs.length" class="drawer-body">
           <p v-for="(para, idx) in paragraphs" :key="idx">{{ para }}</p>
         </div>
-        <el-empty v-else description="暂无正文内容" :image-size="48" />
+        <p v-else class="drawer-empty">暂无正文内容</p>
         <div v-if="current.newsId" class="drawer-footer">编号 #{{ current.newsId }}</div>
       </div>
     </el-drawer>
@@ -116,6 +117,7 @@ import { ElMessage } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { collectNews, listNews } from '@/api/sentiment'
 import { unwrap, unwrapList, unwrapTotal } from '@/utils/list'
+import '@/styles/sentiment-pages.scss'
 
 const loading = ref(false)
 const collecting = ref(false)
@@ -224,25 +226,11 @@ onMounted(load)
 </script>
 
 <style scoped>
-.sentiment-page :deep(.page-hero) {
-  padding: 12px 14px !important;
-}
-.filter-card {
-  padding: 8px 10px !important;
-}
 .compact-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0 4px;
-}
-.compact-form :deep(.el-form-item) {
-  margin-bottom: 0 !important;
-  margin-right: 8px;
-}
-.preview {
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 .pager {
   display: flex;
@@ -282,19 +270,13 @@ onMounted(load)
   color: var(--text-secondary);
   font-size: 12px;
 }
-:deep(.el-empty) {
-  padding: 8px 0;
-  min-height: 0;
-}
-:deep(.el-empty__image) {
-  width: 48px;
-}
-:deep(.el-table) {
-  font-size: 13px;
-}
-:deep(.el-table th.el-table__cell),
-:deep(.el-table td.el-table__cell) {
-  padding: 6px 0;
-  height: 34px;
+.drawer-empty {
+  margin: 0;
+  height: 64px;
+  max-height: 80px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>
