@@ -7,6 +7,7 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import { setupPermission } from './permission'
+import hasPermi from './directive/hasPermi'
 import { useTheme } from './composables/useTheme'
 
 import 'element-plus/theme-chalk/el-loading.css'
@@ -29,5 +30,6 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(pinia)
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+app.directive('hasPermi', hasPermi)
 setupPermission(router)
 app.mount('#app')

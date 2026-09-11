@@ -7,8 +7,8 @@
     :loading="loading"
   >
     <template #actions>
-      <el-button v-if="canCollect" type="primary" :loading="collecting" @click="collect">立即采集</el-button>
-      <el-button v-if="canAnalyze" :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
+      <el-button v-hasPermi="['sentiment:news:collect']" type="primary" :loading="collecting" @click="collect">立即采集</el-button>
+      <el-button v-hasPermi="['sentiment:analysis:run']" :loading="analyzing" :disabled="!!rateLimitedUntil" @click="analyze">
         {{ rateLimitedUntil ? `请稍后重试 (${retryLeft}s)` : '立即分析' }}
       </el-button>
       <el-button :loading="loading" @click="refreshAll">刷新</el-button>
@@ -82,7 +82,10 @@
         <el-card shadow="never" class="glass-panel">
           <template #header><div class="card-header"><h3>风险事件</h3></div></template>
           <div v-if="riskEvents.length" class="risk-list">
-            <div v-for="(item, i) in riskEvents" :key="i" class="risk-item">{{ item }}</div>
+            <div v-for="(item, i) in riskEvents" :key="i" class="risk-item">
+              <el-icon class="risk-icon"><Warning /></el-icon>
+              <span>{{ item }}</span>
+            </div>
           </div>
           <el-empty v-else description="暂无风险事件" :image-size="48" />
         </el-card>
@@ -163,8 +166,6 @@ const indexStripRef = ref(null)
 const rateLimitedUntil = ref(0)
 const retryLeft = ref(0)
 const rateLimitMessage = ref('')
-const canCollect = computed(() => userStore.hasPermi('sentiment:news:collect'))
-const canAnalyze = computed(() => userStore.hasPermi('sentiment:analysis:run'))
 let retryTimer = null
 let chart
 let onResize
@@ -300,6 +301,32 @@ function renderTrend(list) {
   )
 }
 
+async function getStatsData() {
+  const res = await getStats()
+  const data = unwrap(res)
+  stats.value = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+  if (stats.value.latestAnalysis && typeof stats.value.latestAnalysis === 'object') {
+    latest.value = { ...latest.value, ...stats.value.latestAnalysis }
+  }
+}
+
+async function getLatestAnalysis() {
+  const res = await listAnalysis({ pageNum: 1, pageSize: 1, status: '0' })
+  const rows = unwrapList(res)
+  if (rows[0]) latest.value = { ...latest.value, ...rows[0] }
+}
+
+async function getHistory() {
+  const res = await listAnalysis({ pageNum: 1, pageSize: 20, status: '0' })
+  history.value = unwrapList(res)
+}
+
+async function getTrendData() {
+  const res = await getTrend(24)
+  const raw = unwrap(res)
+  trend.value = Array.isArray(raw) ? raw : unwrapList(res)
+}
+
 async function load() {
   loading.value = true
   usingStub.value = false
@@ -309,31 +336,7 @@ async function load() {
   trend.value = []
   indices.value = []
   try {
-    const [s, latestRes, histRes, t] = await Promise.allSettled([
-      getStats(),
-      listAnalysis({ pageNum: 1, pageSize: 1, status: '0' }),
-      listAnalysis({ pageNum: 1, pageSize: 20, status: '0' }),
-      getTrend(24)
-    ])
-    if (s.status === 'fulfilled') {
-      const data = unwrap(s.value)
-      stats.value = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
-      if (stats.value.latestAnalysis && typeof stats.value.latestAnalysis === 'object') {
-        latest.value = { ...latest.value, ...stats.value.latestAnalysis }
-      }
-    }
-    if (latestRes.status === 'fulfilled') {
-      const rows = unwrapList(latestRes.value)
-      if (rows[0]) latest.value = { ...latest.value, ...rows[0] }
-    }
-    if (histRes.status === 'fulfilled') {
-      history.value = unwrapList(histRes.value)
-      if (!latest.value.summary && history.value[0]) latest.value = { ...latest.value, ...history.value[0] }
-    }
-    if (t.status === 'fulfilled') {
-      const raw = unwrap(t.value)
-      trend.value = Array.isArray(raw) ? raw : unwrapList(t.value)
-    }
+    await Promise.allSettled([getStatsData(), getLatestAnalysis(), getHistory(), getTrendData()])
     if (!hasLivePayload() && demoMode()) applyStub()
   } catch {
     if (demoMode()) applyStub()
@@ -559,12 +562,19 @@ h3 {
   gap: 6px;
 }
 .risk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 8px 10px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   color: var(--warning);
   font-size: 13px;
   line-height: 1.5;
+}
+.risk-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 :deep(.el-empty) {
   padding: 8px 0;

@@ -1,19 +1,27 @@
 <template>
   <div v-if="quotes.length" class="index-strip">
-    <article v-for="q in quotes" :key="q.symbol || q.name" class="index-item glass-panel">
+    <button
+      v-for="q in quotes"
+      :key="q.symbol || q.name"
+      type="button"
+      class="index-item glass-panel"
+      :title="`${q.name} · ${q.quoteTime || ''}`"
+      @click="$emit('select', q)"
+    >
       <span class="idx-market">{{ marketLabel(q.market) }}</span>
       <span class="idx-name">{{ q.name }}</span>
       <strong class="idx-last numeric">{{ fmtPx(q.last ?? q.price) }}</strong>
-      <em :class="changeClass(q.changePct ?? q.changeRate)">{{ fmtChange(q.changePct ?? q.changeRate) }}</em>
-    </article>
+      <em class="idx-chg" :class="changeClass(q.changePct ?? q.changeRate)">{{ fmtChange(q.changePct ?? q.changeRate) }}</em>
+    </button>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { getMarketIndexQuotes } from '@/api/market'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
+import { bindMarketQuotesSocket } from '@/composables/useMarketQuotesWs'
 import { changeClass, fmtChange, fmtPx } from '@/utils/format'
-import { unwrap, unwrapList } from '@/utils/list'
+
+defineEmits(['select'])
 
 const props = defineProps({
   seed: { type: Array, default: () => [] }
@@ -38,36 +46,32 @@ function marketLabel(market) {
   return market || '--'
 }
 
-function applyPayload(res) {
-  const raw = unwrap(res)
-  const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(res))
+function applyQuotes(data) {
+  const items = (data && data.items) || []
   if (Array.isArray(items) && items.length) live.value = items
 }
 
-async function loadQuotes() {
-  try {
-    applyPayload(await getMarketIndexQuotes())
-  } catch {
-    /* keep current strip / seed */
-  }
+const socket = bindMarketQuotesSocket({ onData: applyQuotes, intervalSec: 15 })
+
+function loadQuotes() {
+  socket.reload()
 }
 
-let timer = null
+function handleVisibility() {
+  if (document.visibilityState === 'visible') socket.start()
+  else socket.stop()
+}
+
 onMounted(() => {
-  loadQuotes()
-  timer = window.setInterval(loadQuotes, 15000)
+  socket.start()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
+onActivated(() => socket.start())
+onDeactivated(() => socket.stop())
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', handleVisibility)
+  socket.stop()
 })
-watch(
-  () => props.seed,
-  () => {
-    if (!live.value.length && props.seed?.length) {
-      /* seed shown via computed */
-    }
-  }
-)
 
 defineExpose({ loadQuotes })
 </script>
@@ -84,6 +88,11 @@ defineExpose({ loadQuotes })
   gap: 8px;
   padding: 8px 10px !important;
   font-size: 13px;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
 }
 .index-item em {
   margin-left: auto;
