@@ -1,5 +1,6 @@
 <template>
   <PageFrame
+    class="sentiment-page"
     title="舆情大盘"
     subtitle="采集 · 分析 · 美/港/A 研判"
     badge="「舆情大盘 /sentiment/dashboard」"
@@ -15,6 +16,15 @@
     </template>
 
     <el-alert v-if="rateLimitMessage" type="warning" show-icon :closable="false" :title="rateLimitMessage" />
+
+    <div v-if="indices.length" class="index-strip glass-panel">
+      <div v-for="q in indices" :key="q.symbol || q.name" class="index-item">
+        <span class="mkt-tag">{{ shortMarket(q.market) }}</span>
+        <span>{{ q.name }}</span>
+        <strong class="numeric">{{ fmtPx(q.last ?? q.price) }}</strong>
+        <em :class="changeClass(q.changePct ?? q.changeRate)">{{ fmtChange(q.changePct ?? q.changeRate) }}</em>
+      </div>
+    </div>
 
     <div class="stat-strip">
       <article class="stat-tile glass-panel">
@@ -115,8 +125,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import PageFrame from '@/components/page/PageFrame.vue'
+import { getMarketIndexQuotes } from '@/api/market'
 import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/api/sentiment'
-import { score100, scoreClass } from '@/utils/format'
+import { changeClass, fmtChange, fmtPx, score100, scoreClass } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
 
 const loading = ref(false)
@@ -125,6 +136,7 @@ const analyzing = ref(false)
 const stats = ref({})
 const latest = ref({})
 const history = ref([])
+const indices = ref([])
 const trend = ref([])
 const trendRef = ref(null)
 const rateLimitedUntil = ref(0)
@@ -177,6 +189,13 @@ function directionClass(direction) {
   if (d === 'up') return 'market-up'
   if (d === 'down') return 'market-down'
   return 'market-flat'
+}
+
+function shortMarket(m) {
+  if (m === 'US') return '美'
+  if (m === 'HK') return '港'
+  if (m === 'CN' || m === 'A') return 'A'
+  return m || '--'
 }
 
 function parseRisk(raw) {
@@ -242,7 +261,12 @@ function renderTrend(list) {
 async function load() {
   loading.value = true
   try {
-    const [s, a, t] = await Promise.allSettled([getStats(), listAnalysis({ pageNum: 1, pageSize: 20, status: '0' }), getTrend(24)])
+    const [s, a, t, idx] = await Promise.allSettled([
+      getStats(),
+      listAnalysis({ pageNum: 1, pageSize: 20, status: '0' }),
+      getTrend(24),
+      getMarketIndexQuotes()
+    ])
     if (s.status === 'fulfilled') {
       const data = unwrap(s.value)
       stats.value = data
@@ -261,6 +285,13 @@ async function load() {
       trend.value = Array.isArray(raw) ? raw : unwrapList(t.value)
     } else {
       trend.value = []
+    }
+    if (idx.status === 'fulfilled') {
+      const raw = unwrap(idx.value)
+      const items = raw.items || raw.list || (Array.isArray(raw) ? raw : unwrapList(idx.value))
+      indices.value = Array.isArray(items) ? items : []
+    } else {
+      indices.value = []
     }
     await nextTick()
     renderTrend(trend.value)
@@ -344,15 +375,37 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.sentiment-page :deep(.page-hero) {
+  padding: 12px 14px !important;
+}
 .hero-meta {
   color: var(--text-secondary);
   font-size: 13px;
+}
+.index-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px !important;
+}
+.index-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  font-size: 13px;
+}
+.index-item em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
 }
 .stat-tile {
   padding: 8px 10px !important;
 }
 .stat-tile strong {
-  font-size: 15px !important;
+  font-size: 16px !important;
   line-height: 1.2 !important;
 }
 .kpi-time {
@@ -450,13 +503,18 @@ h3 {
 }
 :deep(.el-empty) {
   padding: 8px 0;
+  min-height: 0;
+}
+:deep(.el-empty__image) {
+  width: 48px;
 }
 :deep(.el-table) {
   font-size: 13px;
 }
 :deep(.el-table th.el-table__cell),
 :deep(.el-table td.el-table__cell) {
-  padding: 4px 0;
+  padding: 6px 0;
+  height: 34px;
 }
 @media (max-width: 900px) {
   .market-strip {

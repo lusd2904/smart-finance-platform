@@ -1,5 +1,5 @@
 <template>
-  <PageFrame title="资讯列表" badge="「资讯列表 /sentiment/news」" :loading="loading">
+  <PageFrame class="sentiment-page" title="资讯列表" badge="「资讯列表 /sentiment/news」" :loading="loading">
     <template #actions>
       <el-button type="primary" :loading="collecting" @click="collect">手动采集</el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
@@ -224,6 +224,9 @@ onMounted(load)
 </script>
 
 <style scoped>
+.sentiment-page :deep(.page-hero) {
+  padding: 12px 14px !important;
+}
 .filter-card {
   padding: 8px 10px !important;
 }
@@ -281,12 +284,17 @@ onMounted(load)
 }
 :deep(.el-empty) {
   padding: 8px 0;
+  min-height: 0;
+}
+:deep(.el-empty__image) {
+  width: 48px;
 }
 :deep(.el-table) {
   font-size: 13px;
 }
 :deep(.el-table th.el-table__cell),
 :deep(.el-table td.el-table__cell) {
-  padding: 4px 0;
+  padding: 6px 0;
+  height: 34px;
 }
 </style>
