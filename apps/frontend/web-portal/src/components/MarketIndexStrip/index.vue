@@ -117,20 +117,23 @@ defineExpose({ loadQuotes })
 <style scoped>
 .index-strip {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .index-item {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
-  padding: 4px 8px !important;
-  font-size: 12px;
+  flex: 1 1 0;
+  gap: 4px;
+  padding: 3px 6px !important;
+  font-size: 11px;
   border: 0;
   text-align: left;
   cursor: pointer;
   color: inherit;
-  min-width: 168px;
+  min-width: 108px;
 }
 .idx-market {
   font-size: 10px;
@@ -138,13 +141,13 @@ defineExpose({ loadQuotes })
   color: var(--accent, #6366f1);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 4px;
-  padding: 1px 4px;
+  padding: 1px 3px;
 }
 .idx-name {
   color: var(--text-secondary);
 }
 .idx-last {
-  font-size: 13px;
+  font-size: 12px;
 }
 .idx-chg {
   margin-left: auto;

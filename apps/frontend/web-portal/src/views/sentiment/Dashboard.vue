@@ -1,6 +1,6 @@
 <template>
   <PageFrame
-    class="sentiment-page"
+    class="sentiment-page sentiment-dashboard"
     title="舆情AI分析大盘"
     :subtitle="latestTime ? `最新分析时间：${latestTime}` : ''"
     :loading="loading"
@@ -58,7 +58,7 @@
       </article>
     </div>
 
-    <el-card shadow="never" class="glass-panel">
+    <el-card shadow="never" class="glass-panel trend-card">
       <template #header>
         <div class="card-header">
           <h3>市场情绪分数趋势</h3>
@@ -144,7 +144,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import PageFrame from '@/components/page/PageFrame.vue'
@@ -153,9 +153,12 @@ import { collectNews, getStats, getTrend, listAnalysis, runAnalysis } from '@/ap
 import { useUserStore } from '@/store/user'
 import { unwrap, unwrapList } from '@/utils/list'
 import { isDemoSession, showStubBanner, stubSentimentDashboard } from '@/utils/stubs'
+import { useTheme } from '@/composables/useTheme'
 import '@/styles/sentiment-pages.scss'
+import '@/styles/sentiment-dashboard.scss'
 
 const userStore = useUserStore()
+const { activeTheme } = useTheme()
 const loading = ref(false)
 const collecting = ref(false)
 const analyzing = ref(false)
@@ -303,6 +306,7 @@ function renderTrend(list) {
     },
     true
   )
+  chart.resize()
 }
 
 async function getStatsData() {
@@ -419,6 +423,11 @@ function refreshAll() {
   indexStripRef.value && indexStripRef.value.loadQuotes()
 }
 
+watch(activeTheme, async () => {
+  await nextTick()
+  renderTrend(trend.value)
+})
+
 onMounted(() => {
   refreshAll()
   onResize = () => chart && chart.resize()
@@ -444,29 +453,30 @@ onBeforeUnmount(() => {
 .kpi-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 10px;
   border-radius: 8px;
   color: #fff;
 }
 .kpi-icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   display: grid;
   place-items: center;
   background: rgba(255, 255, 255, 0.22);
-  font-size: 18px;
+  font-size: 16px;
 }
 .kpi-card span {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   opacity: 0.92;
 }
 .kpi-card strong {
   display: block;
   font-size: 16px;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 .kpi-blue {
   background: linear-gradient(135deg, #409eff 0%, #2d6cdf 100%);
@@ -545,7 +555,9 @@ h3 {
 }
 .trend-chart {
   width: 100%;
-  height: 180px;
+  height: 156px;
+  max-height: 156px;
+  min-height: 156px;
 }
 .trend-empty {
   margin: 0;
