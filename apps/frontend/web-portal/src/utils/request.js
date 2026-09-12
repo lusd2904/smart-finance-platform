@@ -96,7 +96,7 @@ function isBrokerAuthFailure(payload, config, httpStatus) {
 }
 
 function brokerAuthError(payload, code) {
-  const err = new Error(sanitizePublicText(payload?.msg || payload?.message, '长桥凭证不可用'))
+  const err = new Error(sanitizePublicText(payload?.msg || payload?.message, '长桥 OpenAPI 拒绝了当前 Access Token（401004）。这不是平台登录过期。'))
   err.brokerAuth = true
   err.code = code
   return err

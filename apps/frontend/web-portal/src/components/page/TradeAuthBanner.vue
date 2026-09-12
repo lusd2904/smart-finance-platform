@@ -1,10 +1,10 @@
 <template>
   <div v-if="visible" class="trade-auth-banner glass-panel">
     <div class="copy">
-      <strong>长桥凭证不可用</strong>
+      <strong>长桥 OpenAPI 拒绝了 Access Token</strong>
       <p>
-        交易接口返回 401<span v-if="code">（{{ code }}）</span>。
-        请到量化 · 长桥配置检查 App Key / Token。
+        券商返回 401004<span v-if="code && String(code) !== '401004'">（{{ code }}）</span>：纸交易账户 token 不被该接口接受或已失效。
+        这不是本站登录过期，无需刷新平台 JWT。请到量化 · 长桥配置更换有效的长桥 Access Token。
         <template v-if="cached">当前展示的是缓存数据，勿当成实时空仓。</template>
       </p>
     </div>

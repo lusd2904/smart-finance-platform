@@ -2,16 +2,18 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/auth"
-	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/response"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/autoscan"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/platform"
+	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/response"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/service"
+	"github.com/lusd2904/smart-finance-platform/services/trade-exec"
 )
 
 type Server struct {
@@ -34,10 +36,19 @@ func userID(r *http.Request) int {
 	return int(u.UserID)
 }
 
+func writeTradeErr(w http.ResponseWriter, err error) {
+	var br *tradeexec.BrokerRejectError
+	if errors.As(err, &br) {
+		response.Fail(w, br.Code, br.Message)
+		return
+	}
+	response.Error(w, err.Error())
+}
+
 func (s *Server) Account(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Trade.Account(r.Context(), userID(r))
 	if err != nil {
-		response.Error(w, err.Error())
+		writeTradeErr(w, err)
 		return
 	}
 	response.Success(w, data)
@@ -46,7 +57,7 @@ func (s *Server) Account(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Positions(w http.ResponseWriter, r *http.Request) {
 	data, err := s.Trade.Positions(r.Context(), userID(r))
 	if err != nil {
-		response.Error(w, err.Error())
+		writeTradeErr(w, err)
 		return
 	}
 	response.Success(w, data)

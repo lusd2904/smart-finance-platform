@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/factor"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/indicators"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/longbridge"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/store"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/kline"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/response"
+	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 )
 
 const stopLossPct = -8.0
@@ -234,7 +234,22 @@ func (s *Server) LongbridgeTest(w http.ResponseWriter, r *http.Request) {
 	}
 	broker := s.broker()
 	acct, err := broker.AccountBalance(r.Context(), creds)
-	if err != nil || !acct.Configured {
+	if err != nil {
+		err = tradeexec.ClassifyBrokerError(err)
+		if tradeexec.IsBrokerTokenRejected(err) {
+			writeEnvelope(w, http.StatusOK, envelope{
+				Code: tradeexec.BrokerTokenInvalidCode, Msg: err.Error(), Success: false,
+				Time: time.Now().Format(time.RFC3339),
+			})
+			return
+		}
+		Success(w, map[string]interface{}{
+			"configured": true, "connected": false, "region": creds.Region,
+			"message": firstNonEmpty(err.Error(), acct.Message, "连通性测试失败"),
+		})
+		return
+	}
+	if !acct.Configured {
 		Success(w, map[string]interface{}{
 			"configured": true, "connected": false, "region": creds.Region,
 			"message": firstNonEmpty(acct.Message, "连通性测试失败"),
@@ -423,7 +438,7 @@ func (s *Server) runPositionMonitor(ctx context.Context) (map[string]interface{}
 			alert := map[string]interface{}{
 				"userId": uid, "symbol": symbol, "market": market, "quantity": qty,
 				"costPrice": cost, "lastPrice": last, "pnlPct": round4(pnlPct), "level": "danger",
-				"title": fmt.Sprintf("持仓止损 · %s", symbol),
+				"title":   fmt.Sprintf("持仓止损 · %s", symbol),
 				"content": fmt.Sprintf("用户%d %s 现价 %.4f 相对成本 %.4f 浮亏 %.4f%%", uid, symbol, last, cost, pnlPct),
 			}
 			if settings.AutoTradeEnabled && qty > 0 {

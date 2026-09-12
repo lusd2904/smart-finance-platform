@@ -577,7 +577,7 @@ func (s *Service) RiskTearsheet(ctx context.Context, userID int, days int) (map[
 	}
 	positions, err := s.Broker.Positions(ctx, creds)
 	if err != nil {
-		return nil, err
+		return nil, tradeexec.ClassifyBrokerError(err)
 	}
 	if len(positions) == 0 {
 		return map[string]interface{}{
