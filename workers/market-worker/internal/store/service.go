@@ -56,18 +56,19 @@ func (s *Service) Close() error {
 	return s.db.Close()
 }
 
+// SyncSymbol fetches daily bars and upserts MySQL first. Influx WriteDaily is
+// best-effort so eod_kline_sync / market_sync can fill ^GSPC and featured
+// dailies when sentiment-influxdb is down.
 func (s *Service) SyncSymbol(ctx context.Context, symbol, market string, years int) (int, error) {
 	rows, _ := s.kline.FetchReal(symbol, market, years)
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	bars := toInfluxBars(rows)
-	n, err := s.influx.WriteDaily(ctx, market, bars)
-	if err != nil {
-		return 0, err
+	var influxW dailyInfluxWriter
+	if s.influx != nil {
+		influxW = s.influx
 	}
-	_ = s.saveMySQL(rows)
-	return n, nil
+	return writeDailyDual(ctx, influxW, s.db, market, rows)
 }
 
 func (s *Service) SyncFeatured(ctx context.Context, years int) (map[string]interface{}, error) {
@@ -356,42 +357,6 @@ func featuredSymbols(market string) []string {
 		"CN": {"600519.SH", "000001.SZ", "000001.SH", "399001", "399006"},
 	}
 	return all[strings.ToUpper(market)]
-}
-
-func (s *Service) saveMySQL(rows []kline.Row) int {
-	if len(rows) == 0 {
-		return 0
-	}
-	stmt := `INSERT INTO market_price_history_daily
-(symbol, market, trade_date, open_price, high_price, low_price, close_price, volume, turnover, source, update_time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NOW())
-ON DUPLICATE KEY UPDATE
-market=VALUES(market), open_price=VALUES(open_price), high_price=VALUES(high_price),
-low_price=VALUES(low_price), close_price=VALUES(close_price), volume=VALUES(volume),
-source=VALUES(source), update_time=VALUES(update_time)`
-	count := 0
-	for _, r := range rows {
-		_, err := s.db.Exec(stmt, r.Symbol, r.Market, r.TradeDate, r.Open, r.High, r.Low, r.Close, r.Volume, r.Source)
-		if err == nil {
-			count++
-		}
-	}
-	return count
-}
-
-func toInfluxBars(rows []kline.Row) []influx.Bar {
-	out := make([]influx.Bar, 0, len(rows))
-	for _, r := range rows {
-		ts, err := influx.ParseDate(r.TradeDate)
-		if err != nil {
-			continue
-		}
-		out = append(out, influx.Bar{
-			Symbol: r.Symbol, TradeDate: ts,
-			Open: r.Open, High: r.High, Low: r.Low, Close: r.Close, Volume: r.Volume,
-		})
-	}
-	return out
 }
 
 func shouldSkipSynced(bars int, lastDate string, minBars, freshDays int) bool {

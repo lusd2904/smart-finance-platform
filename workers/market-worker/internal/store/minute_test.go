@@ -81,6 +81,14 @@ type fakeInfluxWriter struct {
 }
 
 func (f *fakeInfluxWriter) WriteMinute(_ context.Context, market string, rows []influx.Bar) (int, error) {
+	return f.record(market, rows)
+}
+
+func (f *fakeInfluxWriter) WriteDaily(_ context.Context, market string, rows []influx.Bar) (int, error) {
+	return f.record(market, rows)
+}
+
+func (f *fakeInfluxWriter) record(market string, rows []influx.Bar) (int, error) {
 	f.called = true
 	f.market = market
 	f.rows = rows

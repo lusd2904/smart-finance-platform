@@ -39,6 +39,9 @@ func NewWriter(cfg config.Config) (*Writer, error) {
 
 func (w *Writer) Close() {}
 
+// WriteDaily writes daily_kline to Influx (best-effort companion).
+// MySQL market_price_history_daily is the read source of truth; this writer
+// stays until Influx is shut down and must not block MySQL upserts.
 func (w *Writer) WriteDaily(ctx context.Context, market string, rows []Bar) (int, error) {
 	return w.write(ctx, market, "daily_kline", rows)
 }
