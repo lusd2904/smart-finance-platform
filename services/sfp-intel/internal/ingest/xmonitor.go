@@ -8,11 +8,18 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lusd2904/smart-finance-platform/services/sfp-intel/internal/timeutil"
 )
 
-const BatchMax = 200
+const (
+	BatchMax = 200
+	// titlePreviewRunes is the live X-ingest title cut (was a byte slice).
+	titlePreviewRunes = 80
+	titleMaxRunes     = 500
+	contentMaxRunes   = 4000
+)
 
 var topicSplit = regexp.MustCompile(`[,，|/]+`)
 
@@ -121,16 +128,9 @@ func MapXMonitorItem(raw map[string]interface{}) *MappedNews {
 	} else {
 		firstLine = url
 	}
-	title := firstLine
-	if len(title) > 80 {
-		title = title[:80]
-	}
+	title := clipRunes(firstLine, titlePreviewRunes)
 	if title == "" {
-		if len(url) > 80 {
-			title = url[:80]
-		} else {
-			title = url
-		}
+		title = clipRunes(url, titlePreviewRunes)
 	}
 	if title == "" {
 		title = "x_monitor"
@@ -168,19 +168,37 @@ func MapXMonitorItem(raw map[string]interface{}) *MappedNews {
 	}
 	return &MappedNews{
 		Source:   "x_monitor",
-		Title:    truncate(title, 500),
-		Content:  truncate(content, 4000),
+		Title:    clipRunes(title, titleMaxRunes),
+		Content:  clipRunes(content, contentMaxRunes),
 		URL:      urlPtr,
 		PubTime:  timeutil.ParseFlexible(postedAt),
 		UniqHash: uniq,
 	}
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
+// clipRunes truncates s to at most max Unicode code points without splitting a
+// UTF-8 sequence. The result is always utf8.ValidString.
+func clipRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if s == "" {
 		return s
 	}
-	return s[:n]
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "\uFFFD")
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return s[:i]
+		}
+		n++
+	}
+	return s
 }
 
 func URLHash(url string) string {
