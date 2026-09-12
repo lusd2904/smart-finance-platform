@@ -154,18 +154,9 @@ func (s *Service) SyncMinutes(ctx context.Context, market string, interval float
 			failed = append(failed, sym)
 			continue
 		}
-		bars := make([]influx.Bar, 0, len(rows))
-		for _, r := range rows {
-			ts, err := influx.ParseMinute(r.TradeDate)
-			if err != nil {
-				continue
-			}
-			bars = append(bars, influx.Bar{
-				Symbol: r.Symbol, TradeDate: ts,
-				Open: r.Open, High: r.High, Low: r.Low, Close: r.Close, Volume: r.Volume,
-			})
-		}
-		n, err := s.influx.WriteMinute(ctx, market, bars)
+		bars := minuteBarsFromRows(rows)
+		// Phase 1 dual-write: Influx remains source of truth; MySQL errors are isolated.
+		n, err := writeMinutesDual(ctx, s.influx, s.db, market, minuteSource(rows), bars)
 		if err != nil || n == 0 {
 			failed = append(failed, sym)
 			continue
