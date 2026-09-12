@@ -348,11 +348,12 @@ ORDER BY rank_no`, market, market)
 }
 
 func featuredSymbols(market string) []string {
-	// subset of TARGET_INSTRUMENTS non-index for each market
+	// Featured stocks plus pinned indices so eod minute / market_sync keep writing them.
+	// 上证指数 is 000001.SH only. Bare 000001 and 000001.SZ stay 平安银行 (do not pin as index).
 	all := map[string][]string{
 		"US": {"AAPL", "MSFT", "NVDA", "TSLA", "GOOGL", "AMZN", "META"},
-		"HK": {"0700.HK", "9988.HK", "3690.HK"},
-		"CN": {"600519.SH", "000001.SZ"},
+		"HK": {"0700.HK", "9988.HK", "3690.HK", "HSI", "HSTECH", "HSCEI"},
+		"CN": {"600519.SH", "000001.SZ", "000001.SH", "399001", "399006"},
 	}
 	return all[strings.ToUpper(market)]
 }
