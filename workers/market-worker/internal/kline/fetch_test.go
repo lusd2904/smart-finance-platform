@@ -49,13 +49,13 @@ func TestVendorIndexAndTencentSymbol(t *testing.T) {
 		{"HSTECH", "HK", "hkHSTECH", "HSTECH", true},
 		{"HSCEI", "HK", "hkHSCEI", "HSCEI", true},
 		{"HSI.HK", "HK", "hkHSI", "HSI", true},
-		{"000001", "CN", "sh000001", "sh000001", true},
 		{"000001.SH", "CN", "sh000001", "sh000001", true},
 		{"399001", "CN", "sz399001", "sz399001", true},
 		{"399006", "CN", "sz399006", "sz399006", true},
 		{"^GSPC", "US", "usINX", ".INX", true},
 		{"^DJI", "US", "usDJI", ".DJI", true},
 		{"^IXIC", "US", "usIXIC", ".IXIC", true},
+		{"000001", "CN", "", "", false},
 		{"000001.SZ", "CN", "", "", false},
 		{"600519.SH", "CN", "", "", false},
 		{"0700.HK", "HK", "", "", false},
@@ -76,11 +76,17 @@ func TestVendorIndexAndTencentSymbol(t *testing.T) {
 			}
 		}
 	}
+	if _, _, ok := VendorIndex("000001", "CN"); ok {
+		t.Fatal("VendorIndex(000001,CN) must not be the index; bare 000001 is 平安银行")
+	}
+	if got := tencentSymbol("000001", "CN"); got != "sz000001" {
+		t.Fatalf("bank 000001 tencent=%q want sz000001", got)
+	}
 	if got := tencentSymbol("000001.SZ", "CN"); got != "sz000001" {
 		t.Fatalf("bank 000001.SZ tencent=%q", got)
 	}
-	if got := tencentSymbol("000001", "CN"); got != "sh000001" {
-		t.Fatalf("index 000001 tencent=%q", got)
+	if got := tencentSymbol("000001.SH", "CN"); got != "sh000001" {
+		t.Fatalf("index 000001.SH tencent=%q", got)
 	}
 	if got := tencentSymbol("HSI", "HK"); got != "hkHSI" {
 		t.Fatalf("HSI tencent=%q", got)

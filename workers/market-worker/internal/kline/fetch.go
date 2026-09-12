@@ -34,7 +34,7 @@ type vendorIndex struct {
 }
 
 // vendorIndexByKey maps "SYMBOL|MARKET" to Tencent qt / Sina daily codes.
-// 000001|CN is 上证指数 (sh000001), not 000001.SZ 平安银行 (sz000001).
+// 上证指数 is only 000001.SH → sh000001. Bare 000001 and 000001.SZ are 平安银行 (sz000001).
 var vendorIndexByKey = map[string]vendorIndex{
 	"^DJI|US":      {Tencent: "usDJI", Sina: ".DJI"},
 	"^GSPC|US":     {Tencent: "usINX", Sina: ".INX"},
@@ -45,7 +45,6 @@ var vendorIndexByKey = map[string]vendorIndex{
 	"HSTECH.HK|HK": {Tencent: "hkHSTECH", Sina: "HSTECH"},
 	"HSCEI|HK":     {Tencent: "hkHSCEI", Sina: "HSCEI"},
 	"HSCEI.HK|HK":  {Tencent: "hkHSCEI", Sina: "HSCEI"},
-	"000001|CN":    {Tencent: "sh000001", Sina: "sh000001"},
 	"000001.SH|CN": {Tencent: "sh000001", Sina: "sh000001"},
 	"399001|CN":    {Tencent: "sz399001", Sina: "sz399001"},
 	"399001.SZ|CN": {Tencent: "sz399001", Sina: "sz399001"},
@@ -58,7 +57,7 @@ func vendorKey(symbol, market string) string {
 }
 
 // VendorIndex returns Tencent qt and Sina daily codes for a pinned index.
-// ok is false for ordinary stocks (including 000001.SZ, the bank).
+// ok is false for ordinary stocks, including bare 000001 and 000001.SZ (平安银行).
 func VendorIndex(symbol, market string) (tencentCode, sinaCode string, ok bool) {
 	row, found := vendorIndexByKey[vendorKey(symbol, market)]
 	if !found {

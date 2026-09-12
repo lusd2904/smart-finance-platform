@@ -157,6 +157,25 @@ func TestUSHeatIndexMapsGSPCToUsINX(t *testing.T) {
 	}
 }
 
+func TestIndexDailySymbolsUsesShanghaiCompositeSuffix(t *testing.T) {
+	cn := IndexDailySymbols("CN")
+	if !containsStr(cn, "000001.SH") {
+		t.Fatalf("CN daily-bar fallback must use 000001.SH, got %v", cn)
+	}
+	if containsStr(cn, "000001") {
+		t.Fatalf("CN daily-bar fallback must not use bare 000001 (bank): %v", cn)
+	}
+}
+
+func containsStr(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDailyBarChangePct(t *testing.T) {
 	got := DailyBarChangePct(5050, 5000)
 	if got == nil || *got != 1 {

@@ -130,7 +130,7 @@ func IndexDailySymbols(market string) []string {
 	case "HK":
 		return []string{"HSI", "HSI.HK"}
 	case "CN":
-		return []string{"000001"}
+		return []string{"000001.SH"}
 	default:
 		return nil
 	}
