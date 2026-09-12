@@ -155,8 +155,11 @@ func (s *Service) SyncMinutes(ctx context.Context, market string, interval float
 			continue
 		}
 		bars := minuteBarsFromRows(rows)
-		// Phase 1 dual-write: Influx remains source of truth; MySQL errors are isolated.
-		n, err := writeMinutesDual(ctx, s.influx, s.db, market, minuteSource(rows), bars)
+		var influxW minuteInfluxWriter
+		if s.influx != nil {
+			influxW = s.influx
+		}
+		n, err := writeMinutesDual(ctx, influxW, s.db, market, minuteSource(rows), bars)
 		if err != nil || n == 0 {
 			failed = append(failed, sym)
 			continue
