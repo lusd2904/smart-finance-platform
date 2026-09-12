@@ -90,6 +90,20 @@ func TestVendorIndexAndTencentSymbol(t *testing.T) {
 	}
 }
 
+func TestTencentDailyURLIsRawParam(t *testing.T) {
+	got := tencentDailyURL(tencentFQURL, "sh000001")
+	if !strings.Contains(got, "param=sh000001%2Cday%2C%2C%2C320%2Cqfq") {
+		t.Fatalf("raw param missing: %s", got)
+	}
+	if strings.Contains(got, "%7B%22param%22") {
+		t.Fatalf("must not JSON-wrap param: %s", got)
+	}
+	hk := tencentDailyURL(tencentHKFQURL, "hkHSI")
+	if !strings.Contains(hk, "hkfqkline") || !strings.Contains(hk, "hkHSI") {
+		t.Fatalf("HK daily URL=%s", hk)
+	}
+}
+
 func TestMinuteURLsUseHTTPS(t *testing.T) {
 	for mkt, raw := range minuteURLs {
 		if !strings.HasPrefix(raw, "https://") {

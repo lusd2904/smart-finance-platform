@@ -196,17 +196,19 @@ func parseSinaBars(arr []interface{}, symbol, market, start string) []Row {
 	return rows
 }
 
+func tencentDailyURL(endpoint, code string) string {
+	q := url.Values{}
+	q.Set("param", code+",day,,,320,qfq")
+	return endpoint + "?" + q.Encode()
+}
+
 func (c *Client) fetchTencent(symbol, market string, years int) ([]Row, error) {
 	code := tencentSymbol(symbol, market)
 	endpoint := tencentFQURL
 	if market == "HK" {
 		endpoint = tencentHKFQURL
 	}
-	param := map[string]string{"param": code + ",day,,,320,qfq"}
-	raw, _ := json.Marshal(param)
-	q := url.Values{}
-	q.Set("param", string(raw))
-	body, err := c.get(endpoint+"?"+q.Encode(), defaultHeaders())
+	body, err := c.get(tencentDailyURL(endpoint, code), defaultHeaders())
 	if err != nil {
 		return nil, err
 	}
