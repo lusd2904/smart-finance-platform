@@ -25,6 +25,13 @@ const (
 	sysConfigKey     = "sys_config"
 	passwordErrKey   = "password_error_count"
 	accountLockKey   = "account_lock"
+	ipLoginErrKey    = "login_ip_error_count"
+	ipLoginLockKey   = "login_ip_lock"
+
+	maxUserPasswordFails = 5
+	maxIPLoginFails      = 10
+	loginLockTTL         = 10 * time.Minute
+	loginFailMsg         = "用户名或密码错误"
 )
 
 type User struct {
@@ -122,8 +129,8 @@ func (s *Service) loadUser(ctx context.Context, userID int64) (*User, error) {
 	raw, err := s.redis.Get(ctx, fmt.Sprintf("%s:%d", currentUserKey, userID)).Result()
 	if err == nil {
 		var cached struct {
-			Epoch string                     `json:"epoch"`
-			User  store.CurrentUserPayload   `json:"user"`
+			Epoch string                   `json:"epoch"`
+			User  store.CurrentUserPayload `json:"user"`
 		}
 		if json.Unmarshal([]byte(raw), &cached) == nil {
 			epoch, _ := s.redis.Get(ctx, currentUserEpoch).Result()
@@ -193,10 +200,11 @@ func (s *Service) buildPayload(ctx context.Context, b *store.UserBundle) store.C
 	}
 }
 
-func (s *Service) Login(ctx context.Context, userName, password, code, uuid string, captchaEnabled bool) (string, error) {
-	lock, _ := s.redis.Get(ctx, fmt.Sprintf("%s:%s", accountLockKey, userName)).Result()
-	if lock == userName {
-		return "", errors.New("账号已锁定，请稍后再试")
+func (s *Service) Login(ctx context.Context, userName, password, code, uuid string, captchaEnabled bool, clientIP string) (string, error) {
+	userName = strings.TrimSpace(userName)
+	clientIP = normalizeClientIP(clientIP)
+	if locked, msg := s.loginLocked(ctx, userName, clientIP); locked {
+		return "", errors.New(msg)
 	}
 	if captchaEnabled {
 		if err := s.checkCaptcha(ctx, uuid, code); err != nil {
@@ -208,20 +216,10 @@ func (s *Service) Login(ctx context.Context, userName, password, code, uuid stri
 		return "", err
 	}
 	if user == nil {
-		return "", errors.New("用户不存在")
+		return "", s.recordLoginFailure(ctx, userName, clientIP)
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		key := fmt.Sprintf("%s:%s", passwordErrKey, userName)
-		n, _ := s.redis.Incr(ctx, key).Result()
-		if n == 1 {
-			_ = s.redis.Expire(ctx, key, 10*time.Minute).Err()
-		}
-		if n > 5 {
-			_ = s.redis.Del(ctx, key).Err()
-			_ = s.redis.Set(ctx, fmt.Sprintf("%s:%s", accountLockKey, userName), userName, 10*time.Minute).Err()
-			return "", errors.New("10分钟内密码已输错超过5次，账号已锁定，请10分钟后再试")
-		}
-		return "", errors.New("密码错误")
+		return "", s.recordLoginFailure(ctx, userName, clientIP)
 	}
 	if user.Status == "1" {
 		return "", errors.New("用户已停用")
@@ -323,14 +321,78 @@ func (s *Service) CheckCaptcha(ctx context.Context, uuid, code string) error {
 }
 
 func (s *Service) checkCaptcha(ctx context.Context, uuid, code string) error {
-	v, err := s.redis.Get(ctx, fmt.Sprintf("%s:%s", captchaCodesKey, uuid)).Result()
+	key := fmt.Sprintf("%s:%s", captchaCodesKey, uuid)
+	v, err := s.redis.Get(ctx, key).Result()
 	if err != nil {
 		return errors.New("验证码已失效")
 	}
 	if strings.TrimSpace(code) != strings.TrimSpace(v) {
 		return errors.New("验证码错误")
 	}
+	// One-time use: consume only after a successful match so failed
+	// attempts can still retry until TTL (and remain rate-limited).
+	_ = s.redis.Del(ctx, key).Err()
 	return nil
+}
+
+func (s *Service) loginLocked(ctx context.Context, userName, clientIP string) (bool, string) {
+	if userName != "" {
+		lock, err := s.redis.Get(ctx, fmt.Sprintf("%s:%s", accountLockKey, userName)).Result()
+		if err == nil && strings.TrimSpace(lock) != "" {
+			return true, "账号已锁定，请稍后再试"
+		}
+	}
+	if clientIP != "" {
+		lock, err := s.redis.Get(ctx, fmt.Sprintf("%s:%s", ipLoginLockKey, clientIP)).Result()
+		if err == nil && strings.TrimSpace(lock) != "" {
+			return true, "尝试次数过多，请稍后再试"
+		}
+	}
+	return false, ""
+}
+
+func (s *Service) recordLoginFailure(ctx context.Context, userName, clientIP string) error {
+	userLocked := false
+	if userName != "" {
+		key := fmt.Sprintf("%s:%s", passwordErrKey, userName)
+		n, _ := s.redis.Incr(ctx, key).Result()
+		if n == 1 {
+			_ = s.redis.Expire(ctx, key, loginLockTTL).Err()
+		}
+		if n > maxUserPasswordFails {
+			_ = s.redis.Del(ctx, key).Err()
+			_ = s.redis.Set(ctx, fmt.Sprintf("%s:%s", accountLockKey, userName), userName, loginLockTTL).Err()
+			userLocked = true
+		}
+	}
+	ipLocked := false
+	if clientIP != "" {
+		key := fmt.Sprintf("%s:%s", ipLoginErrKey, clientIP)
+		n, _ := s.redis.Incr(ctx, key).Result()
+		if n == 1 {
+			_ = s.redis.Expire(ctx, key, loginLockTTL).Err()
+		}
+		if n > maxIPLoginFails {
+			_ = s.redis.Del(ctx, key).Err()
+			_ = s.redis.Set(ctx, fmt.Sprintf("%s:%s", ipLoginLockKey, clientIP), clientIP, loginLockTTL).Err()
+			ipLocked = true
+		}
+	}
+	if userLocked {
+		return errors.New("10分钟内密码已输错超过5次，账号已锁定，请10分钟后再试")
+	}
+	if ipLocked {
+		return errors.New("尝试次数过多，请稍后再试")
+	}
+	return errors.New(loginFailMsg)
+}
+
+func normalizeClientIP(raw string) string {
+	ip := strings.TrimSpace(raw)
+	if i := strings.Index(ip, ","); i >= 0 {
+		ip = strings.TrimSpace(ip[:i])
+	}
+	return ip
 }
 
 func (s *Service) StoreCaptcha(ctx context.Context, uuid, answer string) error {
