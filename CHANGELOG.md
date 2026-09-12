@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 📉 Phase 1: 分钟 K 双写 MySQL（Influx 仍为读源）
+- 新增 `sql/market-price-history-minute.sql`（`sql_migrate` 自动发现）：按 `(symbol, market, bar_time)` 唯一 upsert，带 `trade_date` 供日后裁剪约 20 个交易日
+- `market-worker` 在 `WriteMinute` 成功后镜像同一批分钟 bar；MySQL 失败只记日志，不让 Influx 写入/作业失败
+- 读路径（market-read / trade-api / notify-worker / quant-worker / opensync）仍走 Flux，本阶段不切流、不停 Influx
+
 ### 📰 Go `sentiment_collect` 公开源采集
 - `sfp-notify-worker` 按 `sentiment_ai_config.enabled_sources` 拉取东财 / 新浪 / 同花顺 / 华尔街见闻 / Google News RSS / 金十，写入 `sentiment_news`（`analyzed='0'`）
 - `x_monitor` 仍只走 ingest，不由采集器伪造行；job 100 默认 `analyze=true` + `auto_analyze` 行为不变
