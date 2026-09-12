@@ -33,6 +33,8 @@ func NewHeatStore(cfg *config.Config) (*HeatStore, error) {
 
 func (s *HeatStore) Close() error { return s.db.Close() }
 
+func (s *HeatStore) DB() *sql.DB { return s.db }
+
 type HeatRow struct {
 	Market         string
 	TradeDate      string

@@ -70,12 +70,12 @@ func main() {
 		},
 		Quotes: &service.Quotes{
 			Broker: tradeRepo,
-			Influx: influx.New(cfg),
+			Influx: influx.New(cfg, db),
 			Sdk:    broker,
 		},
 		Platform: &platform.Service{
 			Repo:          platformRepo,
-			Influx:        influx.New(cfg),
+			Influx:        influx.New(cfg, db),
 			Queue:         queue.NewEnqueuer(cacheClient.Client()),
 			Broker:        broker,
 			Redis:         cacheClient.Client(),

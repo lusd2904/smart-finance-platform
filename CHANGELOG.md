@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 📉 K 线读路径切到 MySQL（Influx 仍写入、尚未拆除）
+- `GET /market/kline` 与其它 daily/minute 读者改为读 `market_price_history_daily` / `market_price_history_minute`
+- 共享包 `services/klineread`：按 symbol+market+时间范围查询；空序列原样返回，不回退 Influx
+- 已切：market-read / data-api / trade-api / notify-worker / quant-worker / sfp-backend opensync `influx.daily`
+- `market-worker` 分钟双写：MySQL upsert 必须成功（读源）；Influx `WriteMinute` 失败只记日志，不挡作业，以便停 `sentiment-influxdb`
+- `writer.go` 与 compose 中的 `sentiment-influxdb` 本阶段仍保留；日 K `WriteDaily` 仍只写 Influx（日 K 已由 `saveMySQL` 落库）
+
 ### 📉 Phase 1: 分钟 K 双写 MySQL（Influx 仍为读源）
 - 新增 `sql/market-price-history-minute.sql`（`sql_migrate` 自动发现）：按 `(symbol, market, bar_time)` 唯一 upsert，带 `trade_date` 供日后裁剪约 20 个交易日
 - `market-worker` 在 `WriteMinute` 成功后镜像同一批分钟 bar；MySQL 失败只记日志，不让 Influx 写入/作业失败

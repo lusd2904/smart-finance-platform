@@ -11,7 +11,7 @@ import (
 )
 
 // insertMinuteSQL upserts one bar per (symbol, market, bar_time).
-// Phase 1 dual-write: readers stay on Influx; Influx is removed only after a later reader cutover.
+// Readers use this table; Influx write is still the dual-write companion.
 const insertMinuteSQL = `INSERT INTO market_price_history_minute
 (symbol, market, trade_date, bar_time, open_price, high_price, low_price, close_price, volume, source, update_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
@@ -52,14 +52,15 @@ func minuteSource(rows []kline.Row) string {
 	return "tencent"
 }
 
-func upsertMinuteBars(ctx context.Context, db dbExecer, market, source string, bars []influx.Bar) error {
+func upsertMinuteBars(ctx context.Context, db dbExecer, market, source string, bars []influx.Bar) (int, error) {
 	if len(bars) == 0 {
-		return nil
+		return 0, nil
 	}
 	mkt := strings.ToUpper(strings.TrimSpace(market))
 	if source == "" {
 		source = "tencent"
 	}
+	n := 0
 	var firstErr error
 	for _, bar := range bars {
 		if bar.Symbol == "" || mkt == "" || bar.TradeDate.IsZero() {
@@ -70,24 +71,30 @@ func upsertMinuteBars(ctx context.Context, db dbExecer, market, source string, b
 		_, err := db.ExecContext(ctx, insertMinuteSQL,
 			bar.Symbol, mkt, tradeDate, barTime,
 			bar.Open, bar.High, bar.Low, bar.Close, bar.Volume, source)
-		if err != nil && firstErr == nil {
-			firstErr = err
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		n++
 	}
-	return firstErr
+	return n, firstErr
 }
 
-// writeMinutesDual writes minute bars to Influx first, then mirrors them to MySQL.
-// MySQL errors are logged and never fail the Influx write or the job.
-// Phase 1 dual-write: readers stay on Influx; Influx is removed only after a later reader cutover.
+// writeMinutesDual upserts minute bars to MySQL (source of truth for reads), then
+// best-effort WriteMinute to Influx when w is non-nil. Influx errors are logged
+// and do not fail the job. MySQL upsert errors fail the job.
 func writeMinutesDual(ctx context.Context, w minuteInfluxWriter, db dbExecer, market, source string, bars []influx.Bar) (int, error) {
-	n, err := w.WriteMinute(ctx, market, bars)
-	if err != nil {
-		return 0, err
+	n, mysqlErr := upsertMinuteBars(ctx, db, market, source, bars)
+	if w != nil {
+		if _, influxErr := w.WriteMinute(ctx, market, bars); influxErr != nil {
+			slog.Error("minute dual-write: influx write failed; mysql is source of truth",
+				"market", market, "bars", len(bars), "err", influxErr)
+		}
 	}
-	if mysqlErr := upsertMinuteBars(ctx, db, market, source, bars); mysqlErr != nil {
-		slog.Error("phase 1 dual-write: mysql minute upsert failed; influx remains source of truth",
-			"market", market, "bars", len(bars), "err", mysqlErr)
+	if mysqlErr != nil {
+		return n, mysqlErr
 	}
 	return n, nil
 }

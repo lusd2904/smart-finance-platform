@@ -104,10 +104,10 @@ func TestUpsertMinuteBarsReplacesSameSymbolMarketTime(t *testing.T) {
 	second := sampleBar("AAPL", ts, 191)
 	second.Volume = 250
 	ctx := context.Background()
-	if err := upsertMinuteBars(ctx, db, "us", "tencent", []influx.Bar{first}); err != nil {
+	if _, err := upsertMinuteBars(ctx, db, "us", "tencent", []influx.Bar{first}); err != nil {
 		t.Fatal(err)
 	}
-	if err := upsertMinuteBars(ctx, db, "US", "tencent", []influx.Bar{second}); err != nil {
+	if _, err := upsertMinuteBars(ctx, db, "US", "tencent", []influx.Bar{second}); err != nil {
 		t.Fatal(err)
 	}
 	if len(db.rows) != 1 {
@@ -127,10 +127,10 @@ func TestUpsertMinuteBarsKeepsDistinctKeys(t *testing.T) {
 		sampleBar("AAPL", ts.Add(time.Minute), 191),
 		sampleBar("0700.HK", ts, 320),
 	}
-	if err := upsertMinuteBars(context.Background(), db, "US", "tencent", bars[:2]); err != nil {
+	if _, err := upsertMinuteBars(context.Background(), db, "US", "tencent", bars[:2]); err != nil {
 		t.Fatal(err)
 	}
-	if err := upsertMinuteBars(context.Background(), db, "HK", "tencent", bars[2:]); err != nil {
+	if _, err := upsertMinuteBars(context.Background(), db, "HK", "tencent", bars[2:]); err != nil {
 		t.Fatal(err)
 	}
 	if len(db.rows) != 3 {
@@ -155,18 +155,21 @@ func TestUpsertMinuteSQLTargetsUniqueKey(t *testing.T) {
 	}
 }
 
-func TestWriteMinutesDualIsolatesMySQLError(t *testing.T) {
+func TestWriteMinutesDualMySQLFailureFailsJob(t *testing.T) {
 	w := &fakeInfluxWriter{}
 	db := newMemMinuteDB()
 	db.fail = errors.New("mysql unavailable")
 	ts := time.Date(2026, 9, 11, 15, 0, 0, 0, time.UTC)
 	bars := []influx.Bar{sampleBar("AAPL", ts, 190)}
 	n, err := writeMinutesDual(context.Background(), w, db, "US", "tencent", bars)
-	if err != nil {
-		t.Fatalf("mysql error must not fail influx write: %v", err)
+	if err == nil {
+		t.Fatal("mysql error must fail the job")
 	}
-	if n != 1 || !w.called {
-		t.Fatalf("influx write skipped: n=%d called=%v", n, w.called)
+	if n != 0 {
+		t.Fatalf("n=%d", n)
+	}
+	if !w.called {
+		t.Fatal("influx write is still best-effort after mysql failure")
 	}
 	if db.calls != 1 {
 		t.Fatalf("expected mysql attempt, calls=%d", db.calls)
@@ -176,19 +179,34 @@ func TestWriteMinutesDualIsolatesMySQLError(t *testing.T) {
 	}
 }
 
-func TestWriteMinutesDualDoesNotTouchMySQLWhenInfluxFails(t *testing.T) {
+func TestWriteMinutesDualInfluxFailureStillWritesMySQL(t *testing.T) {
 	w := &fakeInfluxWriter{err: errors.New("influx 503")}
 	db := newMemMinuteDB()
-	bars := []influx.Bar{sampleBar("AAPL", time.Date(2026, 9, 11, 15, 0, 0, 0, time.UTC), 190)}
+	ts := time.Date(2026, 9, 11, 15, 0, 0, 0, time.UTC)
+	bars := []influx.Bar{sampleBar("AAPL", ts, 190)}
 	n, err := writeMinutesDual(context.Background(), w, db, "US", "tencent", bars)
-	if err == nil {
-		t.Fatal("expected influx error")
+	if err != nil {
+		t.Fatalf("influx error must not fail the job: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("n=%d", n)
+	if n != 1 || !w.called {
+		t.Fatalf("n=%d called=%v", n, w.called)
 	}
-	if db.calls != 0 {
-		t.Fatalf("mysql must not run after influx failure, calls=%d", db.calls)
+	got := db.rows[minuteKey("AAPL", "US", "2026-09-11 15:00:00")]
+	if got.Close != 190 {
+		t.Fatalf("mysql must store bar when influx is down: %+v", got)
+	}
+}
+
+func TestWriteMinutesDualNilInfluxStillWritesMySQL(t *testing.T) {
+	db := newMemMinuteDB()
+	ts := time.Date(2026, 9, 11, 15, 0, 0, 0, time.UTC)
+	bars := []influx.Bar{sampleBar("AAPL", ts, 190)}
+	n, err := writeMinutesDual(context.Background(), nil, db, "US", "tencent", bars)
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if _, ok := db.rows[minuteKey("AAPL", "US", "2026-09-11 15:00:00")]; !ok {
+		t.Fatal("mysql upsert skipped when influx writer is nil")
 	}
 }
 

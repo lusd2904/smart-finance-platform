@@ -36,7 +36,7 @@ type Service struct {
 	cfg    mwcfg.Config
 }
 
-func NewService(cfg mwcfg.Config, reader *mwinflux.Reader, rdb *redis.Client) (*Service, error) {
+func NewService(cfg mwcfg.Config, rdb *redis.Client) (*Service, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		cfg.MySQLUser, cfg.MySQLPassword, cfg.MySQLHost, cfg.MySQLPort, cfg.MySQLDatabase)
 	db, err := sql.Open("mysql", dsn)
@@ -48,8 +48,10 @@ func NewService(cfg mwcfg.Config, reader *mwinflux.Reader, rdb *redis.Client) (*
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	return &Service{db: db, reader: reader, rdb: rdb, cfg: cfg}, nil
+	return &Service{db: db, reader: mwinflux.NewReader(db), rdb: rdb, cfg: cfg}, nil
 }
+
+func (s *Service) Reader() *mwinflux.Reader { return s.reader }
 
 func (s *Service) Close() error {
 	return s.db.Close()

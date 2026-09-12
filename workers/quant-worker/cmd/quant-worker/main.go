@@ -15,7 +15,6 @@ import (
 
 	mwcfg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/config"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/handler"
-	mwinflux "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/internaljobs"
 	jobspkg "github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/jobs"
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/queue"
@@ -30,7 +29,6 @@ func main() {
 		cfg.WorkerPort = 9097
 	}
 
-	reader := mwinflux.NewReader(cfg)
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort),
 		Password: cfg.RedisPassword,
@@ -41,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	svc, err := store.NewService(cfg, reader, rdb)
+	svc, err := store.NewService(cfg, rdb)
 	if err != nil {
 		logger.Error("mysql init failed", "err", err)
 		os.Exit(1)
@@ -55,7 +53,7 @@ func main() {
 		tradeexec.NewSDKBroker(),
 		&jobspkg.InternalJobsStrategy{Client: jobsClient},
 		rdb,
-		reader,
+		svc.Reader(),
 		cfg,
 	)
 	consumer := queue.NewConsumer(rdb, h.Handle, cfg.VisibilityTimeout, cfg.MaxRetries, cfg.ConsumerPollInterval, cfg.ReclaimInterval, logger)

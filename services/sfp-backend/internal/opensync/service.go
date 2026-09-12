@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -15,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/lusd2904/smart-finance-platform/services/klineread"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/config"
 	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/store"
 )
@@ -343,79 +342,28 @@ func (s *Service) pullInflux(ctx context.Context, datasets, markets []string, si
 }
 
 func (s *Service) queryInfluxDaily(ctx context.Context, market, since string, pageSize, offset int) ([]map[string]interface{}, string) {
-	if s.cfg.InfluxToken == "" || s.cfg.InfluxURL == "" {
-		return nil, "Influx 未配置"
+	if s.db == nil || s.db.DB == nil {
+		return nil, "MySQL 未配置"
 	}
-	bucket := s.cfg.InfluxBucketCN
-	if market == "US" {
-		bucket = s.cfg.InfluxBucketUS
-	}
-	if !regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`).MatchString(bucket) {
-		return nil, "Influx bucket 非法"
-	}
-	startClause := "-2y"
-	if since != "" {
-		startClause = fmt.Sprintf(`time(v: "%sT00:00:00Z")`, since)
-	}
-	flux := fmt.Sprintf(`from(bucket: "%s")
-  |> range(start: %s)
-  |> filter(fn: (r) => r._measurement == "daily_kline")
-  |> filter(fn: (r) => r.market == "%s")
-  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> sort(columns: ["_time", "symbol"])
-  |> limit(n: %d, offset: %d)`, bucket, startClause, market, pageSize, offset)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.cfg.InfluxURL, "/")+"/api/v2/query?org="+s.cfg.InfluxOrg, strings.NewReader(flux))
+	src := &klineread.SQLStore{DB: s.db.DB}
+	rows, err := src.QueryDailyPage(ctx, market, since, pageSize, offset)
 	if err != nil {
-		return nil, "Influx 查询失败"
+		return nil, "日K查询失败"
 	}
-	req.Header.Set("Authorization", "Token "+s.cfg.InfluxToken)
-	req.Header.Set("Content-Type", "application/vnd.flux")
-	req.Header.Set("Accept", "application/csv")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, "Influx 查询失败"
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, "Influx 查询失败"
-	}
-	body, _ := io.ReadAll(resp.Body)
-	return parseInfluxCSV(body, market), ""
+	return dailyPageToKlines(rows, market), ""
 }
 
-func parseInfluxCSV(body []byte, market string) []map[string]interface{} {
-	lines := strings.Split(string(body), "\n")
-	if len(lines) < 2 {
-		return []map[string]interface{}{}
-	}
-	header := strings.Split(lines[0], ",")
-	idx := map[string]int{}
-	for i, h := range header {
-		idx[strings.TrimSpace(h)] = i
-	}
-	out := []map[string]interface{}{}
-	for _, line := range lines[1:] {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		parts := strings.Split(line, ",")
-		get := func(name string) string {
-			if i, ok := idx[name]; ok && i < len(parts) {
-				return strings.TrimSpace(parts[i])
-			}
-			return ""
-		}
-		ts := get("_time")
-		date := ""
-		if len(ts) >= 10 {
-			date = ts[:10]
+func dailyPageToKlines(rows []klineread.DailyPageRow, market string) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		mkt := row.Market
+		if mkt == "" {
+			mkt = market
 		}
 		out = append(out, map[string]interface{}{
-			"market": market, "symbol": get("symbol"), "date": date,
-			"open": get("open"), "high": get("high"), "low": get("low"),
-			"close": get("close"), "volume": get("volume"),
+			"market": mkt, "symbol": row.Symbol, "date": row.Date,
+			"open": row.Open, "high": row.High, "low": row.Low,
+			"close": row.Close, "volume": row.Volume,
 		})
 	}
 	return out
