@@ -10,7 +10,7 @@
 - 共享包 `services/klineread`：按 symbol+market+时间范围查询；空序列原样返回，不回退 Influx
 - 已切：market-read / data-api / trade-api / notify-worker / quant-worker / sfp-backend opensync `influx.daily`
 - `market-worker` 分钟双写：MySQL upsert 必须成功（读源）；Influx `WriteMinute` 失败只记日志，不挡作业，以便停 `sentiment-influxdb`
-- `writer.go` 与 compose 中的 `sentiment-influxdb` 本阶段仍保留；日 K `WriteDaily` 仍只写 Influx（日 K 已由 `saveMySQL` 落库）
+- `writer.go` 与 compose 中的 `sentiment-influxdb` 本阶段仍保留；日 K 与分钟同一合同：MySQL upsert 必须成功，Influx `WriteDaily` 失败只记日志，不挡 `SyncSymbol` / `eod_kline_sync`
 
 ### 📉 Phase 1: 分钟 K 双写 MySQL（Influx 仍为读源）
 - 新增 `sql/market-price-history-minute.sql`（`sql_migrate` 自动发现）：按 `(symbol, market, bar_time)` 唯一 upsert，带 `trade_date` 供日后裁剪约 20 个交易日
