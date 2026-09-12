@@ -43,10 +43,9 @@ func (w *Writer) WriteDaily(ctx context.Context, market string, rows []Bar) (int
 	return w.write(ctx, market, "daily_kline", rows)
 }
 
-// WriteMinute writes minute_kline to Influx (source of truth this phase).
-// Phase 1 dual-write: market-worker also upserts the same bars into MySQL
-// market_price_history_minute. Readers stay on Flux; Influx is removed only
-// after a later reader cutover.
+// WriteMinute writes minute_kline to Influx (kept until Influx is shut down).
+// market-worker also upserts the same bars into MySQL market_price_history_minute.
+// Page/API readers now use MySQL; this writer is not removed in the reader cutover.
 func (w *Writer) WriteMinute(ctx context.Context, market string, rows []Bar) (int, error) {
 	return w.write(ctx, market, "minute_kline", rows)
 }

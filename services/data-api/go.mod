@@ -14,6 +14,8 @@ replace github.com/lusd2904/smart-finance-platform/services/market-read => ../ma
 
 replace github.com/lusd2904/smart-finance-platform/services/trade-exec => ../trade-exec
 
+replace github.com/lusd2904/smart-finance-platform/services/klineread => ../klineread
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Allenxuxu/ringbuffer v0.0.11 // indirect
@@ -30,6 +32,7 @@ require (
 	github.com/longbridge/openapi-go v0.27.0 // indirect
 	github.com/longbridge/openapi-protobufs/gen/go v0.7.0 // indirect
 	github.com/longbridge/openapi-protocol/go v0.5.0 // indirect
+	github.com/lusd2904/smart-finance-platform/services/klineread v0.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect

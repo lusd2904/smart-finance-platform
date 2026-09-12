@@ -11,7 +11,7 @@ import (
 )
 
 // insertMinuteSQL upserts one bar per (symbol, market, bar_time).
-// Phase 1 dual-write: readers stay on Influx; Influx is removed only after a later reader cutover.
+// Readers use this table; Influx write is still the dual-write companion.
 const insertMinuteSQL = `INSERT INTO market_price_history_minute
 (symbol, market, trade_date, bar_time, open_price, high_price, low_price, close_price, volume, source, update_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
@@ -79,7 +79,7 @@ func upsertMinuteBars(ctx context.Context, db dbExecer, market, source string, b
 
 // writeMinutesDual writes minute bars to Influx first, then mirrors them to MySQL.
 // MySQL errors are logged and never fail the Influx write or the job.
-// Phase 1 dual-write: readers stay on Influx; Influx is removed only after a later reader cutover.
+// Readers already use MySQL; Influx remains until a later ops shutdown.
 func writeMinutesDual(ctx context.Context, w minuteInfluxWriter, db dbExecer, market, source string, bars []influx.Bar) (int, error) {
 	n, err := w.WriteMinute(ctx, market, bars)
 	if err != nil {

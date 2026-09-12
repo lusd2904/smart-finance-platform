@@ -34,7 +34,7 @@ var marketNewsKeywords = map[string][]string{
 
 func (s *Service) influxReader() *influx.Reader {
 	if s.influx == nil {
-		s.influx = influx.NewReader(s.cfg)
+		s.influx = influx.NewReader(s.db)
 	}
 	return s.influx
 }

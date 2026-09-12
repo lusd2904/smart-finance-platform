@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("mysql: %v", err)
 	}
 
-	influxClient := influx.New(cfg)
+	influxClient := influx.New(cfg, db.SQL())
 	authn := auth.New(cfg, cacheClient.Client())
 	mw := &middleware.Middleware{Auth: authn}
 	srv := &handlers.Server{

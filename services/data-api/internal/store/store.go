@@ -31,6 +31,8 @@ func New(cfg *config.Config) (*DB, error) {
 
 func (d *DB) Close() error { return d.sql.Close() }
 
+func (d *DB) SQL() *sql.DB { return d.sql }
+
 type Page struct {
 	Rows     []map[string]interface{}
 	PageNum  int
