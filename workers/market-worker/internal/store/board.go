@@ -52,7 +52,7 @@ func (s *Service) RefreshBoardQuotesCache(ctx context.Context) (map[string]inter
 	for _, q := range quotes {
 		cat, _ := q["category"].(string)
 		sym, _ := q["symbol"].(string)
-		if cat == "index" || strings.HasPrefix(sym, "^") {
+		if cat == "index" || strings.HasPrefix(sym, "^") || isHKIndexSymbol(sym) {
 			indices = append(indices, q)
 			indexSymbols[sym] = true
 		}
@@ -110,11 +110,15 @@ func assembleBoardQuotes(instruments []instrumentRow, barsBySymbol map[string][]
 		if mkt == "" {
 			mkt = "US"
 		}
+		category := inst.Category
+		if isHKIndexSymbol(inst.Symbol) {
+			category = "index"
+		}
 		quotes = append(quotes, map[string]interface{}{
 			"symbol":     inst.Symbol,
 			"name":       inst.Name,
 			"market":     mkt,
-			"category":   inst.Category,
+			"category":   category,
 			"price":      last,
 			"open":       quote["open"],
 			"high":       quote["high"],
@@ -151,7 +155,7 @@ ORDER BY FIELD(market, 'US','HK','CN'), symbol`)
 		}
 		out = append(out, inst)
 	}
-	return out, nil
+	return mergeHKIndexBoard(out), nil
 }
 
 func buildQuoteFromKlines(bars []dailyBar) map[string]interface{} {

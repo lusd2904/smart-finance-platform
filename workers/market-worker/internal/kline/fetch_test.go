@@ -37,6 +37,54 @@ func TestParseSinaBarsSkipsShortDates(t *testing.T) {
 	}
 }
 
+func TestTencentSymbolHKIndices(t *testing.T) {
+	cases := []struct {
+		symbol, market, want string
+	}{
+		{"HSI", "HK", "hkHSI"},
+		{"HSTECH", "HK", "hkHSTECH"},
+		{"HSCEI", "HK", "hkHSCEI"},
+		{"^HSI", "HK", "hkHSI"},
+		{"HSI.HK", "HK", "hkHSI"},
+		{"0700.HK", "HK", "hk00700"},
+		{"^DJI", "US", "usDJI"},
+	}
+	for _, tc := range cases {
+		got := tencentSymbol(tc.symbol, tc.market)
+		if got != tc.want {
+			t.Fatalf("tencentSymbol(%q,%q)=%q want %q", tc.symbol, tc.market, got, tc.want)
+		}
+	}
+}
+
+func TestSinaSymbolHKIndicesNotUSIndexSina(t *testing.T) {
+	if got := sinaSymbol("HSI", "HK"); got != "HSI" {
+		t.Fatalf("sina HSI=%q", got)
+	}
+	if got := sinaSymbol("^HSI", "HK"); got != "HSI" {
+		t.Fatalf("sina ^HSI=%q", got)
+	}
+	if got := sinaSymbol("^DJI", "US"); got != ".DJI" {
+		t.Fatalf("US DJI must stay on indexSina, got %q", got)
+	}
+}
+
+func TestTencentMinuteURLUsesHTTPSAndHKIndexCode(t *testing.T) {
+	got := tencentMinuteURL("HK", tencentSymbol("HSI", "HK"))
+	want := "https://web.ifzq.gtimg.cn/appstock/app/hkMinute/query?code=hkHSI"
+	if got != want {
+		t.Fatalf("minute URL=%q want %q", got, want)
+	}
+	for mkt, base := range minuteURLs {
+		if len(base) < 8 || base[:8] != "https://" {
+			t.Fatalf("minuteURLs[%s] must be https, got %q", mkt, base)
+		}
+		if base[:7] == "http://" {
+			t.Fatalf("minuteURLs[%s] still http: %q", mkt, base)
+		}
+	}
+}
+
 func TestParseTencentDailySkipsShortDates(t *testing.T) {
 	payload := map[string]interface{}{
 		"data": map[string]interface{}{

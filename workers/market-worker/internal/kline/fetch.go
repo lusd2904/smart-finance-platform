@@ -23,15 +23,24 @@ const (
 )
 
 var minuteURLs = map[string]string{
-	"CN": "http://web.ifzq.gtimg.cn/appstock/app/minute/query",
-	"HK": "http://web.ifzq.gtimg.cn/appstock/app/hkMinute/query",
-	"US": "http://web.ifzq.gtimg.cn/appstock/app/UsMinute/query",
+	"CN": "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
+	"HK": "https://web.ifzq.gtimg.cn/appstock/app/hkMinute/query",
+	"US": "https://web.ifzq.gtimg.cn/appstock/app/UsMinute/query",
 }
 
+// US equity indices only. Do not put HSI/HSTECH/HSCEI here — that path
+// forces usDJI/usINX/usIXIC tencent codes.
 var indexSina = map[string]string{
 	"^DJI":  ".DJI",
 	"^GSPC": ".INX",
 	"^IXIC": ".IXIC",
+}
+
+// Hang Seng family: canonical board symbols → tencent hkMinute / hkfqkline codes.
+var hkIndexTencent = map[string]string{
+	"HSI":    "hkHSI",
+	"HSTECH": "hkHSTECH",
+	"HSCEI":  "hkHSCEI",
 }
 
 type Row struct {
@@ -135,7 +144,7 @@ func (c *Client) fetchSina(symbol, market string, years int) ([]Row, error) {
 	} else {
 		q.Set("___qn", "3n")
 	}
-	body, err := c.get(endpoint + "?" + q.Encode(), sinaHeaders())
+	body, err := c.get(endpoint+"?"+q.Encode(), sinaHeaders())
 	if err != nil {
 		return nil, err
 	}
@@ -186,14 +195,19 @@ func (c *Client) fetchTencent(symbol, market string, years int) ([]Row, error) {
 	return rows, nil
 }
 
-func (c *Client) FetchMinute(symbol, market string) ([]Row, error) {
+func tencentMinuteURL(market, code string) string {
 	mkt := strings.ToUpper(market)
 	base := minuteURLs[mkt]
 	if base == "" {
 		base = minuteURLs["US"]
 	}
+	return base + "?code=" + url.QueryEscape(code)
+}
+
+func (c *Client) FetchMinute(symbol, market string) ([]Row, error) {
+	mkt := strings.ToUpper(market)
 	code := tencentSymbol(symbol, mkt)
-	endpoint := fmt.Sprintf("%s?code=%s", base, url.QueryEscape(code))
+	endpoint := tencentMinuteURL(mkt, code)
 	body, err := c.get(endpoint, defaultHeaders())
 	if err != nil {
 		return nil, err
@@ -367,9 +381,18 @@ func toFloat(v interface{}) float64 {
 	}
 }
 
+func canonicalHKIndexSymbol(symbol string) string {
+	s := strings.ToUpper(strings.TrimSpace(symbol))
+	s = strings.ReplaceAll(s, ".HK", "")
+	return strings.TrimPrefix(s, "^")
+}
+
 func sinaSymbol(symbol, market string) string {
 	if s, ok := indexSina[symbol]; ok {
 		return s
+	}
+	if _, ok := hkIndexTencent[canonicalHKIndexSymbol(symbol)]; ok {
+		return canonicalHKIndexSymbol(symbol)
 	}
 	if strings.ToUpper(market) == "CN" {
 		code := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(symbol, ".SH", ""), ".SZ", ""))
@@ -390,8 +413,12 @@ func tencentSymbol(symbol, market string) string {
 		}
 		return "us" + strings.ReplaceAll(symbol, "^", "")
 	}
+	if code, ok := hkIndexTencent[canonicalHKIndexSymbol(symbol)]; ok {
+		return code
+	}
 	if mkt == "HK" {
 		code := strings.ToUpper(strings.ReplaceAll(symbol, ".HK", ""))
+		code = strings.TrimPrefix(code, "^")
 		if regexp.MustCompile(`^\d+$`).MatchString(code) {
 			return "hk" + fmt.Sprintf("%05s", code)
 		}

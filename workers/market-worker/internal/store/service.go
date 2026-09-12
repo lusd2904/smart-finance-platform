@@ -313,7 +313,7 @@ WHERE i.enabled='1' AND i.market IN (%s)`, placeholders)
 		}
 		out = append(out, inst)
 	}
-	return out, nil
+	return mergeHKIndexInstruments(out, markets), nil
 }
 
 func (s *Service) minuteTargets(ctx context.Context, market string, cap int) ([]string, error) {
@@ -348,10 +348,11 @@ ORDER BY rank_no`, market, market)
 }
 
 func featuredSymbols(market string) []string {
-	// subset of TARGET_INSTRUMENTS non-index for each market
+	// HK includes Hang Seng family so eod_kline_sync / market_sync minute
+	// targets pick them up even before market_top50_snapshot has them.
 	all := map[string][]string{
 		"US": {"AAPL", "MSFT", "NVDA", "TSLA", "GOOGL", "AMZN", "META"},
-		"HK": {"0700.HK", "9988.HK", "3690.HK"},
+		"HK": {"0700.HK", "9988.HK", "3690.HK", "HSI", "HSTECH", "HSCEI"},
 		"CN": {"600519.SH", "000001.SZ"},
 	}
 	return all[strings.ToUpper(market)]
