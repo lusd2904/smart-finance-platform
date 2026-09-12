@@ -2,7 +2,6 @@
   <PageFrame
     title="全部股票"
     subtitle="美股 / 港股 / A 股全市场代码 · 分页浏览 · 最新价取自本地日K"
-    badge="「全部股票 /market/stocks」"
     :loading="loading"
   >
     <template #actions>

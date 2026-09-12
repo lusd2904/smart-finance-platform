@@ -2,7 +2,6 @@
   <PageFrame
     title="委托"
     :subtitle="scopeHint"
-    badge="「委托 /trade/orders」"
     :loading="loading"
   >
     <template #actions>
@@ -16,6 +15,7 @@
 
     <TradeAuthBanner :visible="brokerAuth" :code="brokerCode" />
     <el-alert v-if="usingStub && !brokerAuth" title="STUB · stubOrders" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError && !brokerAuth" :title="loadError" type="error" show-icon :closable="false" />
     <el-alert v-else-if="msg && !brokerAuth" :title="msg" type="info" show-icon :closable="false" />
 
     <div class="toolbar">
@@ -118,7 +118,13 @@ import { fmtNum } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
 import { brokerAuthCode, isBrokerAuthError } from '@/utils/tradeAuth'
-import { stubOrders } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubOrders } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const OPEN_STATUS = new Set(['submitted', 'new', 'wait_to_new', 'waittonew', 'partial_filled', 'partialfilled', 'wait_to_cancel', 'waittocancel', 'pending', 'partial', 'open', 'not_reported', 'notreported'])
 const OPEN_LABEL = new Set(['已提交', '待成交', '待报', '待撤', '部分成交'])
@@ -140,6 +146,7 @@ const status = ref('')
 const keyword = ref('')
 const list = ref([])
 const msg = ref('')
+const loadError = ref('')
 const drawer = ref(false)
 const current = ref(null)
 const statusTabs = STATUS_TABS
@@ -296,58 +303,63 @@ const detailTitle = computed(() => {
 })
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
   list.value = stubOrders()
   msg.value = ''
+  loadError.value = ''
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
   brokerAuth.value = false
+  usingStub.value = false
+  loadError.value = ''
+  msg.value = ''
   try {
     if (scope.value === 'today') {
       const res = await getTradeOrders('today')
       const { rows, data } = pickOrders(res)
-      if (rows.length || data.configured) {
-        list.value = rows
-        msg.value = data.message || (data.configured === false ? '未配置长桥凭证' : '')
-        usingStub.value = false
-        return
-      }
-      applyStub()
+      list.value = rows
+      msg.value = data.message || (data.configured === false ? '未配置长桥凭证' : '')
       return
     }
     const [histRes, todayRes] = await Promise.allSettled([getTradeOrders('history'), getTradeOrders('today')])
-    let live = false
     let rows = []
     let message = ''
+    const errors = []
     if (histRes.status === 'fulfilled') {
       const { rows: hist, data } = pickOrders(histRes.value)
       rows = hist
       message = data.message || (data.configured === false ? '未配置长桥凭证' : '')
-      if (hist.length || data.configured) live = true
-    }
+    } else if (isBrokerAuthError(histRes.reason)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(histRes.reason)
+    } else errors.push(errorText(histRes.reason, '历史委托加载失败'))
     if (todayRes.status === 'fulfilled') {
-      const { rows: today, data } = pickOrders(todayRes.value)
-      if (today.length || data.configured) {
-        rows = mergeById(today, rows)
-        live = true
-      }
-    }
-    if (!live) applyStub()
-    else {
-      list.value = rows
-      msg.value = message
-      usingStub.value = false
-    }
+      const { rows: today } = pickOrders(todayRes.value)
+      rows = mergeById(today, rows)
+    } else if (isBrokerAuthError(todayRes.reason)) {
+      brokerAuth.value = true
+      brokerCode.value = brokerAuthCode(todayRes.reason)
+    } else errors.push(errorText(todayRes.reason, '今日委托加载失败'))
+    list.value = rows
+    msg.value = message
+    if (errors.length) loadError.value = errors.join('；')
   } catch (e) {
     if (isBrokerAuthError(e)) {
       brokerAuth.value = true
       brokerCode.value = brokerAuthCode(e)
-      usingStub.value = false
       list.value = []
       msg.value = ''
-    } else applyStub()
+    } else {
+      list.value = []
+      loadError.value = errorText(e, '委托加载失败')
+    }
   } finally {
     loading.value = false
   }

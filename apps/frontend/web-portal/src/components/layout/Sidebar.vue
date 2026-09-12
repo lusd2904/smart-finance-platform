@@ -11,7 +11,8 @@
       </button>
 
       <nav class="menu">
-        <div v-for="subsystem in menuTree" :key="subsystem.code" class="subsystem-block">
+        <div v-if="!tree.length" class="menu-empty">{{ permissionStore.ready ? '暂无菜单' : '菜单加载中' }}</div>
+        <div v-for="subsystem in tree" :key="subsystem.code" class="subsystem-block">
           <button
             type="button"
             class="subsystem-item"
@@ -62,23 +63,32 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowRight, Expand, Fold, TrendCharts } from '@element-plus/icons-vue'
-import { menuTree } from '@/config/menus'
+import { usePermissionStore } from '@/store/permission'
 
 const route = useRoute()
 const router = useRouter()
+const permissionStore = usePermissionStore()
 const isCollapsed = ref(false)
-const expandedSubsystems = ref(['workspace', 'market', 'trade'])
+const expandedSubsystems = ref([])
+const tree = computed(() => permissionStore.sidebarTree || [])
+
+const norm = (path) => {
+  const p = `/${String(path || '').replace(/^\/+/, '')}`.replace(/\/+/g, '/')
+  return p === '/' ? '/' : p.replace(/\/+$/, '')
+}
 
 const isRouteActive = (path) => {
-  const active = route.meta.activeMenu || route.path
-  return active === path || route.path === path
+  const active = norm(route.meta.activeMenu || route.path)
+  const target = norm(path)
+  return active === target || norm(route.path) === target
 }
 
 const isSubsystemActive = (subsystem) => {
   if (subsystem.path && isRouteActive(subsystem.path)) return true
+  if (subsystem.code === 'sentiment' && norm(route.path).startsWith('/sentiment')) return true
   return subsystem.groups.some((g) => g.items.some((item) => isRouteActive(item.path)))
 }
 
@@ -111,9 +121,10 @@ const toggleCollapse = () => {
 }
 
 watch(
-  () => route.fullPath,
+  [() => route.fullPath, tree],
   () => {
-    const active = menuTree.filter((item) => isSubsystemActive(item)).map((item) => item.code)
+    const active = tree.value.filter((item) => isSubsystemActive(item)).map((item) => item.code)
+    if (norm(route.path).startsWith('/sentiment') && !active.includes('sentiment')) active.push('sentiment')
     expandedSubsystems.value = Array.from(new Set([...expandedSubsystems.value, ...active]))
   },
   { immediate: true }
@@ -188,6 +199,12 @@ onMounted(() => {
   flex: 1;
   padding: 8px 6px 10px;
   overflow-y: auto;
+}
+
+.menu-empty {
+  padding: 12px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .subsystem-item,

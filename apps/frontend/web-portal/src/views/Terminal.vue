@@ -290,7 +290,7 @@ import { getKline, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketW
 import { getAutoTradeStatus, getTradeAccount, getTradeOrders, getTradePositions, getTradeQuoteDepth, getTradeQuoteSnapshot, getTradeQuoteTrades, saveAutoTradeSettings, submitTradeOrder } from '@/api/trade'
 import { useUserStore } from '@/store/user'
 import { fmtNum, fmtPx, fmtSigned, formatTurnover, formatVolume, renderSparklinePath } from '@/utils/format'
-import { showStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
+import { errorText, isDemoSession, showStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist } from '@/utils/stubs'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -413,7 +413,12 @@ function handleSearchSelect(item) {
   selectStockBySymbol(item.symbol)
 }
 
+function demoMode() {
+  return isDemoSession(userStore)
+}
+
 function applyStubTerminal() {
+  if (!demoMode()) return
   usingStub.value = true
   liveMode.value = false
   indices.value = stubIndices()
@@ -434,7 +439,7 @@ function unwrap(res) {
 }
 
 async function loadLive() {
-  if (useStubs() || userStore.usingStub) {
+  if (demoMode()) {
     applyStubTerminal()
     applyQuerySymbol()
     return
@@ -448,13 +453,9 @@ async function loadLive() {
       getTradePositions(),
       getAutoTradeStatus()
     ])
-    let any = false
     if (idxRes.status === 'fulfilled') {
       const items = unwrap(idxRes.value).items || unwrap(idxRes.value).list || unwrap(idxRes.value)
-      if (Array.isArray(items) && items.length) {
-        indices.value = items
-        any = true
-      }
+      if (Array.isArray(items) && items.length) indices.value = items
     }
     if (watchRes.status === 'fulfilled') {
       const raw = unwrap(watchRes.value)
@@ -478,14 +479,12 @@ async function loadLive() {
           sparkline: r.sparkline || [],
           ...r
         }))
-        any = true
       }
     }
     if (accRes.status === 'fulfilled') {
       const acc = unwrap(accRes.value)
       accountCash.value = Number(acc.availableCash || acc.cash || 0)
       cashCurrency.value = acc.currency || 'HKD'
-      if (acc.availableCash != null) any = true
     }
     if (orderRes.status === 'fulfilled') {
       const raw = unwrap(orderRes.value)
@@ -500,24 +499,21 @@ async function loadLive() {
       autoTradeConfigured.value = Boolean(auto.configured ?? auto.enabled != null)
       autoTradeEnabled.value = Boolean(auto.enabled)
     }
-    if (!any) {
-      applyStubTerminal()
-      applyQuerySymbol()
-      return
-    }
     usingStub.value = false
     liveMode.value = true
     applyQuerySymbol()
     if (!activeSymbol.value && watchStocks.value[0]) selectStock(watchStocks.value[0])
     else if (activeSymbol.value) await loadSymbolExtras(activeStock.value)
-  } catch {
-    applyStubTerminal()
+  } catch (e) {
+    usingStub.value = false
+    liveMode.value = true
+    ElMessage.error(errorText(e, '终端加载失败'))
     applyQuerySymbol()
   }
 }
 
 async function loadSymbolExtras(item) {
-  if (!item?.symbol || usingStub.value || useStubs() || userStore.usingStub) {
+  if (!item?.symbol || usingStub.value || demoMode()) {
     bars.value = stubKline(item?.price || 100)
     nextTick(renderChart)
     return

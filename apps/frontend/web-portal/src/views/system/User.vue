@@ -2,7 +2,6 @@
   <PageFrame
     title="用户管理"
     subtitle="筛选 · KPI · 用户表"
-    badge="「用户管理 /system/user」"
     :loading="loading"
   >
     <template #actions>
@@ -18,6 +17,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · GET /system/user/list" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="stat-strip">
       <article class="stat-tile glass-panel"><span>用户总数</span><strong class="numeric">{{ kpis.total }}</strong></article>
@@ -101,11 +101,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageFrame from '@/components/page/PageFrame.vue'
 import { addUser, changeUserStatus, listUser, resetUserPwd, updateUser } from '@/api/system'
 import { unwrap, unwrapList, unwrapTotal } from '@/utils/list'
-import { stubUsers } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubUsers } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const saving = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const keyword = ref('')
 const status = ref('')
 const list = ref([])
@@ -166,7 +173,13 @@ function onFilter() {
 }
 
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const res = await listUser({
       pageNum: page.value,
@@ -178,24 +191,24 @@ async function load() {
     let rows = unwrapList(res)
     const data = unwrap(res)
     if (data.users) rows = data.users
-    if (!rows.length) {
-      applyStub()
-      return
-    }
     if (status.value === 'lock') rows = rows.filter(isLocked)
     list.value = rows
     allRows.value = data.all || rows
     total.value = unwrapTotal(res, rows.length)
-    usingStub.value = false
-  } catch {
-    applyStub()
+  } catch (e) {
+    list.value = []
+    allRows.value = []
+    total.value = 0
+    loadError.value = errorText(e, '用户列表加载失败')
   } finally {
     loading.value = false
   }
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   const rows = stubUsers().filter((r) => {
     const kw = keyword.value.trim().toLowerCase()
     const textOk = !kw || `${r.userName} ${r.nickName}`.toLowerCase().includes(kw)

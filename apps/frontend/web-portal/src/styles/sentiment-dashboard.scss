@@ -1,0 +1,171 @@
+/* Dashboard-only glass density. Do not import from news/analysis. */
+
+.sentiment-dashboard.sfp-page {
+  gap: 7px;
+}
+
+.content:has(.sentiment-dashboard) {
+  padding: 12px 14px 14px;
+}
+
+.sentiment-dashboard .page-hero {
+  padding: 12px 14px !important;
+}
+
+.sentiment-dashboard .hero-copy h2 {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+}
+
+.sentiment-dashboard .page-subtitle {
+  font-size: 12px !important;
+}
+
+.sentiment-dashboard .el-card.glass-panel {
+  padding: 0 !important;
+}
+
+.sentiment-dashboard .el-card__body {
+  padding: 10px 12px !important;
+}
+
+.sentiment-dashboard .el-card__header {
+  padding: 8px 12px !important;
+}
+
+.sentiment-dashboard .el-table {
+  font-size: 12px;
+}
+
+.sentiment-dashboard .el-table th.el-table__cell,
+.sentiment-dashboard .el-table td.el-table__cell {
+  padding: 4px 0 !important;
+  height: 34px !important;
+}
+
+.sentiment-dashboard .el-table .cell {
+  line-height: 22px;
+}
+
+.sentiment-dashboard .el-empty {
+  padding: 8px 0 !important;
+}
+
+.sentiment-dashboard .el-empty__description {
+  margin-top: 4px !important;
+  font-size: 12px;
+}
+
+/* 7) KPI trio — 15–16 tabular, one notch tighter, light = dark density */
+.sentiment-dashboard .kpi-row {
+  gap: 8px;
+}
+
+.sentiment-dashboard .kpi-card {
+  min-height: 52px;
+  padding: 6px 10px;
+  gap: 8px;
+}
+
+.sentiment-dashboard .kpi-icon {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+}
+
+.sentiment-dashboard .kpi-card span {
+  font-size: 12px;
+}
+
+.sentiment-dashboard .kpi-card strong.numeric {
+  font-size: 16px !important;
+  line-height: 1.15 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+[data-theme='glass-light'] .sentiment-dashboard .kpi-card,
+[data-theme='glass-dark'] .sentiment-dashboard .kpi-card {
+  min-height: 52px;
+  padding: 6px 10px;
+}
+
+/* 8) Populated trend stays in a short band on both themes */
+.sentiment-dashboard .trend-card .el-card__body {
+  padding: 8px 10px !important;
+}
+
+.sentiment-dashboard .trend-chart {
+  width: 100%;
+  height: 156px !important;
+  max-height: 156px !important;
+  min-height: 156px !important;
+}
+
+.sentiment-dashboard .trend-empty {
+  height: 64px;
+  max-height: 80px;
+}
+
+/* 9) Index chips — pad 3–6, 11–12px, single tighter row */
+.sentiment-dashboard .index-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.sentiment-dashboard .index-item.glass-panel,
+.sentiment-dashboard .index-item {
+  flex: 1 1 0;
+  min-width: 108px;
+  padding: 3px 6px !important;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.sentiment-dashboard .index-item.glass-panel::before {
+  display: none;
+}
+
+.sentiment-dashboard .idx-market {
+  font-size: 10px;
+  padding: 1px 3px;
+}
+
+.sentiment-dashboard .idx-last {
+  font-size: 12px;
+}
+
+/* Light: quieter mesh / grid so the history table stays readable */
+[data-theme='glass-light']:has(.sentiment-dashboard) body::before {
+  opacity: 0.32;
+}
+
+[data-theme='glass-light']:has(.sentiment-dashboard) .cyber-canvas:not(.quiet) {
+  opacity: 0.2;
+}
+
+[data-theme='glass-light']:has(.sentiment-dashboard) .shell-grid {
+  opacity: 0.04;
+}
+
+[data-theme='glass-light'] .sentiment-dashboard .el-card.glass-panel {
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+[data-theme='glass-light'] .sentiment-dashboard .el-table {
+  --el-table-bg-color: rgba(255, 255, 255, 0.92);
+  --el-table-tr-bg-color: rgba(255, 255, 255, 0.92);
+  --el-table-header-bg-color: rgba(248, 250, 252, 0.96);
+  --el-table-border-color: rgba(15, 23, 42, 0.1);
+  --el-table-header-text-color: #334155;
+  --el-table-text-color: #0f172a;
+}
+
+[data-theme='glass-light'] .sentiment-dashboard .glass-panel::before,
+[data-theme='glass-light'] .sentiment-dashboard .hero-panel::before {
+  opacity: 0.28;
+}
