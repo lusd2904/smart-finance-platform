@@ -200,10 +200,10 @@ func (s *Server) LongbridgeConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := store.LongbridgeConfig{
 		UserID:               userID,
-		AppKey:               fmt.Sprint(body["appKey"]),
-		AppSecret:            fmt.Sprint(body["appSecret"]),
-		AccessToken:          fmt.Sprint(body["accessToken"]),
-		Region:               fmt.Sprint(body["region"]),
+		AppKey:               jsonString(body["appKey"]),
+		AppSecret:            jsonString(body["appSecret"]),
+		AccessToken:          jsonString(body["accessToken"]),
+		Region:               jsonString(body["region"]),
 		AutoTradeEnabled:     body["autoTradeEnabled"] == true,
 		DailyBuyRatio:        floatOr(body["dailyBuyRatio"], 0.20),
 		MaxSymbolPositionPct: floatOr(body["maxSymbolPositionPct"], 0.10),
@@ -547,6 +547,17 @@ func floatOr(v interface{}, def float64) float64 {
 func jsonError(msg string) string {
 	b, _ := json.Marshal(map[string]string{"error": msg})
 	return string(b)
+}
+
+func jsonString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "" || s == "<nil>" || strings.EqualFold(s, "null") {
+		return ""
+	}
+	return s
 }
 
 func firstNonEmpty(values ...string) string {

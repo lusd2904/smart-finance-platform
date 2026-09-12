@@ -3,7 +3,9 @@ package handlers
 import (
 	"crypto/rand"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 
@@ -47,10 +49,10 @@ func (s *Server) CaptchaImage(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Auth.StoreCaptcha(ctx, uuid, answer)
 	response.SuccessModel(w, "操作成功", map[string]interface{}{
-		"captchaEnabled": captchaEnabled,
+		"captchaEnabled":  captchaEnabled,
 		"registerEnabled": registerEnabled,
-		"img":            img,
-		"uuid":           uuid,
+		"img":             img,
+		"uuid":            uuid,
 	})
 }
 
@@ -62,7 +64,7 @@ func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	captchaEnabled := s.Auth.ConfigFlag(ctx, "sys.account.captchaEnabled", true)
 	token, err := s.Auth.Login(ctx, r.FormValue("username"), r.FormValue("password"),
-		r.FormValue("code"), r.FormValue("uuid"), captchaEnabled)
+		r.FormValue("code"), r.FormValue("uuid"), captchaEnabled, requestClientIP(r))
 	if err != nil {
 		response.Warn(w, err.Error())
 		return
@@ -118,6 +120,23 @@ func authParseBearer(header string) (string, error) {
 		return h[7:], nil
 	}
 	return h, nil
+}
+
+func requestClientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	}
+	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+		return xr
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return strings.TrimSpace(r.RemoteAddr)
+	}
+	return host
 }
 
 func generateUUID() string {

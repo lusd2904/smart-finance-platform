@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -61,18 +62,20 @@ FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(
 	if err != nil {
 		return LongbridgeConfig{}, err
 	}
-	return LongbridgeConfig{
+	cfg := LongbridgeConfig{
 		ID:                   id,
 		UserID:               userID,
 		AppKey:               sqlStr(appKey),
-		AppSecret:            maskSecret(tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv)),
-		AccessToken:          maskSecret(tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv)),
+		AppSecret:            tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv),
+		AccessToken:          tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv),
 		Region:               defaultStr(sqlStr(region), "cn"),
 		AutoTradeEnabled:     sqlStr(autoEnabled) == "1",
 		DailyBuyRatio:        nullFloatDefault(ratio, 0.20),
 		MaxSymbolPositionPct: nullFloatDefault(pct, 0.10),
 		UpdateTime:           fmtTime(updateTime),
-	}, nil
+	}
+	maskLongbridgePublicFields(&cfg)
+	return cfg, nil
 }
 
 func sqlStr(v sql.NullString) string {
@@ -83,25 +86,41 @@ func sqlStr(v sql.NullString) string {
 }
 
 func (d *DB) SaveLongbridgeConfig(ctx context.Context, userID int64, cfg LongbridgeConfig, credKey, jwtSecret, appEnv string) error {
-	secret := cfg.AppSecret
-	token := cfg.AccessToken
-	if isMasked(secret) {
+	appKey := normalizeCredentialInput(cfg.AppKey)
+	secret := normalizeCredentialInput(cfg.AppSecret)
+	token := normalizeCredentialInput(cfg.AccessToken)
+
+	var existing rawSecrets
+	needExisting := keepExistingCredential(appKey) || keepExistingCredential(secret) || keepExistingCredential(token)
+	if needExisting {
 		row, err := d.loadRawSecrets(ctx, userID)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
-		secret = row.secret
-	} else if secret != "" {
-		secret = encryptCredential(secret, credKey, jwtSecret, appEnv)
+		if err == nil {
+			existing = row
+		}
 	}
-	if isMasked(token) {
-		row, err := d.loadRawSecrets(ctx, userID)
+	if keepExistingCredential(appKey) {
+		appKey = existing.appKey
+	}
+	if keepExistingCredential(secret) {
+		secret = existing.secret
+	} else {
+		enc, err := encryptCredential(secret, credKey, jwtSecret, appEnv)
 		if err != nil {
 			return err
 		}
-		token = row.token
-	} else if token != "" {
-		token = encryptCredential(token, credKey, jwtSecret, appEnv)
+		secret = enc
+	}
+	if keepExistingCredential(token) {
+		token = existing.token
+	} else {
+		enc, err := encryptCredential(token, credKey, jwtSecret, appEnv)
+		if err != nil {
+			return err
+		}
+		token = enc
 	}
 	region := strings.ToLower(defaultStr(cfg.Region, "cn"))
 	_, err := d.sql.ExecContext(ctx, `
@@ -109,23 +128,24 @@ INSERT INTO quant_longbridge_config (user_id, app_key, app_secret, access_token,
 VALUES (?, ?, ?, ?, ?, NOW())
 ON DUPLICATE KEY UPDATE app_key=VALUES(app_key), app_secret=VALUES(app_secret),
   access_token=VALUES(access_token), region=VALUES(region), update_time=NOW()`,
-		userID, cfg.AppKey, secret, token, region)
+		userID, appKey, secret, token, region)
 	return err
 }
 
 type rawSecrets struct {
+	appKey string
 	secret string
 	token  string
 }
 
 func (d *DB) loadRawSecrets(ctx context.Context, userID int64) (rawSecrets, error) {
-	var secret, token sql.NullString
+	var appKey, secret, token sql.NullString
 	err := d.sql.QueryRowContext(ctx, `
-SELECT app_secret, access_token FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(&secret, &token)
+SELECT app_key, app_secret, access_token FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(&appKey, &secret, &token)
 	if err != nil {
 		return rawSecrets{}, err
 	}
-	return rawSecrets{secret: secret.String, token: token.String}, nil
+	return rawSecrets{appKey: appKey.String, secret: secret.String, token: token.String}, nil
 }
 
 func (d *DB) LoadTradeSettings(ctx context.Context, userID int64) tradeexec.UserSettings {
@@ -167,6 +187,15 @@ SELECT app_key, access_token FROM quant_longbridge_config WHERE user_id = ?`, us
 	return false, "请先在「量化交易 / 策略配置」打开本账户自动交易"
 }
 
+func maskLongbridgePublicFields(cfg *LongbridgeConfig) {
+	if cfg == nil {
+		return
+	}
+	cfg.AppKey = maskSecret(cfg.AppKey)
+	cfg.AppSecret = maskSecret(cfg.AppSecret)
+	cfg.AccessToken = maskSecret(cfg.AccessToken)
+}
+
 func maskSecret(value string) string {
 	if value == "" {
 		return ""
@@ -179,6 +208,27 @@ func maskSecret(value string) string {
 
 func isMasked(value string) bool {
 	return strings.HasPrefix(value, "****")
+}
+
+func normalizeCredentialInput(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "<nil>" || strings.EqualFold(value, "null") {
+		return ""
+	}
+	return value
+}
+
+func keepExistingCredential(value string) bool {
+	return value == "" || isMasked(value)
+}
+
+func isProdEnv(appEnv string) bool {
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "prod", "production":
+		return true
+	default:
+		return false
+	}
 }
 
 func nullFloatDefault(v sql.NullFloat64, def float64) float64 {
@@ -195,25 +245,28 @@ func defaultStr(v, fallback string) string {
 	return v
 }
 
-func encryptCredential(plain, credKey, jwtSecret, appEnv string) string {
+func encryptCredential(plain, credKey, jwtSecret, appEnv string) (string, error) {
 	if plain == "" {
-		return ""
+		return "", nil
 	}
 	source := strings.TrimSpace(credKey)
 	if source == "" {
-		if strings.EqualFold(appEnv, "prod") {
-			return plain
+		if isProdEnv(appEnv) {
+			return "", errors.New("CREDENTIAL_ENCRYPTION_KEY required in prod")
 		}
 		source = strings.TrimSpace(jwtSecret)
+	}
+	if source == "" {
+		return "", errors.New("no credential encryption key")
 	}
 	sum := sha256.Sum256([]byte(source))
 	key := base64.URLEncoding.EncodeToString(sum[:])
 	k := fernet.MustDecodeKeys(key)
 	tok, err := fernet.EncryptAndSign([]byte(plain), k[0])
 	if err != nil {
-		return plain
+		return "", errors.New("credential encryption failed")
 	}
-	return string(tok)
+	return string(tok), nil
 }
 
 func (d *DB) ToConfigModel(cfg LongbridgeConfig) map[string]interface{} {
