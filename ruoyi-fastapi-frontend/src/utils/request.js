@@ -116,6 +116,15 @@ service.interceptors.response.use(async res => {
     if (res.request.responseType ===  'blob' || res.request.responseType ===  'arraybuffer') {
       return res.data
     }
+    // Longbridge OpenAPI 401004 is the broker rejecting the paper access token,
+    // not our platform JWT expiring. Do not kick the user to login.
+    if (code === 401004 || (code === 401 && /401004|access token invalid/i.test(String(res.data.msg || msg || '')))) {
+      const brokerMsg = res.data.msg || '长桥 OpenAPI 拒绝了当前 Access Token（401004）。这不是平台登录过期，请勿刷新本站 JWT。'
+      if (!res.config?.silent) {
+        ElMessage({ message: brokerMsg, type: 'error' })
+      }
+      return Promise.reject(new Error(brokerMsg))
+    }
     if (code === 401) {
       if (isMobileLocation()) {
         if (!isRelogin.show) {

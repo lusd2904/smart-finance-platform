@@ -218,7 +218,7 @@ func (s *Server) RiskTearsheet(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := s.Platform.RiskTearsheet(r.Context(), userID(r), days)
 	if err != nil {
-		response.Error(w, err.Error())
+		writeTradeErr(w, err)
 		return
 	}
 	response.SuccessMsg(w, data, strOr(data["message"], "操作成功"))

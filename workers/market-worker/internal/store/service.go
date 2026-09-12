@@ -25,12 +25,13 @@ type Instrument struct {
 }
 
 type Service struct {
-	db     *sql.DB
-	influx *influx.Writer
-	reader *influx.Reader
-	kline  *kline.Client
-	rdb    *redis.Client
-	cfg    config.Config
+	db          *sql.DB
+	influx      *influx.Writer
+	reader      *influx.Reader
+	kline       *kline.Client
+	rdb         *redis.Client
+	cfg         config.Config
+	boardKlines boardKlineSource
 }
 
 func NewService(cfg config.Config, writer *influx.Writer, reader *influx.Reader, klineClient *kline.Client, rdb *redis.Client) (*Service, error) {
@@ -45,7 +46,10 @@ func NewService(cfg config.Config, writer *influx.Writer, reader *influx.Reader,
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	return &Service{db: db, influx: writer, reader: reader, kline: klineClient, rdb: rdb, cfg: cfg}, nil
+	return &Service{
+		db: db, influx: writer, reader: reader, kline: klineClient, rdb: rdb, cfg: cfg,
+		boardKlines: mysqlBoardKlines{db: db},
+	}, nil
 }
 
 func (s *Service) Close() error {

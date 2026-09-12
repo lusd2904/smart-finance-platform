@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/cache"
-	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/influx"
 )
 
 type instrumentRow struct {
@@ -35,11 +34,11 @@ func (s *Service) RefreshBoardQuotesCache(ctx context.Context) (map[string]inter
 		byMarket[mkt] = append(byMarket[mkt], inst.Symbol)
 	}
 
-	barsBySymbol := map[string][]influx.KlineBar{}
+	barsBySymbol := map[string][]dailyBar{}
 	for mkt, symbols := range byMarket {
-		grouped, err := s.reader.QueryLatestKlines(ctx, mkt, symbols, 2, "-60d")
+		grouped, err := s.latestDailyBars(ctx, mkt, symbols, 2, "-60d")
 		if err != nil {
-			slog.Error("board_warmup: QueryLatestKlines failed", "market", mkt, "symbols", len(symbols), "err", err)
+			slog.Error("board_warmup: MySQL latest daily failed", "market", mkt, "symbols", len(symbols), "err", err)
 			continue
 		}
 		for sym, bars := range grouped {
@@ -47,13 +46,57 @@ func (s *Service) RefreshBoardQuotesCache(ctx context.Context) (map[string]inter
 		}
 	}
 
+	quotes := assembleBoardQuotes(instruments, barsBySymbol)
+	indices := []map[string]interface{}{}
+	indexSymbols := map[string]bool{}
+	for _, q := range quotes {
+		cat, _ := q["category"].(string)
+		sym, _ := q["symbol"].(string)
+		if cat == "index" || strings.HasPrefix(sym, "^") {
+			indices = append(indices, q)
+			indexSymbols[sym] = true
+		}
+	}
+	rows := []map[string]interface{}{}
+	for _, q := range quotes {
+		sym, _ := q["symbol"].(string)
+		if !indexSymbols[sym] {
+			rows = append(rows, q)
+		}
+	}
+	asOf := beijingNow()
+	payload := map[string]interface{}{
+		"quotes":  quotes,
+		"indices": indices,
+		"rows":    rows,
+		"source":  "cache",
+		"count":   len(quotes),
+		"asOf":    asOf,
+		"stale":   false,
+	}
+	if s.rdb != nil {
+		if err := cache.SetJSON(ctx, s.rdb, cache.BoardQuotesKey, payload, cache.BoardQuotesTTL); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]interface{}{"count": len(quotes), "asOf": asOf}, nil
+}
+
+func (s *Service) latestDailyBars(ctx context.Context, market string, symbols []string, n int, start string) (map[string][]dailyBar, error) {
+	if s.boardKlines != nil {
+		return s.boardKlines.LatestDaily(ctx, market, symbols, n, start)
+	}
+	return queryLatestDailyMySQL(ctx, s.db, market, symbols, n, start)
+}
+
+func assembleBoardQuotes(instruments []instrumentRow, barsBySymbol map[string][]dailyBar) []map[string]interface{} {
 	quotes := make([]map[string]interface{}, 0, len(instruments))
 	for _, inst := range instruments {
 		bars := barsBySymbol[inst.Symbol]
 		quote := buildQuoteFromKlines(bars)
 		source := "none"
 		if len(bars) > 0 {
-			source = "influx"
+			source = "mysql"
 		}
 		last := quote["last"]
 		changeRate := quote["changeRate"]
@@ -87,38 +130,7 @@ func (s *Service) RefreshBoardQuotesCache(ctx context.Context) (map[string]inter
 			"bars":       len(bars),
 		})
 	}
-
-	indices := []map[string]interface{}{}
-	indexSymbols := map[string]bool{}
-	for _, q := range quotes {
-		cat, _ := q["category"].(string)
-		sym, _ := q["symbol"].(string)
-		if cat == "index" || strings.HasPrefix(sym, "^") {
-			indices = append(indices, q)
-			indexSymbols[sym] = true
-		}
-	}
-	rows := []map[string]interface{}{}
-	for _, q := range quotes {
-		sym, _ := q["symbol"].(string)
-		if !indexSymbols[sym] {
-			rows = append(rows, q)
-		}
-	}
-	asOf := beijingNow()
-	payload := map[string]interface{}{
-		"quotes":  quotes,
-		"indices": indices,
-		"rows":    rows,
-		"source":  "cache",
-		"count":   len(quotes),
-		"asOf":    asOf,
-		"stale":   false,
-	}
-	if err := cache.SetJSON(ctx, s.rdb, cache.BoardQuotesKey, payload, cache.BoardQuotesTTL); err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{"count": len(quotes), "asOf": asOf}, nil
+	return quotes
 }
 
 func (s *Service) listAllInstruments(ctx context.Context) ([]instrumentRow, error) {
@@ -142,12 +154,12 @@ ORDER BY FIELD(market, 'US','HK','CN'), symbol`)
 	return out, nil
 }
 
-func buildQuoteFromKlines(bars []influx.KlineBar) map[string]interface{} {
+func buildQuoteFromKlines(bars []dailyBar) map[string]interface{} {
 	if len(bars) == 0 {
 		return map[string]interface{}{}
 	}
 	last := bars[len(bars)-1]
-	var prev *influx.KlineBar
+	var prev *dailyBar
 	if len(bars) > 1 {
 		p := bars[len(bars)-2]
 		prev = &p

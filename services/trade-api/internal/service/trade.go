@@ -50,7 +50,7 @@ func (s *Trade) Account(ctx context.Context, userID int) (map[string]interface{}
 	}
 	acc, err := s.Broker.AccountBalance(ctx, creds)
 	if err != nil {
-		return nil, err
+		return nil, tradeexec.ClassifyBrokerError(err)
 	}
 	return tradeexec.FlattenAccount(acc), nil
 }
@@ -65,7 +65,7 @@ func (s *Trade) Positions(ctx context.Context, userID int) (map[string]interface
 	}
 	positions, err := s.Broker.Positions(ctx, creds)
 	if err != nil {
-		return nil, err
+		return nil, tradeexec.ClassifyBrokerError(err)
 	}
 	symbols := make([]string, 0, len(positions))
 	for _, p := range positions {

@@ -48,8 +48,17 @@ func Forbidden(w http.ResponseWriter, msg string) {
 }
 
 func Error(w http.ResponseWriter, msg string) {
+	Fail(w, 500, msg)
+}
+
+// Fail writes a business error with an explicit code. Use 401004 for Longbridge
+// OpenAPI token rejection so clients do not treat it as platform JWT expiry (401).
+func Fail(w http.ResponseWriter, code int, msg string) {
+	if code == 0 {
+		code = 500
+	}
 	write(w, http.StatusOK, envelope{
-		Code:    500,
+		Code:    code,
 		Msg:     msg,
 		Success: false,
 		Time:    timeutil.NowBeijingRFC(),

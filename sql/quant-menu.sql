@@ -18,8 +18,8 @@ insert into sys_menu values('2200', '量化交易', '0', '7', 'quant', null, '',
 -- ----------------------------
 -- B. 二级页面菜单（route_name 与线上一致）
 -- ----------------------------
-insert into sys_menu values('2201', '因子分析', '2200', '1', 'factor',    'quant/factor/index',    '', 'QuantFactorIndex', 1, 0, 'C', '0', '0', 'quant:factor:schema',   'chart',     'admin', sysdate(), '', null, '因子分析菜单');
-insert into sys_menu values('2202', '策略信号', '2200', '2', 'strategy',  'quant/strategy/index',  '', 'QuantStrategyIndex', 1, 0, 'C', '0', '0', 'quant:strategy:run',    'guide',     'admin', sysdate(), '', null, '策略信号菜单');
+insert into sys_menu values('2201', '因子分析', '2200', '1', 'factor',    'quant/factor/index',    '', 'QuantFactorIndex', 1, 0, 'C', '0', '0', 'quant:factor:list',     'chart',     'admin', sysdate(), '', null, '因子分析菜单');
+insert into sys_menu values('2202', '策略信号', '2200', '2', 'strategy',  'quant/strategy/index',  '', 'QuantStrategyIndex', 1, 0, 'C', '0', '0', 'quant:strategy:history','guide',     'admin', sysdate(), '', null, '策略信号菜单');
 insert into sys_menu values('2203', '自选池',   '2200', '3', 'watchlist', 'quant/watchlist/index', '', 'QuantWatchlistIndex', 1, 0, 'C', '0', '0', 'quant:watchlist:list',  'star',      'admin', sysdate(), '', null, '自选池菜单');
 insert into sys_menu values('2204', '长桥配置', '2200', '4', 'longbridge','quant/longbridge/index','', 'QuantLongbridgeIndex', 1, 0, 'C', '0', '0', 'quant:longbridge:config','edit',     'admin', sysdate(), '', null, '长桥配置菜单');
 
