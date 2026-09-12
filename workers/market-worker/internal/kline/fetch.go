@@ -23,15 +23,48 @@ const (
 )
 
 var minuteURLs = map[string]string{
-	"CN": "http://web.ifzq.gtimg.cn/appstock/app/minute/query",
-	"HK": "http://web.ifzq.gtimg.cn/appstock/app/hkMinute/query",
-	"US": "http://web.ifzq.gtimg.cn/appstock/app/UsMinute/query",
+	"CN": "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
+	"HK": "https://web.ifzq.gtimg.cn/appstock/app/hkMinute/query",
+	"US": "https://web.ifzq.gtimg.cn/appstock/app/UsMinute/query",
 }
 
-var indexSina = map[string]string{
-	"^DJI":  ".DJI",
-	"^GSPC": ".INX",
-	"^IXIC": ".IXIC",
+type vendorIndex struct {
+	Tencent string
+	Sina    string
+}
+
+// vendorIndexByKey maps "SYMBOL|MARKET" to Tencent qt / Sina daily codes.
+// 000001|CN is 上证指数 (sh000001), not 000001.SZ 平安银行 (sz000001).
+var vendorIndexByKey = map[string]vendorIndex{
+	"^DJI|US":      {Tencent: "usDJI", Sina: ".DJI"},
+	"^GSPC|US":     {Tencent: "usINX", Sina: ".INX"},
+	"^IXIC|US":     {Tencent: "usIXIC", Sina: ".IXIC"},
+	"HSI|HK":       {Tencent: "hkHSI", Sina: "HSI"},
+	"HSI.HK|HK":    {Tencent: "hkHSI", Sina: "HSI"},
+	"HSTECH|HK":    {Tencent: "hkHSTECH", Sina: "HSTECH"},
+	"HSTECH.HK|HK": {Tencent: "hkHSTECH", Sina: "HSTECH"},
+	"HSCEI|HK":     {Tencent: "hkHSCEI", Sina: "HSCEI"},
+	"HSCEI.HK|HK":  {Tencent: "hkHSCEI", Sina: "HSCEI"},
+	"000001|CN":    {Tencent: "sh000001", Sina: "sh000001"},
+	"000001.SH|CN": {Tencent: "sh000001", Sina: "sh000001"},
+	"399001|CN":    {Tencent: "sz399001", Sina: "sz399001"},
+	"399001.SZ|CN": {Tencent: "sz399001", Sina: "sz399001"},
+	"399006|CN":    {Tencent: "sz399006", Sina: "sz399006"},
+	"399006.SZ|CN": {Tencent: "sz399006", Sina: "sz399006"},
+}
+
+func vendorKey(symbol, market string) string {
+	return strings.ToUpper(strings.TrimSpace(symbol)) + "|" + strings.ToUpper(strings.TrimSpace(market))
+}
+
+// VendorIndex returns Tencent qt and Sina daily codes for a pinned index.
+// ok is false for ordinary stocks (including 000001.SZ, the bank).
+func VendorIndex(symbol, market string) (tencentCode, sinaCode string, ok bool) {
+	row, found := vendorIndexByKey[vendorKey(symbol, market)]
+	if !found {
+		return "", "", false
+	}
+	return row.Tencent, row.Sina, true
 }
 
 type Row struct {
@@ -135,7 +168,7 @@ func (c *Client) fetchSina(symbol, market string, years int) ([]Row, error) {
 	} else {
 		q.Set("___qn", "3n")
 	}
-	body, err := c.get(endpoint + "?" + q.Encode(), sinaHeaders())
+	body, err := c.get(endpoint+"?"+q.Encode(), sinaHeaders())
 	if err != nil {
 		return nil, err
 	}
@@ -368,8 +401,8 @@ func toFloat(v interface{}) float64 {
 }
 
 func sinaSymbol(symbol, market string) string {
-	if s, ok := indexSina[symbol]; ok {
-		return s
+	if _, sina, ok := VendorIndex(symbol, market); ok && sina != "" {
+		return sina
 	}
 	if strings.ToUpper(market) == "CN" {
 		code := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(symbol, ".SH", ""), ".SZ", ""))
@@ -383,12 +416,8 @@ func sinaSymbol(symbol, market string) string {
 
 func tencentSymbol(symbol, market string) string {
 	mkt := strings.ToUpper(market)
-	if s, ok := indexSina[symbol]; ok {
-		mapping := map[string]string{".DJI": "usDJI", ".INX": "usINX", ".IXIC": "usIXIC"}
-		if v, ok := mapping[s]; ok {
-			return v
-		}
-		return "us" + strings.ReplaceAll(symbol, "^", "")
+	if tencent, _, ok := VendorIndex(symbol, mkt); ok && tencent != "" {
+		return tencent
 	}
 	if mkt == "HK" {
 		code := strings.ToUpper(strings.ReplaceAll(symbol, ".HK", ""))

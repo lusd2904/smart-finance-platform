@@ -3,6 +3,8 @@ package heat
 import (
 	"strings"
 	"testing"
+
+	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/kline"
 )
 
 func TestParseTencentQuote(t *testing.T) {
@@ -134,5 +136,62 @@ func TestFetchPublicUniverseUsesInjectedHTTP(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("candidates=%+v", cands)
+	}
+}
+
+func TestUSHeatIndexMapsGSPCToUsINX(t *testing.T) {
+	if got := usHeatIndexTencent(); got != "usINX" {
+		t.Fatalf("usHeatIndexTencent=%q want usINX (^GSPC, not usGSPC)", got)
+	}
+	tencent, sina, ok := kline.VendorIndex("^GSPC", "US")
+	if !ok || tencent != "usINX" || sina != ".INX" {
+		t.Fatalf("VendorIndex(^GSPC,US)=(%q,%q,%v)", tencent, sina, ok)
+	}
+	tencent, sina, ok = kline.VendorIndex("^DJI", "US")
+	if !ok || tencent != "usDJI" || sina != ".DJI" {
+		t.Fatalf("VendorIndex(^DJI,US)=(%q,%q,%v)", tencent, sina, ok)
+	}
+	tencent, sina, ok = kline.VendorIndex("^IXIC", "US")
+	if !ok || tencent != "usIXIC" || sina != ".IXIC" {
+		t.Fatalf("VendorIndex(^IXIC,US)=(%q,%q,%v)", tencent, sina, ok)
+	}
+}
+
+func TestDailyBarChangePct(t *testing.T) {
+	got := DailyBarChangePct(5050, 5000)
+	if got == nil || *got != 1 {
+		t.Fatalf("change=%v", got)
+	}
+	if DailyBarChangePct(0, 5000) != nil || DailyBarChangePct(5000, 0) != nil {
+		t.Fatal("zero closes must be nil")
+	}
+}
+
+func TestFetchUSIndexChangeUsesTencentINX(t *testing.T) {
+	orig := getText
+	defer func() { getText = orig }()
+	sawINX := false
+	getText = func(rawURL string) (string, error) {
+		switch {
+		case strings.Contains(rawURL, "qt.gtimg.cn"):
+			if !strings.Contains(rawURL, "usINX") {
+				t.Fatalf("US heat must query usINX, got %s", rawURL)
+			}
+			sawINX = true
+			return `v_usINX="1~标普500~INX~5050~5000~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~15:00:00~0~1.00~0~0~0~0~1000000000~0";`, nil
+		case strings.Contains(rawURL, "ulist.np"):
+			return `{"data":{"diff":[]}}`, nil
+		case strings.Contains(rawURL, "clist/get"):
+			return `{"data":{"diff":[{"f12":"AAPL","f14":"苹果","f2":100,"f3":1.1,"f6":8000000000,"f20":2500000000000}]}}`, nil
+		default:
+			return `[]`, nil
+		}
+	}
+	_, extras := FetchPublicUniverse("US")
+	if !sawINX {
+		t.Fatal("expected Tencent usINX quote")
+	}
+	if extras.IndexChange == nil || *extras.IndexChange != 1 {
+		t.Fatalf("index=%v want 1.00 from usINX daily change", extras.IndexChange)
 	}
 }

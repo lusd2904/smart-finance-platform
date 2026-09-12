@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/kline"
 )
 
 const (
@@ -99,13 +101,48 @@ func fetchUS() ([]Candidate, Extras) {
 	emRows := safeList(func() ([]Candidate, error) {
 		return FetchEastmoneyRank("m:105,m:106,m:107", 1, 80)
 	})
+	tencent := safeQuote(func() (map[string]any, error) {
+		return ParseTencentQuote(mustGet("https://qt.gtimg.cn/q=" + usHeatIndexTencent()))
+	})
 	emIndex := safeQuote(func() (map[string]any, error) { return FetchEastmoneyIndex("100.SPX") })
-	extras := Extras{Source: []string{"sina-us", "eastmoney-rank", "eastmoney-index"}}
-	extras.IndexChange = firstFloat(emIndex["change_pct"])
+	extras := Extras{Source: []string{"tencent-index", "sina-us", "eastmoney-rank", "eastmoney-index"}}
+	extras.IndexChange = firstFloat(tencent["change_pct"], emIndex["change_pct"])
 	extras.Advance = asIntPtr(emIndex["advance"])
 	extras.Decline = asIntPtr(emIndex["decline"])
 	extras.Flat = asIntPtr(emIndex["flat"])
 	return MergeCandidates(emRows, sinaVol, sinaAmt), extras
+}
+
+// usHeatIndexTencent maps heat IndexSymbol ^GSPC to Tencent usINX (not usGSPC).
+func usHeatIndexTencent() string {
+	if code, _, ok := kline.VendorIndex(MarketMeta["US"].IndexSymbol, "US"); ok && code != "" {
+		return code
+	}
+	return "usINX"
+}
+
+// IndexDailySymbols are market_price_history_daily keys used to fill index_change_pct
+// from the last two daily closes when the live quote is missing.
+func IndexDailySymbols(market string) []string {
+	switch strings.ToUpper(strings.TrimSpace(market)) {
+	case "US":
+		return []string{"^GSPC", "^DJI", "^IXIC"}
+	case "HK":
+		return []string{"HSI", "HSI.HK"}
+	case "CN":
+		return []string{"000001"}
+	default:
+		return nil
+	}
+}
+
+// DailyBarChangePct is (last/prev - 1) * 100 from two index daily closes.
+func DailyBarChangePct(last, prev float64) *float64 {
+	if last <= 0 || prev <= 0 {
+		return nil
+	}
+	v := round4((last/prev - 1) * 100)
+	return &v
 }
 
 func ParseTencentQuote(text string) (map[string]any, error) {

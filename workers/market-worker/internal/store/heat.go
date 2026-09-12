@@ -22,6 +22,7 @@ func (s *Service) CollectMarketHeat(ctx context.Context, market, tradeDate strin
 	}
 	weights := s.heatWeights(ctx)
 	candidates, extras := heat.FetchPublicUniverse(mkt)
+	s.fillIndexChangeFromDaily(ctx, mkt, session, &extras)
 	if len(candidates) == 0 {
 		existing, _ := s.countTop50(ctx, mkt, session)
 		return map[string]interface{}{
@@ -158,6 +159,46 @@ INSERT INTO market_top50_snapshot (
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Service) fillIndexChangeFromDaily(ctx context.Context, market, tradeDate string, extras *heat.Extras) {
+	if extras == nil || extras.IndexChange != nil || s.db == nil {
+		return
+	}
+	for _, symbol := range heat.IndexDailySymbols(market) {
+		last, prev, ok := s.latestTwoCloses(ctx, symbol, market, tradeDate)
+		if !ok {
+			continue
+		}
+		if chg := heat.DailyBarChangePct(last, prev); chg != nil {
+			extras.IndexChange = chg
+			extras.Source = append(extras.Source, "mysql-daily")
+			return
+		}
+	}
+}
+
+func (s *Service) latestTwoCloses(ctx context.Context, symbol, market, tradeDate string) (last, prev float64, ok bool) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT close_price FROM market_price_history_daily
+WHERE symbol=? AND market=? AND trade_date<=? AND close_price IS NOT NULL AND close_price>0
+ORDER BY trade_date DESC LIMIT 2`, symbol, market, tradeDate)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer rows.Close()
+	var closes []float64
+	for rows.Next() {
+		var close sql.NullFloat64
+		if err := rows.Scan(&close); err != nil || !close.Valid {
+			continue
+		}
+		closes = append(closes, close.Float64)
+	}
+	if len(closes) < 2 {
+		return 0, 0, false
+	}
+	return closes[0], closes[1], true
 }
 
 func nullFloat(v *float64) any {
