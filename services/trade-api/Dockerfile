@@ -1,6 +1,7 @@
 # Build stage
 FROM golang:1.24-alpine AS builder
 WORKDIR /src
+COPY services/klineread /src/services/klineread
 COPY services/trade-exec /src/services/trade-exec
 COPY services/trade-api /src/services/trade-api
 WORKDIR /src/services/trade-api

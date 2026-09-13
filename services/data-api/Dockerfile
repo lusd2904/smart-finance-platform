@@ -1,8 +1,10 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /src/services/data-api
 COPY services/data-api/go.mod services/data-api/go.sum ./
+COPY services/klineread /src/services/klineread
 COPY services/market-read /src/services/market-read
+COPY services/trade-exec /src/services/trade-exec
 RUN go mod download
 COPY services/data-api .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /data-api ./cmd/data-api
