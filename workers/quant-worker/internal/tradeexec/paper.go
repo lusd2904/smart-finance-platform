@@ -2,12 +2,11 @@ package tradeexec
 
 import "os"
 
-// Paper semantics (verified against current Python, 2026-09):
+// Paper semantics:
 //
-// LONGPORT_PAPERTRADING, require_paper, and submit_order_async(allow_sim=...)
-// were removed. The platform no longer intercepts orders with a paper gate.
-// Whatever Longbridge account is stored in quant_longbridge_config is what
-// receives the order (paper account token → paper fills; live token → live).
+// Process-wide LONGPORT_PAPERTRADING / require_paper / allow_sim stay unused.
+// Per-account paper is detected from JWT ac=lb_papertrading (or region/flag)
+// and passed to the SDK as header x-papertrading: true.
 //
 // Safety defaults this Go path still enforces:
 //   - auto_trade_enabled defaults to off; jobs only submit when that flag is on

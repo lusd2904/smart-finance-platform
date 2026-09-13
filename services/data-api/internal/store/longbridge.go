@@ -36,14 +36,8 @@ FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(&appKey, &secret, 
 	if err != nil {
 		return tradeexec.Creds{}, err
 	}
-	return tradeexec.Creds{
-		UserID:      int(userID),
-		AppKey:      strings.TrimSpace(appKey.String),
-		AppSecret:   tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv),
-		AccessToken: tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv),
-		Region:      strings.TrimSpace(region.String),
-		Source:      "db",
-	}, nil
+	creds := tradeexec.DecodeLongbridgeCreds(int(userID), appKey.String, secret.String, token.String, region.String, credKey, jwtSecret, appEnv)
+	return creds, nil
 }
 
 func (d *DB) GetLongbridgeConfig(ctx context.Context, userID int64, credKey, jwtSecret, appEnv string) (LongbridgeConfig, error) {
@@ -64,9 +58,9 @@ FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(
 	return LongbridgeConfig{
 		ID:                   id,
 		UserID:               userID,
-		AppKey:               sqlStr(appKey),
-		AppSecret:            maskSecret(tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv)),
-		AccessToken:          maskSecret(tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv)),
+		AppKey:               tradeexec.NormalizeAppKey(sqlStr(appKey)),
+		AppSecret:            tradeexec.FormatSecretForLog(tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv)),
+		AccessToken:          tradeexec.FormatSecretForLog(tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv)),
 		Region:               defaultStr(sqlStr(region), "cn"),
 		AutoTradeEnabled:     sqlStr(autoEnabled) == "1",
 		DailyBuyRatio:        nullFloatDefault(ratio, 0.20),
@@ -83,6 +77,7 @@ func sqlStr(v sql.NullString) string {
 }
 
 func (d *DB) SaveLongbridgeConfig(ctx context.Context, userID int64, cfg LongbridgeConfig, credKey, jwtSecret, appEnv string) error {
+	appKey := tradeexec.NormalizeAppKey(cfg.AppKey)
 	secret := cfg.AppSecret
 	token := cfg.AccessToken
 	if isMasked(secret) {
@@ -101,6 +96,10 @@ func (d *DB) SaveLongbridgeConfig(ctx context.Context, userID int64, cfg Longbri
 		}
 		token = row.token
 	} else if token != "" {
+		token = tradeexec.NormalizeAccessToken(token)
+		if err := tradeexec.RejectExpiredAccessToken(token); err != nil {
+			return err
+		}
 		token = encryptCredential(token, credKey, jwtSecret, appEnv)
 	}
 	region := strings.ToLower(defaultStr(cfg.Region, "cn"))
@@ -109,7 +108,7 @@ INSERT INTO quant_longbridge_config (user_id, app_key, app_secret, access_token,
 VALUES (?, ?, ?, ?, ?, NOW())
 ON DUPLICATE KEY UPDATE app_key=VALUES(app_key), app_secret=VALUES(app_secret),
   access_token=VALUES(access_token), region=VALUES(region), update_time=NOW()`,
-		userID, cfg.AppKey, secret, token, region)
+		userID, appKey, secret, token, region)
 	return err
 }
 
@@ -168,13 +167,7 @@ SELECT app_key, access_token FROM quant_longbridge_config WHERE user_id = ?`, us
 }
 
 func maskSecret(value string) string {
-	if value == "" {
-		return ""
-	}
-	if len(value) > 4 {
-		return "****" + value[len(value)-4:]
-	}
-	return "****"
+	return tradeexec.FormatSecretForLog(value)
 }
 
 func isMasked(value string) bool {

@@ -26,14 +26,7 @@ FROM quant_longbridge_config WHERE user_id = ?`, userID).Scan(&appKey, &secret, 
 	if err != nil {
 		return tradeexec.Creds{}, err
 	}
-	return tradeexec.Creds{
-		UserID:      userID,
-		AppKey:      strings.TrimSpace(appKey.String),
-		AppSecret:   tradeexec.DecryptOrRaw(secret.String, r.CredentialKey, r.JWTSecret, r.AppEnv),
-		AccessToken: tradeexec.DecryptOrRaw(token.String, r.CredentialKey, r.JWTSecret, r.AppEnv),
-		Region:      strings.TrimSpace(region.String),
-		Source:      "db",
-	}, nil
+	return tradeexec.DecodeLongbridgeCreds(userID, appKey.String, secret.String, token.String, region.String, r.CredentialKey, r.JWTSecret, r.AppEnv), nil
 }
 
 func (r *Repo) LoadSettings(ctx context.Context, userID int) tradeexec.UserSettings {

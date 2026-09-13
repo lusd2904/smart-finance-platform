@@ -23,32 +23,56 @@ type SDKBroker struct{}
 func NewSDKBroker() *SDKBroker { return &SDKBroker{} }
 
 func buildConfig(creds Creds) (*config.Config, error) {
-	if !creds.Configured() {
-		return nil, fmt.Errorf("长桥凭据未配置")
-	}
-	cfg, err := config.New(config.WithConfigKey(creds.AppKey, creds.AppSecret, creds.AccessToken))
+	plan, err := PlanClient(creds)
 	if err != nil {
 		return nil, err
 	}
-	region := strings.ToLower(strings.TrimSpace(creds.Region))
-	if region == "" || region == "cn" {
-		cfg.Region = config.RegionCN
-		cfg.HttpURL = "https://openapi.longbridge.cn"
-		cfg.QuoteUrl = "wss://openapi-quote.longbridge.cn"
-		cfg.TradeUrl = "wss://openapi-trade.longbridge.cn"
+	if plan.AppKey == "" || plan.AccessToken == "" {
+		return nil, fmt.Errorf("长桥凭据未配置")
+	}
+	if plan.UseHMAC && strings.TrimSpace(creds.AppSecret) == "" {
+		return nil, fmt.Errorf("长桥凭据未配置")
+	}
+
+	var cfg *config.Config
+	if plan.AuthorizationBearer {
+		cfg = &config.Config{
+			AppKey:      plan.AppKey,
+			AccessToken: plan.AccessToken,
+		}
+		cfg.WithHeader("Authorization", "Bearer "+plan.AccessToken)
 	} else {
-		cfg.HttpURL = "https://openapi.longbridge.com"
-		cfg.QuoteUrl = "wss://openapi-quote.longbridge.com"
-		cfg.TradeUrl = "wss://openapi-trade.longbridge.com"
+		cfg, err = config.New(config.WithConfigKey(plan.AppKey, creds.AppSecret, plan.AccessToken))
+		if err != nil {
+			return nil, err
+		}
+	}
+	applyRegion(cfg, creds.Region)
+	if plan.Paper {
+		cfg.WithHeader(paperHeaderKey, paperHeaderValue)
 	}
 	cfg.EnableOvernight = true
 	return cfg, nil
 }
 
+func applyRegion(cfg *config.Config, region string) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" || region == "cn" || isPaperRegion(region) {
+		cfg.Region = config.RegionCN
+		cfg.HttpURL = "https://openapi.longbridge.cn"
+		cfg.QuoteUrl = "wss://openapi-quote.longbridge.cn"
+		cfg.TradeUrl = "wss://openapi-trade.longbridge.cn"
+		return
+	}
+	cfg.HttpURL = "https://openapi.longbridge.com"
+	cfg.QuoteUrl = "wss://openapi-quote.longbridge.com"
+	cfg.TradeUrl = "wss://openapi-trade.longbridge.com"
+}
+
 func tradeCtx(creds Creds) (*trade.TradeContext, error) {
 	cfg, err := buildConfig(creds)
 	if err != nil {
-		return nil, err
+		return nil, ClassifyBrokerError(err)
 	}
 	return trade.NewHTTPFromCfg(cfg)
 }

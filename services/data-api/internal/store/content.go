@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 	"github.com/lusd2904/smart-finance-platform/services/data-api/internal/longbridge"
+	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
 )
 
 var contentTTL = map[string]time.Duration{
@@ -151,11 +151,12 @@ WHERE app_key IS NOT NULL AND app_key != '' ORDER BY user_id ASC LIMIT 1`).Scan(
 		return longbridge.Creds{}, err
 	}
 	credKey, jwtSecret, appEnv := tradeexec.EncryptionKeysFromEnv()
+	decoded := tradeexec.DecodeLongbridgeCreds(0, appKey.String, secret.String, token.String, region.String, credKey, jwtSecret, appEnv)
 	return longbridge.Creds{
-		AppKey:      strings.TrimSpace(appKey.String),
-		AppSecret:   tradeexec.DecryptOrRaw(secret.String, credKey, jwtSecret, appEnv),
-		AccessToken: tradeexec.DecryptOrRaw(token.String, credKey, jwtSecret, appEnv),
-		Region:      strings.TrimSpace(region.String),
+		AppKey:      decoded.AppKey,
+		AppSecret:   decoded.AppSecret,
+		AccessToken: decoded.AccessToken,
+		Region:      decoded.Region,
 	}, nil
 }
 
