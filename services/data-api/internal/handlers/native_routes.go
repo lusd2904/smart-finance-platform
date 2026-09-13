@@ -210,6 +210,14 @@ func (s *Server) LongbridgeConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	credKey, jwtSecret, appEnv := tradeexec.EncryptionKeysFromEnv()
 	if err := s.DB.SaveLongbridgeConfig(r.Context(), userID, cfg, credKey, jwtSecret, appEnv); err != nil {
+		err = tradeexec.ClassifyBrokerError(err)
+		if tradeexec.IsBrokerTokenExpired(err) {
+			writeEnvelope(w, http.StatusOK, envelope{
+				Code: tradeexec.BrokerTokenExpiredCode, Msg: err.Error(), Success: false,
+				Time: time.Now().Format(time.RFC3339),
+			})
+			return
+		}
 		response.Error(w, "保存失败")
 		return
 	}
@@ -236,6 +244,13 @@ func (s *Server) LongbridgeTest(w http.ResponseWriter, r *http.Request) {
 	acct, err := broker.AccountBalance(r.Context(), creds)
 	if err != nil {
 		err = tradeexec.ClassifyBrokerError(err)
+		if tradeexec.IsBrokerTokenExpired(err) {
+			writeEnvelope(w, http.StatusOK, envelope{
+				Code: tradeexec.BrokerTokenExpiredCode, Msg: err.Error(), Success: false,
+				Time: time.Now().Format(time.RFC3339),
+			})
+			return
+		}
 		if tradeexec.IsBrokerTokenRejected(err) {
 			writeEnvelope(w, http.StatusOK, envelope{
 				Code: tradeexec.BrokerTokenInvalidCode, Msg: err.Error(), Success: false,

@@ -31,6 +31,24 @@ func TestWriteTradeErr401004IsNotSessionJWT(t *testing.T) {
 	}
 }
 
+func TestWriteTradeErr401003ExpiredDistinct(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeTradeErr(rec, tradeexec.ClassifyBrokerError(errors.New("401003 token expired")))
+	var body struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != 401003 {
+		t.Fatalf("code=%d body=%s", body.Code, rec.Body.String())
+	}
+	if strings.Contains(body.Msg, "401004") {
+		t.Fatalf("expired must not look like 401004: %s", body.Msg)
+	}
+}
+
 func TestWriteTradeErrGenericStays500(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeTradeErr(rec, errors.New("network timeout"))

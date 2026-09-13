@@ -1,5 +1,7 @@
 package tradeexec
 
+import "strings"
+
 // Position is the flattened Longbridge stock_positions row used by Python.
 type Position struct {
 	Symbol            string
@@ -14,11 +16,11 @@ type Position struct {
 
 // Balance is one currency slice from account_balance.
 type Balance struct {
-	Currency          string
-	TotalCash         float64
-	AvailableCash     float64
-	NetAssets         float64
-	MaxFinanceAmount  float64
+	Currency         string
+	TotalCash        float64
+	AvailableCash    float64
+	NetAssets        float64
+	MaxFinanceAmount float64
 }
 
 // Account is the Python get_account_balance payload.
@@ -96,10 +98,19 @@ type Creds struct {
 	AccessToken string
 	Region      string
 	Source      string
+	Paper       bool
 }
 
 func (c Creds) Configured() bool {
-	return c.AppKey != "" && c.AppSecret != "" && c.AccessToken != ""
+	key := NormalizeAppKey(c.AppKey)
+	tok := strings.TrimSpace(c.AccessToken)
+	if key == "" || tok == "" {
+		return false
+	}
+	if UseOAuthBearer(tok) {
+		return true
+	}
+	return strings.TrimSpace(c.AppSecret) != ""
 }
 
 func (c Creds) Signature() string {
