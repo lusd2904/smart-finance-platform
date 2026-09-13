@@ -246,6 +246,34 @@ jobs:
             ls docker-compose*python*
             exit 1
           fi
+      - name: Assert repo-root API Dockerfiles copy go.mod replace siblings
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          # Built with compose context: . (repo root), not the service directory.
+          root_ctx = [Path("services/trade-api"), Path("services/data-api")]
+          replace_re = re.compile(
+              r"^replace\s+\S+\s+=>\s+\.\./([A-Za-z0-9._-]+)\s*$",
+              re.M,
+          )
+          failed = []
+          for svc in root_ctx:
+              gomod = (svc / "go.mod").read_text()
+              dockerfile = (svc / "Dockerfile").read_text()
+              missing = [
+                  name
+                  for name in replace_re.findall(gomod)
+                  if f"COPY services/{name} " not in dockerfile
+                  and not re.search(rf"^COPY services/{re.escape(name)}(?:/|\s)", dockerfile, re.M)
+              ]
+              if missing:
+                  failed.append(f"{svc}/Dockerfile missing COPY for {missing}")
+          if failed:
+              raise SystemExit("\n".join(failed))
+          print("ok: repo-root API Dockerfiles copy replace siblings")
+          PY
       - uses: docker/setup-buildx-action@v3
       - name: Build market-worker image
         uses: docker/build-push-action@v6
