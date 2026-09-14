@@ -163,8 +163,8 @@ async function handleLogin() {
   }
 }
 
-function enterDemo() {
-  userStore.enterDemoSession()
+async function enterDemo() {
+  await userStore.enterDemoSession()
   ElMessage.success('已进入演示')
   router.replace(safeRedirect(route.query.redirect))
 }

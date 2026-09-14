@@ -43,6 +43,7 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
           secure: true,
+          ws: true,
           rewrite: (p) => p.replace(/^\/dev-api/, '')
         }
       }

@@ -2,7 +2,6 @@
   <PageFrame
     title="资金与日历"
     subtitle="A 股板块资金 / 涨停 / 龙虎榜 · 宏观与美股财报日历"
-    badge="「资金与日历 /market/flow」"
     :loading="loading"
   >
     <template #actions>

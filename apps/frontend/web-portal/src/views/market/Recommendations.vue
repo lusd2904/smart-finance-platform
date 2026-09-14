@@ -2,7 +2,6 @@
   <PageFrame
     title="智能选股"
     :subtitle="heroSub"
-    badge="「智能选股 /market/recommendations」"
     :loading="loading"
   >
     <template #actions>
