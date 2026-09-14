@@ -9,6 +9,7 @@
           <el-option label="华尔街见闻" value="wallstreetcn" />
           <el-option label="谷歌新闻" value="google_news" />
           <el-option label="金十数据" value="jin10" />
+          <el-option label="X" value="x_monitor" />
         </el-select>
       </el-form-item>
       <el-form-item label="标题" prop="title">
@@ -202,7 +203,8 @@ function sourceLabel(source) {
     cls: '财联社/同花顺',
     wallstreetcn: '华尔街见闻',
     google_news: '谷歌新闻',
-    jin10: '金十数据'
+    jin10: '金十数据',
+    x_monitor: 'X'
   };
   return map[source] || source || '--';
 }
