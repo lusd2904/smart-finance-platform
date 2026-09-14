@@ -123,8 +123,20 @@ func round4(v float64) float64 {
 }
 
 func beijingNow() string {
-	loc, _ := time.LoadLocation("Asia/Shanghai")
-	return time.Now().In(loc).Format("2006-01-02 15:04:05")
+	return time.Now().In(beijingLocation()).Format("2006-01-02 15:04:05")
+}
+
+// beijingLocation is Asia/Shanghai, or CST+8 when zoneinfo is missing (Alpine without tzdata).
+func beijingLocation() *time.Location {
+	return loadLocationOrCST("Asia/Shanghai")
+}
+
+func loadLocationOrCST(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil || loc == nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
 }
 
 func putScheduledBoard(ctx context.Context, rdb *redis.Client, payload interface{}) error {

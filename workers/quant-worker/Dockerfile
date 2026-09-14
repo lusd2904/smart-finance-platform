@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /quant-worker ./cmd/quant-worker
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates tzdata wget
 WORKDIR /app
 COPY --from=build /quant-worker /app/quant-worker
 ENV WORKER_PORT=9097
