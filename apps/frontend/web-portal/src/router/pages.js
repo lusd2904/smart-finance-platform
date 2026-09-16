@@ -1,3 +1,10 @@
+export function loadView(component) {
+  if (!component || ['Layout', 'ParentView', 'InnerLink'].includes(component)) return null
+  const key = String(component).replace(/^\//, '').replace(/\/index$/, '')
+  const page = implementedPages.find((p) => p.path === key)
+  return page ? page.component : null
+}
+
 export const implementedPages = [
   { path: 'market/heat', title: '市场热度', component: () => import('@/views/market/Heat.vue') },
   { path: 'market/board', title: '行情台', component: () => import('@/views/market/Board.vue') },

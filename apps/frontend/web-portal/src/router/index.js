@@ -28,6 +28,7 @@ const router = createRouter({
     },
     {
       path: '/',
+      name: 'Root',
       component: MainLayout,
       children: [
         {

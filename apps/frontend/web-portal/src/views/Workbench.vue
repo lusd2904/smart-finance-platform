@@ -18,6 +18,7 @@
         <el-button type="primary" :loading="loading" @click="refreshAll(true)">刷新</el-button>
       </div>
     </section>
+    <el-alert v-if="loadError && !usingStub" :title="loadError" type="error" show-icon :closable="false" />
 
     <div v-if="assetVisible" class="asset-strip">
       <article v-for="card in assetCards" :key="card.key" class="stat-card glass-panel" @click="$router.push(card.path)">
@@ -148,14 +149,20 @@ import { computed, onMounted, ref } from 'vue'
 import { getDashboardSummary } from '@/api/dashboard'
 import { getMarketReviewLatest } from '@/api/market'
 import { useUserStore } from '@/store/user'
-import { changeClass, fmtAmount, fmtChange, sectionOk } from '@/utils/format'
-import { showStubBanner, stubDashboard, stubReviews, useStubs } from '@/utils/stubs'
+import { changeClass, fmtAmount, fmtChange } from '@/utils/format'
+import { unwrap, unwrapList, unwrapSectionList } from '@/utils/list'
+import { errorText, isDemoSession, showStubBanner, stubDashboard, stubReviews } from '@/utils/stubs'
 
 const userStore = useUserStore()
 const loading = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const summary = ref({})
 const marketReviews = ref([])
+
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const greetText = computed(() => {
   const h = new Date().getHours()
@@ -206,7 +213,7 @@ const marketScores = computed(() => {
   return [pack('us', '美股', a.usDirection, a.usScore), pack('hk', '港股', a.hkDirection, a.hkScore), pack('a', 'A股', a.aDirection, a.aScore)]
 })
 
-const briefings = computed(() => ((summary.value.briefings && summary.value.briefings.data) || {}).items || [])
+const briefings = computed(() => unwrapSectionList(summary.value.briefings))
 const heatRows = computed(() => {
   const data = (summary.value.heat && summary.value.heat.data) || {}
   return [
@@ -248,35 +255,35 @@ function reviewTone(stance) {
 }
 
 function applyStub() {
+  if (!demoMode()) return
   usingStub.value = true
+  loadError.value = ''
   summary.value = stubDashboard()
   marketReviews.value = stubReviews()
 }
 
 async function refreshAll(force = false) {
-  if (useStubs() || userStore.usingStub) {
+  if (demoMode()) {
     applyStub()
     return
   }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const res = await getDashboardSummary(force ? { refresh: true } : {})
-    const data = res.data || res
-    if (!data || (!data.sessions && !data.asset && !sectionOk(data.quotes))) {
-      applyStub()
-    } else {
-      usingStub.value = false
-      summary.value = data
-    }
-    try {
-      const reviewRes = await getMarketReviewLatest()
-      marketReviews.value = (reviewRes.data && reviewRes.data.items) || reviewRes.items || []
-      if (!marketReviews.value.length && usingStub.value) marketReviews.value = stubReviews()
-    } catch {
-      if (usingStub.value) marketReviews.value = stubReviews()
-    }
-  } catch {
-    applyStub()
+    const data = unwrap(res)
+    summary.value = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+  } catch (e) {
+    summary.value = {}
+    loadError.value = errorText(e, '工作台加载失败')
+  }
+  try {
+    const reviewRes = await getMarketReviewLatest()
+    marketReviews.value = unwrapList(reviewRes)
+  } catch (e) {
+    marketReviews.value = []
+    if (!loadError.value) loadError.value = errorText(e, '复盘加载失败')
   } finally {
     loading.value = false
   }

@@ -2,7 +2,6 @@
   <PageFrame
     title="因子分析"
     subtitle="因子库 · IC / IR / 覆盖率 · 对齐 /quant/factor"
-    badge="「因子分析 /quant/factor」"
     :loading="loading"
   >
     <template #actions>
@@ -10,6 +9,7 @@
     </template>
 
     <el-alert v-if="usingStub" title="STUB · stubFactors" type="warning" show-icon :closable="false" />
+    <el-alert v-else-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div class="chip-row">
       <button type="button" class="filter-chip" :class="{ active: category === '' }" @click="category = ''">全部</button>
@@ -51,14 +51,15 @@
     <el-drawer v-model="drawer" :title="current ? current.name : '因子详情'" size="420px">
       <template v-if="current">
         <p class="muted">{{ current.category || current.family }} · IC {{ fmtIc(icOf(current)) }} · IR {{ fmtIc(irOf(current)) }}</p>
-        <p>{{ current.desc || current.description || '收益曲线为 STUB 示意，不代表实盘。' }}</p>
-        <h4>收益 stub</h4>
-        <ol class="ret-list">
+        <p>{{ current.desc || current.description || (usingStub ? '收益曲线为演示示意，不代表实盘。' : '暂无因子说明') }}</p>
+        <h4>{{ usingStub ? '收益 stub' : '收益' }}</h4>
+        <ol v-if="returnsOf(current).length" class="ret-list">
           <li v-for="(v, i) in returnsOf(current)" :key="i">
             T-{{ returnsOf(current).length - i }}
             <span class="numeric" :class="changeClass(v)">{{ v > 0 ? '+' : '' }}{{ Number(v).toFixed(2) }}%</span>
           </li>
         </ol>
+        <p v-else class="muted">暂无收益序列</p>
       </template>
     </el-drawer>
 
@@ -74,10 +75,17 @@ import PageFrame from '@/components/page/PageFrame.vue'
 import { getFactorSchema, listFactorSnapshots } from '@/api/quant'
 import { changeClass } from '@/utils/format'
 import { unwrap, unwrapList } from '@/utils/list'
-import { stubFactors } from '@/utils/stubs'
+import { useUserStore } from '@/store/user'
+import { errorText, isDemoSession, stubFactors } from '@/utils/stubs'
+
+const userStore = useUserStore()
+function demoMode() {
+  return isDemoSession(userStore)
+}
 
 const loading = ref(false)
 const usingStub = ref(false)
+const loadError = ref('')
 const rows = ref([])
 const category = ref('')
 const drawer = ref(false)
@@ -99,7 +107,7 @@ function fmtIc(n) {
   return n.toFixed(3)
 }
 function returnsOf(row) {
-  return row.returns || row.quantiles || [0.4, -0.2, 0.6, 0.1, -0.3]
+  return row.returns || row.quantiles || (usingStub.value ? [0.4, -0.2, 0.6, 0.1, -0.3] : [])
 }
 function normalize(list) {
   return list.map((item) => ({
@@ -122,26 +130,36 @@ function openDetail(row) {
   drawer.value = true
 }
 
+function applyStub() {
+  if (!demoMode()) return
+  usingStub.value = true
+  loadError.value = ''
+  rows.value = stubFactors()
+}
+
 async function load() {
+  if (demoMode()) {
+    applyStub()
+    return
+  }
   loading.value = true
+  usingStub.value = false
+  loadError.value = ''
   try {
     const [snapRes, schemaRes] = await Promise.allSettled([listFactorSnapshots(), getFactorSchema()])
     let list = []
+    const errors = []
     if (snapRes.status === 'fulfilled') list = unwrapList(snapRes.value)
+    else errors.push(errorText(snapRes.reason, '因子快照加载失败'))
     if (!list.length && schemaRes.status === 'fulfilled') {
       const data = unwrap(schemaRes.value)
       list = data.factors || data.items || unwrapList(schemaRes.value)
-    }
-    if (list.length) {
-      rows.value = normalize(list)
-      usingStub.value = false
-    } else {
-      rows.value = stubFactors()
-      usingStub.value = true
-    }
-  } catch {
-    rows.value = stubFactors()
-    usingStub.value = true
+    } else if (schemaRes.status === 'rejected') errors.push(errorText(schemaRes.reason, '因子 schema 加载失败'))
+    rows.value = normalize(list)
+    if (!list.length && errors.length) loadError.value = errors.join('；')
+  } catch (e) {
+    rows.value = []
+    loadError.value = errorText(e, '因子加载失败')
   } finally {
     loading.value = false
   }

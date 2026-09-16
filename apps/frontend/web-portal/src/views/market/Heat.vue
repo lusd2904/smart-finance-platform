@@ -1,5 +1,5 @@
 <template>
-    <PageFrame title="市场热度" badge="「市场热度 /market/heat」" :loading="loading" hide-hero>
+    <PageFrame title="市场热度" :loading="loading" hide-hero>
     <section class="heat-hero">
       <div>
         <h2>行情中心</h2>
@@ -20,6 +20,7 @@
         <el-button type="primary" :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
       </div>
     </section>
+    <el-alert v-if="loadError" :title="loadError" type="error" show-icon :closable="false" />
 
     <div v-if="indices.length" class="index-strip glass-panel">
       <button
@@ -51,34 +52,7 @@
       </article>
     </div>
 
-    <el-row :gutter="12">
-      <el-col :xs="24" :lg="10">
-        <el-card shadow="never" class="glass-panel">
-          <template #header>
-            <div class="card-header">
-              <h3>热度摘要</h3>
-              <span class="mkt-tag">{{ marketLabel(market) }} · 收盘</span>
-            </div>
-          </template>
-          <p v-if="heat.heatSummary" class="summary">{{ heat.heatSummary }}</p>
-          <el-empty v-else description="暂无热度摘要" :image-size="64" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="14">
-        <el-card shadow="never" class="glass-panel">
-          <template #header>
-            <div class="card-header">
-              <h3>近 {{ trendDays }} 日趋势</h3>
-              <span class="muted">指数涨跌 / 热度分 / 成交额</span>
-            </div>
-          </template>
-          <div ref="trendRef" class="trend-chart" />
-          <el-empty v-if="!trendPoints.length && !loading" description="暂无趋势数据" :image-size="64" />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="never" class="glass-panel">
+    <el-card shadow="never" class="glass-panel heat-top">
       <template #header>
         <div class="card-header">
           <h3>Top50 热度榜</h3>
@@ -91,7 +65,7 @@
           </div>
         </div>
       </template>
-      <el-table :data="sortedTop" stripe max-height="280" empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
+      <el-table :data="sortedTop" stripe max-height="360" empty-text="暂无该市场热度快照，收盘任务完成后将自动写入。">
         <el-table-column prop="rankNo" label="#" width="52" />
         <el-table-column prop="symbol" label="代码" width="120" />
         <el-table-column prop="name" label="名称" min-width="130" show-overflow-tooltip />
@@ -122,13 +96,40 @@
       </el-table>
     </el-card>
 
+    <el-row :gutter="12">
+      <el-col :xs="24" :lg="10">
+        <el-card shadow="never" class="glass-panel">
+          <template #header>
+            <div class="card-header">
+              <h3>热度摘要</h3>
+              <span class="mkt-tag">{{ marketLabel(market) }} · 收盘</span>
+            </div>
+          </template>
+          <p v-if="heat.heatSummary" class="summary">{{ heat.heatSummary }}</p>
+          <el-empty v-else description="暂无热度摘要" :image-size="48" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :lg="14">
+        <el-card shadow="never" class="glass-panel">
+          <template #header>
+            <div class="card-header">
+              <h3>近 {{ trendDays }} 日趋势</h3>
+              <span class="muted">指数涨跌 / 热度分 / 成交额</span>
+            </div>
+          </template>
+          <div ref="trendRef" class="trend-chart" />
+          <el-empty v-if="!trendPoints.length && !loading" description="暂无趋势数据" :image-size="48" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <button v-if="!showCompare" type="button" class="compare-link" @click="showCompare = true">三列对照（次要）</button>
     <template #legend>
       <span class="legend-dots">
         <span><i class="dot-up" /> 涨红</span>
         <span><i class="dot-down" /> 跌绿</span>
       </span>
-      <span>单市场深潜默认 · Top50 · 三列对照为次要 · 「市场热度 /market/heat」</span>
+      <span>单市场深潜默认 · Top50 · 三列对照为次要</span>
     </template>
     <section v-if="showCompare" class="heat-cols">
       <article v-for="card in compareCards" :key="card.market" class="heat-card glass-panel">
@@ -137,7 +138,7 @@
           <strong>{{ card.label }}</strong>
           <span class="muted">{{ card.data.tradeDate || '--' }}</span>
         </header>
-        <div class="idx-name">{{ card.data.indexName || '指数' }}</div>
+          <div class="idx-name">{{ card.data.indexName || '—' }}</div>
         <b class="idx-chg" :class="changeClass(card.data.indexChangePct)">{{ fmtChange(card.data.indexChangePct) }}</b>
         <div class="muted">热度 {{ card.data.heatScore ?? '--' }} · 涨 {{ card.data.advanceCount ?? '--' }} / 跌 {{ card.data.declineCount ?? '--' }}</div>
       </article>
@@ -156,11 +157,12 @@ import { getDashboardSummary } from '@/api/dashboard'
 import { addMarketWatchlist, getMarketHeatDaily, getMarketHeatDates, getMarketHeatTrend, getMarketIndexQuotes } from '@/api/market'
 import { changeClass, fmtAmount, fmtChange, fmtPx } from '@/utils/format'
 import { goTerminal, marketLabel, unwrap, unwrapList } from '@/utils/list'
-import { stubDashboard } from '@/utils/stubs'
+import { errorText } from '@/utils/stubs'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
+const loadError = ref('')
 const datesLoading = ref(false)
 const market = ref(normalizeMarket(route.query.market) || 'CN')
 const tradeDate = ref('')
@@ -213,12 +215,11 @@ const sortedTop = computed(() => {
 })
 
 const compareCards = computed(() => {
-  const data = dashHeat.value
-  const stub = stubDashboard().heat.data
+  const data = dashHeat.value || {}
   return ['US', 'HK', 'CN'].map((m) => ({
     market: m,
     label: marketLabel(m),
-    data: { ...stub[m], ...(data[m] || {}) }
+    data: data[m] || {}
   }))
 })
 
@@ -296,6 +297,7 @@ async function loadTrend() {
 
 async function loadDaily() {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await getMarketHeatDaily({ market: market.value, tradeDate: tradeDate.value || undefined })
     const payload = unwrap(res)
@@ -304,9 +306,10 @@ async function loadDaily() {
     top50.value = (payload.top50 || payload.items || []).map((r) => ({ ...r, market: r.market || market.value }))
     if (payload.tradeDate) tradeDate.value = payload.tradeDate
     await loadTrend()
-  } catch {
+  } catch (e) {
     heat.value = {}
     top50.value = []
+    loadError.value = errorText(e, '热度快照加载失败')
   } finally {
     loading.value = false
   }
@@ -325,8 +328,9 @@ async function loadCompare() {
   try {
     const res = await getDashboardSummary()
     dashHeat.value = unwrap(res).heat?.data || {}
-  } catch {
-    dashHeat.value = stubDashboard().heat.data
+  } catch (e) {
+    dashHeat.value = {}
+    if (!loadError.value) loadError.value = errorText(e, '三列对照加载失败')
   }
 }
 
@@ -382,23 +386,23 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  padding: 20px 24px;
-  border-radius: 16px;
+  padding: 8px 14px;
+  border-radius: 10px;
   color: #fff;
   background: linear-gradient(135deg, #4f46e5 0%, #6366f1 45%, #7c3aed 100%);
-  box-shadow: 0 12px 30px rgba(79, 70, 229, 0.22);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.16);
 }
-.heat-hero h2 { margin: 0; font-size: 22px; color: #fff; }
-.heat-hero p { margin: 6px 0 0; font-size: 13px; opacity: 0.9; }
+.heat-hero h2 { margin: 0; font-size: 16px; line-height: 1.2; color: #fff; }
+.heat-hero p { margin: 2px 0 0; font-size: 12px; opacity: 0.88; }
 .heat-hero-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .asof { margin-left: 8px; vertical-align: middle; }
 .index-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 6px 10px;
 }
 .index-item {
   display: inline-flex;
@@ -417,7 +421,9 @@ onBeforeUnmount(() => {
 .card-header h3, h3 { margin: 0; font-size: 15px; }
 .muted { color: var(--text-secondary); font-size: 12px; }
 .summary { margin: 0; line-height: 1.7; }
-.trend-chart { height: 260px; width: 100%; }
+.trend-chart { height: 168px; width: 100%; }
+.stat-tile { padding: 8px 12px; gap: 4px; }
+.stat-tile strong { font-size: 16px; }
 .heat-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .heat-card { padding: 12px; display: grid; gap: 6px; }
 .heat-card-head { display: flex; align-items: center; gap: 8px; }

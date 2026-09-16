@@ -18,6 +18,16 @@ export const useUserStore = defineStore('user', {
     displayName: (state) => state.nickName || state.name || '用户'
   },
   actions: {
+    async refreshMenus() {
+      try {
+        const { usePermissionStore } = await import('./permission')
+        const permissionStore = usePermissionStore()
+        permissionStore.reset()
+        await permissionStore.generateRoutes()
+      } catch {
+        /* live: empty sidebar; demo already mapped getRouters-shaped fallback */
+      }
+    },
     async login(userInfo) {
       const username = userInfo.username.trim()
       const res = await loginApi(username, userInfo.password, userInfo.code, userInfo.uuid)
@@ -26,6 +36,8 @@ export const useUserStore = defineStore('user', {
       setToken(token)
       this.token = token
       this.usingStub = false
+      await this.getInfo()
+      await this.refreshMenus()
     },
     async getInfo() {
       const res = await getInfo()
@@ -38,7 +50,12 @@ export const useUserStore = defineStore('user', {
       this.usingStub = false
       return res
     },
-    enterDemoSession() {
+    hasPermi(perm) {
+      const ps = this.permissions || []
+      if (!ps.length || ps.includes('*:*:*')) return true
+      return ps.includes(perm)
+    },
+    applyDemoState() {
       this.token = 'demo-stub-token'
       this.id = 0
       this.name = 'demo'
@@ -51,10 +68,14 @@ export const useUserStore = defineStore('user', {
         sessionStorage.setItem(DEMO_SESSION_KEY, '1')
       }
     },
+    async enterDemoSession() {
+      this.applyDemoState()
+      await this.refreshMenus()
+    },
     hydrateDemoSession() {
       if (typeof sessionStorage === 'undefined') return false
       if (sessionStorage.getItem(DEMO_SESSION_KEY) !== '1') return false
-      this.enterDemoSession()
+      this.applyDemoState()
       return true
     },
     async logOut() {
@@ -72,6 +93,12 @@ export const useUserStore = defineStore('user', {
       removeToken()
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem(DEMO_SESSION_KEY)
+      }
+      try {
+        const { usePermissionStore } = await import('./permission')
+        usePermissionStore().reset()
+      } catch {
+        /* store may not be ready */
       }
     }
   }

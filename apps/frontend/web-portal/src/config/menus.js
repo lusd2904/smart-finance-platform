@@ -1,8 +1,67 @@
 /**
- * Static SFP information architecture (matches live sidebar / getRouters modules).
- * Pages without a v2 implementation route to Placeholder.
+ * Sidebar live menus come from GET /getRouters (see store/permission.js).
+ * This file is only: (1) getRouters-shaped demo fallback, (2) admin Menu.vue stub IA.
  */
+
+/** Matches sql/sentiment-menu.sql + backend menurouter.BuildRouters shape. */
+export const sentimentRouters = [
+  {
+    name: 'Sentiment',
+    path: '/sentiment',
+    hidden: false,
+    redirect: 'noRedirect',
+    component: 'Layout',
+    alwaysShow: true,
+    meta: { title: '舆情分析', icon: 'chart' },
+    children: [
+      {
+        name: 'SentimentDashboardIndex',
+        path: 'dashboard',
+        hidden: false,
+        component: 'sentiment/dashboard/index',
+        meta: { title: '舆情大盘', icon: 'dashboard' }
+      },
+      {
+        name: 'SentimentNewsIndex',
+        path: 'news',
+        hidden: false,
+        component: 'sentiment/news/index',
+        meta: { title: '资讯列表', icon: 'documentation' }
+      },
+      {
+        name: 'SentimentAnalysisIndex',
+        path: 'analysis',
+        hidden: false,
+        component: 'sentiment/analysis/index',
+        meta: { title: '分析历史', icon: 'time-range' }
+      }
+    ]
+  }
+]
+
+/** Demo/getRouters-fail sidebar only. Never the handmade market/trade tree. */
 export const menuTree = [
+  {
+    code: 'sentiment',
+    title: '舆情分析',
+    icon: 'ChatDotRound',
+    path: '/sentiment/dashboard',
+    groups: [
+      {
+        code: 'children',
+        title: '',
+        items: [
+          { title: '舆情大盘', path: '/sentiment/dashboard', icon: 'DataBoard' },
+          { title: '资讯列表', path: '/sentiment/news', icon: 'Reading' },
+          { title: '分析历史', path: '/sentiment/analysis', icon: 'Clock' }
+        ]
+      }
+    ]
+  }
+]
+
+/** System Menu.vue stub preview only — not consumed by Sidebar. */
+export const informationArchitecture = [
   {
     code: 'workspace',
     title: '工作台',
