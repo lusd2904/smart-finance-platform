@@ -30,7 +30,11 @@ func main() {
 		logger.Error("influx init failed", "err", err)
 		os.Exit(1)
 	}
-	defer writer.Close()
+	if writer == nil {
+		logger.Info("influx dual-write disabled; mysql is the kline source of truth")
+	} else {
+		defer writer.Close()
+	}
 
 	reader := influx.NewReader(cfg)
 	klineClient := kline.NewClient(cfg.SourceInterval)

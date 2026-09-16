@@ -3,18 +3,23 @@ package influx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/config"
 )
 
 type Writer struct {
-	cfg    config.Config
-	client *http.Client
+	cfg      config.Config
+	client   *http.Client
+	disabled atomic.Bool
 }
 
 type Bar struct {
@@ -27,9 +32,15 @@ type Bar struct {
 	Volume    float64
 }
 
+// NewWriter returns a companion Influx writer only when dual-write is
+// explicitly enabled. Missing token/URL is not fatal: MySQL is the kline
+// source of truth and sentiment-influxdb is no longer required.
 func NewWriter(cfg config.Config) (*Writer, error) {
-	if cfg.InfluxToken == "" {
-		return nil, fmt.Errorf("INFLUX_TOKEN is required")
+	if !cfg.InfluxDualWriteEnabled() {
+		return nil, nil
+	}
+	if strings.TrimSpace(cfg.InfluxToken) == "" || strings.TrimSpace(cfg.InfluxURL) == "" {
+		return nil, nil
 	}
 	return &Writer{
 		cfg:    cfg,
@@ -40,21 +51,21 @@ func NewWriter(cfg config.Config) (*Writer, error) {
 func (w *Writer) Close() {}
 
 // WriteDaily writes daily_kline to Influx (best-effort companion).
-// MySQL market_price_history_daily is the read source of truth; this writer
-// stays until Influx is shut down and must not block MySQL upserts.
+// MySQL market_price_history_daily is the read source of truth. Transport
+// errors disable further writes for this process so logs do not bleed.
 func (w *Writer) WriteDaily(ctx context.Context, market string, rows []Bar) (int, error) {
 	return w.write(ctx, market, "daily_kline", rows)
 }
 
 // WriteMinute writes minute_kline to Influx (best-effort companion).
-// MySQL market_price_history_minute is the read source of truth; this writer
-// stays until Influx is shut down and must not block MySQL upserts.
+// MySQL market_price_history_minute is the read source of truth. Transport
+// errors disable further writes for this process so logs do not bleed.
 func (w *Writer) WriteMinute(ctx context.Context, market string, rows []Bar) (int, error) {
 	return w.write(ctx, market, "minute_kline", rows)
 }
 
 func (w *Writer) write(ctx context.Context, market, measurement string, rows []Bar) (int, error) {
-	if len(rows) == 0 {
+	if w == nil || w.disabled.Load() || len(rows) == 0 {
 		return 0, nil
 	}
 	bucket := w.cfg.BucketForMarket(market)
@@ -85,6 +96,9 @@ func (w *Writer) write(ctx context.Context, market, measurement string, rows []B
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 	resp, err := w.client.Do(req)
 	if err != nil {
+		if disableOnUnavailable(w, err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	defer resp.Body.Close()
@@ -93,6 +107,43 @@ func (w *Writer) write(ctx context.Context, market, measurement string, rows []B
 		return 0, fmt.Errorf("influx write %d: %s", resp.StatusCode, string(body))
 	}
 	return len(rows), nil
+}
+
+func disableOnUnavailable(w *Writer, err error) bool {
+	if w == nil || !isInfluxUnavailable(err) {
+		return false
+	}
+	if w.disabled.CompareAndSwap(false, true) {
+		slog.Warn("influx dual-write disabled after error; mysql is source of truth", "err", err)
+	}
+	return true
+}
+
+func isInfluxUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	for _, frag := range []string{
+		"no such host",
+		"connection refused",
+		"network is unreachable",
+		"i/o timeout",
+		"server misbehaving",
+	} {
+		if strings.Contains(s, frag) {
+			return true
+		}
+	}
+	return false
 }
 
 func escapeTag(v string) string {

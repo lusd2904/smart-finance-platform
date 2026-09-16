@@ -1,3 +1,5 @@
+// Package influx is a leftover name: the reader is MySQL-only via klineread.
+// Job 107 (indicator_refresh) and other quant kline reads must not open Flux.
 package influx
 
 import (

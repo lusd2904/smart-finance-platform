@@ -13,11 +13,12 @@ type Config struct {
 	RedisPassword string
 	RedisDB       int
 
-	InfluxURL      string
-	InfluxToken    string
-	InfluxOrg      string
-	InfluxBucketUS string
-	InfluxBucketCN string
+	InfluxURL       string
+	InfluxToken     string
+	InfluxOrg       string
+	InfluxBucketUS  string
+	InfluxBucketCN  string
+	InfluxDualWrite string
 
 	MySQLHost     string
 	MySQLPort     int
@@ -81,11 +82,12 @@ func Load() Config {
 		RedisPassword: env("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DATABASE", 2),
 
-		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
-		InfluxToken:    env("INFLUX_TOKEN", ""),
-		InfluxOrg:      env("INFLUX_ORG", "longbridge"),
-		InfluxBucketUS: env("INFLUX_BUCKET_US", "market_us"),
-		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
+		InfluxURL:       env("INFLUX_URL", "http://sentiment-influxdb:8086"),
+		InfluxToken:     env("INFLUX_TOKEN", ""),
+		InfluxOrg:       env("INFLUX_ORG", "longbridge"),
+		InfluxBucketUS:  env("INFLUX_BUCKET_US", "market_us"),
+		InfluxBucketCN:  env("INFLUX_BUCKET_CN", "market_data"),
+		InfluxDualWrite: env("INFLUX_DUAL_WRITE", ""),
 
 		MySQLHost:     env("DB_HOST", "sentiment-mysql"),
 		MySQLPort:     envInt("DB_PORT", 3306),
@@ -133,4 +135,15 @@ func (c Config) BucketForMarket(market string) string {
 		return c.InfluxBucketUS
 	}
 	return c.InfluxBucketCN
+}
+
+// InfluxDualWriteEnabled is opt-in. Influx is shut down; MySQL is the kline
+// source of truth. Set INFLUX_DUAL_WRITE=1 only if a companion host is back.
+func (c Config) InfluxDualWriteEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(c.InfluxDualWrite)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

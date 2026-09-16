@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 📉 job 107 `indicator_refresh` 纯 MySQL（不再依赖 Influx）
+- 根因：#113 已把 quant-worker 读者切到 `klineread`/MySQL，但镜像 build context 仍是 `workers/quant-worker`，`replace ../../services/klineread` 进不了镜像，线上仍跑旧 Flux 客户端 → `lookup sentiment-influxdb: no such host`、quant DLQ 堆积
+- `sfp-quant-worker` 改为仓库根 context，COPY `services/klineread`；compose `depends_on` 只等 MySQL+Redis，去掉 `INFLUX_*`
+- `sfp-market-worker` 双写默认关闭（`INFLUX_DUAL_WRITE=0`）；启动不再要求 Influx；DNS/连接失败熔断，不再每分钟 ERROR
+
 ### 📉 K 线读路径切到 MySQL（Influx 仍写入、尚未拆除）
 - `GET /market/kline` 与其它 daily/minute 读者改为读 `market_price_history_daily` / `market_price_history_minute`
 - 共享包 `services/klineread`：按 symbol+market+时间范围查询；空序列原样返回，不回退 Influx

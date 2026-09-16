@@ -62,6 +62,29 @@ func (s *Service) DB() *sql.DB {
 }
 
 func (s *Service) RunIndicatorRefresh(ctx context.Context) (map[string]interface{}, error) {
+	board, err := s.featuredBoard(ctx)
+	if err != nil {
+		return nil, err
+	}
+	asOf := beijingNow()
+	payload := map[string]interface{}{
+		"asOf": asOf, "count": len(board), "items": board, "readModelVersion": "v2.3",
+	}
+	raw, _ := json.Marshal(payload)
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO quant_readmodel_snapshot (snapshot_type, payload_json, create_time)
+VALUES ('board', ?, NOW())`, string(raw)); err != nil {
+		return nil, err
+	}
+	if err := putScheduledBoard(ctx, s.rdb, payload); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"count": len(board), "asOf": asOf}, nil
+}
+
+// featuredBoard builds the job-107 snapshot from MySQL daily bars via klineread.
+// It never opens an Influx/Flux client.
+func (s *Service) featuredBoard(ctx context.Context) ([]map[string]interface{}, error) {
 	byMarket := map[string][]string{}
 	names := map[string]string{}
 	for _, inst := range targetInstruments {
@@ -101,21 +124,7 @@ func (s *Service) RunIndicatorRefresh(ctx context.Context) (map[string]interface
 			})
 		}
 	}
-
-	asOf := beijingNow()
-	payload := map[string]interface{}{
-		"asOf": asOf, "count": len(board), "items": board, "readModelVersion": "v2.3",
-	}
-	raw, _ := json.Marshal(payload)
-	if _, err := s.db.ExecContext(ctx, `
-INSERT INTO quant_readmodel_snapshot (snapshot_type, payload_json, create_time)
-VALUES ('board', ?, NOW())`, string(raw)); err != nil {
-		return nil, err
-	}
-	if err := putScheduledBoard(ctx, s.rdb, payload); err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{"count": len(board), "asOf": asOf}, nil
+	return board, nil
 }
 
 func round4(v float64) float64 {
@@ -140,6 +149,9 @@ func loadLocationOrCST(name string) *time.Location {
 }
 
 func putScheduledBoard(ctx context.Context, rdb *redis.Client, payload interface{}) error {
+	if rdb == nil {
+		return nil
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err

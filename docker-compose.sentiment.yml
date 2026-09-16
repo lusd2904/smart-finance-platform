@@ -15,7 +15,7 @@ x-core-depends: &core-depends
   ruoyi-redis:
     condition: service_healthy
 
-# 行情/量化读时序库，等 Influx healthy 再接流量。
+# HTTP 行情服务仍声明等 Influx（历史 depends）。Go workers 已切 MySQL，用 core-depends。
 x-data-depends: &data-depends
   sentiment-mysql:
     condition: service_healthy
@@ -267,6 +267,9 @@ services:
       INFLUX_ORG: longbridge
       INFLUX_BUCKET_US: market_us
       INFLUX_BUCKET_CN: market_data
+      # Influx is shut down (MySQL is kline source of truth). Dual-write stays
+      # in code for optional re-enable; default off so missing host is not ERROR.
+      INFLUX_DUAL_WRITE: "0"
       LONGPORT_APP_KEY: ${LONGPORT_APP_KEY:-}
       LONGPORT_APP_SECRET: ${LONGPORT_APP_SECRET:-}
       LONGPORT_ACCESS_TOKEN: ${LONGPORT_ACCESS_TOKEN:-}
@@ -274,7 +277,7 @@ services:
       KLINE_SYMBOL_INTERVAL: "0.4"
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
-    depends_on: *data-depends
+    depends_on: *core-depends
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -290,8 +293,8 @@ services:
   # quant 队列：Go worker（因子/策略/清单扫描 + Longbridge 开仓/auto_trade/止损卖出）
   sfp-quant-worker:
     build:
-      context: ./workers/quant-worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: workers/quant-worker/Dockerfile
     image: sfp-quant-worker:latest
     container_name: sfp-quant-worker
     env_file:
@@ -308,11 +311,6 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
-      INFLUX_URL: http://sentiment-influxdb:8086
-      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUX_ORG: longbridge
-      INFLUX_BUCKET_US: market_us
-      INFLUX_BUCKET_CN: market_data
       INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
       INTERNAL_JOBS_URL: http://sfp-backend:9099/internal/jobs/run
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
@@ -323,7 +321,7 @@ services:
       LONGPORT_REGION: ${LONGPORT_REGION:-cn}
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
-    depends_on: *data-depends
+    depends_on: *core-depends
     networks:
       - sentiment-network
     restart: unless-stopped

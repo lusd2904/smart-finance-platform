@@ -89,7 +89,7 @@ func writeMinutesDual(ctx context.Context, w minuteInfluxWriter, db dbExecer, ma
 	n, mysqlErr := upsertMinuteBars(ctx, db, market, source, bars)
 	if w != nil {
 		if _, influxErr := w.WriteMinute(ctx, market, bars); influxErr != nil {
-			slog.Error("minute dual-write: influx write failed; mysql is source of truth",
+			slog.Warn("minute dual-write: influx write failed; mysql is source of truth",
 				"market", market, "bars", len(bars), "err", influxErr)
 		}
 	}

@@ -6,7 +6,7 @@ Low-memory consumer for Redis `sfp:job:queue:quant` (Redis DB **2**). Job `type`
 
 | Job type | Runtime | Notes |
 |----------|---------|-------|
-| `indicator_refresh` | **Go** | Featured-pool board snapshot → MySQL + Redis `readmodel:scheduled:board` |
+| `indicator_refresh` | **Go** | Featured-pool board snapshot from MySQL daily bars → MySQL + Redis `readmodel:scheduled:board` |
 | `factor_scan` | **Go (#77)** | 8-family metrics + score + Alpha101/158 subset + CS ranks → `quant_factor_snapshot` / alpha tables / `readmodel:scheduled:factors` |
 | `factor_qc` | **Go (#77)** | Alphalens-style Spearman IC / IR / quantile spread → `quant_factor_qc` |
 | `strategy_run` | **Go (#77)** | Per-user watchlist (or payload `symbols`) → signals in `quant_strategy_run` / `quant_strategy_signal`. **No orders.** |
@@ -54,7 +54,7 @@ go build -o bin/quant-worker ./cmd/quant-worker
 
 Go **1.24+** (official `github.com/longbridge/openapi-go` v0.27 requires it).
 
-Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
+Required env: `REDIS_*`, `DB_*`. K-line reads (including job 107 `indicator_refresh`) use MySQL `market_price_history_daily` via `klineread`. Influx is not required.
 
 Optional (trade + position monitor): `LONGPORT_*`, `JWT_SECRET_KEY`, `CREDENTIAL_ENCRYPTION_KEY` (Fernet, same derivation as Python `CryptoUtil`).
 

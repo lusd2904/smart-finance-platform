@@ -246,33 +246,34 @@ jobs:
             ls docker-compose*python*
             exit 1
           fi
-      - name: Assert repo-root API Dockerfiles copy go.mod replace siblings
+      - name: Assert repo-root Dockerfiles copy go.mod replace siblings
         run: |
           python3 - <<'PY'
           import re
           from pathlib import Path
 
-          # Built with compose context: . (repo root), not the service directory.
-          root_ctx = [Path("services/trade-api"), Path("services/data-api")]
-          replace_re = re.compile(
-              r"^replace\s+\S+\s+=>\s+\.\./([A-Za-z0-9._-]+)\s*$",
-              re.M,
-          )
+          # Built with compose context: . (repo root), not the module directory.
+          root_ctx = [
+              Path("services/trade-api"),
+              Path("services/data-api"),
+              Path("workers/quant-worker"),
+          ]
+          replace_re = re.compile(r"^replace\s+\S+\s+=>\s+(\.\./\S+)\s*$", re.M)
           failed = []
+          root = Path(".").resolve()
           for svc in root_ctx:
               gomod = (svc / "go.mod").read_text()
               dockerfile = (svc / "Dockerfile").read_text()
-              missing = [
-                  name
-                  for name in replace_re.findall(gomod)
-                  if f"COPY services/{name} " not in dockerfile
-                  and not re.search(rf"^COPY services/{re.escape(name)}(?:/|\s)", dockerfile, re.M)
-              ]
+              missing = []
+              for rel in replace_re.findall(gomod):
+                  resolved = (svc / rel).resolve().relative_to(root).as_posix()
+                  if f"COPY {resolved} " not in dockerfile and f"COPY {resolved}/" not in dockerfile:
+                      missing.append(resolved)
               if missing:
                   failed.append(f"{svc}/Dockerfile missing COPY for {missing}")
           if failed:
               raise SystemExit("\n".join(failed))
-          print("ok: repo-root API Dockerfiles copy replace siblings")
+          print("ok: repo-root Dockerfiles copy replace siblings")
           PY
       - uses: docker/setup-buildx-action@v3
       - name: Build market-worker image
@@ -282,6 +283,15 @@ jobs:
           file: workers/market-worker/Dockerfile
           load: true
           tags: sfp-market-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build quant-worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: workers/quant-worker/Dockerfile
+          load: true
+          tags: sfp-quant-worker:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build sfp-scheduler image
@@ -365,4 +375,25 @@ jobs:
               print("ERROR: Python fat service definitions still present", file=sys.stderr)
               sys.exit(1)
           print("ok: no Python fat containers in compose")
+          '
+      - name: Assert quant-worker has no Influx compose dependency
+        run: |
+          export MYSQL_ROOT_PASSWORD=ci REDIS_PASSWORD=ci INFLUXDB_PASSWORD=ci INFLUXDB_TOKEN=ci \
+            INTERNAL_JOB_TOKEN=ci
+          docker compose \
+            -f docker-compose.sentiment.yml \
+            -f docker-compose.sentiment.slim.yml \
+            config --format json | python3 -c '
+          import json, sys
+          cfg = json.load(sys.stdin)
+          svc = (cfg.get("services") or {}).get("sfp-quant-worker") or {}
+          deps = svc.get("depends_on") or {}
+          if isinstance(deps, list):
+              names = deps
+          else:
+              names = list(deps)
+          if "sentiment-influxdb" in names:
+              print("ERROR: sfp-quant-worker still depends_on sentiment-influxdb", file=sys.stderr)
+              sys.exit(1)
+          print("ok: sfp-quant-worker does not wait on sentiment-influxdb")
           '
