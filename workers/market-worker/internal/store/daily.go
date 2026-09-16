@@ -58,7 +58,7 @@ func writeDailyDual(ctx context.Context, w dailyInfluxWriter, db dbExecer, marke
 	n, mysqlErr := upsertDailyBars(ctx, db, rows)
 	if w != nil {
 		if _, influxErr := w.WriteDaily(ctx, market, toInfluxBars(rows)); influxErr != nil {
-			slog.Error("daily dual-write: influx write failed; mysql is source of truth",
+			slog.Warn("daily dual-write: influx write failed; mysql is source of truth",
 				"market", market, "bars", len(rows), "err", influxErr)
 		}
 	}

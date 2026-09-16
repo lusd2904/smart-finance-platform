@@ -13,12 +13,6 @@ type Config struct {
 	RedisPassword string
 	RedisDB       int
 
-	InfluxURL      string
-	InfluxToken    string
-	InfluxOrg      string
-	InfluxBucketUS string
-	InfluxBucketCN string
-
 	MySQLHost     string
 	MySQLPort     int
 	MySQLUser     string
@@ -80,12 +74,6 @@ func Load() Config {
 		RedisPassword: env("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DATABASE", 2),
 
-		InfluxURL:      env("INFLUX_URL", "http://sentiment-influxdb:8086"),
-		InfluxToken:    env("INFLUX_TOKEN", ""),
-		InfluxOrg:      env("INFLUX_ORG", "longbridge"),
-		InfluxBucketUS: env("INFLUX_BUCKET_US", "market_us"),
-		InfluxBucketCN: env("INFLUX_BUCKET_CN", "market_data"),
-
 		MySQLHost:     env("DB_HOST", "sentiment-mysql"),
 		MySQLPort:     envInt("DB_PORT", 3306),
 		MySQLUser:     env("DB_USERNAME", "root"),
@@ -101,10 +89,10 @@ func Load() Config {
 		WorkerPort:        envInt("WORKER_PORT", 9098),
 
 		InternalJobsURL:  internalJobsURL(),
-		InternalJobToken:  env("INTERNAL_JOB_TOKEN", ""),
-		JWTSecret:         env("JWT_SECRET_KEY", env("JWT_SECRET", "")),
-		CredentialKey:     env("CREDENTIAL_ENCRYPTION_KEY", ""),
-		AppEnv:            env("APP_ENV", "dev"),
+		InternalJobToken: env("INTERNAL_JOB_TOKEN", ""),
+		JWTSecret:        env("JWT_SECRET_KEY", env("JWT_SECRET", "")),
+		CredentialKey:    env("CREDENTIAL_ENCRYPTION_KEY", ""),
+		AppEnv:           env("APP_ENV", "dev"),
 
 		ConsumerPollInterval: 200 * time.Millisecond,
 		ReclaimInterval:      30 * time.Second,
@@ -116,11 +104,4 @@ func internalJobsURL() string {
 		return v
 	}
 	return "http://sfp-backend:9099/internal/jobs/run"
-}
-
-func (c Config) BucketForMarket(market string) string {
-	if strings.EqualFold(market, "US") {
-		return c.InfluxBucketUS
-	}
-	return c.InfluxBucketCN
 }

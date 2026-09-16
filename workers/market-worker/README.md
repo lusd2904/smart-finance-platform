@@ -6,7 +6,7 @@ Low-memory consumer for Redis `sfp:job:queue:market`. Replaces the Python `senti
 
 | Job type | Runtime | Notes |
 |----------|---------|-------|
-| `eod_kline_sync` | **Go** | EOD daily K + minute K → Influx |
+| `eod_kline_sync` | **Go** | EOD daily K + minute K → MySQL (Influx companion off by default) |
 | `market_sync` | **Go** | Featured/target pool sync |
 | `klines_slow` | **Go** | Full-universe slow daily K |
 | `mysql_to_influx` | **Go** | MySQL → Influx migration |
@@ -33,9 +33,11 @@ Or from repo root: `python3 scripts/backfill_heat_top50_last.py --from 2026-08-2
 - `sfp-quant-worker` — quant queue: #77 factor/strategy/daily_list_scan + #78 Longbridge trade (`daily_list_open`, `auto_trade_scan`, position_monitor MO sell)
 - `sfp-notify-worker` — `feishu_push` on llm queue
 
-## Influx contract (unchanged)
+## Influx dual-write (opt-in)
 
-- `daily_kline` / `minute_kline` measurements
+MySQL `market_price_history_daily` / `market_price_history_minute` is the kline source of truth. Companion writes to Influx stay in code but stay **off** unless `INFLUX_DUAL_WRITE=1`. Missing `sentiment-influxdb` must not fail startup or spam ERROR.
+
+- `daily_kline` / `minute_kline` measurements (only when dual-write is on)
 - Tags: `symbol`, `market`
 - Fields: `open`, `high`, `low`, `close`, `volume`
 - US bucket → `market_us`; CN/HK → `market_data`
@@ -54,7 +56,7 @@ Service name: `sfp-market-worker` in `docker-compose.sentiment.yml`.
 
 Health: `http://127.0.0.1:19097/health` (host) or `http://sfp-market-worker:9098/health` (compose network).
 
-Required env: `REDIS_*`, `DB_*`, `INFLUX_*`.
+Required env: `REDIS_*`, `DB_*`. `INFLUX_*` is optional; dual-write is off by default.
 
 Optional: `LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN` / `LONGPORT_REGION` (default `cn`) for `symbol_content`. Heat does not need Longbridge. `INTERNAL_JOBS_URL` / `INTERNAL_JOB_TOKEN` for emergency job fallback via `sfp-backend`.
 

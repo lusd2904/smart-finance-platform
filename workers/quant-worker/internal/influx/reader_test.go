@@ -2,6 +2,8 @@ package influx
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/lusd2904/smart-finance-platform/services/klineread"
@@ -34,5 +36,21 @@ func TestNoInfluxClientOnReadPath(t *testing.T) {
 	bars, err := r.QueryKlines(context.Background(), "US", "QQQ", "-30d", 2)
 	if err != nil || len(bars) != 0 {
 		t.Fatalf("empty QQQ: %v err=%v", bars, err)
+	}
+}
+
+func TestReaderSourceHasNoHTTPOrFlux(t *testing.T) {
+	body, err := os.ReadFile("reader.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, frag := range []string{"net/http", "sentiment-influxdb", "/api/v2/", "from(bucket:", "application/vnd.flux"} {
+		if strings.Contains(text, frag) {
+			t.Fatalf("reader.go must stay MySQL-only, found %q", frag)
+		}
+	}
+	if !strings.Contains(text, "klineread") {
+		t.Fatal("reader.go must use klineread")
 	}
 }

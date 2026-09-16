@@ -182,6 +182,14 @@ func (s *Service) SyncMinutes(ctx context.Context, market string, interval float
 }
 
 func (s *Service) MySQLToInflux(ctx context.Context, symbol string, market string) (map[string]interface{}, error) {
+	if s.influx == nil {
+		return map[string]interface{}{
+			"total_points": 0,
+			"markets":      []string{},
+			"symbols":      []string{},
+			"message":      "Influx dual-write disabled; MySQL is the kline source of truth",
+		}, nil
+	}
 	query := `SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume FROM market_price_history_daily`
 	args := []interface{}{}
 	if symbol != "" {
