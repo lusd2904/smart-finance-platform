@@ -1,44 +1,8 @@
-# Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS after Influx healthy, no swap).
-#
-# Influx COLD_OPEN (18G restore, ~2992 shards): mem_limit ≥12g / GOMEMLIMIT 10GiB (integer only).
-# cursor-1 SUCCESS: service-level binds → $SFP_DATA_ROOT/influx, mem_limit 12g, GOMEMLIMIT 10GiB,
-# 4G loop swap, peak ~11.7GiB → healthy. 6g/8g/10g without swap OOM. vfs: service-level binds required.
-# Do NOT drop to influx-steady (3g) immediately after cold open — leave headroom until full-stack stable.
-# Optional later: docker-compose.sentiment.slim.influx-steady.yml → 3g / 2560MiB
+# Slim overlay for 15–16 GiB hosts (~4–5 GiB steady RSS, no swap).
 #
 # Go-only runtime. Python fat containers (sentiment-backend / sentiment-data / sentiment-intel /
-# sentiment-trade / sentiment-jobs) have been removed from the repo. Rollback is git history,
-# see docs/PYTHON-REMOVED.md.
-#
-# cursor-1 production (ONLY this overlay after merge — see docs/SLIM-POST-MERGE.md):
-#   cd /workspace/sfp-slim-64
-#   source scripts/docker_host.sh
-#   export SFP_DATA_ROOT=/workspace/sfp-data
-#   sudo docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml up -d --build
-#   # daily roll: bash scripts/deploy_and_verify_slim.sh
-#
-# Data bind (default SFP_DATA_ROOT=/workspace/sfp-data). cursor-1 restored layout:
-#
-#   Host path                          → Container mount
-#   $SFP_DATA_ROOT/mysql               → /var/lib/mysql
-#   $SFP_DATA_ROOT/redis               → /data
-#   $SFP_DATA_ROOT/influx              → /var/lib/influxdb2  (influxd.bolt, engine/, ~18G)
-#   $SFP_DATA_ROOT/influx-config       → /etc/influxdb2
-#
-#   mkdir -p "$SFP_DATA_ROOT"/{mysql,redis,influx,influx-config}
-#   bash scripts/sfp_data_init.sh
-#
-#   ⚠️  Do NOT use influx/data or influx/config — those paths hide the restored volume.
-#
-# cursor-1 Docker uses storage driver **vfs** — named volumes with driver_opts bind
-# do NOT mount (empty _data). Slim overlay uses **service-level binds** below.
-#
-# MySQL shard not uploaded yet (Influx-only heat/kline reads):
-#   bash scripts/up_slim_influx_phase.sh
-#   (+ docker-compose.sentiment.slim.influx-phase.yml)
-#
-# Verify (Influx healthy, idle ~5 min):
-#   docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+# sentiment-trade / sentiment-jobs) have been removed from the repo.
+# InfluxDB has been removed (MySQL is the sole source of truth for kline & daily bars).
 
 services:
   sentiment-market-read:
@@ -48,8 +12,6 @@ services:
       sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
-        condition: service_healthy
-      sentiment-influxdb:
         condition: service_healthy
 
   sfp-intel:
@@ -63,8 +25,6 @@ services:
       sentiment-mysql:
         condition: service_healthy
       ruoyi-redis:
-        condition: service_healthy
-      sentiment-influxdb:
         condition: service_healthy
 
   sfp-backup:
@@ -86,8 +46,6 @@ services:
         condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
-      sentiment-influxdb:
-        condition: service_healthy
 
   sfp-scheduler:
     mem_limit: 64m
@@ -104,30 +62,6 @@ services:
   sfp-notify-worker:
     mem_limit: 224m
     cpus: 0.25
-    environment:
-      INFLUX_URL: http://sentiment-influxdb:8086
-      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUX_ORG: longbridge
-      INFLUX_BUCKET_US: market_us
-      INFLUX_BUCKET_CN: market_data
-
-  sentiment-influxdb:
-    environment:
-      # COLD_OPEN: ≥12g / 10GiB for ~2992 shards (18G restore). cursor-1: 12g + 4G loop swap,
-      # peak ~11.7GiB → healthy. vfs service-level binds required. No decimal GOMEMLIMIT.
-      # Do NOT apply influx-steady (3g) right after cold open.
-      GOMEMLIMIT: "10GiB"
-      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "134217728"
-      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "16777216"
-      INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
-      INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
-      INFLUXD_QUERY_CONCURRENCY: "1"
-      INFLUXD_QUERY_QUEUE_SIZE: "2"
-    mem_limit: 12g
-    cpus: 1.0
-    volumes: !override
-      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx:/var/lib/influxdb2
-      - ${SFP_DATA_ROOT:-/workspace/sfp-data}/influx-config:/etc/influxdb2
 
   sentiment-mysql:
     command: >
@@ -135,6 +69,7 @@ services:
       --collation-server=utf8mb4_general_ci
       --skip-character-set-client-handshake=1
       --max-connections=80
+      --binlog-expire-logs-seconds=259200
       --innodb-buffer-pool-size=192M
       --innodb-log-buffer-size=8M
       --table-open-cache=256
@@ -166,7 +101,7 @@ services:
       [
         "redis-server",
         "--requirepass",
-        "${REDIS_PASSWORD:-}",
+        "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}",
         "--appendonly",
         "yes",
         "--maxmemory",

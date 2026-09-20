@@ -26,19 +26,19 @@ type Notification struct {
 }
 
 type BacktestRun struct {
-	ID           int
-	Symbol       string
-	Market       string
-	Days         int
-	Strategy     string
-	Trades       int
-	ReturnPct    float64
-	FinalEquity  float64
-	MaxDrawdown  float64
-	WinRate      float64
-	EquityCurve  string
-	Message      string
-	CreateTime   string
+	ID          int
+	Symbol      string
+	Market      string
+	Days        int
+	Strategy    string
+	Trades      int
+	ReturnPct   float64
+	FinalEquity float64
+	MaxDrawdown float64
+	WinRate     float64
+	EquityCurve string
+	Message     string
+	CreateTime  string
 }
 
 type RiskRule struct {
@@ -96,23 +96,23 @@ type AiBatchItem struct {
 }
 
 type AiTradeRunLog struct {
-	RunID                int
-	CycleID              string
-	UserID               int
-	Source               string
-	StrategyProfile      string
-	TargetCount          int
-	EvaluatedCount       int
-	OpportunityCount     int
-	SubmittedOrdersCount int
-	Status               string
-	GuardrailSnapshot    string
-	CandidatesSnapshot   string
+	RunID                 int
+	CycleID               string
+	UserID                int
+	Source                string
+	StrategyProfile       string
+	TargetCount           int
+	EvaluatedCount        int
+	OpportunityCount      int
+	SubmittedOrdersCount  int
+	Status                string
+	GuardrailSnapshot     string
+	CandidatesSnapshot    string
 	OpportunitiesSnapshot string
-	SkippedReasons       string
-	Message              string
-	StartedAt            sql.NullTime
-	FinishedAt           sql.NullTime
+	SkippedReasons        string
+	Message               string
+	StartedAt             sql.NullTime
+	FinishedAt            sql.NullTime
 }
 
 type AutoDecision struct {
@@ -133,17 +133,17 @@ type AutoDecision struct {
 }
 
 type FeishuSub struct {
-	SubID             int
-	UserID            int
-	PersonalEnabled   string
-	GroupEnabled      string
-	PersonalWebhook   sql.NullString
-	GroupWebhook      sql.NullString
-	PushTime          string
-	Timezone          string
-	LastPersonalKey   sql.NullString
-	LastGroupKey      sql.NullString
-	LastError         sql.NullString
+	SubID           int
+	UserID          int
+	PersonalEnabled string
+	GroupEnabled    string
+	PersonalWebhook sql.NullString
+	GroupWebhook    sql.NullString
+	PushTime        string
+	Timezone        string
+	LastPersonalKey sql.NullString
+	LastGroupKey    sql.NullString
+	LastError       sql.NullString
 }
 
 type Target struct {
@@ -160,10 +160,10 @@ type CoverageInstrument struct {
 }
 
 type StrategySignal struct {
-	UserID     int
-	Symbol     string
-	Score      float64
-	Signal     string
+	UserID int
+	Symbol string
+	Score  float64
+	Signal string
 }
 
 func (r *Repo) ListNotifications(ctx context.Context, userID, limit int) ([]Notification, error) {
@@ -572,13 +572,13 @@ FROM plat_ai_trade_run_log WHERE user_id = ? ORDER BY run_id DESC LIMIT ?`, user
 	return out, rows.Err()
 }
 
-func (r *Repo) ListAutoDecisions(ctx context.Context, limit int, cycleID string) ([]AutoDecision, error) {
+func (r *Repo) ListAutoDecisions(ctx context.Context, userID, limit int, cycleID string) ([]AutoDecision, error) {
 	q := `
 SELECT decision_id, cycle_id, symbol, market, side, quantity, price, confidence, status, reason, source, order_id, error, create_time
-FROM plat_auto_trade_decision`
-	args := []interface{}{}
+FROM plat_auto_trade_decision WHERE user_id = ?`
+	args := []interface{}{userID}
 	if cycleID != "" {
-		q += ` WHERE cycle_id = ?`
+		q += ` AND cycle_id = ?`
 		args = append(args, cycleID)
 	}
 	q += ` ORDER BY decision_id DESC LIMIT ?`
@@ -720,13 +720,14 @@ SELECT symbol FROM market_top50_snapshot WHERE market = ? AND trade_date = ? ORD
 }
 
 func (r *Repo) TodayStats(ctx context.Context, userID int) (int, float64, error) {
-	today := time.Now().Format("2006-01-02")
+	today := tradeexec.BeijingDate()
 	var count sql.NullInt64
 	var notional sql.NullFloat64
 	err := r.DB.QueryRowContext(ctx, `
 SELECT COUNT(*), COALESCE(SUM(quantity * price), 0)
 FROM plat_auto_trade_decision
-WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')`, userID, today).Scan(&count, &notional)
+WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')
+  AND LOWER(TRIM(side)) IN ('buy','b')`, userID, today).Scan(&count, &notional)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -734,10 +735,10 @@ WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')`, us
 }
 
 func (r *Repo) TodayBought(ctx context.Context, userID int) (map[string]struct{}, error) {
-	today := time.Now().Format("2006-01-02")
+	today := tradeexec.BeijingDate()
 	rows, err := r.DB.QueryContext(ctx, `
 SELECT symbol FROM plat_auto_trade_decision
-WHERE user_id = ? AND create_time >= ? AND side = 'BUY' AND status IN ('submitted','filled','pending')`, userID, today)
+WHERE user_id = ? AND create_time >= ? AND LOWER(TRIM(side)) IN ('buy','b') AND status IN ('submitted','filled','pending')`, userID, today)
 	if err != nil {
 		return nil, err
 	}

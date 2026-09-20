@@ -43,6 +43,8 @@ var externalNewsQueries = map[string]string{
 
 var marketBenchmarks = map[string][][2]string{
 	"US": {{"^GSPC", "S&P500"}, {"^IXIC", "Nasdaq"}, {"^DJI", "Dow"}},
+	"CN": {{"000001.SH", "上证指数"}},
+	"HK": {{"HSI.HK", "恒生指数"}},
 }
 
 var marketKeywords = map[string][]string{
@@ -101,8 +103,12 @@ func (s *Service) buildInternalBriefings(ctx context.Context, market string, now
 	var marketScore *float64
 	for _, pair := range benchmarks {
 		sym, name := pair[0], pair[1]
-		bars, err := s.reader.QueryKlines(ctx, market, sym, "-30d", 8)
-		if err != nil || len(bars) < 2 {
+		grouped, err := s.latestDailyBars(ctx, market, []string{sym}, 8, "-30d")
+		if err != nil {
+			continue
+		}
+		bars := grouped[sym]
+		if len(bars) < 2 {
 			continue
 		}
 		prev, last := bars[len(bars)-2], bars[len(bars)-1]
@@ -133,8 +139,12 @@ func (s *Service) buildInternalBriefings(ctx context.Context, market string, now
 
 	if len(benchmarks) > 0 {
 		sym, name := benchmarks[0][0], benchmarks[0][1]
-		bars, err := s.reader.QueryKlines(ctx, market, sym, "-1y", 320)
-		if err == nil && len(bars) > 0 {
+		grouped, err := s.latestDailyBars(ctx, market, []string{sym}, 320, "-1y")
+		if err == nil {
+			bars := grouped[sym]
+			if len(bars) == 0 {
+				return items, nil
+			}
 			indBars := make([]indicators.Bar, len(bars))
 			dates := make([]string, len(bars))
 			for i, b := range bars {
@@ -203,8 +213,8 @@ LIMIT 3`, runID)
 		})
 		items = append(items, briefingRow{
 			Market: market, BriefingType: "recommendation",
-			Headline: fmt.Sprintf("%s推荐关注 %s", label, symbol),
-			Summary:  reason,
+			Headline:   fmt.Sprintf("%s推荐关注 %s", label, symbol),
+			Summary:    reason,
 			SourceName: "quant-strategy", PayloadJSON: string(payload),
 			GeneratedAt: now, ExpiresAt: expires,
 		})

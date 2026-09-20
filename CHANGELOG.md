@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### 🔒 交易护栏 / 行情代码 / 拆 Influx 收口
+- 紧急停机 fail-closed：Redis/JSON 失败视为已停；止损市价卖也看 halt；`PUT /trade/halt` 写入失败不再假装已停
+- 自动交易不再回退 `user_id=1`；Fernet 密文解密失败不再当 Token 发出去
+- 验证码一次性消费；下载限制在配置目录内；自动决策按登录用户隔离
+- 次日清单只开 `queued` 或 `listed+auto_trade`；账户/价格无效不再保底 1 手；现金闸只拦买入
+- 下单数量不足 1 股/手拒绝；日内额度用北京日历日且只计买入
+- `000001.SH` 实时价钉 `sh000001`，不再变成平安银行；热度别名禁止 `000001`↔`000001.SH`
+- `listings_sync` / 财经简报改读 MySQL；`INFLUX_TOKEN` 不再作为 market-read 启动条件
+- job 107 看板使用 `600519.SH` 等带后缀代码，不再跳过 `^GSPC` 等美股指数
+- 日 K 唯一键改为 `(symbol, market, trade_date)`；分钟 K 成功写入后裁 30 天
+- compose 去掉 Influx 依赖与弱口令默认值；JWT/凭据只走 env_file；Redis 保持 `noeviction`
+- nginx 静态缓存仅 `/static/` `/assets/`；`/ai/` 与 `/market/ai/` 180s 且关闭 buffering
+- PC 交易台极速单二次确认、停机横幅、按市场选币种；web-portal 对齐 `orderType` / `autoTradeEnabled`
+
 ### 📉 job 107 `indicator_refresh` 纯 MySQL（不再依赖 Influx）
 - 根因：#113 已把 quant-worker 读者切到 `klineread`/MySQL，但镜像 build context 仍是 `workers/quant-worker`，`replace ../../services/klineread` 进不了镜像，线上仍跑旧 Flux 客户端 → `lookup sentiment-influxdb: no such host`、quant DLQ 堆积
 - `sfp-quant-worker` 改为仓库根 context，COPY `services/klineread`；compose `depends_on` 只等 MySQL+Redis，去掉 `INFLUX_*`

@@ -166,13 +166,14 @@ SELECT symbol FROM market_top50_snapshot WHERE market = ? AND trade_date = ? ORD
 }
 
 func (r *Repo) TodayStats(ctx context.Context, userID int) (int, float64, error) {
-	today := time.Now().Format("2006-01-02")
+	today := tradeexec.BeijingDate()
 	var count sql.NullInt64
 	var notional sql.NullFloat64
 	err := r.DB.QueryRowContext(ctx, `
 SELECT COUNT(*), COALESCE(SUM(quantity * price), 0)
 FROM plat_auto_trade_decision
-WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')`, userID, today).Scan(&count, &notional)
+WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')
+  AND LOWER(TRIM(side)) IN ('buy','b')`, userID, today).Scan(&count, &notional)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -180,10 +181,10 @@ WHERE user_id = ? AND create_time >= ? AND status IN ('submitted','filled')`, us
 }
 
 func (r *Repo) TodayBought(ctx context.Context, userID int) (map[string]struct{}, error) {
-	today := time.Now().Format("2006-01-02")
+	today := tradeexec.BeijingDate()
 	rows, err := r.DB.QueryContext(ctx, `
 SELECT symbol FROM plat_auto_trade_decision
-WHERE user_id = ? AND create_time >= ? AND side = 'BUY' AND status IN ('submitted','filled','pending')`, userID, today)
+WHERE user_id = ? AND create_time >= ? AND LOWER(TRIM(side)) IN ('buy','b') AND status IN ('submitted','filled','pending')`, userID, today)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +269,7 @@ func (r *Repo) ListQueuedItems(ctx context.Context) ([]DailyItem, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 SELECT item_id, list_id, user_id, trade_date, symbol, IFNULL(market,'US'), IFNULL(status,''),
        IFNULL(side,'BUY'), IFNULL(quantity,0), IFNULL(price,0), IFNULL(order_id,''), IFNULL(error,'')
-FROM quant_daily_list_item WHERE status = 'queued'`)
+FROM quant_daily_list_item WHERE status IN ('queued') OR (status = 'listed' AND auto_trade = '1')`)
 	if err != nil {
 		return nil, err
 	}
@@ -370,22 +371,22 @@ type DecisionRow struct {
 }
 
 type RunLog struct {
-	CycleID            string
-	UserID             int
-	Source             string
-	Profile            string
-	TargetCount        int
-	EvaluatedCount     int
-	OpportunityCount   int
-	Submitted          int
-	Status             string
-	GuardrailJSON      string
-	CandidatesJSON     string
-	OpportunitiesJSON  string
-	SkippedJSON        string
-	Message            string
-	Started            time.Time
-	Finished           time.Time
+	CycleID           string
+	UserID            int
+	Source            string
+	Profile           string
+	TargetCount       int
+	EvaluatedCount    int
+	OpportunityCount  int
+	Submitted         int
+	Status            string
+	GuardrailJSON     string
+	CandidatesJSON    string
+	OpportunitiesJSON string
+	SkippedJSON       string
+	Message           string
+	Started           time.Time
+	Finished          time.Time
 }
 
 type DailyItem struct {

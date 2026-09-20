@@ -123,6 +123,7 @@ import { marketLabel, unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
 import { stubAccount, stubPositions } from '@/utils/stubs'
 import { brokerAuthCode, cacheTradeAccount, cacheTradePositions, isBrokerAuthError, readCachedAccount, readCachedPositions } from '@/utils/tradeAuth'
+import { hasLiveSession } from '@/utils/auth'
 
 const loading = ref(false)
 const usingStub = ref(false)
@@ -235,6 +236,12 @@ function weightPct(row) {
 }
 
 function applyStub() {
+  if (hasLiveSession()) {
+    usingStub.value = false
+    usingCache.value = false
+    list.value = []
+    return
+  }
   usingStub.value = true
   usingCache.value = false
   account.value = stubAccount()
@@ -270,20 +277,18 @@ async function load() {
       applyBrokerAuth(brokerErr.reason)
       return
     }
-    let live = false
+    let live = hasLiveSession()
     if (posRes.status === 'fulfilled') {
       const d = unwrap(posRes.value)
-      const rows = d.positions || unwrapList(posRes.value)
-      if (rows.length || d.configured) {
-        list.value = rows
-        cacheTradePositions(rows)
-        msg.value = d.message || (d.configured === false ? '未配置长桥凭证' : '')
-        live = true
-      }
+      const rows = Array.isArray(d.positions) ? d.positions : (Array.isArray(d.items) ? d.items : (Array.isArray(d.list) ? d.list : unwrapList(posRes.value)))
+      list.value = Array.isArray(rows) ? rows : []
+      cacheTradePositions(list.value)
+      msg.value = d.message || (d.configured === false ? '未配置长桥凭证' : '')
+      if (list.value.length || d.configured || hasLiveSession()) live = true
     }
     if (accRes.status === 'fulfilled') {
       const acc = unwrap(accRes.value)
-      if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency)) {
+      if (acc && (acc.netAssets != null || acc.availableCash != null || acc.currency || acc.configured != null || hasLiveSession())) {
         account.value = acc
         cacheTradeAccount(acc)
         const listAcc = acc.accounts || acc.items || []
@@ -292,11 +297,17 @@ async function load() {
         live = true
       }
     }
-    if (!live) applyStub()
-    else usingStub.value = false
+    if (live) {
+      usingStub.value = false
+      if (!Array.isArray(list.value)) list.value = []
+    } else applyStub()
   } catch (e) {
     if (isBrokerAuthError(e)) applyBrokerAuth(e)
-    else applyStub()
+    else if (hasLiveSession()) {
+      usingStub.value = false
+      list.value = []
+      msg.value = e?.message || ''
+    } else applyStub()
   } finally {
     loading.value = false
   }

@@ -36,7 +36,7 @@ func SizeDailyListOrder(account Account, market string, rowPrice, quoteLast floa
 	}
 	lot := LotForMarket(market)
 	if net <= 0 {
-		return lot
+		return 0
 	}
 	notional := math.Min(net*DailyListMaxPositionRatio, DailyListMaxNameNotional)
 	price := rowPrice
@@ -44,21 +44,48 @@ func SizeDailyListOrder(account Account, market string, rowPrice, quoteLast floa
 		price = quoteLast
 	}
 	if price <= 0 {
-		return lot
+		return 0
 	}
-	qty := int(notional / price)
-	qty = max(lot, qty-(qty%lot))
+	qty := int(math.Floor(notional / price))
+	if lot > 1 {
+		qty = qty - qty%lot
+	}
+	if qty < lot {
+		return 0
+	}
 	return qty
 }
 
+func FloorOrderQuantity(quantity float64, market string) (int, string) {
+	if math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity < 1 {
+		return 0, "委托数量必须至少为 1 股/手"
+	}
+	qty := int(math.Floor(quantity))
+	lot := LotForMarket(market)
+	if lot > 1 {
+		qty = qty - qty%lot
+	}
+	if qty < 1 || qty < lot {
+		return 0, "委托数量必须至少为 1 股/手"
+	}
+	return qty, ""
+}
+
 func BuyQuantityFromUSD(targetUSD, realtimePrice float64, market string, fx FxRates) int {
-	if realtimePrice <= 0 {
+	if realtimePrice <= 0 || targetUSD <= 0 {
 		return 0
 	}
 	orderAmount := fx.FromUSD(targetUSD, fx.OrderCurrency(market))
-	qty := int(orderAmount / realtimePrice)
-	if qty < 1 {
-		return 1
+	qty := int(math.Floor(orderAmount / realtimePrice))
+	lot := LotForMarket(market)
+	if qty < 1 || qty < lot {
+		return 0
+	}
+	if lot > 1 {
+		qty = qty - qty%lot
+	}
+	if qty < lot {
+		return 0
 	}
 	return qty
 }
@@ -78,21 +105,21 @@ func ClampDailyBuyRatio(ratio float64) float64 {
 
 func MergeRuntimeConfig(custom map[string]interface{}) map[string]interface{} {
 	cfg := map[string]interface{}{
-		"enabled":                  true,
-		"auto_execute":             false,
-		"interval":                 900,
-		"strategy_profile":         "balanced",
-		"max_symbols":              3,
-		"max_amount_per_symbol":    0.0,
-		"max_daily_orders":         10,
+		"enabled":                   true,
+		"auto_execute":              false,
+		"interval":                  900,
+		"strategy_profile":          "balanced",
+		"max_symbols":               3,
+		"max_amount_per_symbol":     0.0,
+		"max_daily_orders":          10,
 		"max_daily_notional_amount": 0.0,
-		"max_position_ratio":       DailyBuyPositionRatio,
-		"max_symbol_position_pct":  DefaultMaxSymbolPositionPct,
-		"min_confidence":           65,
-		"price_slippage_tolerance": 0.03,
-		"max_gross_exposure_pct":   MaxGrossExposurePct,
-		"skip_held_buy":            true,
-		"skip_cn":                  true,
+		"max_position_ratio":        DailyBuyPositionRatio,
+		"max_symbol_position_pct":   DefaultMaxSymbolPositionPct,
+		"min_confidence":            65,
+		"price_slippage_tolerance":  0.03,
+		"max_gross_exposure_pct":    MaxGrossExposurePct,
+		"skip_held_buy":             true,
+		"skip_cn":                   true,
 	}
 	allowed := map[string]struct{}{
 		"max_symbols": {}, "min_confidence": {}, "strategy_profile": {}, "custom_thresholds": {},

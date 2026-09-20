@@ -119,6 +119,7 @@ import { unwrap, unwrapList } from '@/utils/list'
 import { terminalRoute } from '@/utils/nav'
 import { brokerAuthCode, isBrokerAuthError } from '@/utils/tradeAuth'
 import { stubOrders } from '@/utils/stubs'
+import { hasLiveSession } from '@/utils/auth'
 
 const OPEN_STATUS = new Set(['submitted', 'new', 'wait_to_new', 'waittonew', 'partial_filled', 'partialfilled', 'wait_to_cancel', 'waittocancel', 'pending', 'partial', 'open', 'not_reported', 'notreported'])
 const OPEN_LABEL = new Set(['已提交', '待成交', '待报', '待撤', '部分成交'])
@@ -260,7 +261,12 @@ function withinDays(row, days) {
 
 function pickOrders(res) {
   const d = unwrap(res)
-  const rows = d.orders || unwrapList(res)
+  let rows = []
+  if (Array.isArray(d)) rows = d
+  else if (Array.isArray(d.orders)) rows = d.orders
+  else if (Array.isArray(d.items)) rows = d.items
+  else if (Array.isArray(d.list)) rows = d.list
+  else rows = unwrapList(res)
   return { rows: Array.isArray(rows) ? rows : [], data: d }
 }
 
@@ -296,9 +302,20 @@ const detailTitle = computed(() => {
 })
 
 function applyStub() {
+  if (hasLiveSession()) {
+    usingStub.value = false
+    list.value = []
+    return
+  }
   usingStub.value = true
   list.value = stubOrders()
   msg.value = ''
+}
+
+function applyLiveOrders(rows, data) {
+  list.value = Array.isArray(rows) ? rows : []
+  msg.value = data?.message || (data?.configured === false ? '未配置长桥凭证' : '')
+  usingStub.value = false
 }
 
 async function load() {
@@ -308,38 +325,35 @@ async function load() {
     if (scope.value === 'today') {
       const res = await getTradeOrders('today')
       const { rows, data } = pickOrders(res)
-      if (rows.length || data.configured) {
-        list.value = rows
-        msg.value = data.message || (data.configured === false ? '未配置长桥凭证' : '')
-        usingStub.value = false
+      if (hasLiveSession() || rows.length || data.configured) {
+        applyLiveOrders(rows, data)
         return
       }
       applyStub()
       return
     }
     const [histRes, todayRes] = await Promise.allSettled([getTradeOrders('history'), getTradeOrders('today')])
-    let live = false
+    let live = hasLiveSession()
     let rows = []
     let message = ''
+    let data = {}
     if (histRes.status === 'fulfilled') {
-      const { rows: hist, data } = pickOrders(histRes.value)
-      rows = hist
+      const picked = pickOrders(histRes.value)
+      rows = picked.rows
+      data = picked.data
       message = data.message || (data.configured === false ? '未配置长桥凭证' : '')
-      if (hist.length || data.configured) live = true
+      if (picked.rows.length || data.configured) live = true
     }
     if (todayRes.status === 'fulfilled') {
-      const { rows: today, data } = pickOrders(todayRes.value)
-      if (today.length || data.configured) {
-        rows = mergeById(today, rows)
+      const picked = pickOrders(todayRes.value)
+      if (picked.rows.length || picked.data.configured || hasLiveSession()) {
+        rows = mergeById(picked.rows, rows)
         live = true
+        if (!message) message = picked.data.message || (picked.data.configured === false ? '未配置长桥凭证' : '')
       }
     }
-    if (!live) applyStub()
-    else {
-      list.value = rows
-      msg.value = message
-      usingStub.value = false
-    }
+    if (live) applyLiveOrders(rows, { ...data, message })
+    else applyStub()
   } catch (e) {
     if (isBrokerAuthError(e)) {
       brokerAuth.value = true
@@ -347,6 +361,10 @@ async function load() {
       usingStub.value = false
       list.value = []
       msg.value = ''
+    } else if (hasLiveSession()) {
+      usingStub.value = false
+      list.value = []
+      msg.value = e?.message || ''
     } else applyStub()
   } finally {
     loading.value = false

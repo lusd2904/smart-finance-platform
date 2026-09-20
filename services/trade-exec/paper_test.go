@@ -65,8 +65,12 @@ func TestSizeDailyListOrder(t *testing.T) {
 		t.Fatalf("hk lot %d", qty)
 	}
 	empty := SizeDailyListOrder(Account{}, "US", 10, 0)
-	if empty != 1 {
-		t.Fatalf("fallback lot %d", empty)
+	if empty != 0 {
+		t.Fatalf("net<=0 must return 0, got %d", empty)
+	}
+	noPrice := SizeDailyListOrder(acct, "US", 0, 0)
+	if noPrice != 0 {
+		t.Fatalf("price<=0 must return 0, got %d", noPrice)
 	}
 }
 
@@ -76,5 +80,11 @@ func TestBuyQuantityFromUSDUsesHKD(t *testing.T) {
 	qty := BuyQuantityFromUSD(1000, 78, "HK", fx)
 	if qty != 100 {
 		t.Fatalf("qty=%d", qty)
+	}
+	if got := BuyQuantityFromUSD(1, 78, "HK", fx); got != 0 {
+		t.Fatalf("below lot must return 0, got %d", got)
+	}
+	if got := BuyQuantityFromUSD(1, 190, "US", fx); got != 0 {
+		t.Fatalf("qty < 1 must return 0, got %d", got)
 	}
 }

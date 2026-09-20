@@ -160,7 +160,11 @@ func (s *Server) PutHalt(w http.ResponseWriter, r *http.Request) {
 	} else if v, ok := body["halt"]; ok {
 		halted = truthy(v)
 	}
-	h := s.Trade.WriteHalt(r.Context(), halted, str(body["reason"]), userID(r))
+	h, err := s.Trade.WriteHalt(r.Context(), halted, str(body["reason"]), userID(r))
+	if err != nil {
+		response.Error(w, err.Error())
+		return
+	}
 	response.Success(w, map[string]interface{}{
 		"halted": h.Halted,
 		"reason": h.Reason,

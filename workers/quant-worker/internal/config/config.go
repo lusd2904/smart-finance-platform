@@ -78,7 +78,7 @@ func Load() Config {
 		MySQLPort:     envInt("DB_PORT", 3306),
 		MySQLUser:     env("DB_USERNAME", "root"),
 		MySQLPassword: env("DB_PASSWORD", ""),
-		MySQLDatabase: env("DB_DATABASE", "ruoyi-fastapi"),
+		MySQLDatabase: env("DB_DATABASE", "sentiment-ai"),
 
 		SymbolInterval:    envFloat("KLINE_SYMBOL_INTERVAL", 0.4),
 		SourceInterval:    envFloat("KLINE_SOURCE_INTERVAL", 0.8),

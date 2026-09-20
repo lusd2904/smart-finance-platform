@@ -105,6 +105,49 @@ func TestRelativeRangeAndLimit(t *testing.T) {
 	}
 }
 
+func TestDailyManyChunkSQLBatchesSymbols(t *testing.T) {
+	q, args := dailyManyChunkQuery("US", []string{"QQQ", "DIA", "aapl"}, "2026-08-01", "2026-09-20", 8)
+	lower := strings.ToLower(q)
+	for _, frag := range []string{
+		"from market_price_history_daily",
+		"row_number() over (partition by symbol order by trade_date desc)",
+		"symbol in (?,?,?)",
+		"market=?",
+		"rn<=?",
+		"order by symbol, trade_date",
+	} {
+		if !strings.Contains(lower, frag) {
+			t.Fatalf("missing %q in %s", frag, q)
+		}
+	}
+	if strings.Count(lower, "where symbol=?") != 0 {
+		t.Fatal("must not be per-symbol N+1")
+	}
+	if len(args) != 7 || args[0] != "US" || args[1] != "2026-08-01" || args[3] != "QQQ" || args[6] != 8 {
+		t.Fatalf("args=%v", args)
+	}
+}
+
+func TestMapDailyManyExactThenUpper(t *testing.T) {
+	byDB := map[string][]Bar{
+		"AAPL": {{Date: "2026-09-10", Close: ptr(100)}},
+		"QQQ":  {{Date: "2026-09-10", Close: ptr(400)}},
+	}
+	got := mapDailyMany([]string{"AAPL", "aapl", "qqq", "MISSING"}, byDB)
+	if len(got["AAPL"]) != 1 || deref(got["AAPL"][0].Close) != 100 {
+		t.Fatalf("exact AAPL=%v", got["AAPL"])
+	}
+	if len(got["aapl"]) != 1 || deref(got["aapl"][0].Close) != 100 {
+		t.Fatalf("uppercase fallback aapl=%v", got["aapl"])
+	}
+	if len(got["qqq"]) != 1 || deref(got["qqq"][0].Close) != 400 {
+		t.Fatalf("uppercase fallback qqq=%v", got["qqq"])
+	}
+	if _, ok := got["MISSING"]; ok {
+		t.Fatalf("missing should be omitted: %v", got)
+	}
+}
+
 func TestQueryDailyManyAndLatest(t *testing.T) {
 	mem := NewMemStore()
 	mem.UpsertDaily(DailyRow{Symbol: "QQQ", Market: "US", TradeDate: "2026-09-10", Close: 400})

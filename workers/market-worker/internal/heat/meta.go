@@ -20,7 +20,7 @@ type MarketInfo struct {
 var MarketMeta = map[string]MarketInfo{
 	"US": {Label: "美股", Currency: "USD", IndexSymbol: "^GSPC", IndexName: "标普500", CapMin: 1e9, CapMax: 100e9, CapRule: "10亿-1000亿美元", Timezone: "America/New_York"},
 	"HK": {Label: "港股", Currency: "HKD", IndexSymbol: "HSI.HK", IndexName: "恒生指数", CapMin: 10e9, CapMax: 100e9, CapRule: "100亿-1000亿港币", Timezone: "Asia/Hong_Kong"},
-	"CN": {Label: "A股", Currency: "CNY", IndexSymbol: "000001", IndexName: "上证指数", CapMin: 10e9, CapMax: 200e9, CapRule: "100亿-2000亿人民币", Timezone: "Asia/Shanghai"},
+	"CN": {Label: "A股", Currency: "CNY", IndexSymbol: "000001.SH", IndexName: "上证指数", CapMin: 10e9, CapMax: 200e9, CapRule: "100亿-2000亿人民币", Timezone: "Asia/Shanghai"},
 }
 
 var WeightConfigKeys = map[string]string{

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -26,7 +25,7 @@ var targetInstruments = []targetInstrument{
 	{"AAPL", "苹果", "US"}, {"MSFT", "微软", "US"}, {"GOOGL", "谷歌A", "US"}, {"AMZN", "亚马逊", "US"},
 	{"NVDA", "英伟达", "US"}, {"META", "Meta", "US"}, {"TSLA", "特斯拉", "US"},
 	{"0700.HK", "腾讯控股", "HK"}, {"9988.HK", "阿里巴巴-SW", "HK"}, {"3690.HK", "美团-W", "HK"},
-	{"600519", "贵州茅台", "CN"}, {"000858", "五粮液", "CN"}, {"300750", "宁德时代", "CN"},
+	{"600519.SH", "贵州茅台", "CN"}, {"000858.SZ", "五粮液", "CN"}, {"300750.SZ", "宁德时代", "CN"},
 }
 
 type Service struct {
@@ -88,9 +87,6 @@ func (s *Service) featuredBoard(ctx context.Context) ([]map[string]interface{}, 
 	byMarket := map[string][]string{}
 	names := map[string]string{}
 	for _, inst := range targetInstruments {
-		if strings.HasPrefix(inst.Symbol, "^") {
-			continue
-		}
 		byMarket[inst.Market] = append(byMarket[inst.Market], inst.Symbol)
 		names[inst.Symbol+"|"+inst.Market] = inst.Name
 	}

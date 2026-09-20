@@ -77,11 +77,11 @@ func (s *Server) CommonGuide(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) CommonDownload(w http.ResponseWriter, r *http.Request) {
 	fileName := r.URL.Query().Get("fileName")
-	if fileName == "" || strings.Contains(fileName, "..") {
+	path, ok := resolveUnderRoot(s.Config.DownloadPath, fileName)
+	if !ok {
 		response.Warn(w, "文件名称不合法")
 		return
 	}
-	path := filepath.Join(s.Config.DownloadPath, fileName)
 	if _, err := os.Stat(path); err != nil {
 		response.Warn(w, "文件不存在")
 		return
@@ -92,17 +92,45 @@ func (s *Server) CommonDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) CommonDownloadResource(w http.ResponseWriter, r *http.Request) {
 	resource := strings.TrimSpace(r.URL.Query().Get("resource"))
-	if resource == "" || strings.Contains(resource, "..") {
+	path, ok := resolveUnderRoot(s.Config.UploadPath, strings.TrimPrefix(resource, "/"))
+	if !ok {
 		response.Warn(w, "资源路径不合法")
 		return
 	}
-	path := filepath.Join(s.Config.UploadPath, strings.TrimPrefix(resource, "/"))
 	if _, err := os.Stat(path); err != nil {
 		response.Warn(w, "文件不存在")
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(path))
 	http.ServeFile(w, r, path)
+}
+
+func resolveUnderRoot(root, name string) (string, bool) {
+	if strings.TrimSpace(name) == "" || strings.Contains(name, "..") {
+		return "", false
+	}
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || cleaned == ".." || filepath.IsAbs(cleaned) {
+		return "", false
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	joined := filepath.Join(rootAbs, cleaned)
+	targetAbs, err := filepath.Abs(joined)
+	if err != nil {
+		return "", false
+	}
+	sep := string(os.PathSeparator)
+	prefix := rootAbs
+	if !strings.HasSuffix(prefix, sep) {
+		prefix += sep
+	}
+	if targetAbs != rootAbs && !strings.HasPrefix(targetAbs, prefix) {
+		return "", false
+	}
+	return targetAbs, true
 }
 
 func joinURL(r *http.Request, path string) string {

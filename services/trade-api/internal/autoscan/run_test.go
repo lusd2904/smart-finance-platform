@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/internaljobs"
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/platform"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestStrategyEvaluatorUsesInternalJobs(t *testing.T) {
@@ -34,5 +37,24 @@ func TestStrategyEvaluatorUsesInternalJobs(t *testing.T) {
 func TestStrategyEvaluatorRequiresClient(t *testing.T) {
 	if _, err := (&StrategyEvaluator{}).Evaluate(context.Background(), "balanced", 1, nil); err == nil {
 		t.Fatal("expected unconfigured client")
+	}
+}
+
+func TestRunWatchlistCycleRequiresUserID(t *testing.T) {
+	_, err := RunWatchlistCycle(context.Background(), nil, nil, nil, nil, Keys{}, RunInput{})
+	if err == nil || !strings.Contains(err.Error(), "缺少 userId") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestReadHaltFailClosed(t *testing.T) {
+	h := readHalt(context.Background(), nil)
+	if !h.Halted || h.Reason != "halt state unavailable" {
+		t.Fatalf("nil redis: %+v", h)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 50 * time.Millisecond})
+	h = readHalt(context.Background(), rdb)
+	if !h.Halted || h.Reason != "halt state unavailable" {
+		t.Fatalf("get error: %+v", h)
 	}
 }

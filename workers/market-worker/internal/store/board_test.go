@@ -102,20 +102,21 @@ func TestRefreshBoardQuotesCacheReadsInjectedMySQLStore(t *testing.T) {
 }
 
 func TestLatestDailySQLTargetsMySQLNotFlux(t *testing.T) {
-	sql := strings.ToLower(latestDailySQL)
+	sql := strings.ToLower(latestDailyManySQL)
 	for _, frag := range []string{
 		"from market_price_history_daily",
-		"symbol=?",
+		"symbol in (%s)",
 		"market=?",
 		"trade_date",
 		"open_price", "high_price", "low_price", "close_price", "volume",
-		"limit ?",
+		"row_number() over (partition by symbol order by trade_date desc)",
+		"rn<=?",
 	} {
 		if !strings.Contains(sql, frag) {
-			t.Fatalf("latestDailySQL missing %q", frag)
+			t.Fatalf("latestDailyManySQL missing %q", frag)
 		}
 	}
-	if strings.Contains(sql, "daily_kline") || strings.Contains(sql, "from(") {
+	if strings.Contains(sql, "daily_kline") || strings.Contains(sql, "from(bucket") {
 		t.Fatal("board warmup SQL must not be Flux")
 	}
 }
@@ -147,5 +148,9 @@ func TestDailyWindowParsesRelativeDays(t *testing.T) {
 	}
 	if to < from {
 		t.Fatalf("window inverted from=%s to=%s", from, to)
+	}
+	fromY, toY := dailyWindow("-1y")
+	if toY < fromY || fromY >= from {
+		t.Fatalf("-1y should look further back than -60d: y=%s d=%s to=%s", fromY, from, toY)
 	}
 }

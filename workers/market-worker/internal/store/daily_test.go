@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -243,5 +244,23 @@ func TestSyncSymbolWritePathIgnoresInfluxError(t *testing.T) {
 	}
 	if _, ok := db.rows[dailyKey("^GSPC", "2026-09-11")]; !ok {
 		t.Fatal("^GSPC Friday bar missing from MySQL after Influx failure")
+	}
+}
+
+func TestDailyUniqueKeySQLAddsMarket(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "sql", "market-price-history-daily-unique-market.sql")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, frag := range []string{
+		"DROP INDEX uniq_symbol_trade_date",
+		"ADD UNIQUE KEY uniq_symbol_market_trade_date (symbol, market, trade_date)",
+		"MAX(id)",
+	} {
+		if !strings.Contains(text, frag) {
+			t.Fatalf("unique-market SQL missing %q", frag)
+		}
 	}
 }

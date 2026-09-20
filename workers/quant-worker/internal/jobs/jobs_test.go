@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/tradeexec"
+	"github.com/redis/go-redis/v9"
 )
 
 type fakeBroker struct {
@@ -92,6 +94,45 @@ func TestMergeTargetsDropsCN(t *testing.T) {
 	got := mergeTargets([]Target{{Symbol: "AAPL", Market: "US"}, {Symbol: "600519", Market: "CN"}, {Symbol: "700", Market: "HK"}})
 	if len(got) != 2 {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestReadHaltFailClosed(t *testing.T) {
+	h := readHalt(context.Background(), nil)
+	if !h.Halted || h.Reason != "halt state unavailable" {
+		t.Fatalf("nil redis: %+v", h)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 50 * time.Millisecond})
+	h = readHalt(context.Background(), rdb)
+	if !h.Halted || h.Reason != "halt state unavailable" {
+		t.Fatalf("get error: %+v", h)
+	}
+}
+
+func TestUniqueIntsDropsNonPositive(t *testing.T) {
+	got := uniqueInts([]int{0, 1, 2}, []int{1, -3})
+	if len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("%v", got)
+	}
+	if got := uniqueInts(nil, nil); len(got) != 0 {
+		t.Fatalf("empty fallback must not inject user 1: %v", got)
+	}
+}
+
+func TestPlaceOrQueueZeroQtySkips(t *testing.T) {
+	ctx := context.Background()
+	broker := &fakeBroker{submitOK: true, orderID: "OID-0"}
+	row := DailyItem{ItemID: 12, Status: "queued", Symbol: "AAPL", Market: "US", Price: 80}
+	out := placeOrQueue(ctx, repoStub(), broker, tradeexec.Creds{AppKey: "k", AppSecret: "s", AccessToken: "t"}, row, true, "")
+	if out["ok"] != false || len(broker.submits) != 0 {
+		t.Fatalf("zero qty must skip submit: %v %v", out, broker.submits)
+	}
+}
+
+func TestStopLossHaltNote(t *testing.T) {
+	msg := tradeexec.HaltBlockReason(readHalt(context.Background(), nil))
+	if msg == "" {
+		t.Fatal("nil redis halt must block stop-loss")
 	}
 }
 

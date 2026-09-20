@@ -1,10 +1,15 @@
 package auth_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/auth"
+	"github.com/lusd2904/smart-finance-platform/services/sfp-backend/internal/config"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestJWTPayloadShape(t *testing.T) {
@@ -44,5 +49,45 @@ func TestLoginResponseEnvelope(t *testing.T) {
 	}
 	if body["code"].(int) != 200 {
 		t.Fatal("code mismatch")
+	}
+}
+
+func TestCheckCaptchaConsumesOnMismatch(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	svc := auth.New(&config.Config{}, rdb, nil)
+	ctx := context.Background()
+	if err := svc.StoreCaptcha(ctx, "u1", "1234"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckCaptcha(ctx, "u1", "wrong"); err == nil || err.Error() != "验证码错误" {
+		t.Fatalf("mismatch err=%v", err)
+	}
+	if err := svc.CheckCaptcha(ctx, "u1", "1234"); err == nil || err.Error() != "验证码已失效" {
+		t.Fatalf("consumed err=%v", err)
+	}
+}
+
+func TestCheckCaptchaOKConsumes(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	svc := auth.New(&config.Config{}, rdb, nil)
+	ctx := context.Background()
+	if err := svc.StoreCaptcha(ctx, "u2", "5678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckCaptcha(ctx, "u2", "5678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckCaptcha(ctx, "u2", "5678"); err == nil || err.Error() != "验证码已失效" {
+		t.Fatalf("replay err=%v", err)
 	}
 }

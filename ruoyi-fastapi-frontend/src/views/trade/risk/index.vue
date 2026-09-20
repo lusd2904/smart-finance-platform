@@ -16,7 +16,7 @@
       <template #header>
         <div class="hdr">
           <span>组合收益指标</span>
-          <span class="muted">持仓加权 · Influx 日K · Sharpe / 回撤 / VaR</span>
+          <span class="muted">持仓加权 · MySQL 日K · Sharpe / 回撤 / VaR</span>
         </div>
       </template>
       <el-row :gutter="12" v-if="sheet && sheet.days">

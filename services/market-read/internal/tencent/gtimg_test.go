@@ -54,9 +54,14 @@ func TestSymbolMapping(t *testing.T) {
 		{"00700", "HK", "hk00700"},
 		{"700", "HK", "hk00700"},
 		{"600519", "CN", "sh600519"},
+		{"600519.SH", "CN", "sh600519"},
 		{"000001", "CN", "sz000001"},
+		{"000001.SZ", "CN", "sz000001"},
+		{"000001.SH", "CN", "sh000001"},
 		{"sh600519", "CN", "sh600519"},
-		{"^GSPC", "US", "usGSPC"},
+		{"^GSPC", "US", "usINX"},
+		{"^DJI", "US", "usDJI"},
+		{"^IXIC", "US", "usIXIC"},
 	}
 	for _, tc := range cases {
 		if got := Symbol(tc.symbol, tc.market); got != tc.want {

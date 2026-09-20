@@ -3,25 +3,26 @@
 #
 # 内存：16 GiB 及以下云主机用 slim 叠加层（见 docker-compose.sentiment.slim.yml）。
 # 生产路径为 Go-only（sfp-backend / sfp-intel / data-api / trade-api / market-read / workers / scheduler）。
-# Python RuoYi-FastAPI 后端已从 main 删除，回滚见 docs/PYTHON-REMOVED.md。
 #
 # 禁止 compose down 整栈。新增/更新服务：
 #   docker compose -f docker-compose.sentiment.yml up -d --no-deps --build <service>
 
-# 登录/系统/AI/交易 HTTP 只等 MySQL+Redis。Influx 冷启动可达 10 分钟，不能挡住登录。
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 x-core-depends: &core-depends
   sentiment-mysql:
     condition: service_healthy
   ruoyi-redis:
     condition: service_healthy
 
-# HTTP 行情服务仍声明等 Influx（历史 depends）。Go workers 已切 MySQL，用 core-depends。
 x-data-depends: &data-depends
   sentiment-mysql:
     condition: service_healthy
   ruoyi-redis:
-    condition: service_healthy
-  sentiment-influxdb:
     condition: service_healthy
 
 services:
@@ -47,21 +48,21 @@ services:
         condition: service_healthy
       sentiment-data-api:
         condition: service_healthy
-      # market/quant 等 Influx，冷启动可达 10 分钟；登录页不能跟着等。
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 15s
+    logging: *default-logging
     networks:
       - sentiment-network
 
   # Go platform API：登录 / getInfo / getRouters / system RBAC / dashboard / ws/jobs
   sfp-backend:
     build:
-      context: ./services/sfp-backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/sfp-backend/Dockerfile
     image: sfp-backend:latest
     container_name: sfp-backend
     env_file:
@@ -72,16 +73,12 @@ services:
       REDIS_HOST: ruoyi-redis
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
-      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUX_ORG: longbridge
-      INFLUX_BUCKET_US: market_us
-      INFLUX_BUCKET_CN: market_data
       INTEL_JOBS_URL: ""
       STRATEGY_EVAL_URL: ""
     depends_on: *core-depends
     mem_limit: 128m
     cpus: 0.25
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -105,10 +102,12 @@ services:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on: *core-depends
     mem_limit: 320m
     cpus: 0.5
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -122,8 +121,8 @@ services:
   # 行情只读热路径 + 行情 WS / live quotes。
   sentiment-market-read:
     build:
-      context: ./services/market-read
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/market-read/Dockerfile
     image: sentiment-market-read:latest
     container_name: sentiment-market-read
     env_file:
@@ -132,10 +131,12 @@ services:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
-      INFLUX_URL: http://sentiment-influxdb:8086
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on: *data-depends
     mem_limit: 320m
     cpus: 0.5
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -159,16 +160,13 @@ services:
       LISTEN_ADDR: ":8080"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
-      INFLUX_URL: http://sentiment-influxdb:8086
-      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUX_ORG: longbridge
-      INFLUX_BUCKET_US: market_us
-      INFLUX_BUCKET_CN: market_data
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       INTERNAL_JOBS_URL: http://sfp-backend:9099/internal/jobs/run
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN:?请在 .env 中设置 INTERNAL_JOB_TOKEN}
     depends_on: *data-depends
     mem_limit: 384m
     cpus: 0.5
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -192,10 +190,12 @@ services:
       LISTEN_ADDR: ":8081"
       DB_HOST: sentiment-mysql
       REDIS_HOST: ruoyi-redis
-      INFLUX_URL: http://sentiment-influxdb:8086
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on: *data-depends
     mem_limit: 256m
     cpus: 0.5
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -217,9 +217,6 @@ services:
       - "127.0.0.1:19098:9098"
     environment:
       SCHEDULER_PORT: "9098"
-      # Existing sys_job hours were authored as container UTC (Python APScheduler
-      # used process-local TZ). Pin UTC so fire times stay identical. Binary
-      # default is Asia/Shanghai when SCHEDULER_TZ is unset.
       TZ: UTC
       SCHEDULER_TZ: UTC
       REDIS_HOST: ruoyi-redis
@@ -231,6 +228,7 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
     depends_on: *core-depends
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -250,6 +248,8 @@ services:
       dockerfile: Dockerfile
     image: sfp-market-worker:latest
     container_name: sfp-market-worker
+    env_file:
+      - ./.env.dockersentiment
     ports:
       - "127.0.0.1:19097:9098"
     environment:
@@ -262,22 +262,12 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
-      INFLUX_URL: http://sentiment-influxdb:8086
-      INFLUX_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUX_ORG: longbridge
-      INFLUX_BUCKET_US: market_us
-      INFLUX_BUCKET_CN: market_data
-      # Influx is shut down (MySQL is kline source of truth). Dual-write stays
-      # in code for optional re-enable; default off so missing host is not ERROR.
       INFLUX_DUAL_WRITE: "0"
-      LONGPORT_APP_KEY: ${LONGPORT_APP_KEY:-}
-      LONGPORT_APP_SECRET: ${LONGPORT_APP_SECRET:-}
-      LONGPORT_ACCESS_TOKEN: ${LONGPORT_ACCESS_TOKEN:-}
-      LONGPORT_REGION: ${LONGPORT_REGION:-cn}
       KLINE_SYMBOL_INTERVAL: "0.4"
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
     depends_on: *core-depends
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -311,17 +301,11 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
-      INTERNAL_JOB_TOKEN: ${INTERNAL_JOB_TOKEN}
       INTERNAL_JOBS_URL: http://sfp-backend:9099/internal/jobs/run
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
-      LONGPORT_APP_KEY: ${LONGPORT_APP_KEY:-}
-      LONGPORT_APP_SECRET: ${LONGPORT_APP_SECRET:-}
-      LONGPORT_ACCESS_TOKEN: ${LONGPORT_ACCESS_TOKEN:-}
-      LONGPORT_REGION: ${LONGPORT_REGION:-cn}
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
     depends_on: *core-depends
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -337,10 +321,12 @@ services:
   # llm 队列：Go worker（舆情分析 / 需求沟通 / 飞书推送原生）
   sfp-notify-worker:
     build:
-      context: ./workers/notify-worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: workers/notify-worker/Dockerfile
     image: sfp-notify-worker:latest
     container_name: sfp-notify-worker
+    env_file:
+      - ./.env.dockersentiment
     ports:
       - "127.0.0.1:19095:9096"
     environment:
@@ -353,15 +339,10 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       DB_DATABASE: sentiment-ai
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
       JOB_VISIBILITY_TIMEOUT_S: "900"
       JOB_MAX_RETRIES: "3"
-    depends_on:
-      sentiment-mysql:
-        condition: service_healthy
-      ruoyi-redis:
-        condition: service_healthy
+    depends_on: *core-depends
+    logging: *default-logging
     networks:
       - sentiment-network
     restart: unless-stopped
@@ -373,39 +354,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 25s
-
-  sentiment-influxdb:
-    image: influxdb:2.7
-    container_name: sentiment-influxdb
-    restart: unless-stopped
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:?请在 .env 中设置 INFLUXDB_PASSWORD}
-      DOCKER_INFLUXDB_INIT_ORG: longbridge
-      DOCKER_INFLUXDB_INIT_BUCKET: market_us
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?请在 .env 中设置 INFLUXDB_TOKEN}
-      GOMAXPROCS: "1"
-      GOMEMLIMIT: "5GiB"
-      INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE: "268435456"
-      INFLUXD_STORAGE_CACHE_SNAPSHOT_MEMORY_SIZE: "26214400"
-      INFLUXD_STORAGE_MAX_CONCURRENT_COMPACTIONS: "1"
-      INFLUXD_STORAGE_SERIES_ID_SET_CACHE_SIZE: "0"
-      INFLUXD_QUERY_CONCURRENCY: "2"
-      INFLUXD_QUERY_QUEUE_SIZE: "4"
-    mem_limit: 6g
-    cpus: 2.0
-    volumes:
-      - sentiment-influxdb-data:/var/lib/influxdb2
-      - sentiment-influxdb-config:/etc/influxdb2
-    networks:
-      - sentiment-network
-    healthcheck:
-      test: ["CMD", "influx", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 10m
 
   sentiment-mysql:
     image: mysql:8.0
@@ -423,7 +371,6 @@ services:
       - ./sql/auto-trade.sql:/docker-entrypoint-initdb.d/05-auto-trade.sql
       - ./sql/full-feature-menu.sql:/docker-entrypoint-initdb.d/06-full-feature-menu.sql
       - ./sql/deep-feature-menu.sql:/docker-entrypoint-initdb.d/07-deep-feature-menu.sql
-      # 初始化脚本编号跳过 08（历史迁移已废弃），保留缺口以维持既有环境顺序
       - ./sql/risk-event-workflow.sql:/docker-entrypoint-initdb.d/09-risk-event-workflow.sql
       - ./sql/quant-phase2-snapshots.sql:/docker-entrypoint-initdb.d/10-quant-phase2-snapshots.sql
       - ./sql/quant-factor-qc.sql:/docker-entrypoint-initdb.d/11-quant-factor-qc.sql
@@ -435,7 +382,14 @@ services:
       - ./sql/ai-req-bots.sql:/docker-entrypoint-initdb.d/17-ai-req-bots.sql
       - ./sql/quant-daily-list.sql:/docker-entrypoint-initdb.d/18-quant-daily-list.sql
       - ./sql/plat-feishu-push.sql:/docker-entrypoint-initdb.d/19-plat-feishu-push.sql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci --skip-character-set-client-handshake=1 --max-connections=300
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --skip-character-set-client-handshake=1
+      --max-connections=300
+      --binlog-expire-logs-seconds=259200
+      --innodb-buffer-pool-size=256M
+    logging: *default-logging
     networks:
       - sentiment-network
     healthcheck:
@@ -452,7 +406,7 @@ services:
       [
         "redis-server",
         "--requirepass",
-        "${REDIS_PASSWORD:-}",
+        "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}",
         "--appendonly",
         "yes",
         "--maxmemory",
@@ -460,8 +414,11 @@ services:
         "--maxmemory-policy",
         "noeviction",
       ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
     volumes:
       - sentiment-redis-data:/data
+    logging: *default-logging
     networks:
       - sentiment-network
     healthcheck:
@@ -480,7 +437,7 @@ services:
     restart: unless-stopped
     command: ["sh", "/scripts/backup_loop.sh"]
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       SKIP_CD: "1"
       BACKUP_DIR: /backups
     volumes:
@@ -490,15 +447,12 @@ services:
     depends_on:
       sentiment-mysql:
         condition: service_healthy
-      sentiment-influxdb:
-        condition: service_healthy
+    logging: *default-logging
     networks:
       - sentiment-network
 
 volumes:
   sentiment-mysql-data:
-  sentiment-influxdb-data:
-  sentiment-influxdb-config:
   sentiment-redis-data:
 
 networks:

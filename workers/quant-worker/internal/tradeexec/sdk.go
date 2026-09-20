@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -277,6 +276,10 @@ func (s *SDKBroker) SubmitOrder(ctx context.Context, creds Creds, req SubmitReq)
 	if msg := ValidateOrderInput(req.Symbol, req.Side, req.Quantity, req.OrderType, req.Price, hasPrice); msg != "" {
 		return SubmitResult{Configured: true, OK: false, Message: msg}
 	}
+	qty, qtyMsg := FloorOrderQuantity(req.Quantity, req.Market)
+	if qtyMsg != "" {
+		return SubmitResult{Configured: true, OK: false, Message: qtyMsg}
+	}
 	lb := ToLongbridgeSymbol(req.Symbol, req.Market)
 	tctx, err := tradeCtx(creds)
 	if err != nil {
@@ -293,7 +296,7 @@ func (s *SDKBroker) SubmitOrder(ctx context.Context, creds Creds, req SubmitReq)
 		Symbol:            lb,
 		OrderType:         trade.OrderType(ot),
 		Side:              side,
-		SubmittedQuantity: uint64(math.Max(1, req.Quantity)),
+		SubmittedQuantity: uint64(qty),
 		TimeInForce:       trade.TimeTypeDay,
 	}
 	if ot != "MO" {
@@ -369,12 +372,17 @@ type HaltState struct {
 }
 
 func ParseHalt(raw string) HaltState {
-	if strings.TrimSpace(raw) == "" {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return HaltState{}
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes":
+		return HaltState{Halted: true}
 	}
 	var h HaltState
 	if err := json.Unmarshal([]byte(raw), &h); err != nil {
-		return HaltState{}
+		return HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	return h
 }

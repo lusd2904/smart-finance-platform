@@ -69,7 +69,7 @@ function switchMarket(next) {
 function openSymbol(row) {
   const code = str(row.symbol)
   if (!code) return
-  router.push({ path: `/m/symbol/${encodeURIComponent(code)}`, query: { market: row.market || 'US' } })
+  router.push({ path: `/m/symbol/${encodeURIComponent(code)}`, query: { market: inferMarket(code, row.market) } })
 }
 
 function formatScore(v) {

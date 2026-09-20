@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	validProfiles       = "conservative|balanced|aggressive"
-	backtestMinBars     = 40
-	backtestMinDays     = 60
-	tradingDays         = 252
-	minReturns          = 20
+	validProfiles         = "conservative|balanced|aggressive"
+	backtestMinBars       = 40
+	backtestMinDays       = 60
+	tradingDays           = 252
+	minReturns            = 20
 	maxPositionsTearsheet = 20
 )
 
@@ -183,10 +183,10 @@ func (s *Service) ListStrategyProfiles(ctx context.Context, userID int) ([]map[s
 		}
 		out = append(out, map[string]interface{}{
 			"profileCode": r.Code, "profileName": src.Name,
-			"config": parseJSONMap(src.ConfigJSON),
-			"updateTime": formatNullableTime(src.UpdateTime),
+			"config":       parseJSONMap(src.ConfigJSON),
+			"updateTime":   formatNullableTime(src.UpdateTime),
 			"accountOwned": accountOwned,
-			"active": userID > 0 && r.Code == active,
+			"active":       userID > 0 && r.Code == active,
 		})
 	}
 	return out, nil
@@ -409,19 +409,19 @@ func (s *Service) ListAiTradeRuns(ctx context.Context, userID, limit int) ([]map
 			"strategyProfile": l.StrategyProfile, "targetCount": l.TargetCount,
 			"evaluatedCount": l.EvaluatedCount, "opportunityCount": l.OpportunityCount,
 			"submittedOrdersCount": l.SubmittedOrdersCount, "status": l.Status,
-			"guardrailSnapshot": parseJSON(l.GuardrailSnapshot),
-			"candidatesSnapshot": parseJSON(l.CandidatesSnapshot),
+			"guardrailSnapshot":     parseJSON(l.GuardrailSnapshot),
+			"candidatesSnapshot":    parseJSON(l.CandidatesSnapshot),
 			"opportunitiesSnapshot": parseJSON(l.OpportunitiesSnapshot),
-			"skippedReasons": parseJSON(l.SkippedReasons),
-			"message": l.Message,
-			"startedAt": formatSQLTime(l.StartedAt), "finishedAt": formatSQLTime(l.FinishedAt),
+			"skippedReasons":        parseJSON(l.SkippedReasons),
+			"message":               l.Message,
+			"startedAt":             formatSQLTime(l.StartedAt), "finishedAt": formatSQLTime(l.FinishedAt),
 		})
 	}
 	return out, nil
 }
 
-func (s *Service) ListAutoDecisions(ctx context.Context, limit int, cycleID string) ([]map[string]interface{}, error) {
-	rows, err := s.Repo.ListAutoDecisions(ctx, limit, cycleID)
+func (s *Service) ListAutoDecisions(ctx context.Context, userID, limit int, cycleID string) ([]map[string]interface{}, error) {
+	rows, err := s.Repo.ListAutoDecisions(ctx, userID, limit, cycleID)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +684,7 @@ func buildFeishuTestCard() map[string]interface{} {
 		"msg_type": "interactive",
 		"card": map[string]interface{}{
 			"header": map[string]interface{}{
-				"title": map[string]interface{}{"tag": "plain_text", "content": "次日策略摘要"},
+				"title":    map[string]interface{}{"tag": "plain_text", "content": "次日策略摘要"},
 				"template": "blue",
 			},
 			"elements": []interface{}{
@@ -804,8 +804,8 @@ func computeMetrics(rets []float64) map[string]interface{} {
 	return map[string]interface{}{
 		"days": n, "sharpe": sharpe, "sortino": sortino,
 		"maxDrawdown": math.Round(maxDrawdown(rets)*10000) / 10000,
-		"var95": math.Round(var95*1e6) / 1e6, "cvar95": math.Round(cvar*1e6) / 1e6,
-		"volatility": math.Round(sigma*math.Sqrt(float64(tradingDays))*10000) / 10000,
+		"var95":       math.Round(var95*1e6) / 1e6, "cvar95": math.Round(cvar*1e6) / 1e6,
+		"volatility":  math.Round(sigma*math.Sqrt(float64(tradingDays))*10000) / 10000,
 		"totalReturn": math.Round((total-1)*10000) / 10000,
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/influx"
 	"github.com/lusd2904/smart-finance-platform/workers/market-worker/internal/kline"
@@ -82,9 +83,31 @@ func upsertMinuteBars(ctx context.Context, db dbExecer, market, source string, b
 	return n, firstErr
 }
 
+const (
+	pruneMinuteSQL      = `DELETE FROM market_price_history_minute WHERE trade_date < ?`
+	minuteRetentionDays = 30
+)
+
+func pruneCutoffDate(now time.Time) string {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		loc = time.FixedZone("CST", 8*3600)
+	}
+	return now.In(loc).AddDate(0, 0, -minuteRetentionDays).Format("2006-01-02")
+}
+
+func pruneOldMinuteBars(ctx context.Context, db dbExecer, cutoff string) error {
+	if db == nil || cutoff == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, pruneMinuteSQL, cutoff)
+	return err
+}
+
 // writeMinutesDual upserts minute bars to MySQL (source of truth for reads), then
 // best-effort WriteMinute to Influx when w is non-nil. Influx errors are logged
-// and do not fail the job. MySQL upsert errors fail the job.
+// and do not fail the job. MySQL upsert errors fail the job. After a successful
+// MySQL upsert, minute rows older than 30 calendar days are pruned best-effort.
 func writeMinutesDual(ctx context.Context, w minuteInfluxWriter, db dbExecer, market, source string, bars []influx.Bar) (int, error) {
 	n, mysqlErr := upsertMinuteBars(ctx, db, market, source, bars)
 	if w != nil {
@@ -95,6 +118,9 @@ func writeMinutesDual(ctx context.Context, w minuteInfluxWriter, db dbExecer, ma
 	}
 	if mysqlErr != nil {
 		return n, mysqlErr
+	}
+	if err := pruneOldMinuteBars(ctx, db, pruneCutoffDate(time.Now())); err != nil {
+		slog.Warn("minute prune failed", "err", err)
 	}
 	return n, nil
 }

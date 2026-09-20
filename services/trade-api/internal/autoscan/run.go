@@ -103,7 +103,7 @@ func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexe
 	started := time.Now()
 	userID := in.UserID
 	if userID <= 0 {
-		userID = 1
+		return nil, fmt.Errorf("缺少 userId")
 	}
 	profile := repo.BoundProfile(ctx, userID, in.Profile)
 	settings := repo.LoadSettings(ctx, userID)
@@ -190,21 +190,9 @@ func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexe
 		if pos, perr := broker.Positions(ctx, creds); perr == nil {
 			positions = pos
 		}
-		if netAssets <= 0 {
-			canSubmit = false
-			skipped = append(skipped, map[string]string{"symbol": "*", "reason": fmt.Sprintf("账户净资产为 0，无法按仓位 %d%% 计算日内买入额度", int(settings.DailyBuyRatio*100))})
-		}
 	}
 	totalMV := tradeexec.TotalPositionMarketValue(positions, &fx, nil)
 	grossRoom := tradeexec.RemainingGrossRoom(netAssets, totalMV, tradeexec.MaxGrossExposurePct)
-	if canSubmit && len(opportunities) > 0 && grossRoom < tradeexec.MinTargetAmountUSD {
-		canSubmit = false
-		skipped = append(skipped, map[string]string{"symbol": "*", "reason": fmt.Sprintf("总持仓 $%.0f 已达或超过净资产 $%.0f，停止买入", totalMV, netAssets)})
-	}
-	if canSubmit && len(opportunities) > 0 && availableCash < tradeexec.MinTargetAmountUSD {
-		canSubmit = false
-		skipped = append(skipped, map[string]string{"symbol": "*", "reason": fmt.Sprintf("可用现金不足 ($%.2f)，停止买入", availableCash)})
-	}
 
 	submitted := 0
 	todayBought, _ := repo.TodayBought(ctx, userID)
@@ -237,10 +225,6 @@ func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexe
 			market := fmt.Sprint(opp["market"])
 			side := strings.ToUpper(fmt.Sprint(opp["signal"]))
 			signalPrice, _ := opp["price"].(float64)
-			if reason := tradeexec.CheckDailyLimits(todayOrders, 10, todayNotional, maxDaily); reason != "" {
-				skipped = append(skipped, map[string]string{"symbol": symbol, "reason": reason})
-				continue
-			}
 			rt := priceMap[symbol]
 			if rt <= 0 {
 				skipped = append(skipped, map[string]string{"symbol": symbol, "reason": "未能获取券商有效盘中实时报价，为防滑点拒绝下单"})
@@ -259,6 +243,22 @@ func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexe
 					continue
 				}
 			} else {
+				if reason := tradeexec.CheckDailyLimits(todayOrders, 10, todayNotional, maxDaily); reason != "" {
+					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": reason})
+					continue
+				}
+				if netAssets <= 0 {
+					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": fmt.Sprintf("账户净资产为 0，无法按仓位 %d%% 计算日内买入额度", int(settings.DailyBuyRatio*100))})
+					continue
+				}
+				if grossRoom < tradeexec.MinTargetAmountUSD {
+					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": fmt.Sprintf("总持仓 $%.0f 已达或超过净资产 $%.0f，停止买入", totalMV, netAssets)})
+					continue
+				}
+				if availableCash < tradeexec.MinTargetAmountUSD {
+					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": fmt.Sprintf("可用现金不足 ($%.2f)，停止买入", availableCash)})
+					continue
+				}
 				if !tradeexec.IsAutoTradeMarket(market, symbol) {
 					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": "A股不参与自动交易"})
 					continue
@@ -298,6 +298,10 @@ func RunWatchlistCycle(ctx context.Context, repo *platform.Repo, broker tradeexe
 					continue
 				}
 				quantity = tradeexec.BuyQuantityFromUSD(target, rt, market, fx)
+				if quantity < 1 {
+					skipped = append(skipped, map[string]string{"symbol": symbol, "reason": "委托数量必须至少为 1 股/手"})
+					continue
+				}
 			}
 			orderPrice := tradeexec.RoundLimitPrice(rt, market)
 			if orderPrice <= 0 {
@@ -437,11 +441,14 @@ func asFloat(v interface{}) float64 {
 
 func readHalt(ctx context.Context, rdb *redis.Client) tradeexec.HaltState {
 	if rdb == nil {
-		return tradeexec.HaltState{}
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	raw, err := rdb.Get(ctx, tradeexec.HaltRedisKey).Result()
-	if err != nil || raw == "" {
+	if err == redis.Nil || (err == nil && strings.TrimSpace(raw) == "") {
 		return tradeexec.HaltState{}
+	}
+	if err != nil {
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	return tradeexec.ParseHalt(raw)
 }

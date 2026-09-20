@@ -41,7 +41,7 @@
       <div v-if="corrOk" ref="corrRef" class="corr-chart" />
       <div v-else class="corr-empty">
         <span class="corr-icon" aria-hidden="true">▦</span>
-        <p>Go data-api 简化相关矩阵：完整 Pearson 相关需 Influx 批量查询</p>
+        <p>Go data-api 基于 MySQL 的简化相关矩阵</p>
       </div>
     </el-card>
 

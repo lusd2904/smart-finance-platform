@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/lusd2904/smart-finance-platform/workers/quant-worker/internal/tradeexec"
 	"github.com/redis/go-redis/v9"
@@ -24,11 +25,14 @@ func jsonBytes(v interface{}) ([]byte, error) {
 
 func readHalt(ctx context.Context, rdb *redis.Client) tradeexec.HaltState {
 	if rdb == nil {
-		return tradeexec.HaltState{}
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	raw, err := rdb.Get(ctx, tradeexec.HaltRedisKey).Result()
-	if err != nil || raw == "" {
+	if err == redis.Nil || (err == nil && strings.TrimSpace(raw) == "") {
 		return tradeexec.HaltState{}
+	}
+	if err != nil {
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	return tradeexec.ParseHalt(raw)
 }
