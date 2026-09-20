@@ -339,8 +339,6 @@ jobs:
             INTERNAL_JOB_TOKEN=ci
           SLIM=(docker compose -f docker-compose.sentiment.yml -f docker-compose.sentiment.slim.yml)
           "${SLIM[@]}" config >/dev/null
-          "${SLIM[@]}" -f docker-compose.sentiment.slim.influx-phase.yml config >/dev/null
-          "${SLIM[@]}" -f docker-compose.sentiment.slim.influx-steady.yml config >/dev/null
           echo "slim compose config ok"
       - name: Assert default slim is Go-only
         run: |
@@ -374,7 +372,10 @@ jobs:
           if fats & set(cfg.get("services") or {}):
               print("ERROR: Python fat service definitions still present", file=sys.stderr)
               sys.exit(1)
-          print("ok: no Python fat containers in compose")
+          if "sentiment-influxdb" in (cfg.get("services") or {}) or "sentiment-influxdb" in started:
+              print("ERROR: sentiment-influxdb still in default slim compose", file=sys.stderr)
+              sys.exit(1)
+          print("ok: no Python fat containers or Influx in compose")
           '
       - name: Assert quant-worker has no Influx compose dependency
         run: |

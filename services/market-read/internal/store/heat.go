@@ -230,15 +230,15 @@ func (s *HeatStore) closesOnTradeDate(ctx context.Context, symbols []string, mar
 		lookbackStart = parsed.AddDate(0, 0, -7).Format("2006-01-02")
 	}
 	placeholders := make([]string, len(aliases))
-	args := make([]any, 0, len(aliases)+2)
-	args = append(args, lookbackStart, tradeDate)
+	args := make([]any, 0, len(aliases)+3)
+	args = append(args, lookbackStart, tradeDate, strings.ToUpper(strings.TrimSpace(market)))
 	for i, alias := range aliases {
 		placeholders[i] = "?"
 		args = append(args, alias)
 	}
 	q := fmt.Sprintf(`
 SELECT symbol, close_price FROM market_price_history_daily
-WHERE trade_date >= ? AND trade_date <= ? AND symbol IN (%s)
+WHERE trade_date >= ? AND trade_date <= ? AND market = ? AND symbol IN (%s)
 ORDER BY trade_date DESC`, strings.Join(placeholders, ","))
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

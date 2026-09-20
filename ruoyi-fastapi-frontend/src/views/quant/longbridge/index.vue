@@ -26,7 +26,7 @@
           <el-input
             v-model="form.appSecret"
             :type="showSecret ? 'text' : 'password'"
-            placeholder="请输入 App Secret"
+            :placeholder="secretSaved ? '已配置，留空则不修改' : '请输入 App Secret'"
             autocomplete="new-password"
           >
             <template #suffix>
@@ -40,7 +40,7 @@
           <el-input
             v-model="form.accessToken"
             :type="showToken ? 'text' : 'password'"
-            placeholder="请输入 Access Token"
+            :placeholder="tokenSaved ? '已配置，留空则不修改' : '请输入 Access Token'"
             autocomplete="new-password"
           >
             <template #suffix>
@@ -93,6 +93,10 @@ const showToken = ref(false);
 const testResult = ref(null);
 const statusChecked = ref(false);
 const configured = ref(false);
+const secretSaved = ref(false);
+const tokenSaved = ref(false);
+const savedSecretMasked = ref('');
+const savedTokenMasked = ref('');
 
 const form = ref({
   appKey: '',
@@ -101,24 +105,40 @@ const form = ref({
   region: 'cn'
 });
 
-const rules = {
+const rules = computed(() => ({
   appKey: [{ required: true, message: 'App Key 不能为空', trigger: 'blur' }],
-  appSecret: [{ required: true, message: 'App Secret 不能为空', trigger: 'blur' }],
-  accessToken: [{ required: true, message: 'Access Token 不能为空', trigger: 'blur' }]
-};
+  appSecret: secretSaved.value ? [] : [{ required: true, message: 'App Secret 不能为空', trigger: 'blur' }],
+  accessToken: tokenSaved.value ? [] : [{ required: true, message: 'Access Token 不能为空', trigger: 'blur' }]
+}));
+
+function isMaskedSecret(value) {
+  return String(value || '').includes('****');
+}
+
+function usableSecret(value) {
+  const text = String(value || '').trim();
+  if (!text || isMaskedSecret(text)) return '';
+  return text;
+}
 
 /** 查询配置 */
 function getConfigData() {
   loading.value = true;
   getLongbridgeConfig().then(response => {
     const data = response.data || {};
+    const secret = data.appSecret || '';
+    const token = data.accessToken || '';
+    secretSaved.value = !!secret;
+    tokenSaved.value = !!token;
+    savedSecretMasked.value = isMaskedSecret(secret) ? secret : (secret ? '****' : '');
+    savedTokenMasked.value = isMaskedSecret(token) ? token : (token ? '****' : '');
     form.value = {
       appKey: data.appKey || '',
-      appSecret: data.appSecret || '',
-      accessToken: data.accessToken || '',
+      appSecret: '',
+      accessToken: '',
       region: data.region || 'cn'
     };
-    configured.value = !!(data.appKey && data.accessToken);
+    configured.value = !!(data.appKey && token);
     statusChecked.value = true;
     loading.value = false;
   }).catch(() => {
@@ -126,12 +146,32 @@ function getConfigData() {
   });
 }
 
+function buildSavePayload() {
+  const secret = usableSecret(form.value.appSecret);
+  const token = usableSecret(form.value.accessToken);
+  return {
+    appKey: form.value.appKey,
+    region: form.value.region,
+    appSecret: secret || savedSecretMasked.value || '',
+    accessToken: token || savedTokenMasked.value || ''
+  };
+}
+
 /** 保存配置 */
 function submitForm() {
   proxy.$refs['cfgRef'].validate(valid => {
     if (valid) {
+      const payload = buildSavePayload();
+      if (!usableSecret(form.value.appSecret) && !secretSaved.value) {
+        proxy.$modal.msgWarning('App Secret 不能为空');
+        return;
+      }
+      if (!usableSecret(form.value.accessToken) && !tokenSaved.value) {
+        proxy.$modal.msgWarning('Access Token 不能为空');
+        return;
+      }
       saveLoading.value = true;
-      updateLongbridgeConfig(form.value).then(() => {
+      updateLongbridgeConfig(payload).then(() => {
         proxy.$modal.msgSuccess('保存成功');
         getConfigData();
       }).finally(() => {

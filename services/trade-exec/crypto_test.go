@@ -24,6 +24,12 @@ func TestDecryptOrRawRoundTrip(t *testing.T) {
 	if DecryptOrRaw("plain-legacy", "wrong-key", "", "dev") != "plain-legacy" {
 		t.Fatal("legacy plaintext should pass through")
 	}
+	if got := DecryptOrRaw(string(tok), "wrong-key-xxxxxxxxxxxxxxxxxxxx", "", "dev"); got != "" {
+		t.Fatalf("fernet+wrong key in dev must not return ciphertext, got %q", got)
+	}
+	if got := DecryptOrRaw(string(tok), "wrong-key-xxxxxxxxxxxxxxxxxxxx", "jwt", "prod"); got != "" {
+		t.Fatalf("fernet+wrong key in prod must not return ciphertext, got %q", got)
+	}
 }
 
 func TestProdRequiresDedicatedKey(t *testing.T) {

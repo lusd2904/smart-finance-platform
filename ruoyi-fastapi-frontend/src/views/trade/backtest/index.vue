@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <div class="page-hero"><div><h2>策略回测</h2><p>用当前账户的 8 族因子档位对 Influx 日K 做多回测，只看本登录账户的历史</p></div></div>
+    <div class="page-hero"><div><h2>策略回测</h2><p>用当前账户的 8 族因子档位对 MySQL 日K 做多回测，只看本登录账户的历史</p></div></div>
     <el-form :inline="true" class="mb16">
       <el-form-item label="标的"><el-input v-model="form.symbol" style="width:120px"/></el-form-item>
       <el-form-item label="市场">

@@ -1,0 +1,18 @@
+.git
+.github
+.idea
+.vscode
+*.log
+*.tmp
+.DS_Store
+
+# Frontend build & dependencies
+node_modules
+ruoyi-fastapi-frontend/node_modules
+ruoyi-fastapi-frontend/dist
+
+# Backup archives (do not ignore *.sql — init scripts and COPY need them)
+backups/
+backups/**
+*.tar.gz
+*.dump

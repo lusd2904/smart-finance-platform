@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="page-hero">
-      <div><h2>行情历史覆盖</h2><p>目标标的 Influx 最新交易日与缺失 · HistoryCoverage</p></div>
+      <div><h2>行情历史覆盖</h2><p>目标标的 MySQL 最新交易日与缺失 · HistoryCoverage</p></div>
       <div class="acts">
         <el-select v-model="market" clearable placeholder="市场" style="width:100px" @change="noop">
           <el-option label="全部" value=""/>

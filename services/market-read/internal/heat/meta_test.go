@@ -12,3 +12,9 @@ func TestNormalizeMarket(t *testing.T) {
 		t.Fatalf("expected error for unsupported market")
 	}
 }
+
+func TestCNIndexSymbolIsShanghaiComposite(t *testing.T) {
+	if MarketMeta["CN"].IndexSymbol != "000001.SH" {
+		t.Fatalf("CN IndexSymbol=%q want 000001.SH", MarketMeta["CN"].IndexSymbol)
+	}
+}

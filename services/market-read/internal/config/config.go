@@ -12,9 +12,9 @@ import (
 type Config struct {
 	ListenAddr string
 
-	JWTSecret       string
-	JWTAlgorithm    string
-	JWTRedisExpire  time.Duration
+	JWTSecret        string
+	JWTAlgorithm     string
+	JWTRedisExpire   time.Duration
 	AppSameTimeLogin bool
 
 	MySQLHost     string
@@ -74,9 +74,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.MySQLPassword == "" {
 		return nil, fmt.Errorf("DB_PASSWORD is required")
-	}
-	if cfg.InfluxToken == "" {
-		return nil, fmt.Errorf("INFLUX_TOKEN is required")
 	}
 	return cfg, nil
 }

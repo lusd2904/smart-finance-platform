@@ -1,10 +1,37 @@
 package jobs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lusd2904/smart-finance-platform/workers/notify-worker/internal/newscollect"
 )
+
+func TestCNMarketBenchmarksAreSuffixed(t *testing.T) {
+	cn := marketBenchmarks["CN"]
+	if len(cn) == 0 {
+		t.Fatal("CN benchmarks missing")
+	}
+	want := map[string]bool{"600519.SH": true, "000858.SZ": true, "300750.SZ": true, "601318.SH": true}
+	got := map[string]bool{}
+	for _, b := range cn {
+		got[b.Symbol] = true
+		if strings.HasSuffix(b.Symbol, ".SH") || strings.HasSuffix(b.Symbol, ".SZ") || strings.HasSuffix(b.Symbol, ".SS") {
+			continue
+		}
+		t.Fatalf("CN benchmark %q must keep exchange suffix", b.Symbol)
+	}
+	for sym := range want {
+		if !got[sym] {
+			t.Fatalf("missing CN benchmark %s: %+v", sym, cn)
+		}
+	}
+	for _, b := range marketBenchmarks["US"] {
+		if !strings.HasPrefix(b.Symbol, "^") {
+			t.Fatalf("US index benchmark should stay caret form, got %q", b.Symbol)
+		}
+	}
+}
 
 func TestSourceReportsPreserveSkipAndError(t *testing.T) {
 	out := sourceReports([]newscollect.SourceResult{

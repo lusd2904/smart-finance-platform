@@ -29,7 +29,10 @@ func NormalizeSymbolMarket(symbol, market string) (Pair, bool) {
 	} else if strings.HasSuffix(raw, ".HK") {
 		raw, mkt = raw[:len(raw)-3], "HK"
 	} else if strings.HasSuffix(raw, ".SS") || strings.HasSuffix(raw, ".SZ") || strings.HasSuffix(raw, ".SH") {
-		raw = strings.SplitN(raw, ".", 2)[0]
+		// Keep .SH/.SS/.SZ so Tencent can pin 上证 (000001.SH) vs 平安银行 (000001).
+		mkt = "CN"
+	} else if mkt == "SH" || mkt == "SZ" || mkt == "SS" {
+		raw = raw + "." + mkt
 		mkt = "CN"
 	}
 	if !markets[mkt] {

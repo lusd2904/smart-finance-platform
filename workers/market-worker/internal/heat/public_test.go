@@ -165,6 +165,9 @@ func TestIndexDailySymbolsUsesShanghaiCompositeSuffix(t *testing.T) {
 	if containsStr(cn, "000001") {
 		t.Fatalf("CN daily-bar fallback must not use bare 000001 (bank): %v", cn)
 	}
+	if MarketMeta["CN"].IndexSymbol != "000001.SH" {
+		t.Fatalf("CN heat IndexSymbol=%q want 000001.SH", MarketMeta["CN"].IndexSymbol)
+	}
 }
 
 func containsStr(list []string, want string) bool {

@@ -1,16 +1,19 @@
 # Build stage
 FROM golang:1.24-alpine AS builder
 WORKDIR /src
+COPY services/klineread/go.mod services/klineread/go.sum* /src/services/klineread/
+COPY services/trade-exec/go.mod services/trade-exec/go.sum* /src/services/trade-exec/
+COPY services/trade-api/go.mod services/trade-api/go.sum* /src/services/trade-api/
+WORKDIR /src/services/trade-api
+RUN go mod download
 COPY services/klineread /src/services/klineread
 COPY services/trade-exec /src/services/trade-exec
 COPY services/trade-api /src/services/trade-api
-WORKDIR /src/services/trade-api
-RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /trade-api ./cmd/trade-api
 
 # Runtime
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates tzdata wget
 WORKDIR /app
 COPY --from=builder /trade-api /app/trade-api
 ENV LISTEN_ADDR=:8080

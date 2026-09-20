@@ -2,23 +2,40 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
 const listedCategory = "listed"
 
+const listedFromMySQLSQL = `
+SELECT DISTINCT symbol, market
+FROM market_price_history_daily
+WHERE symbol IS NOT NULL AND symbol <> '' AND market IS NOT NULL AND market <> ''`
+
 func (s *Service) SyncFromInflux(ctx context.Context) (map[string]interface{}, error) {
-	markets := []string{"US", "CN", "HK"}
+	return s.SyncListedFromMySQL(ctx)
+}
+
+func (s *Service) SyncListedFromMySQL(ctx context.Context) (map[string]interface{}, error) {
 	rows := []map[string]string{}
-	fetched := map[string]int{}
-	for _, market := range markets {
-		symbols, err := s.reader.ListSymbols(ctx, market)
+	fetched := map[string]int{"US": 0, "CN": 0, "HK": 0}
+	if s.db != nil {
+		dbRows, err := s.db.QueryContext(ctx, listedFromMySQLSQL)
 		if err != nil {
-			return nil, fmt.Errorf("list symbols %s: %w", market, err)
+			return nil, err
 		}
-		fetched[market] = len(symbols)
-		for _, symbol := range symbols {
+		defer dbRows.Close()
+		for dbRows.Next() {
+			var symbol, market string
+			if err := dbRows.Scan(&symbol, &market); err != nil {
+				return nil, err
+			}
+			symbol = strings.TrimSpace(symbol)
+			market = strings.ToUpper(strings.TrimSpace(market))
+			if symbol == "" || market == "" {
+				continue
+			}
+			fetched[market]++
 			rows = append(rows, map[string]string{
 				"symbol":   symbol,
 				"name":     symbol,
@@ -26,18 +43,20 @@ func (s *Service) SyncFromInflux(ctx context.Context) (map[string]interface{}, e
 				"category": listedCategory,
 			})
 		}
+		if err := dbRows.Err(); err != nil {
+			return nil, err
+		}
 	}
 	upsert, err := s.upsertListedRows(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]interface{}{
+	return map[string]interface{}{
 		"fetched":  fetched,
 		"upserted": upsert["fetched"],
 		"affected": upsert["affected"],
-		"source":   "influx",
-	}
-	return result, nil
+		"source":   "mysql",
+	}, nil
 }
 
 func (s *Service) upsertListedRows(ctx context.Context, rows []map[string]string) (map[string]int, error) {

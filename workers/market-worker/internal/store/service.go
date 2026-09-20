@@ -182,6 +182,10 @@ func (s *Service) SyncMinutes(ctx context.Context, market string, interval float
 }
 
 func (s *Service) MySQLToInflux(ctx context.Context, symbol string, market string) (map[string]interface{}, error) {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return nil, fmt.Errorf("mysql_to_influx requires a non-empty symbol; refusing full-table copy")
+	}
 	if s.influx == nil {
 		return map[string]interface{}{
 			"total_points": 0,
@@ -190,11 +194,11 @@ func (s *Service) MySQLToInflux(ctx context.Context, symbol string, market strin
 			"message":      "Influx dual-write disabled; MySQL is the kline source of truth",
 		}, nil
 	}
-	query := `SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume FROM market_price_history_daily`
-	args := []interface{}{}
-	if symbol != "" {
-		query += " WHERE symbol=?"
-		args = append(args, symbol)
+	query := `SELECT symbol, market, trade_date, open_price, high_price, low_price, close_price, volume FROM market_price_history_daily WHERE symbol=?`
+	args := []interface{}{symbol}
+	if mkt := strings.ToUpper(strings.TrimSpace(market)); mkt != "" {
+		query += " AND market=?"
+		args = append(args, mkt)
 	}
 	query += " ORDER BY symbol, trade_date"
 	rows, err := s.db.QueryContext(ctx, query, args...)

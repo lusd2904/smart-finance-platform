@@ -34,16 +34,17 @@
 <script setup name="TradePositions">
 import { getTradePositions } from '@/api/trade'
 import { getQuotesHub } from '@/composables/useMarketQuotesWs'
+import { inferMarket } from '@/mobile/utils/ticketQty'
 const loading=ref(false); const list=ref([]); const msg=ref('')
 let unsubQuotes=null
 function posPair(row){
   const raw=String((row&&row.symbol)||'').toUpperCase()
-  let market=String((row&&row.market)||'US').toUpperCase()
   let symbol=raw
-  if(raw.endsWith('.US')){ symbol=raw.slice(0,-3); market='US' }
-  else if(raw.endsWith('.HK')){ symbol=raw.slice(0,-3); market='HK' }
-  else if(raw.endsWith('.SH')||raw.endsWith('.SZ')||raw.endsWith('.SS')){ symbol=raw.split('.')[0]; market='CN' }
-  return {symbol, market}
+  if(raw.endsWith('.US')) symbol=raw.slice(0,-3)
+  else if(raw.endsWith('.HK')) symbol=raw.slice(0,-3)
+  else if(raw.endsWith('.SH')||raw.endsWith('.SZ')||raw.endsWith('.SS')) symbol=raw.split('.')[0]
+  const market=String(inferMarket(raw, row && row.market) || 'US').toUpperCase()
+  return {symbol, market: market === 'SH' || market === 'SZ' || market === 'SS' ? 'CN' : market}
 }
 function fmtNum(v){ const n=Number(v); return Number.isFinite(n)?n.toFixed(2):'--' }
 function fmtPct(v){ const n=Number(v); if(!Number.isFinite(n)) return '--'; return `${n>0?'+':''}${n.toFixed(2)}%` }

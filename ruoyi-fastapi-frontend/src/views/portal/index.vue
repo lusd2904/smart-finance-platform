@@ -39,7 +39,7 @@
         <p class="portal-subtitle">QUANTITATIVE TRADING & AI ANALYSIS COMMAND CENTER</p>
         <div class="status-row">
           <span class="pulse-dot"></span>
-          <span>NEXUS AI Core Active · Influx 时序在线 · 证券级通道</span>
+          <span>NEXUS AI Core Active · 行情主库 MySQL · Go 通道</span>
         </div>
       </header>
 
@@ -150,7 +150,7 @@ const subsystemGroups = [
   {
     id: 'quant',
     name: '量化策略',
-    desc: '多因子信号、档位阈值与 Influx 回测',
+    desc: '多因子信号、档位阈值与 MySQL 日K 回测',
     path: '/quant/strategy',
     icon: TrendCharts,
     links: [

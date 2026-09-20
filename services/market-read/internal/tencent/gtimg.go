@@ -76,12 +76,41 @@ func toFloat(value string) *float64 {
 	return &n
 }
 
+// vendorTencentByKey maps "SYMBOL|MARKET" to qt.gtimg.cn codes for pinned indices.
+// 上证 is only 000001.SH → sh000001. Bare 000001 / 000001.SZ stay 平安银行 (sz000001).
+// ^GSPC is usINX, never usGSPC.
+var vendorTencentByKey = map[string]string{
+	"^DJI|US":      "usDJI",
+	"^GSPC|US":     "usINX",
+	"^IXIC|US":     "usIXIC",
+	"HSI|HK":       "hkHSI",
+	"HSI.HK|HK":    "hkHSI",
+	"HSTECH|HK":    "hkHSTECH",
+	"HSTECH.HK|HK": "hkHSTECH",
+	"HSCEI|HK":     "hkHSCEI",
+	"HSCEI.HK|HK":  "hkHSCEI",
+	"000001.SH|CN": "sh000001",
+	"399001|CN":    "sz399001",
+	"399001.SZ|CN": "sz399001",
+	"399006|CN":    "sz399006",
+	"399006.SZ|CN": "sz399006",
+}
+
+func vendorTencent(symbol, market string) (string, bool) {
+	key := strings.ToUpper(strings.TrimSpace(symbol)) + "|" + strings.ToUpper(strings.TrimSpace(market))
+	code, ok := vendorTencentByKey[key]
+	return code, ok
+}
+
 // Symbol maps (symbol, market) to a gtimg code. Mirrors kline_sources.tencent_symbol.
 func Symbol(symbol, market string) string {
 	sym := strings.TrimSpace(symbol)
 	mkt := strings.ToUpper(strings.TrimSpace(market))
 	if mkt == "" {
 		mkt = "US"
+	}
+	if code, ok := vendorTencent(sym, mkt); ok && code != "" {
+		return code
 	}
 	switch mkt {
 	case "HK":
@@ -103,10 +132,28 @@ func cnSymbol(symbol string) string {
 	if strings.HasPrefix(lower, "sh") || strings.HasPrefix(lower, "sz") {
 		return lower
 	}
-	if strings.HasPrefix(code, "6") || strings.HasPrefix(code, "9") {
-		return "sh" + code
+	body, suffix := splitCNSuffix(code)
+	switch suffix {
+	case "SH", "SS":
+		return "sh" + body
+	case "SZ":
+		return "sz" + body
 	}
-	return "sz" + code
+	if strings.HasPrefix(body, "6") || strings.HasPrefix(body, "9") {
+		return "sh" + body
+	}
+	return "sz" + body
+}
+
+func splitCNSuffix(symbol string) (body, suffix string) {
+	u := strings.ToUpper(strings.TrimSpace(symbol))
+	for _, suf := range []string{"SH", "SS", "SZ"} {
+		dotSuf := "." + suf
+		if strings.HasSuffix(u, dotSuf) {
+			return u[:len(u)-len(dotSuf)], suf
+		}
+	}
+	return u, ""
 }
 
 func isDigits(s string) bool {

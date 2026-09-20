@@ -12,8 +12,20 @@ func TestNormalizeSymbolSuffixes(t *testing.T) {
 		t.Fatalf("got %+v ok=%v", pair, ok)
 	}
 	pair, ok = NormalizeSymbolMarket("600519.SS", "")
-	if !ok || pair != (Pair{Symbol: "600519", Market: "CN"}) {
+	if !ok || pair != (Pair{Symbol: "600519.SS", Market: "CN"}) {
 		t.Fatalf("got %+v ok=%v", pair, ok)
+	}
+	pair, ok = NormalizeSymbolMarket("000001.SH", "CN")
+	if !ok || pair != (Pair{Symbol: "000001.SH", Market: "CN"}) {
+		t.Fatalf("000001.SH must keep suffix: %+v ok=%v", pair, ok)
+	}
+	pair, ok = NormalizeSymbolMarket("000001", "CN")
+	if !ok || pair != (Pair{Symbol: "000001", Market: "CN"}) {
+		t.Fatalf("bare 000001 is Ping An: %+v ok=%v", pair, ok)
+	}
+	pair, ok = NormalizeSymbolMarket("000001", "SH")
+	if !ok || pair != (Pair{Symbol: "000001.SH", Market: "CN"}) {
+		t.Fatalf("market SH must pin 上证: %+v ok=%v", pair, ok)
 	}
 	if _, ok = NormalizeSymbolMarket("", ""); ok {
 		t.Fatal("empty should fail")
@@ -49,6 +61,10 @@ func TestParseSymbolsQuery(t *testing.T) {
 	pairs := ParseSymbolsQuery("AAPL:US, 00700.HK")
 	if len(pairs) != 2 || pairs[0] != (Pair{"AAPL", "US"}) || pairs[1] != (Pair{"00700", "HK"}) {
 		t.Fatalf("%#v", pairs)
+	}
+	sh := ParseSymbolsQuery("000001.SH")
+	if len(sh) != 1 || sh[0] != (Pair{"000001.SH", "CN"}) {
+		t.Fatalf("000001.SH query=%#v", sh)
 	}
 	if ParseSymbolsQuery("") != nil {
 		t.Fatal("empty query")

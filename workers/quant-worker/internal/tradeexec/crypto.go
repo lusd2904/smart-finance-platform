@@ -10,16 +10,23 @@ import (
 	"github.com/fernet/fernet-go"
 )
 
-// DecryptOrRaw matches Python decrypt_or_raw: Fernet(SHA256(key)) then plaintext fallback.
+// DecryptOrRaw Fernet-decrypts stored credentials. Fernet ciphertext is never returned on failure.
 func DecryptOrRaw(value, credentialKey, jwtSecret, appEnv string) string {
 	if value == "" {
 		return ""
 	}
 	plain, err := DecryptCredential(value, credentialKey, jwtSecret, appEnv)
-	if err != nil {
-		return value
+	if err == nil {
+		return plain
 	}
-	return plain
+	if looksLikeFernet(value) {
+		return ""
+	}
+	return value
+}
+
+func looksLikeFernet(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "gAAAA")
 }
 
 func DecryptCredential(token, credentialKey, jwtSecret, appEnv string) (string, error) {

@@ -33,9 +33,12 @@ type storedMinute struct {
 }
 
 type memMinuteDB struct {
-	rows  map[string]storedMinute
-	fail  error
-	calls int
+	rows       map[string]storedMinute
+	fail       error
+	pruneFail  error
+	calls      int
+	pruneCalls int
+	pruneCut   string
 }
 
 func newMemMinuteDB() *memMinuteDB {
@@ -48,6 +51,18 @@ func minuteKey(symbol, market, barTime string) string {
 
 func (m *memMinuteDB) ExecContext(_ context.Context, query string, args ...interface{}) (sql.Result, error) {
 	m.calls++
+	if strings.Contains(query, "DELETE FROM market_price_history_minute") {
+		m.pruneCalls++
+		if len(args) > 0 {
+			if s, ok := args[0].(string); ok {
+				m.pruneCut = s
+			}
+		}
+		if m.pruneFail != nil {
+			return nil, m.pruneFail
+		}
+		return stubResult{}, nil
+	}
 	if m.fail != nil {
 		return nil, m.fail
 	}
@@ -244,6 +259,38 @@ func TestMinuteBarsFromRowsSkipsInvalidTimestamps(t *testing.T) {
 	}
 	if minuteSource(rows) != "tencent" {
 		t.Fatalf("source=%s", minuteSource(rows))
+	}
+}
+
+func TestWriteMinutesDualPruneErrorDoesNotFailJob(t *testing.T) {
+	w := &fakeInfluxWriter{}
+	db := newMemMinuteDB()
+	db.pruneFail = errors.New("prune denied")
+	ts := time.Date(2026, 9, 11, 15, 0, 0, 0, time.UTC)
+	bars := []influx.Bar{sampleBar("AAPL", ts, 190)}
+	n, err := writeMinutesDual(context.Background(), w, db, "US", "tencent", bars)
+	if err != nil {
+		t.Fatalf("prune must be best-effort: %v", err)
+	}
+	if n != 1 || db.pruneCalls != 1 {
+		t.Fatalf("n=%d pruneCalls=%d", n, db.pruneCalls)
+	}
+	if _, ok := db.rows[minuteKey("AAPL", "US", "2026-09-11 15:00:00")]; !ok {
+		t.Fatal("upserted bar missing after prune error")
+	}
+	if len(db.pruneCut) != 10 {
+		t.Fatalf("prune cutoff=%q", db.pruneCut)
+	}
+}
+
+func TestPruneMinuteSQLIsSimpleDelete(t *testing.T) {
+	sql := strings.ToLower(pruneMinuteSQL)
+	if sql != "delete from market_price_history_minute where trade_date < ?" {
+		t.Fatalf("prune SQL=%q", pruneMinuteSQL)
+	}
+	cut := pruneCutoffDate(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC))
+	if cut != "2026-08-21" {
+		t.Fatalf("30 calendar days before 2026-09-20: %s", cut)
 	}
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/lusd2904/smart-finance-platform/services/trade-api/internal/repo"
@@ -21,14 +22,20 @@ func (s *Trade) creds(ctx context.Context, userID int) (tradeexec.Creds, error) 
 }
 
 func (s *Trade) ReadHalt(ctx context.Context) tradeexec.HaltState {
+	if s.Redis == nil {
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
+	}
 	raw, err := s.Redis.Get(ctx, tradeexec.HaltRedisKey).Result()
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err == redis.Nil || (err == nil && strings.TrimSpace(raw) == "") {
 		return tradeexec.HaltState{}
+	}
+	if err != nil {
+		return tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"}
 	}
 	return tradeexec.ParseHalt(raw)
 }
 
-func (s *Trade) WriteHalt(ctx context.Context, halted bool, reason string, userID int) tradeexec.HaltState {
+func (s *Trade) WriteHalt(ctx context.Context, halted bool, reason string, userID int) (tradeexec.HaltState, error) {
 	payload := tradeexec.HaltState{
 		Halted: halted,
 		Reason: strings.TrimSpace(reason),
@@ -38,9 +45,17 @@ func (s *Trade) WriteHalt(ctx context.Context, halted bool, reason string, userI
 	if halted && payload.Reason == "" {
 		payload.Reason = "紧急停机"
 	}
-	b, _ := json.Marshal(payload)
-	_ = s.Redis.Set(ctx, tradeexec.HaltRedisKey, string(b), 0).Err()
-	return payload
+	if s.Redis == nil {
+		return payload, errors.New("halt state unavailable")
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return payload, err
+	}
+	if err := s.Redis.Set(ctx, tradeexec.HaltRedisKey, string(b), 0).Err(); err != nil {
+		return payload, err
+	}
+	return payload, nil
 }
 
 func (s *Trade) Account(ctx context.Context, userID int) (map[string]interface{}, error) {
@@ -263,27 +278,27 @@ func (s *Trade) AutoStatus(ctx context.Context, userID int) (map[string]interfac
 		msg = "自动交易未开启，仅扫描不下单"
 	}
 	return map[string]interface{}{
-		"configured":         configured,
-		"message":            msg,
-		"autoTradeEnabled":   settings.AutoTradeEnabled,
-		"submitAllowed":      submitAllowed,
-		"submitBlockReason":  submitReason,
+		"configured":        configured,
+		"message":           msg,
+		"autoTradeEnabled":  settings.AutoTradeEnabled,
+		"submitAllowed":     submitAllowed,
+		"submitBlockReason": submitReason,
 		"guardrails": map[string]interface{}{
-			"todayOrdersCount":        todayOrders,
-			"maxDailyOrders":          10,
-			"todayNotionalAmount":     todayNotional,
-			"maxDailyNotionalAmount":  maxDaily,
-			"dailyBuyRatio":           settings.DailyBuyRatio,
-			"maxSymbolPositionPct":    settings.MaxSymbolPositionPct,
-			"maxPerSymbolNotional":    maxSymbol,
-			"halted":                  halt.Halted,
-			"isOrderLimitReached":     todayOrders >= 10,
-			"isAmountLimitReached":    todayNotional >= maxDaily,
+			"todayOrdersCount":       todayOrders,
+			"maxDailyOrders":         10,
+			"todayNotionalAmount":    todayNotional,
+			"maxDailyNotionalAmount": maxDaily,
+			"dailyBuyRatio":          settings.DailyBuyRatio,
+			"maxSymbolPositionPct":   settings.MaxSymbolPositionPct,
+			"maxPerSymbolNotional":   maxSymbol,
+			"halted":                 halt.Halted,
+			"isOrderLimitReached":    todayOrders >= 10,
+			"isAmountLimitReached":   todayNotional >= maxDaily,
 		},
 		"config": map[string]interface{}{
-			"autoTradeEnabled":      settings.AutoTradeEnabled,
-			"dailyBuyRatio":         settings.DailyBuyRatio,
-			"maxSymbolPositionPct":  settings.MaxSymbolPositionPct,
+			"autoTradeEnabled":     settings.AutoTradeEnabled,
+			"dailyBuyRatio":        settings.DailyBuyRatio,
+			"maxSymbolPositionPct": settings.MaxSymbolPositionPct,
 		},
 	}, nil
 }

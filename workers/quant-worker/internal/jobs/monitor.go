@@ -84,39 +84,44 @@ func RunPositionMonitor(ctx context.Context, repo *Repo, broker tradeexec.Broker
 			}
 			var orderOK bool
 			if settings.AutoTradeEnabled && qty > 0 {
-				res := broker.SubmitOrder(ctx, creds, tradeexec.SubmitReq{
-					Symbol: symbol, Side: "SELL", Quantity: float64(int(qty)), OrderType: "MO", Market: market,
-				})
-				orderOK = res.OK
-				status := "rejected"
-				orderID := ""
-				errText := res.Message
-				if orderOK {
-					status = "submitted"
-					orderID = res.OrderID
-					errText = ""
-					sold++
-					alert["content"] = alert["content"].(string) + "；已按市价卖出"
+				haltMsg := tradeexec.HaltBlockReason(readHalt(ctx, rdb))
+				if haltMsg != "" {
+					alert["content"] = alert["content"].(string) + "紧急停机，未下单"
 				} else {
-					if errText == "" {
-						errText = "止损下单失败"
+					res := broker.SubmitOrder(ctx, creds, tradeexec.SubmitReq{
+						Symbol: symbol, Side: "SELL", Quantity: float64(int(qty)), OrderType: "MO", Market: market,
+					})
+					orderOK = res.OK
+					status := "rejected"
+					orderID := ""
+					errText := res.Message
+					if orderOK {
+						status = "submitted"
+						orderID = res.OrderID
+						errText = ""
+						sold++
+						alert["content"] = alert["content"].(string) + "；已按市价卖出"
+					} else {
+						if errText == "" {
+							errText = "止损下单失败"
+						}
+						alert["content"] = alert["content"].(string) + "；下单失败 " + res.Message
 					}
-					alert["content"] = alert["content"].(string) + "；下单失败 " + res.Message
+					_ = repo.InsertDecision(ctx, DecisionRow{
+						CycleID:  fmt.Sprintf("stoploss_%s", time.Now().Format("20060102_150405")),
+						UserID:   uid,
+						Symbol:   symbol,
+						Market:   market,
+						Side:     "SELL",
+						Quantity: int(qty),
+						Price:    last,
+						Status:   status,
+						Reason:   alert["content"].(string),
+						Source:   "stop_loss",
+						OrderID:  orderID,
+						Error:    errText,
+					})
 				}
-				_ = repo.InsertDecision(ctx, DecisionRow{
-					CycleID:  fmt.Sprintf("stoploss_%s", time.Now().Format("20060102_150405")),
-					UserID:   uid,
-					Symbol:   symbol,
-					Market:   market,
-					Side:     "SELL",
-					Quantity: int(qty),
-					Price:    last,
-					Status:   status,
-					Reason:   alert["content"].(string),
-					Source:   "stop_loss",
-					OrderID:  orderID,
-					Error:    errText,
-				})
 			} else if !settings.AutoTradeEnabled {
 				alert["content"] = alert["content"].(string) + "；本账户自动交易未开，仅记录"
 			}

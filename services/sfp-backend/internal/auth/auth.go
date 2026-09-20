@@ -122,8 +122,8 @@ func (s *Service) loadUser(ctx context.Context, userID int64) (*User, error) {
 	raw, err := s.redis.Get(ctx, fmt.Sprintf("%s:%d", currentUserKey, userID)).Result()
 	if err == nil {
 		var cached struct {
-			Epoch string                     `json:"epoch"`
-			User  store.CurrentUserPayload   `json:"user"`
+			Epoch string                   `json:"epoch"`
+			User  store.CurrentUserPayload `json:"user"`
 		}
 		if json.Unmarshal([]byte(raw), &cached) == nil {
 			epoch, _ := s.redis.Get(ctx, currentUserEpoch).Result()
@@ -323,7 +323,8 @@ func (s *Service) CheckCaptcha(ctx context.Context, uuid, code string) error {
 }
 
 func (s *Service) checkCaptcha(ctx context.Context, uuid, code string) error {
-	v, err := s.redis.Get(ctx, fmt.Sprintf("%s:%s", captchaCodesKey, uuid)).Result()
+	key := fmt.Sprintf("%s:%s", captchaCodesKey, uuid)
+	v, err := s.redis.GetDel(ctx, key).Result()
 	if err != nil {
 		return errors.New("验证码已失效")
 	}

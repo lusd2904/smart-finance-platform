@@ -16,6 +16,7 @@ import (
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/kline"
 	"github.com/lusd2904/smart-finance-platform/services/market-read/pkg/response"
 	tradeexec "github.com/lusd2904/smart-finance-platform/services/trade-exec"
+	"github.com/redis/go-redis/v9"
 )
 
 const stopLossPct = -8.0
@@ -390,9 +391,22 @@ func (s *Server) placeDailyListOrder(ctx context.Context, broker *tradeexec.SDKB
 	if status == "skipped" {
 		return map[string]interface{}{"itemId": itemIDInt, "ok": false, "message": item["error"]}
 	}
+	if haltMsg := s.haltBlockReason(ctx); haltMsg != "" {
+		_ = s.DB.UpdateDailyListItem(ctx, itemIDInt, "skipped", "", haltMsg, 0)
+		return map[string]interface{}{"itemId": itemIDInt, "ok": false, "message": haltMsg}
+	}
+	if !tradeexec.IsMarketSessionOpen(market, time.Time{}) {
+		_ = s.DB.UpdateDailyListItem(ctx, itemIDInt, "queued", "", "", 0)
+		return map[string]interface{}{"itemId": itemIDInt, "ok": true, "queued": true, "message": "已排队至下一交易日开盘"}
+	}
 	acct, _ := broker.AccountBalance(ctx, creds)
 	price, _ := toFloat64(item["price"])
-	qty := tradeexec.SizeDailyListOrder(acct, market, price, 0)
+	quoteLast := 0.0
+	if price <= 0 {
+		quotes, _ := broker.RealtimeQuotes(ctx, creds, []string{symbol}, market)
+		quoteLast = tradeexec.ExtractLastPrice(quotes, tradeexec.ToLongbridgeSymbol(symbol, market))
+	}
+	qty := tradeexec.SizeDailyListOrder(acct, market, price, quoteLast)
 	if qty <= 0 {
 		_ = s.DB.UpdateDailyListItem(ctx, itemIDInt, "skipped", "", "仓位不足或无法计算数量", 0)
 		return map[string]interface{}{"itemId": itemIDInt, "ok": false, "message": "仓位不足或无法计算数量"}
@@ -406,6 +420,24 @@ func (s *Server) placeDailyListOrder(ctx context.Context, broker *tradeexec.SDKB
 	}
 	_ = s.DB.UpdateDailyListItem(ctx, itemIDInt, st, res.OrderID, res.Message, qty)
 	return map[string]interface{}{"itemId": itemIDInt, "ok": res.OK, "message": res.Message, "orderId": res.OrderID}
+}
+
+func (s *Server) haltBlockReason(ctx context.Context) string {
+	if s == nil || s.Cache == nil {
+		return ""
+	}
+	rdb := s.Cache.Client()
+	if rdb == nil {
+		return ""
+	}
+	raw, err := rdb.Get(ctx, tradeexec.HaltRedisKey).Result()
+	if err == redis.Nil || (err == nil && strings.TrimSpace(raw) == "") {
+		return ""
+	}
+	if err != nil {
+		return tradeexec.HaltBlockReason(tradeexec.HaltState{Halted: true, Reason: "halt state unavailable"})
+	}
+	return tradeexec.HaltBlockReason(tradeexec.ParseHalt(raw))
 }
 
 func (s *Server) runPositionMonitor(ctx context.Context) (map[string]interface{}, error) {

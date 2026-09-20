@@ -55,10 +55,16 @@ func priceSymbolAliases(symbol, market string) []string {
 	}
 	out := make([]string, 0, len(aliases))
 	seen := map[string]struct{}{}
+	reqKind := cn000001Kind(raw)
 	for _, item := range aliases {
 		key := strings.ToUpper(strings.TrimSpace(item))
 		if key == "" {
 			continue
+		}
+		if reqKind != "" {
+			if k := cn000001Kind(key); k != "" && k != reqKind {
+				continue
+			}
 		}
 		if _, ok := seen[key]; ok {
 			continue
@@ -67,6 +73,29 @@ func priceSymbolAliases(symbol, market string) []string {
 		out = append(out, key)
 	}
 	return out
+}
+
+// cn000001Kind distinguishes 上证 (000001.SH/.SS) from 平安银行 (bare 000001 / 000001.SZ).
+func cn000001Kind(symbol string) string {
+	u := strings.ToUpper(strings.TrimSpace(symbol))
+	base := u
+	suf := ""
+	if i := strings.LastIndex(u, "."); i >= 0 {
+		suf = u[i+1:]
+		switch suf {
+		case "SH", "SZ", "SS":
+			base = u[:i]
+		default:
+			suf = ""
+		}
+	}
+	if base != "000001" {
+		return ""
+	}
+	if suf == "SH" || suf == "SS" {
+		return "index"
+	}
+	return "bank"
 }
 
 func mapClosesByAlias(requested []string, found map[string]float64, market string) map[string]float64 {

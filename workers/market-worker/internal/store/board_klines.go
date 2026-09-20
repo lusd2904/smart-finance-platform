@@ -3,21 +3,21 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// latestDailySQL reads the last N daily bars from the same MySQL table
-// klineread uses (market_price_history_daily). board_warmup must not Flux-query Influx.
-const latestDailySQL = `SELECT trade_date, open_price, high_price, low_price, close_price, volume
+// latestDailyManySQL reads the last N daily bars per symbol from MySQL.
+// board_warmup / finance_briefings must not Flux-query Influx.
+const latestDailyManySQL = `SELECT symbol, trade_date, open_price, high_price, low_price, close_price, volume
 FROM (
-SELECT trade_date, open_price, high_price, low_price, close_price, volume
+SELECT symbol, trade_date, open_price, high_price, low_price, close_price, volume,
+       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS rn
 FROM market_price_history_daily
-WHERE symbol=? AND market=? AND trade_date>=? AND trade_date<=?
-ORDER BY trade_date DESC
-LIMIT ?
-) t ORDER BY trade_date`
+WHERE market=? AND trade_date>=? AND trade_date<=? AND symbol IN (%s)
+) t WHERE rn<=? ORDER BY symbol, trade_date`
 
 type dailyBar struct {
 	Date   string
@@ -53,36 +53,57 @@ func queryLatestDailyMySQL(ctx context.Context, db *sql.DB, market string, symbo
 		mkt = "US"
 	}
 	from, to := dailyWindow(start)
+	cleaned := make([]string, 0, len(symbols))
 	for _, raw := range symbols {
 		sym := strings.TrimSpace(raw)
-		if sym == "" {
-			continue
+		if sym != "" {
+			cleaned = append(cleaned, sym)
 		}
-		bars, err := scanLatestDaily(ctx, db, sym, mkt, from, to, n)
+	}
+	const chunk = 30
+	for i := 0; i < len(cleaned); i += chunk {
+		end := i + chunk
+		if end > len(cleaned) {
+			end = len(cleaned)
+		}
+		part, err := scanLatestDailyChunk(ctx, db, mkt, cleaned[i:end], from, to, n)
 		if err != nil {
 			return nil, err
 		}
-		if len(bars) > 0 {
-			out[sym] = bars
+		for req, bars := range part {
+			out[req] = bars
 		}
 	}
 	return out, nil
 }
 
-func scanLatestDaily(ctx context.Context, db *sql.DB, symbol, market, from, to string, limit int) ([]dailyBar, error) {
-	rows, err := db.QueryContext(ctx, latestDailySQL, symbol, market, from, to, limit)
+func scanLatestDailyChunk(ctx context.Context, db *sql.DB, market string, symbols []string, from, to string, limit int) (map[string][]dailyBar, error) {
+	out := map[string][]dailyBar{}
+	if len(symbols) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(symbols)), ",")
+	query := fmt.Sprintf(latestDailyManySQL, placeholders)
+	args := make([]interface{}, 0, len(symbols)+4)
+	args = append(args, market, from, to)
+	for _, sym := range symbols {
+		args = append(args, sym)
+	}
+	args = append(args, limit)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []dailyBar
+	byDB := map[string][]dailyBar{}
 	for rows.Next() {
+		var symbol string
 		var raw interface{}
 		var open, high, low, close, volume sql.NullFloat64
-		if err := rows.Scan(&raw, &open, &high, &low, &close, &volume); err != nil {
+		if err := rows.Scan(&symbol, &raw, &open, &high, &low, &close, &volume); err != nil {
 			return nil, err
 		}
-		out = append(out, dailyBar{
+		byDB[symbol] = append(byDB[symbol], dailyBar{
 			Date:   coerceTradeDate(raw),
 			Open:   sqlNullFloat(open),
 			High:   sqlNullFloat(high),
@@ -91,7 +112,21 @@ func scanLatestDaily(ctx context.Context, db *sql.DB, symbol, market, from, to s
 			Volume: sqlNullFloat(volume),
 		})
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, req := range symbols {
+		if bars := byDB[req]; len(bars) > 0 {
+			out[req] = bars
+			continue
+		}
+		if u := strings.ToUpper(req); u != req {
+			if bars := byDB[u]; len(bars) > 0 {
+				out[req] = bars
+			}
+		}
+	}
+	return out, nil
 }
 
 func dailyWindow(start string) (from, to string) {
@@ -101,14 +136,30 @@ func dailyWindow(start string) (from, to string) {
 	}
 	now := time.Now().In(loc)
 	to = now.Format("2006-01-02")
-	days := 60
+	fromTime := now.AddDate(0, 0, -60)
 	text := strings.TrimSpace(start)
-	if strings.HasPrefix(text, "-") && strings.HasSuffix(text, "d") {
-		if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(text, "-"), "d")); err == nil && n > 0 {
-			days = n
+	if strings.HasPrefix(text, "-") {
+		body := strings.TrimPrefix(text, "-")
+		switch {
+		case strings.HasSuffix(body, "y"):
+			if n, err := strconv.Atoi(strings.TrimSuffix(body, "y")); err == nil && n > 0 {
+				fromTime = now.AddDate(-n, 0, 0)
+			}
+		case strings.HasSuffix(body, "mo"):
+			if n, err := strconv.Atoi(strings.TrimSuffix(body, "mo")); err == nil && n > 0 {
+				fromTime = now.AddDate(0, -n, 0)
+			}
+		case strings.HasSuffix(body, "w"):
+			if n, err := strconv.Atoi(strings.TrimSuffix(body, "w")); err == nil && n > 0 {
+				fromTime = now.AddDate(0, 0, -7*n)
+			}
+		case strings.HasSuffix(body, "d"):
+			if n, err := strconv.Atoi(strings.TrimSuffix(body, "d")); err == nil && n > 0 {
+				fromTime = now.AddDate(0, 0, -n)
+			}
 		}
 	}
-	from = now.AddDate(0, 0, -days).Format("2006-01-02")
+	from = fromTime.Format("2006-01-02")
 	return from, to
 }
 

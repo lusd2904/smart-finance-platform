@@ -138,17 +138,80 @@ func (s *SQLStore) QueryDailyMany(ctx context.Context, market string, symbols []
 
 func (s *SQLStore) queryDailyChunk(ctx context.Context, market string, symbols []string, start string, limit int) (map[string][]Bar, error) {
 	out := map[string][]Bar{}
-	for _, sym := range symbols {
-		lim := limit
-		bars, err := s.QueryDaily(ctx, market, sym, start, "now()", &lim)
-		if err != nil {
-			return nil, err
-		}
-		if len(bars) > 0 {
-			out[sym] = bars
+	if s == nil || s.DB == nil || len(symbols) == 0 {
+		return out, nil
+	}
+	from, to, ok := resolveRange(start, "now()", nowBeijing())
+	if !ok {
+		return out, nil
+	}
+	inSyms := make([]string, 0, len(symbols)*2)
+	seen := map[string]bool{}
+	for _, req := range symbols {
+		for _, cand := range symbolLookupOrder(req) {
+			if seen[cand] {
+				continue
+			}
+			seen[cand] = true
+			inSyms = append(inSyms, cand)
 		}
 	}
-	return out, nil
+	if len(inSyms) == 0 {
+		return out, nil
+	}
+	query, args := dailyManyChunkQuery(market, inSyms, formatDailyDate(from), formatDailyDate(to), limit)
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byDB := map[string][]Bar{}
+	for rows.Next() {
+		var symbol string
+		var raw interface{}
+		var open, high, low, close, volume sql.NullFloat64
+		if err := rows.Scan(&symbol, &raw, &open, &high, &low, &close, &volume); err != nil {
+			return nil, err
+		}
+		byDB[symbol] = append(byDB[symbol], nullBar(coerceDate(raw), open, high, low, close, volume))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return mapDailyMany(symbols, byDB), nil
+}
+
+func dailyManyChunkQuery(market string, symbols []string, startDate, endDate string, limit int) (string, []interface{}) {
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(symbols)), ",")
+	query := fmt.Sprintf(`SELECT symbol, %s FROM (
+SELECT symbol, %s,
+       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS rn
+FROM market_price_history_daily
+WHERE market=? AND trade_date>=? AND trade_date<=? AND symbol IN (%s)
+) t WHERE rn<=? ORDER BY symbol, trade_date`, dailySelectCols, dailySelectCols, placeholders)
+	args := make([]interface{}, 0, len(symbols)+4)
+	args = append(args, normalizeMarket(market), startDate, endDate)
+	for _, sym := range symbols {
+		args = append(args, sym)
+	}
+	args = append(args, limit)
+	return query, args
+}
+
+func mapDailyMany(requested []string, byDB map[string][]Bar) map[string][]Bar {
+	out := map[string][]Bar{}
+	for _, req := range requested {
+		if bars := byDB[req]; len(bars) > 0 {
+			out[req] = bars
+			continue
+		}
+		if u := strings.ToUpper(req); u != req {
+			if bars := byDB[u]; len(bars) > 0 {
+				out[req] = bars
+			}
+		}
+	}
+	return out
 }
 
 func (s *SQLStore) LatestDailyDate(ctx context.Context, market, symbol string) (string, error) {

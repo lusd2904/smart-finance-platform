@@ -1,5 +1,13 @@
 <template>
   <div class="app-container pro-terminal-page" :class="{ 'is-fullscreen': isFullscreen }">
+    <el-alert
+      v-if="tradeHalted"
+      class="halt-banner"
+      type="error"
+      show-icon
+      :closable="false"
+      title="紧急停机中，禁止新委托"
+    />
     <!-- 顶部状态栏：左侧开盘大盘指数，右侧搜索、资金与操作 -->
     <div class="terminal-topbar">
       <!-- 动态大盘指数区：美股全时段显示（夜盘/盘前/盘中/盘后），港股A股开盘时显示 -->
@@ -65,6 +73,8 @@
             />
           </div>
         </el-tooltip>
+        <span v-if="accountMode === 'paper'" class="acct-mode-flag paper">模拟盘</span>
+        <span v-else-if="accountMode === 'live'" class="acct-mode-flag live">实盘</span>
         <span class="live-flag" :class="liveMode ? 'on' : 'off'">{{ liveMode ? 'LIVE' : '无数据' }}</span>
         <el-tooltip content="刷新真实行情" placement="bottom">
           <el-button circle size="small" :icon="Refresh" @click="refreshLive" />
@@ -614,8 +624,8 @@
             <span class="f-lbl">数量</span>
             <el-input-number
               v-model="tradeForm.quantity"
-              :min="1"
-              :step="10"
+              :min="0"
+              :step="lotStep"
               size="small"
               controls-position="right"
               style="width: 100%"
@@ -634,11 +644,11 @@
           <div class="trade-cost-summary">
             <div class="cost-line">
               <span>名义金额:</span>
-              <strong class="cost-val">\$ {{ calcNotional().toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</strong>
+              <strong class="cost-val">{{ cashCurrency }} {{ calcNotional().toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</strong>
             </div>
             <div class="cost-sub-line">
-              <span>购买力: \$ {{ accountCash.toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</span>
-              <span>预估费用: \$ 1.00</span>
+              <span>购买力: {{ cashCurrency }} {{ Number(accountCash || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }) }}</span>
+              <span>预估费用: --</span>
             </div>
           </div>
 
@@ -647,7 +657,8 @@
             class="do-order-btn"
             :class="tradeForm.side === 'BUY' ? 'btn-order-buy' : 'btn-order-sell'"
             :loading="orderSubmitting"
-            @click="submitSimulatedOrder"
+            :disabled="tradeHalted"
+            @click="submitLiveOrder"
           >
             极速{{ tradeForm.side === 'BUY' ? '买入' : '卖出' }} {{ activeStock.symbol }} ({{ tradeForm.quantity }} 股)
           </el-button>
@@ -656,9 +667,9 @@
         <!-- 4. 当日委托与持仓小型监控面板 -->
         <div class="bottom-orders-card">
           <el-tabs v-model="bottomRightTab" class="tight-tabs">
-            <el-tab-pane :label="`当日委托 (${mockOrders.length})`" name="orders">
+            <el-tab-pane :label="`当日委托 (${orders.length})`" name="orders">
               <div class="orders-scroll-list">
-                <div v-for="o in mockOrders" :key="o.id" class="order-item-card">
+                <div v-for="o in orders" :key="o.id" class="order-item-card">
                   <div class="o-main">
                     <span class="o-side-badge" :class="o.side === 'BUY' ? 'up' : 'down'">
                       {{ o.side === 'BUY' ? '买' : '卖' }}
@@ -668,17 +679,17 @@
                   </div>
                   <div class="o-act">
                     <el-tag size="small" :type="o.status === '已成交' ? 'success' : 'info'">{{ o.status }}</el-tag>
-                    <el-button v-if="o.open || o.status === '待成交' || o.status === '已提交'" link type="danger" size="small" @click="cancelSimulatedOrder(o.id)">撤单</el-button>
+                    <el-button v-if="o.open || o.status === '待成交' || o.status === '已提交'" link type="danger" size="small" @click="cancelLiveOrder(o.id)">撤单</el-button>
                   </div>
                 </div>
-                <div v-if="!mockOrders.length" class="empty-hint-text">暂无当日委托</div>
+                <div v-if="!orders.length" class="empty-hint-text">暂无当日委托</div>
               </div>
             </el-tab-pane>
 
-            <el-tab-pane :label="`持仓 (${mockPositions.length})`" name="pos">
+            <el-tab-pane :label="`持仓 (${positions.length})`" name="pos">
               <div class="positions-scroll-list">
                 <div
-                  v-for="p in mockPositions"
+                  v-for="p in positions"
                   :key="p.symbol"
                   class="pos-item-card"
                   @click="selectStockBySymbol(p.symbol)"
@@ -694,7 +705,7 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="!mockPositions.length" class="empty-hint-text">暂无持仓数据</div>
+                <div v-if="!positions.length" class="empty-hint-text">暂无持仓数据</div>
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -729,8 +740,10 @@ import {
   getTradeQuoteKline,
   getTradeQuoteSnapshot,
   getAutoTradeStatus,
-  saveAutoTradeSettings
+  saveAutoTradeSettings,
+  getTradeHalt
 } from '@/api/trade'
+import { cashCurrencyForMarket, inferMarket, lotSizeForMarket, ticketQtyForPercent } from '@/mobile/utils/ticketQty'
 
 const settingsStore = useSettingsStore()
 
@@ -753,6 +766,9 @@ const bottomRightTab = ref('orders')
 const orderSubmitting = ref(false)
 const accountCash = ref(0)
 const cashCurrency = ref('USD')
+const accountPayload = ref({})
+const tradeHalted = ref(false)
+const accountMode = ref('')
 const liveMode = ref(false)
 const configured = ref(false)
 const autoTradeEnabled = ref(false)
@@ -783,11 +799,11 @@ const tradeForm = ref({
   side: 'BUY',
   type: 'LIMIT',
   price: 0,
-  quantity: 100
+  quantity: 0
 })
 
-const mockOrders = ref([])
-const mockPositions = ref([])
+const orders = ref([])
+const positions = ref([])
 
 // ECharts 实例引用
 const chartContainerRef = ref(null)
@@ -1033,16 +1049,29 @@ function fillOrderPrice(p) {
   ElMessage.info(`已填入委托价: ${n.toFixed(2)}`)
 }
 
+const lotStep = computed(() => lotSizeForMarket(activeStock.value?.market))
+
 function applyRatio(ratio) {
-  const price = tradeForm.value.price || activeStock.value.price
-  if (tradeForm.value.side === 'BUY') {
-    const maxAfford = Math.floor((accountCash.value * ratio) / price)
-    tradeForm.value.quantity = Math.max(1, maxAfford)
-  } else {
-    const pos = mockPositions.value.find(p => splitBrokerSymbol(p.symbol).symbol === activeStock.value.symbol)
-    const hold = pos ? pos.quantity : 100
-    tradeForm.value.quantity = Math.max(1, Math.floor(hold * ratio))
+  const stock = activeStock.value || {}
+  const market = stock.market || inferMarket(stock.symbol, 'US')
+  const side = tradeForm.value.side === 'SELL' ? 'sell' : 'buy'
+  const price = tradeForm.value.type === 'LIMIT' ? tradeForm.value.price : stock.price
+  let sellable = 0
+  if (side === 'sell') {
+    const pos = positions.value.find((p) => {
+      const parsed = splitBrokerSymbol(p.symbol)
+      return parsed.symbol === stock.symbol || String(p.symbol || '').toUpperCase() === String(stock.symbol || '').toUpperCase()
+    })
+    sellable = pos ? pickNum(pos.availableQuantity, pos.quantity) : 0
   }
+  tradeForm.value.quantity = ticketQtyForPercent({
+    percent: Math.round(Number(ratio) * 100),
+    side,
+    market,
+    price,
+    cash: accountCash.value,
+    sellable
+  })
 }
 
 function calcNotional() {
@@ -1096,26 +1125,62 @@ function setPeriod(p) {
 }
 
 // ====================== 快捷交易操作 ======================
-async function submitSimulatedOrder() {
+async function submitLiveOrder() {
+  if (tradeHalted.value) {
+    ElMessage.error('紧急停机中，禁止新委托')
+    return
+  }
+  const qty = Number(tradeForm.value.quantity) || 0
+  if (qty <= 0) {
+    ElMessage.warning('委托数量为 0，无法下单')
+    return
+  }
+  const stock = activeStock.value || {}
+  const market = stock.market || inferMarket(stock.symbol, 'US')
+  const symbol = stock.symbol
+  if (!symbol) {
+    ElMessage.warning('请选择标的')
+    return
+  }
   const notional = calcNotional()
   if (tradeForm.value.side === 'BUY' && accountCash.value > 0 && notional > accountCash.value) {
     ElMessage.error('可用资金不足以支付当前委托名义金额！')
     return
   }
+  const sideLabel = tradeForm.value.side === 'SELL' ? '卖出' : '买入'
+  const typeLabel = tradeForm.value.type === 'MARKET' ? '市价单 MO' : '限价单 LO'
+  const priceText = tradeForm.value.type === 'MARKET' ? '市价' : fmtNum(tradeForm.value.price)
+  const ccy = cashCurrency.value || cashCurrencyForMarket(market)
+  const notionalText = `${ccy} ${notional.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  try {
+    await ElMessageBox.confirm(
+      `市场：${market}<br/>代码：${symbol}<br/>方向：${sideLabel}<br/>类型：${typeLabel}<br/>价格：${priceText}<br/>数量：${qty}<br/>预估金额：${notionalText}<br/>结算货币：${ccy}`,
+      '确认提交实盘委托',
+      {
+        type: 'warning',
+        confirmButtonText: '确认下单',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true,
+        distinguishCancelAndClose: true
+      }
+    )
+  } catch {
+    return
+  }
   orderSubmitting.value = true
   try {
     const res = await submitTradeOrder({
-      symbol: activeStock.value.symbol,
-      market: activeStock.value.market || 'US',
+      symbol,
+      market,
       side: tradeForm.value.side === 'SELL' ? 'sell' : 'buy',
       orderType: tradeForm.value.type === 'MARKET' ? 'MO' : 'LO',
-      quantity: tradeForm.value.quantity,
+      quantity: qty,
       price: tradeForm.value.type === 'LIMIT' ? tradeForm.value.price : undefined
     })
     const payload = res.data || {}
     ElNotification({
       title: payload.ok === false ? '下单未成功' : (res.msg || '委托已提交'),
-      message: payload.message || `${tradeForm.value.side === 'BUY' ? '买入' : '卖出'} ${activeStock.value.symbol} ${tradeForm.value.quantity} 股`,
+      message: payload.message || `${sideLabel} ${symbol} ${qty} 股`,
       type: payload.ok === false ? 'warning' : 'success',
       duration: 3500
     })
@@ -1127,7 +1192,7 @@ async function submitSimulatedOrder() {
   }
 }
 
-async function cancelSimulatedOrder(orderId) {
+async function cancelLiveOrder(orderId) {
   try {
     await cancelTradeOrder(orderId)
     ElMessage.info(`已提交撤单 ${orderId}`)
@@ -1201,10 +1266,10 @@ function currencyOf(market) {
 
 function splitBrokerSymbol(raw) {
   const text = String(raw || '').trim()
-  const m = text.match(/^(.*)\.(US|HK|SH|SZ|CN)$/i)
-  if (!m) return { symbol: text, market: 'US' }
+  const m = text.match(/^(.*)\.(US|HK|SH|SZ|CN|SS)$/i)
+  if (!m) return { symbol: text, market: inferMarket(text, 'US') }
   const suffix = m[2].toUpperCase()
-  const market = suffix === 'SH' || suffix === 'SZ' ? 'CN' : suffix
+  const market = suffix === 'SH' || suffix === 'SZ' || suffix === 'SS' ? 'CN' : suffix
   return { symbol: m[1], market }
 }
 
@@ -1654,21 +1719,66 @@ async function loadLiveWatchlist() {
   } catch { /* 保留已有自选 */ }
 }
 
-function applyAccountPayload(accData) {
-  configured.value = accData.configured === true
+function detectAccountMode(acc) {
+  if (!acc || typeof acc !== 'object') return ''
+  const raw = acc.paper ?? acc.isPaper ?? acc.paperTrading ?? acc.accountType ?? acc.mode ?? acc.tradingMode
+  if (raw === true) return 'paper'
+  if (raw === false) return 'live'
+  const s = String(raw || '').trim().toLowerCase()
+  if (!s) return ''
+  if (s === 'paper' || s === 'sim' || s === 'papertrading' || s === 'lb_papertrading') return 'paper'
+  if (s === 'live' || s === 'real') return 'live'
+  return ''
+}
+
+function pickAccountCash() {
+  const accData = accountPayload.value || {}
+  const want = cashCurrencyForMarket(activeStock.value?.market)
   const bals = Array.isArray(accData.balances) ? accData.balances : []
-  const usd = bals.find((b) => String(b.currency || '').toUpperCase() === 'USD')
-  const pick = usd || bals[0] || accData
+  const match = bals.find((b) => String(b.currency || '').toUpperCase() === want)
+  const accCcy = String(accData.currency || '').toUpperCase()
+  const pick = match || (accCcy === want ? accData : null)
+  cashCurrency.value = want
+  if (!pick) {
+    accountCash.value = 0
+    return
+  }
   accountCash.value = pickNum(
     pick.availableCash,
     pick.buyPower,
     pick.maxFinanceAmount,
-    pick.netAssets,
     pick.totalCash,
     accData.availableCash,
     accData.cash
   )
-  cashCurrency.value = pick.currency || accData.currency || 'USD'
+}
+
+function applyAccountPayload(accData) {
+  accountPayload.value = accData || {}
+  configured.value = accData.configured === true
+  accountMode.value = detectAccountMode(accData)
+  pickAccountCash()
+}
+
+function applyHaltPayload(d) {
+  if (!d || typeof d !== 'object') return
+  tradeHalted.value = d.halted === true || d.halt === true
+}
+
+function asTradeList(d, key) {
+  if (Array.isArray(d)) return d
+  if (!d || typeof d !== 'object') return []
+  if (Array.isArray(d[key])) return d[key]
+  if (Array.isArray(d.items)) return d.items
+  if (Array.isArray(d.list)) return d.list
+  return []
+}
+
+async function loadTradeHalt() {
+  try {
+    const res = await getTradeHalt()
+    applyHaltPayload(res.data || {})
+  } catch { /* 保留上次停机状态 */ }
 }
 
 async function loadLiveAccount() {
@@ -1723,47 +1833,47 @@ async function onToggleAutoTrade(val) {
 
 async function loadLiveBook() {
   try {
-    const acc = await getTradeAccount()
-    applyAccountPayload(acc.data || {})
-    const [pos, ord] = await Promise.all([
+    const [acc, pos, ord, halt] = await Promise.all([
+      getTradeAccount(),
       getTradePositions(),
-      getTradeOrders('today')
+      getTradeOrders('today'),
+      getTradeHalt().catch(() => null)
     ])
-    const positions = pos.data?.positions || pos.data || []
-    if (Array.isArray(positions) && positions.length) {
-      mockPositions.value = positions.map((p) => {
-        const parsed = splitBrokerSymbol(p.symbol)
-        const q = stockUniverse.value.find((s) => s.symbol === parsed.symbol)
-        const last = pickNum(q?.price, p.last, p.currentPrice, p.costPrice)
-        const cost = pickNum(p.costPrice)
-        const qty = pickNum(p.quantity, p.qty)
-        const pnl = cost && last ? (last - cost) * qty : pickNum(p.unrealizedPnl, p.pnl)
-        const pnlRate = cost ? ((last / cost) - 1) * 100 : pickNum(p.unrealizedPnlPct)
-        return {
-          symbol: p.symbol,
-          code: parsed.symbol,
-          market: parsed.market,
-          quantity: qty,
-          costPrice: cost,
-          currentPrice: last,
-          pnl,
-          pnlRate: Number.isFinite(pnlRate) ? pnlRate.toFixed(2) : ''
-        }
-      })
-    }
-    const orders = ord.data?.orders || ord.data || []
-    if (Array.isArray(orders)) {
-      mockOrders.value = orders.map((o) => ({
-        id: o.orderId || o.id,
-        symbol: o.symbol,
-        side: String(o.side || '').toUpperCase().includes('SELL') ? 'SELL' : 'BUY',
-        quantity: pickNum(o.quantity, o.qty),
-        price: pickNum(o.price),
-        status: o.statusLabel || o.status || '--',
-        open: o.open === true,
-        time: o.submittedAt || o.createTime || ''
-      }))
-    }
+    applyAccountPayload(acc.data || {})
+    if (halt) applyHaltPayload(halt.data || {})
+    const posRows = asTradeList(pos.data, 'positions')
+    positions.value = posRows.map((p) => {
+      const parsed = splitBrokerSymbol(p.symbol)
+      const q = stockUniverse.value.find((s) => s.symbol === parsed.symbol)
+      const last = pickNum(q?.price, p.last, p.currentPrice, p.costPrice)
+      const cost = pickNum(p.costPrice)
+      const qty = pickNum(p.quantity, p.qty)
+      const avail = pickNum(p.availableQuantity, p.availableQty, qty)
+      const pnl = cost && last ? (last - cost) * qty : pickNum(p.unrealizedPnl, p.pnl)
+      const pnlRate = cost ? ((last / cost) - 1) * 100 : pickNum(p.unrealizedPnlPct)
+      return {
+        symbol: p.symbol,
+        code: parsed.symbol,
+        market: parsed.market,
+        quantity: qty,
+        availableQuantity: avail,
+        costPrice: cost,
+        currentPrice: last,
+        pnl,
+        pnlRate: Number.isFinite(pnlRate) ? pnlRate.toFixed(2) : ''
+      }
+    })
+    const orderRows = asTradeList(ord.data, 'orders')
+    orders.value = orderRows.map((o) => ({
+      id: o.orderId || o.id,
+      symbol: o.symbol,
+      side: String(o.side || '').toUpperCase().includes('SELL') ? 'SELL' : 'BUY',
+      quantity: pickNum(o.quantity, o.qty),
+      price: pickNum(o.price),
+      status: o.statusLabel || o.status || '--',
+      open: o.open === true,
+      time: o.submittedAt || o.createTime || ''
+    }))
   } catch { /* 未配长桥时保留空资金 */ }
 }
 
@@ -2348,6 +2458,10 @@ watch(liveMode, () => {
   if (bookTimer || snapshotTimer || newsTimer) startLiveTimers()
 })
 
+watch(() => activeStock.value?.market, () => {
+  pickAccountCash()
+})
+
 // 监听深浅色皮肤切换，自动无缝重绘 ECharts
 watch(
   () => settingsStore.isDark,
@@ -2383,6 +2497,7 @@ onMounted(() => {
   indexSocket.start()
   loadLiveAccount()
   loadAutoTradeStatus()
+  loadTradeHalt()
   const firstKline = loadLiveKline().then(() => {
     renderECharts()
     afterPaint(() => loadBrokerSnapshot(), 50)
@@ -2401,6 +2516,7 @@ onActivated(() => {
   indexSocket.start()
   startLiveTimers()
   syncWatchQuotes()
+  loadTradeHalt()
 })
 
 onDeactivated(() => {
@@ -2464,6 +2580,11 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
   padding: 8px;
   gap: 6px;
+
+  .halt-banner {
+    flex-shrink: 0;
+    margin: 0;
+  }
 
   &.is-fullscreen {
     position: fixed;
@@ -2593,6 +2714,21 @@ onBeforeUnmount(() => {
         color: #409EFF;
         font-weight: 700;
         white-space: nowrap;
+      }
+    }
+
+    .acct-mode-flag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      &.paper {
+        color: #d97706;
+        background: rgba(217, 119, 6, 0.12);
+      }
+      &.live {
+        color: #dc2626;
+        background: rgba(220, 38, 38, 0.12);
       }
     }
 

@@ -399,6 +399,10 @@ onMounted(() => {
   getSessions()
   loadUserConfig()
 })
+
+onBeforeUnmount(() => {
+  stopGeneration()
+})
 </script>
 
 <style scoped lang="scss">

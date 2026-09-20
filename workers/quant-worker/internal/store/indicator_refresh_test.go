@@ -15,6 +15,8 @@ func TestFeaturedBoardReadsMySQLStoreNotInflux(t *testing.T) {
 	mem.UpsertDaily(klineread.DailyRow{Symbol: "AAPL", Market: "US", TradeDate: "2026-09-14", Close: 220, Volume: 10})
 	mem.UpsertDaily(klineread.DailyRow{Symbol: "AAPL", Market: "US", TradeDate: "2026-09-15", Close: 222, Volume: 12})
 	mem.UpsertDaily(klineread.DailyRow{Symbol: "0700.HK", Market: "HK", TradeDate: "2026-09-15", Close: 400, Volume: 8})
+	mem.UpsertDaily(klineread.DailyRow{Symbol: "^GSPC", Market: "US", TradeDate: "2026-09-15", Close: 5600, Volume: 1})
+	mem.UpsertDaily(klineread.DailyRow{Symbol: "600519.SH", Market: "CN", TradeDate: "2026-09-15", Close: 1400, Volume: 3})
 
 	svc := &Service{reader: mwinflux.NewReaderWithStore(mem)}
 	board, err := svc.featuredBoard(context.Background())
@@ -49,6 +51,15 @@ func TestFeaturedBoardReadsMySQLStoreNotInflux(t *testing.T) {
 	}
 	if hk["change"] != nil {
 		t.Fatalf("single-bar HK row must not invent a prior close: %v", hk["change"])
+	}
+	if bySymbol["^GSPC"] == nil || bySymbol["^GSPC"]["close"] != 5600.0 {
+		t.Fatalf("^GSPC=%v", bySymbol["^GSPC"])
+	}
+	if bySymbol["600519.SH"] == nil || bySymbol["600519.SH"]["close"] != 1400.0 {
+		t.Fatalf("600519.SH=%v", bySymbol["600519.SH"])
+	}
+	if _, ok := bySymbol["600519"]; ok {
+		t.Fatal("CN board must use suffixed 600519.SH, not 600519")
 	}
 }
 

@@ -283,12 +283,13 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, FullScreen, Refresh, Search, StarFilled } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { getKline, getMarketIndexQuotes, getMarketWatchlistOverview, listMarketWatchlist } from '@/api/market'
 import { getAutoTradeStatus, getTradeAccount, getTradeOrders, getTradePositions, getTradeQuoteDepth, getTradeQuoteSnapshot, getTradeQuoteTrades, saveAutoTradeSettings, submitTradeOrder } from '@/api/trade'
 import { useUserStore } from '@/store/user'
+import { hasLiveSession } from '@/utils/auth'
 import { fmtNum, fmtPx, fmtSigned, formatTurnover, formatVolume, renderSparklinePath } from '@/utils/format'
 import { showStubBanner, stubAccount, stubIndices, stubKline, stubOrders, stubPositions, stubWatchlist, useStubs } from '@/utils/stubs'
 
@@ -414,6 +415,7 @@ function handleSearchSelect(item) {
 }
 
 function applyStubTerminal() {
+  if (hasLiveSession()) return
   usingStub.value = true
   liveMode.value = false
   indices.value = stubIndices()
@@ -433,8 +435,21 @@ function unwrap(res) {
   return res?.data ?? res ?? {}
 }
 
+function asNamedList(raw, key) {
+  if (Array.isArray(raw)) return raw
+  if (!raw || typeof raw !== 'object') return []
+  if (Array.isArray(raw[key])) return raw[key]
+  if (Array.isArray(raw.items)) return raw.items
+  if (Array.isArray(raw.list)) return raw.list
+  return []
+}
+
+function allowStubFallback() {
+  return !hasLiveSession() && (useStubs() || userStore.usingStub)
+}
+
 async function loadLive() {
-  if (useStubs() || userStore.usingStub) {
+  if (allowStubFallback()) {
     applyStubTerminal()
     applyQuerySymbol()
     return
@@ -488,19 +503,28 @@ async function loadLive() {
       if (acc.availableCash != null) any = true
     }
     if (orderRes.status === 'fulfilled') {
-      const raw = unwrap(orderRes.value)
-      orders.value = raw.items || raw.list || []
+      orders.value = asNamedList(unwrap(orderRes.value), 'orders')
+      any = true
     }
     if (posRes.status === 'fulfilled') {
-      const raw = unwrap(posRes.value)
-      positions.value = raw.items || raw.list || []
+      positions.value = asNamedList(unwrap(posRes.value), 'positions')
+      any = true
     }
     if (autoRes.status === 'fulfilled') {
       const auto = unwrap(autoRes.value)
-      autoTradeConfigured.value = Boolean(auto.configured ?? auto.enabled != null)
-      autoTradeEnabled.value = Boolean(auto.enabled)
+      autoTradeConfigured.value = Boolean(auto.configured)
+      autoTradeEnabled.value = Boolean(auto.autoTradeEnabled)
+      any = true
     }
     if (!any) {
+      if (hasLiveSession()) {
+        usingStub.value = false
+        liveMode.value = false
+        orders.value = []
+        positions.value = []
+        applyQuerySymbol()
+        return
+      }
       applyStubTerminal()
       applyQuerySymbol()
       return
@@ -511,13 +535,21 @@ async function loadLive() {
     if (!activeSymbol.value && watchStocks.value[0]) selectStock(watchStocks.value[0])
     else if (activeSymbol.value) await loadSymbolExtras(activeStock.value)
   } catch {
+    if (hasLiveSession()) {
+      usingStub.value = false
+      liveMode.value = false
+      orders.value = []
+      positions.value = []
+      applyQuerySymbol()
+      return
+    }
     applyStubTerminal()
     applyQuerySymbol()
   }
 }
 
 async function loadSymbolExtras(item) {
-  if (!item?.symbol || usingStub.value || useStubs() || userStore.usingStub) {
+  if (!item?.symbol || (!hasLiveSession() && (usingStub.value || useStubs() || userStore.usingStub))) {
     bars.value = stubKline(item?.price || 100)
     nextTick(renderChart)
     return
@@ -604,23 +636,57 @@ function renderChart() {
 }
 
 async function submitOrder() {
+  const stock = activeStock.value || {}
+  const symbol = stock.symbol
+  if (!symbol || symbol === '--') {
+    ElMessage.warning('请选择标的')
+    return
+  }
+  const qty = Number(tradeForm.quantity) || 0
+  if (qty <= 0) {
+    ElMessage.warning('委托数量为 0，无法下单')
+    return
+  }
+  const market = stock.market || '--'
+  const sideLabel = tradeForm.side === 'SELL' ? '卖出' : '买入'
+  const typeLabel = tradeForm.type === 'MARKET' ? '市价单 MO' : '限价单 LO'
+  const priceText = tradeForm.type === 'MARKET' ? '市价' : fmtNum(tradeForm.price)
+  const ccy = cashCurrency.value || stock.currency || ''
+  const notional = calcNotional()
+  const notionalText = `${ccy} ${notional.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.trim()
+  const live = hasLiveSession() && !usingStub.value && !userStore.usingStub
+  try {
+    await ElMessageBox.confirm(
+      `市场：${market}<br/>代码：${symbol}<br/>方向：${sideLabel}<br/>类型：${typeLabel}<br/>价格：${priceText}<br/>数量：${qty}<br/>预估金额：${notionalText}<br/>结算货币：${ccy || '--'}`,
+      live ? '确认提交实盘委托' : '确认提交委托',
+      {
+        type: 'warning',
+        confirmButtonText: '确认下单',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true,
+        distinguishCancelAndClose: true
+      }
+    )
+  } catch {
+    return
+  }
   orderSubmitting.value = true
   try {
-    if (!usingStub.value && !userStore.usingStub) {
+    if (live) {
       await submitTradeOrder({
-        symbol: activeStock.value.symbol,
-        market: activeStock.value.market,
-        side: tradeForm.side,
-        type: tradeForm.type,
-        price: tradeForm.price,
-        quantity: tradeForm.quantity
+        symbol,
+        market,
+        side: tradeForm.side === 'SELL' ? 'sell' : 'buy',
+        orderType: tradeForm.type === 'MARKET' ? 'MO' : 'LO',
+        price: tradeForm.type === 'LIMIT' ? tradeForm.price : undefined,
+        quantity: qty
       })
     } else {
       orders.value.unshift({
         id: `stub-${Date.now()}`,
-        symbol: activeStock.value.symbol,
+        symbol,
         side: tradeForm.side,
-        quantity: tradeForm.quantity,
+        quantity: qty,
         price: tradeForm.price,
         status: '已提交',
         open: true
@@ -636,7 +702,10 @@ async function submitOrder() {
 
 async function onToggleAutoTrade(val) {
   try {
-    await saveAutoTradeSettings({ enabled: val })
+    const res = await saveAutoTradeSettings({ autoTradeEnabled: Boolean(val) })
+    const auto = unwrap(res)
+    if (auto.configured != null) autoTradeConfigured.value = Boolean(auto.configured)
+    if (auto.autoTradeEnabled != null) autoTradeEnabled.value = Boolean(auto.autoTradeEnabled)
   } catch {
     autoTradeEnabled.value = !val
     ElMessage.warning('自动交易开关接口不可用')

@@ -152,7 +152,7 @@ func (s *Server) AutoDecisions(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 50
 	}
-	data, err := s.Platform.ListAutoDecisions(r.Context(), limit, r.URL.Query().Get("cycle_id"))
+	data, err := s.Platform.ListAutoDecisions(r.Context(), userID(r), limit, r.URL.Query().Get("cycle_id"))
 	if err != nil {
 		response.Error(w, err.Error())
 		return

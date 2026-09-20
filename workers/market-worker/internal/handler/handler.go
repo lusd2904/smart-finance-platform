@@ -85,7 +85,7 @@ func (h *Handler) handleNative(ctx context.Context, job queue.Job) (interface{},
 	case "board_warmup":
 		return h.store.RefreshBoardQuotesCache(ctx)
 	case "listings_sync":
-		return h.store.SyncFromInflux(ctx)
+		return h.store.SyncListedFromMySQL(ctx)
 	case "finance_briefings":
 		return h.store.RefreshFinanceBriefings(ctx)
 	case "market_heat_collect":

@@ -67,3 +67,21 @@ func TestLiveQuotesEmpty(t *testing.T) {
 		t.Fatalf("%#v", out)
 	}
 }
+
+func TestLiveQuotesPinsShanghaiCompositeNotPingan(t *testing.T) {
+	svc := &Service{Fetcher: stubFetcher{
+		"sh000001": {Name: "上证指数", Last: f64(3000), PrevClose: f64(3010), ChangePct: f64(-0.33)},
+		"sz000001": {Name: "平安银行", Last: f64(12.3), PrevClose: f64(12.0), ChangePct: f64(2.5)},
+	}}
+	out := svc.LiveQuotes(context.Background(), []Pair{{"000001.SH", "CN"}, {"000001", "CN"}})
+	items, _ := out["items"].([]map[string]interface{})
+	if len(items) != 2 {
+		t.Fatalf("items=%d %#v", len(items), out["items"])
+	}
+	if items[0]["symbol"] != "000001.SH" || items[0]["name"] != "上证指数" || items[0]["last"] != 3000.0 {
+		t.Fatalf("index quote=%#v", items[0])
+	}
+	if items[1]["symbol"] != "000001" || items[1]["name"] != "平安银行" || items[1]["last"] != 12.3 {
+		t.Fatalf("bank quote=%#v", items[1])
+	}
+}
